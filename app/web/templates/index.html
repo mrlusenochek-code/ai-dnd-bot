@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8"/>
+  <title>AI-DnD Web</title>
+  <style>
+    body{font-family:Arial, sans-serif; max-width:900px; margin:24px auto; padding:0 12px;}
+    input,button{padding:10px; font-size:16px;}
+    .row{display:flex; gap:12px; flex-wrap:wrap; align-items:center;}
+    .card{border:1px solid #333; border-radius:10px; padding:14px; margin-top:16px;}
+    .muted{opacity:.75}
+  </style>
+</head>
+<body>
+  <h1>AI-DnD Web</h1>
+  <div class="card">
+    <h3>Создать игру</h3>
+    <div class="row">
+      <input id="new_title" placeholder="Название кампании" style="flex:1; min-width:240px"/>
+      <button onclick="createGame()">Создать</button>
+    </div>
+    <p class="muted">После создания ты попадёшь в комнату и станешь админом.</p>
+  </div>
+
+  <div class="card">
+    <h3>Войти в игру по ID</h3>
+    <div class="row">
+      <input id="join_id" placeholder="Session ID (UUID)" style="flex:1; min-width:240px"/>
+      <button onclick="goJoin()">Перейти</button>
+    </div>
+  </div>
+
+<script>
+function getUID(){
+  let uid = localStorage.getItem("uid");
+  if(!uid){
+    uid = String(Math.floor(1000000000 + Math.random()*9000000000));
+    localStorage.setItem("uid", uid);
+  }
+  return Number(uid);
+}
+function getName(){
+  let name = localStorage.getItem("name");
+  if(!name){
+    name = prompt("Имя игрока (как тебя показывать):", "Игрок");
+    if(!name) name = "Игрок";
+    localStorage.setItem("name", name);
+  }
+  return name;
+}
+async function createGame(){
+  const title = document.getElementById("new_title").value || "Campaign";
+  const uid = getUID();
+  const name = getName();
+
+  const r = await fetch("/api/new", {
+    method:"POST",
+    headers:{"Content-Type":"application/json"},
+    body: JSON.stringify({title, uid, name})
+  });
+  const data = await r.json();
+  if(!r.ok){ alert(data.detail || "Ошибка"); return; }
+  location.href = "/s/" + data.session_id;
+}
+function goJoin(){
+  const id = (document.getElementById("join_id").value || "").trim();
+  if(!id){ alert("Введи Session ID"); return; }
+  location.href = "/s/" + id;
+}
+</script>
+</body>
+</html>

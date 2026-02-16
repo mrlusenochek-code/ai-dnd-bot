@@ -1,0 +1,389 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8"/>
+  <title>Session {{ session_id }}</title>
+  <style>
+    body{font-family:Arial, sans-serif; margin:0;}
+    .wrap{display:grid; grid-template-columns: 1fr 320px; gap:0; height:100vh;}
+    .main{padding:16px; overflow:auto;}
+    .side{border-left:1px solid #333; padding:16px; overflow:auto;}
+    .log{border:1px solid #333; border-radius:10px; padding:12px; height:60vh; overflow:auto; background:#0f0f0f; color:#eaeaea;}
+    .row{display:flex; gap:10px; margin-top:12px; flex-wrap:wrap;}
+    input{flex:1; padding:10px; font-size:16px; min-width:220px;}
+    button{padding:10px; font-size:14px;}
+    button:disabled{opacity:.55; cursor:not-allowed;}
+    .player{padding:8px 10px; border:1px solid #333; border-radius:10px; margin-top:8px; white-space:pre-wrap;}
+    .cur{border-color:#6cff6c;}
+    .muted{opacity:.75}
+    code{background:#eee; padding:2px 6px; border-radius:6px;}
+  
+    .hintline{margin-top:8px; font-size:14px; opacity:.85}
+    .input-ok{border:2px solid #6cff6c;}
+    .input-wait{border:2px solid #ffdf6c;}
+    .input-bad{border:2px solid #ff7a7a;}
+    .hint-ok{color:#6cff6c}
+    .hint-wait{color:#ffdf6c}
+    .hint-bad{color:#ff7a7a}
+    .player.me{border-style:dashed;}
+    button:disabled{opacity:.45; cursor:not-allowed;}
+    input:disabled{opacity:.6;}
+
+  </style>
+</head>
+<body>
+<div class="wrap">
+  <div class="main">
+    <h2 id="title">Session {{ session_id }}</h2>
+    <div class="muted">Session ID: <code>{{ session_id }}</code></div>
+
+    <div class="log" id="log"></div>
+
+    <div class="row">
+      <input id="msg" placeholder="Действие / команда (roll, adv, dis, ooc, gm, name, pass...)"/>
+      <button id="btnSend" onclick="sendMsg()">Отправить</button>
+    </div>
+    <div id="turnHint" class="hintline"></div>
+
+    <div class="row">
+      <button id="btnBegin" onclick="wsAction('begin')">Start</button>
+      <button id="btnPause" onclick="wsAction('pause')">Pause</button>
+      <button id="btnResume" onclick="wsAction('resume')">Resume</button>
+      <button id="btnSkip" onclick="wsAction('skip')">Skip</button>
+      <button id="btnStatus" onclick="wsAction('status')">Status</button>
+      <button id="btnReady" onclick="toggleReady()">Ready</button>
+    </div>
+
+    <div class="muted" style="margin-top:10px;">
+      Подсказка: <code>help</code>. Кубы не тратят ход: <code>roll 1d20+3</code>, <code>adv 1d20+3</code>, <code>dis 1d20+3</code>.
+    </div>
+  </div>
+
+  <div class="side">
+    <h3>Игроки</h3>
+    <div id="players"></div>
+
+    <h3 style="margin-top:18px;">Таймер</h3>
+    <div id="timer" class="player">—</div>
+  </div>
+</div>
+
+<script>
+const SESSION_ID = "{{ session_id }}";
+let ws = null;
+
+let lastState = null;
+let uiCtx = {
+  connected: false,
+  started: false,
+  paused: false,
+  myTurn: false,
+  iAmAdmin: false,
+  me: null,
+};
+
+function normText(s){ return (s||"").trim(); }
+function startsWithRe(text, re){ return re.test(normText(text)); }
+
+function isOOC(text){
+  const t = normText(text);
+  return /^ooc\b/i.test(t) || /^\/\//.test(t);
+}
+function isHelp(text){ return /^help\b/i.test(normText(text)); }
+function isName(text){ return /^\/?name\b/i.test(normText(text)); }
+function isGM(text){ return /^gm\b/i.test(normText(text)); }
+function isDice(text){ return /^(roll|adv|dis)\b/i.test(normText(text)) || /^\d+d\d+([+-]\d+)?$/i.test(normText(text)); }
+function isPass(text){ return /^(pass|end)\b/i.test(normText(text)); }
+
+function canSendText(text){
+  const t = normText(text);
+  if(!t) return false;
+  if(!uiCtx.connected) return false;
+
+  // always allowed
+  if(isHelp(t) || isName(t) || isOOC(t)) return true;
+  if(isGM(t)) return !!uiCtx.iAmAdmin;
+
+  // turn-required commands/messages
+  if(!uiCtx.started) return false;
+  if(uiCtx.paused) return false;
+  if(!uiCtx.myTurn) return false;
+  return true;
+}
+
+function updateSendAvailability(){
+  const inp = document.getElementById('msg');
+  const btn = document.getElementById('btnSend');
+  const hint = document.getElementById('turnHint');
+  if(!inp || !btn || !hint) return;
+
+  inp.disabled = !uiCtx.connected;
+
+  // input highlight
+  inp.classList.remove('input-ok','input-wait','input-bad');
+
+  const t = normText(inp.value);
+  const allowed = canSendText(t);
+  btn.disabled = !allowed;
+
+  // Hint text
+  if(!uiCtx.connected){
+    inp.classList.add('input-bad');
+    hint.className = 'hintline hint-bad';
+    hint.textContent = 'Нет соединения с сервером (WebSocket).';
+    return;
+  }
+  if(!uiCtx.started){
+    // before start: only help/name/ooc/gm
+    inp.classList.add('input-wait');
+    hint.className = 'hintline hint-wait';
+    hint.textContent = uiCtx.iAmAdmin ? 'Игра не началась: дождись готовности всех и нажми Start. Можно: help, ooc, name, gm.' : 'Игра не началась: нажми Ready. Можно: help, ooc, name.';
+    return;
+  }
+  if(uiCtx.paused){
+    inp.classList.add('input-wait');
+    hint.className = 'hintline hint-wait';
+    hint.textContent = uiCtx.iAmAdmin ? 'Пауза: Resume чтобы продолжить. Можно: help, ooc, name, gm.' : 'Пауза: ждём. Можно: help, ooc, name.';
+    return;
+  }
+  if(uiCtx.myTurn){
+    inp.classList.add('input-ok');
+    hint.className = 'hintline hint-ok';
+    hint.textContent = 'Твой ход. Пиши действие или команду. (roll/adv/dis не тратят ход)';
+    return;
+  }
+  inp.classList.add('input-wait');
+  hint.className = 'hintline hint-wait';
+  hint.textContent = 'Сейчас не твой ход. Можно: ooc/.., help, name' + (uiCtx.iAmAdmin ? ', gm' : '') + '.';
+}
+
+let timerInt = null;
+let timerRemain = null;
+let timerSyncedAt = 0;
+
+function stopLocalTimer(){
+  if(timerInt){ clearInterval(timerInt); timerInt = null; }
+  timerRemain = null;
+  timerSyncedAt = 0;
+}
+function startLocalTimer(rem){
+  stopLocalTimer();
+  timerRemain = Number(rem);
+  timerSyncedAt = Date.now();
+  timerInt = setInterval(() => {
+    const passed = Math.floor((Date.now() - timerSyncedAt) / 1000);
+    const left = Math.max(0, timerRemain - passed);
+    const t = document.getElementById("timer");
+    t.textContent = "Осталось: " + left + " сек";
+  }, 250);
+}
+
+function getUID(){
+  let uid = localStorage.getItem("uid");
+  if(!uid){
+    uid = String(Math.floor(1000000000 + Math.random()*9000000000));
+    localStorage.setItem("uid", uid);
+  }
+  return Number(uid);
+}
+function getName(){
+  let name = localStorage.getItem("name");
+  if(!name){
+    name = prompt("Имя игрока (как тебя показывать):", "Игрок");
+    if(!name) name = "Игрок";
+    localStorage.setItem("name", name);
+  }
+  return name;
+}
+function setNameLocal(newName){
+  if(!newName) return;
+  localStorage.setItem("name", newName);
+}
+
+function escapeHtml(s){
+  return (s||"").replaceAll("&","&amp;").replaceAll("<","&lt;").replaceAll(">","&gt;");
+}
+function logLine(text){
+  const el = document.getElementById("log");
+  el.innerHTML += "<div style='margin-bottom:6px; white-space:pre-wrap;'>" + escapeHtml(text) + "</div>";
+  el.scrollTop = el.scrollHeight;
+}
+
+async function joinIfNeeded(){
+  const uid = getUID();
+  const name = getName();
+
+  const r = await fetch("/api/join", {
+    method:"POST",
+    headers:{"Content-Type":"application/json"},
+    body: JSON.stringify({session_id: SESSION_ID, uid, name})
+  });
+  const data = await r.json();
+  if(!r.ok){
+    const msg = data.detail || "Ошибка join";
+    logLine("[error] join: " + msg);
+    // не блокируем websocket — просто покажем ошибку
+    return false;
+  }
+  return true;
+}
+
+function connectWS(){
+  const uid = getUID();
+  const proto = (location.protocol === "https:") ? "wss" : "ws";
+  ws = new WebSocket(`${proto}://${location.host}/ws/${SESSION_ID}?uid=${uid}`);
+
+  ws.onopen = () => {
+    uiCtx.connected = true;
+    logLine("[client] connected");
+    updateSendAvailability();
+  };
+  ws.onmessage = (ev) => {
+    const data = JSON.parse(ev.data);
+    if(data.type === "state"){
+      renderState(data);
+    } else if(data.type === "error"){
+      logLine("[error] " + data.message);
+      if(data.fatal){ alert(data.message); }
+    }
+  };
+  ws.onclose = () => {
+    uiCtx.connected = false;
+    updateSendAvailability();
+    logLine("[client] disconnected, retry in 1s");
+    setTimeout(connectWS, 1000);
+  };
+}
+
+
+
+function renderState(st){
+  lastState = st;
+  let title = st.session.title + " (turn " + (st.session.turn_index || 0);
+  if(st.session.initiative_fixed && st.session.round){
+    title += ", round " + st.session.round;
+  }
+  title += ")";
+  document.getElementById("title").textContent = title;
+
+  const myUid = getUID();
+  const me = (st.players || []).find(p => p.uid === myUid) || null;
+  const iAmAdmin = !!(me && me.is_admin);
+  uiCtx.me = me;
+  uiCtx.iAmAdmin = iAmAdmin;
+  uiCtx.started = !!st.session.is_active;
+  uiCtx.paused = !!st.session.is_paused;
+  uiCtx.myTurn = !!(me && me.is_current) && !uiCtx.paused;
+
+
+  // buttons
+  document.getElementById("btnBegin").disabled = !iAmAdmin || !st.session.can_begin;
+  document.getElementById("btnPause").disabled = !iAmAdmin || !st.session.is_active || st.session.is_paused;
+  document.getElementById("btnResume").disabled = !iAmAdmin || !st.session.is_active || !st.session.is_paused;
+  document.getElementById("btnSkip").disabled = !iAmAdmin || !st.session.is_active || st.session.is_paused;
+
+  const btnReady = document.getElementById("btnReady");
+  if(me){
+    btnReady.textContent = me.is_ready ? "Unready" : "Ready";
+  }else{
+    btnReady.textContent = "Ready";
+  }
+
+  // players list
+  const p = document.getElementById("players");
+  p.innerHTML = "";
+  for(const pl of st.players){
+    const div = document.createElement("div");
+    div.className = "player" + (pl.is_current ? " cur" : "") + (pl.uid === myUid ? " me" : "");
+
+    const readyMark = pl.is_ready ? "✅" : "⏳";
+    const adminMark = pl.is_admin ? " [admin]" : "";
+    const initMark = (pl.initiative !== null && pl.initiative !== undefined) ? (" | init: " + pl.initiative) : "";
+    div.textContent = `#${pl.order} ${readyMark} ${pl.name}${adminMark}${initMark}`;
+    p.appendChild(div);
+  }
+
+  // log
+  const el = document.getElementById("log");
+  el.innerHTML = "";
+  for(const e of st.events){
+    logLine(`[${e.turn}] ${e.text}`);
+  }
+
+  // timer
+  const t = document.getElementById("timer");
+  if(st.session.is_paused){
+    stopLocalTimer();
+    t.textContent = "PAUSED";
+  } else if(st.session.remaining_seconds === null || st.session.remaining_seconds === undefined){
+    stopLocalTimer();
+    t.textContent = "—";
+  } else {
+    startLocalTimer(st.session.remaining_seconds);
+  }
+
+  updateSendAvailability();
+}
+
+function sendMsg(){
+  const inp = document.getElementById("msg");
+  const text = (inp.value || "").trim();
+  if(!text) return;
+  if(!canSendText(text)){
+    // don't send forbidden messages; UI should already block the button
+    updateSendAvailability();
+    return;
+  }
+  inp.value = "";
+
+  // client-side name sync (so refresh won't revert)
+  const m = text.match(/^\/?name\s+(.+)$/i);
+  if(m && m[1]){
+    setNameLocal(m[1].trim());
+  }
+
+  if(!ws || ws.readyState !== 1){
+    logLine("[error] websocket not connected");
+    return;
+  }
+  ws.send(JSON.stringify({action:"say", text}));
+}
+
+function wsAction(action){
+  if(!ws || ws.readyState !== 1){
+    logLine("[error] websocket not connected");
+    return;
+  }
+  ws.send(JSON.stringify({action}));
+}
+
+function toggleReady(){
+  if(!ws || ws.readyState !== 1){
+    logLine("[error] websocket not connected");
+    return;
+  }
+  const myUid = getUID();
+  const me = lastState ? (lastState.players || []).find(p => p.uid === myUid) : null;
+  const action = (me && me.is_ready) ? "unready" : "ready";
+  ws.send(JSON.stringify({action}));
+}
+
+
+// realtime enable/disable while typing + Enter to send
+(function attachInputHandlers(){
+  const inp = document.getElementById('msg');
+  if(!inp) return;
+  inp.addEventListener('input', () => updateSendAvailability());
+  inp.addEventListener('keydown', (e) => {
+    if(e.key === 'Enter' && !e.shiftKey){
+      e.preventDefault();
+      sendMsg();
+    }
+  });
+})();
+
+// стартуем: join не должен блокировать ws
+joinIfNeeded().finally(() => connectWS());
+</script>
+</body>
+</html>
