@@ -911,10 +911,24 @@ async def ws_room(ws: WebSocket, session_id: str):
                     # prefetch display names to avoid awaits in formatter
                     pids_active = [spx.player_id for spx in sps_active]
                     names: dict[str, str] = {}
-                    if pids_active:
-                        qn = await db.execute(select(Player).where(Player.id.in_(pids_active)))
+                    
+                    # pids_active должен быть UUID (players.id). Всё прочее игнорируем, чтобы не сломать запрос.
+                    uuid_ids: list[uuid.UUID] = []
+                    for x in pids_active:
+                        if isinstance(x, uuid.UUID):
+                            uuid_ids.append(x)
+                        else:
+                            try:
+                                uuid_ids.append(uuid.UUID(str(x)))
+                            except Exception:
+                                pass
+                    uuid_ids = list(dict.fromkeys(uuid_ids))  # убираем дубли, сохраняя порядок
+
+                    if uuid_ids:
+                        qn = await db.execute(select(Player).where(Player.id.in_(uuid_ids)))
                         for p in qn.scalars().all():
                             names[str(p.id)] = p.display_name
+                            names[str(p.telegram_user_id)] = p.display_name
 
 
                     def _format_init(fixed: bool) -> str:
