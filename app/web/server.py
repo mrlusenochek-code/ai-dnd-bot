@@ -1,5 +1,6 @@
 import asyncio
 import json
+import logging
 import os
 import random
 import re
@@ -16,12 +17,14 @@ from sqlalchemy import select, or_
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm.attributes import flag_modified
 
+from app.core.logging import configure_logging
 from app.db.connection import AsyncSessionLocal
 from app.db.models import Session, Player, SessionPlayer, Event
 
 
 TURN_TIMEOUT_SECONDS = int(os.getenv("TURN_TIMEOUT_SECONDS", "300"))
 DEFAULT_TIMEZONE = os.getenv("DEFAULT_TIMEZONE", "Europe/Warsaw")
+logger = logging.getLogger(__name__)
 
 
 def utcnow() -> datetime:
@@ -1154,13 +1157,13 @@ async def timer_watcher():
                     await add_system_event(db, sess, f"⏰ Время вышло. Ход пропущен. Следующий: #{nxt.join_order}.")
                     await broadcast_state(str(sess.id))
         except Exception:
-            # keep watcher alive
-            pass
+            logger.exception("timer_watcher iteration failed")
 
         await asyncio.sleep(1)
 
 
 @app.on_event("startup")
 async def on_startup():
-    print("[OK] Web server starting...")
+    configure_logging()
+    logger.info("Web server starting")
     asyncio.create_task(timer_watcher())
