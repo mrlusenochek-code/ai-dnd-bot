@@ -1,15 +1,18 @@
 # Python
 __pycache__/
-*.pyc
-*.pyo
+*.py[cod]
 *.pyd
 *.egg-info/
 
-# Virtualenv
+# Virtualenv / env
 .venv/
 venv/
 ENV/
+
+# Secrets
 .env
+.env.*
+!.env.example
 
 # Logs
 logs/
@@ -19,6 +22,8 @@ logs/
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/
+.coverage
+htmlcov/
 
 # IDE
 .vscode/
