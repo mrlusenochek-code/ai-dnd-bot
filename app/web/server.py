@@ -470,7 +470,7 @@ async def build_state(db: AsyncSession, sess: Session) -> dict:
         "players": [
             {
                 "id": str(sp.player_id),
-                "uid": int(players_by_id.get(sp.player_id).web_user_id) if players_by_id.get(sp.player_id) else None,
+                "uid": (int(_pl.web_user_id) if (_pl := players_by_id.get(sp.player_id)) and _pl.web_user_id is not None else None),
                 "name": (players_by_id.get(sp.player_id).display_name if players_by_id.get(sp.player_id) else str(sp.player_id)),
                 "order": int(sp.join_order or 0),
                 "is_admin": bool(sp.is_admin),
@@ -979,9 +979,8 @@ async def ws_room(ws: WebSocket, session_id: str):
                         qn = await db.execute(select(Player).where(Player.id.in_(uuid_ids)))
                         for p in qn.scalars().all():
                             names[str(p.id)] = p.display_name
-                            names[str(p.web_user_id)] = p.display_name
-
-
+                            if p.web_user_id is not None:
+                                names[str(p.web_user_id)] = p.display_name
                     def _format_init(fixed: bool) -> str:
                         rows = []
                         header = ""
