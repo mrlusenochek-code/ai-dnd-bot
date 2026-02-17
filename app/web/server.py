@@ -105,8 +105,10 @@ async def _log_context_middleware(request: Request, call_next):
             tok_sid = session_id_var.set(str(sid))
 
         response = await call_next(request)
+        logger.info("http request", extra={"http": {"method": request.method, "path": request.url.path, "status": response.status_code}})
         response.headers.setdefault("X-Request-ID", rid)
         return response
+
     finally:
         request_id_var.reset(tok_rid)
         if tok_sid is not None:
