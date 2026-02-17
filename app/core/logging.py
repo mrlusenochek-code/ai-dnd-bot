@@ -20,7 +20,16 @@ class JsonFormatter(logging.Formatter):
         }
 
         payload.update(get_log_context())
-
+        # include structured extras (e.g., logger.info(..., extra={"http": {...}}))
+        for k, v in record.__dict__.items():
+            if k in ("name", "msg", "args", "levelname", "levelno", "pathname", "filename", "module",
+                     "exc_info", "exc_text", "stack_info", "lineno", "funcName", "created", "msecs",
+                     "relativeCreated", "thread", "threadName", "processName", "process", "message"):
+                continue
+            # don't overwrite our core fields
+            if k in payload:
+                continue
+            payload[k] = v
         if record.exc_info:
             payload["exc_info"] = self.formatException(record.exc_info)
 
