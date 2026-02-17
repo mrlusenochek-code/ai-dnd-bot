@@ -155,9 +155,9 @@ templates = Jinja2Templates(directory=str(BASE_DIR / "templates"))
 # -------------------------
 async def get_or_create_player_web(db: AsyncSession, uid: int, display_name: str) -> Player:
     """
-    uid — это наш "web user id". Храним в Player.telegram_user_id.
+    uid — это наш "web user id". Храним в Player.web_user_id.
     """
-    q = await db.execute(select(Player).where(Player.telegram_user_id == uid))
+    q = await db.execute(select(Player).where(Player.web_user_id == uid))
     player = q.scalar_one_or_none()
     if player:
         if display_name and display_name.strip() and player.display_name != display_name.strip():
@@ -167,7 +167,7 @@ async def get_or_create_player_web(db: AsyncSession, uid: int, display_name: str
 
     name = (display_name or "").strip() or f"Player {uid}"
     player = Player(
-        telegram_user_id=uid,
+        web_user_id=uid,
         username=None,
         display_name=name,
     )
@@ -470,7 +470,7 @@ async def build_state(db: AsyncSession, sess: Session) -> dict:
         "players": [
             {
                 "id": str(sp.player_id),
-                "uid": int(players_by_id.get(sp.player_id).telegram_user_id) if players_by_id.get(sp.player_id) else None,
+                "uid": int(players_by_id.get(sp.player_id).web_user_id) if players_by_id.get(sp.player_id) else None,
                 "name": (players_by_id.get(sp.player_id).display_name if players_by_id.get(sp.player_id) else str(sp.player_id)),
                 "order": int(sp.join_order or 0),
                 "is_admin": bool(sp.is_admin),
@@ -979,7 +979,7 @@ async def ws_room(ws: WebSocket, session_id: str):
                         qn = await db.execute(select(Player).where(Player.id.in_(uuid_ids)))
                         for p in qn.scalars().all():
                             names[str(p.id)] = p.display_name
-                            names[str(p.telegram_user_id)] = p.display_name
+                            names[str(p.web_user_id)] = p.display_name
 
 
                     def _format_init(fixed: bool) -> str:
