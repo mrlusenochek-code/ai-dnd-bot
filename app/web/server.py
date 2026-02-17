@@ -4,7 +4,7 @@ import logging
 import os
 import random
 import re
-from datetime import datetime
+from datetime import datetime, timedelta
 import uuid
 from typing import Any, Optional
 
@@ -786,16 +786,10 @@ async def ws_room(ws: WebSocket, session_id: str):
                     stored = _get_paused_remaining(sess)
                     if stored is not None and sess.current_player_id:
                         stored = max(0, min(TURN_TIMEOUT_SECONDS, int(stored)))
-                        # make elapsed = TURN_TIMEOUT - stored
-                        sess.turn_started_at = utcnow()  # default
-                        if stored < TURN_TIMEOUT_SECONDS:
-                            sess.turn_started_at = utcnow() - (datetime.utcnow() - datetime.utcnow())  # placeholder
-                        # better: compute started_at based on desired elapsed
-                        # elapsed seconds:
                         elapsed = TURN_TIMEOUT_SECONDS - stored
-                        sess.turn_started_at = utcnow() - timedelta(seconds=elapsed)  # type: ignore
+                        sess.turn_started_at = utcnow() - timedelta(seconds=elapsed)
                     else:
-                        # fallback: restart timer
+                        # fallback: restart timer (or clear if no current player)
                         sess.turn_started_at = utcnow() if sess.current_player_id else None
 
                     sess.is_paused = False
