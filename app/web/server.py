@@ -18,6 +18,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm.attributes import flag_modified
 
 from app.core.logging import configure_logging
+from app.core.log_context import request_id_var, session_id_var, uid_var, ws_conn_id_var
 from app.db.connection import AsyncSessionLocal
 from app.db.models import Session, Player, SessionPlayer, Event
 
@@ -65,7 +66,53 @@ class ConnectionManager:
 
 manager = ConnectionManager()
 app = FastAPI()
+def _new_request_id() -> str:
+    return uuid.uuid4().hex
 
+
+@app.middleware("http")
+async def _log_context_middleware(request: Request, call_next):
+    rid = request.headers.get("x-request-id") or _new_request_id()
+    tok_rid = request_id_var.set(rid)
+
+    tok_sid = None
+    tok_uid = None
+    try:
+        sid = None
+
+        # session_id из URL вида /s/<uuid>
+        m = re.search(r"/s/([0-9a-fA-F-]{36})", request.url.path)
+        if m:
+            sid = m.group(1)
+
+        # session_id/uid из JSON тела (например /api/join)
+        if request.method in ("POST", "PUT", "PATCH"):
+            try:
+                body = await request.json()
+            except Exception:
+                body = None
+
+            if isinstance(body, dict):
+                if not sid and body.get("session_id"):
+                    sid = str(body.get("session_id"))
+                if body.get("uid") is not None:
+                    try:
+                        tok_uid = uid_var.set(int(body.get("uid")))
+                    except Exception:
+                        pass
+
+        if sid:
+            tok_sid = session_id_var.set(str(sid))
+
+        response = await call_next(request)
+        response.headers.setdefault("X-Request-ID", rid)
+        return response
+    finally:
+        request_id_var.reset(tok_rid)
+        if tok_sid is not None:
+            session_id_var.reset(tok_sid)
+        if tok_uid is not None:
+            uid_var.reset(tok_uid)
 
 # -------------------------
 # Settings helpers (Session.settings is JSON)
@@ -605,7 +652,15 @@ async def ws_room(ws: WebSocket, session_id: str):
         return
 
     uid = int(uid_raw)
+
+    # log context for this WS connection (task-local)
+    request_id_var.set(_new_request_id())
+    session_id_var.set(session_id)
+    uid_var.set(uid)
+    ws_conn_id_var.set(uuid.uuid4().hex[:12])
+
     await manager.connect(session_id, ws)
+    logger.info("ws connected")
 
     try:
         await broadcast_state(session_id)
@@ -1161,15 +1216,22 @@ async def timer_watcher():
 
                 now = utcnow()
                 for sess in sessions:
-                    elapsed = (now - sess.turn_started_at).total_seconds()
-                    if elapsed < TURN_TIMEOUT_SECONDS:
-                        continue
+                    tok_rid = request_id_var.set(_new_request_id())
+                    tok_sid = session_id_var.set(str(sess.id))
+                    try:
+                        elapsed = (now - sess.turn_started_at).total_seconds()
+                        if elapsed < TURN_TIMEOUT_SECONDS:
+                            continue
 
-                    nxt = await advance_turn(db, sess)
-                    if not nxt:
-                        continue
-                    await add_system_event(db, sess, f"⏰ Время вышло. Ход пропущен. Следующий: #{nxt.join_order}.")
-                    await broadcast_state(str(sess.id))
+                        nxt = await advance_turn(db, sess)
+                        if not nxt:
+                            continue
+                        await add_system_event(db, sess, f"⏰ Время вышло. Ход пропущен. Следующий: #{nxt.join_order}.")
+                        await broadcast_state(str(sess.id))
+                    finally:
+                        request_id_var.reset(tok_rid)
+                        session_id_var.reset(tok_sid)
+
         except Exception:
             logger.exception("timer_watcher iteration failed")
 
