@@ -210,7 +210,7 @@ async def is_admin(db: AsyncSession, sess: Session, player: Player) -> bool:
     return bool(sp and sp.is_admin)
 
 
-async def add_event(db: AsyncSession, sess: Session, text: str, actor_player_id: Optional[int] = None) -> None:
+async def add_event(db: AsyncSession, sess: Session, text: str, actor_player_id: Optional[uuid.UUID] = None) -> None:
     ev = Event(
         session_id=sess.id,
         turn_index=sess.turn_index or 0,
@@ -232,7 +232,7 @@ def _get_ready_map(sess: Session) -> dict[str, bool]:
     return settings_get(sess, "ready", {}) or {}
 
 
-def _set_ready(sess: Session, player_id: int, value: bool) -> None:
+def _set_ready(sess: Session, player_id: uuid.UUID, value: bool) -> None:
     m = dict(_get_ready_map(sess))
     m[str(player_id)] = bool(value)
     settings_set(sess, "ready", m)
@@ -260,7 +260,7 @@ def _get_init_map(sess: Session) -> dict[str, int]:
     return out
 
 
-def _set_init_value(sess: Session, player_id: int, value: int) -> None:
+def _set_init_value(sess: Session, player_id: uuid.UUID, value: int) -> None:
     m = dict(_get_init_map(sess))
     m[str(player_id)] = int(value)
     settings_set(sess, "initiative", m)
@@ -698,7 +698,7 @@ async def ws_room(ws: WebSocket, session_id: str):
                 player = await get_or_create_player_web(db, uid, "")
 
                 # kicked check (live)
-                if player.id in _get_kicked(sess):
+                if str(player.id) in _get_kicked(sess):
                     await ws.send_text(json.dumps({"type": "error", "message": "You were kicked from this session", "fatal": True}, ensure_ascii=False))
                     await ws.close()
                     return
@@ -1193,7 +1193,6 @@ async def ws_room(ws: WebSocket, session_id: str):
 # -------------------------
 # Timer watcher (autopass on timeout)
 # -------------------------
-from datetime import timedelta  # noqa: E402
 
 
 async def timer_watcher():
