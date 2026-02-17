@@ -33,7 +33,19 @@ class JsonFormatter(logging.Formatter):
         if record.exc_info:
             payload["exc_info"] = self.formatException(record.exc_info)
 
-        return json.dumps(payload, ensure_ascii=False)
+        try:
+            return json.dumps(payload, ensure_ascii=False, default=str)
+        except Exception as e:
+            fallback: dict[str, Any] = {
+                "ts": payload.get("ts"),
+                "level": payload.get("level"),
+                "logger": payload.get("logger"),
+                "message": payload.get("message"),
+            }
+            fallback.update(get_log_context())
+            fallback["json_error"] = str(e)
+            return json.dumps(fallback, ensure_ascii=False, default=str)
+
 
 
 def configure_logging() -> None:
