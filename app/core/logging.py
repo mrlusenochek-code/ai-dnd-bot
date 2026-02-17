@@ -21,13 +21,10 @@ class JsonFormatter(logging.Formatter):
 
         payload.update(get_log_context())
         # include structured extras (e.g., logger.info(..., extra={"http": {...}}))
+        # include only safe structured extras (avoid dumping uvicorn internals)
+        allowed_extras = {"http", "ws", "action", "event", "db"}
         for k, v in record.__dict__.items():
-            if k in ("name", "msg", "args", "levelname", "levelno", "pathname", "filename", "module",
-                     "exc_info", "exc_text", "stack_info", "lineno", "funcName", "created", "msecs",
-                     "relativeCreated", "thread", "threadName", "processName", "process", "message"):
-                continue
-            # don't overwrite our core fields
-            if k in payload:
+            if k not in allowed_extras:
                 continue
             payload[k] = v
         if record.exc_info:
