@@ -442,13 +442,16 @@ async def build_state(db: AsyncSession, sess: Session) -> dict:
             cur_order = sp.join_order
             break
 
+    def _player_uid(pl: Optional[Player]) -> Optional[int]:
+        if not pl:
+            return None
+        raw = pl.web_user_id if pl.web_user_id is not None else pl.telegram_user_id
+        return int(raw) if raw is not None else None
+
     # UID текущего игрока (нужно для UI, независимо от паузы/таймера)
     current_uid = None
     if sess.current_player_id:
-        pl = players_by_id.get(sess.current_player_id)
-        if pl:
-            raw = pl.web_user_id if pl.web_user_id is not None else pl.telegram_user_id
-            current_uid = int(raw) if raw is not None else None
+        current_uid = _player_uid(players_by_id.get(sess.current_player_id))
 
     ready_map = _get_ready_map(sess)
     init_map = _get_init_map(sess)
@@ -483,7 +486,7 @@ async def build_state(db: AsyncSession, sess: Session) -> dict:
         "players": [
             {
                 "id": str(sp.player_id),
-                "uid": (int(_pl.web_user_id) if (_pl := players_by_id.get(sp.player_id)) and _pl.web_user_id is not None else None),
+                "uid": _player_uid(players_by_id.get(sp.player_id)),
                 "name": (players_by_id.get(sp.player_id).display_name if players_by_id.get(sp.player_id) else str(sp.player_id)),
                 "order": int(sp.join_order or 0),
                 "is_admin": bool(sp.is_admin),
