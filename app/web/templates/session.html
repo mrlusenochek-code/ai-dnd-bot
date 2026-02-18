@@ -228,6 +228,11 @@ async function joinIfNeeded(){
   return true;
 }
 
+async function start(){
+  try{ await joinIfNeeded(); }catch(e){}
+  connectWS();
+}
+
 function connectWS(){
   const uid = getUID();
   const proto = (location.protocol === "https:") ? "wss" : "ws";
@@ -251,7 +256,7 @@ function connectWS(){
     uiCtx.connected = false;
     updateSendAvailability();
     logLine("[client] disconnected, retry in 1s");
-    setTimeout(connectWS, 1000);
+    setTimeout(start, 1000);
   };
 }
 
@@ -383,7 +388,7 @@ function toggleReady(){
 })();
 
 // стартуем: join не должен блокировать ws
-joinIfNeeded().finally(() => connectWS());
+start();
 </script>
 </body>
 </html>
