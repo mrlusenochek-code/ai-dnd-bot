@@ -419,12 +419,14 @@ async def build_state(db: AsyncSession, sess: Session) -> dict:
         q = await db.execute(select(Player).where(Player.id.in_(player_ids)))
         players_by_id = {p.id: p for p in q.scalars().all()}
 
+    # ---------------------------------------
     q2 = await db.execute(
         select(Event)
         .where(Event.session_id == sess.id)
         .order_by(Event.created_at.asc())
         .limit(250)
     )
+
     events = q2.scalars().all()
 
     remaining = None
@@ -432,11 +434,21 @@ async def build_state(db: AsyncSession, sess: Session) -> dict:
         elapsed = (utcnow() - sess.turn_started_at).total_seconds()
         remaining = max(0, int(TURN_TIMEOUT_SECONDS - elapsed))
 
+
+
     cur_order = None
     for sp in sps:
         if sp.player_id == sess.current_player_id:
             cur_order = sp.join_order
             break
+
+    # UID текущего игрока (нужно для UI, независимо от паузы/таймера)
+    current_uid = None
+    if sess.current_player_id:
+        pl = players_by_id.get(sess.current_player_id)
+        if pl:
+            raw = pl.web_user_id if pl.web_user_id is not None else pl.telegram_user_id
+            current_uid = int(raw) if raw is not None else None
 
     ready_map = _get_ready_map(sess)
     init_map = _get_init_map(sess)
@@ -461,6 +473,7 @@ async def build_state(db: AsyncSession, sess: Session) -> dict:
             "is_paused": bool(sess.is_paused),
             "turn_index": int(sess.turn_index or 0),
             "current_order": (int(cur_order) if cur_order is not None else None),
+            "current_uid": current_uid,
             "remaining_seconds": remaining,
             "all_ready": bool(all_ready),
             "can_begin": bool(can_begin),
@@ -668,18 +681,9 @@ async def ws_room(ws: WebSocket, session_id: str):
         await broadcast_state(session_id)
 
         while True:
-            # Каждую секунду отправляем актуальный state в ЭТОТ websocket, даже если игрок ничего не нажимает.
-            # Это защищает UI от "застревания" (когда обновление приходит только после Status).
-            try:
-                raw = await asyncio.wait_for(ws.receive_text(), timeout=1.0)
-            except asyncio.TimeoutError:
-                async with AsyncSessionLocal() as db:
-                    sess = await get_session(db, session_id)
-                    if sess:
-                        st = await build_state(db, sess)
-                        await ws.send_text(json.dumps(st, ensure_ascii=False))
-                continue
-
+            # Ждём входящее сообщение. State приходит через broadcast_state() по событиям,
+            # а таймер рисуется локально на фронте.
+            raw = await ws.receive_text()
             try:
                 data = json.loads(raw)
             except Exception:
