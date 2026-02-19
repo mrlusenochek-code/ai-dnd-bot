@@ -577,7 +577,13 @@ async def api_new(payload: dict):
 
 @app.get("/s/{session_id}", response_class=HTMLResponse)
 async def session_page(request: Request, session_id: str):
-    return templates.TemplateResponse("session.html", {"request": request, "session_id": session_id})
+    resp = templates.TemplateResponse("session.html", {"request": request, "session_id": session_id})
+    # чтобы не ловили старый session.html (кеш ломает cid/x-client-id)
+    resp.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+    resp.headers["Pragma"] = "no-cache"
+    resp.headers["Expires"] = "0"
+    return resp
+
 
 
 @app.post("/api/join")
