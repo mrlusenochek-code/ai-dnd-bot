@@ -23,6 +23,10 @@ cd ~/code/ai-dnd-bot
 ./smoke.sh
 ```
 
+## База данных
+- Обычно используется Postgres из `.env` (`DATABASE_URL_ASYNC`).
+- Если переменная не задана, включится dev-fallback на SQLite: `sqlite+aiosqlite:///./dev.db`.
+
 ## Регресс-чек
 Смотри: `REGRESSION.md`
 
