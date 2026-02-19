@@ -674,10 +674,21 @@ def parse_dice(text: str):
 # -------------------------
 @app.websocket("/ws/{session_id}")
 async def ws_room(ws: WebSocket, session_id: str):
+    async def ws_error(message: str, *, fatal: bool = False, request_id: Optional[str] = None) -> None:
+        rid = request_id
+        if rid is None:
+            try:
+                rid = request_id_var.get()
+            except LookupError:
+                rid = None
+        payload = {"type": "error", "message": message, "fatal": fatal, "request_id": rid}
+        await ws.send_text(json.dumps(payload, ensure_ascii=False))
+
     uid_raw = ws.query_params.get("uid")
     if not uid_raw or not uid_raw.isdigit():
+        rid = _new_request_id()
         await ws.accept()
-        await ws.send_text(json.dumps({"type": "error", "message": "No uid", "fatal": True}, ensure_ascii=False))
+        await ws_error("No uid", fatal=True, request_id=rid)
         await ws.close()
         return
 
@@ -713,7 +724,7 @@ async def ws_room(ws: WebSocket, session_id: str):
             async with AsyncSessionLocal() as db:
                 sess = await get_session(db, session_id)
                 if not sess:
-                    await ws.send_text(json.dumps({"type": "error", "message": "Session not found"}, ensure_ascii=False))
+                    await ws_error("Session not found")
                     continue
 
                 # don't overwrite name here; join sets it
@@ -721,7 +732,7 @@ async def ws_room(ws: WebSocket, session_id: str):
 
                 # kicked check (live)
                 if str(player.id) in _get_kicked(sess):
-                    await ws.send_text(json.dumps({"type": "error", "message": "You were kicked from this session", "fatal": True}, ensure_ascii=False))
+                    await ws_error("You were kicked from this session", fatal=True)
                     await ws.close()
                     return
 
@@ -733,7 +744,7 @@ async def ws_room(ws: WebSocket, session_id: str):
                 )
                 sp = q.scalar_one_or_none()
                 if not sp or sp.is_active is False:
-                    await ws.send_text(json.dumps({"type": "error", "message": "Not joined/active. Refresh page."}, ensure_ascii=False))
+                    await ws_error("Not joined/active. Refresh page.")
                     continue
 
                 # ready/unready actions (do not require game started)
@@ -752,21 +763,21 @@ async def ws_room(ws: WebSocket, session_id: str):
                 # Admin-only control actions
                 if action == "begin":
                     if not await is_admin(db, sess, player):
-                        await ws.send_text(json.dumps({"type": "error", "message": "Only admin can start"}, ensure_ascii=False))
+                        await ws_error("Only admin can start")
                         continue
                     if sess.current_player_id:
-                        await ws.send_text(json.dumps({"type": "error", "message": "Already started"}, ensure_ascii=False))
+                        await ws_error("Already started")
                         continue
 
                     sps = await list_session_players(db, sess, active_only=True)
                     if not sps:
-                        await ws.send_text(json.dumps({"type": "error", "message": "No players"}, ensure_ascii=False))
+                        await ws_error("No players")
                         continue
 
                     # all ready check
                     ready_map = _get_ready_map(sess)
                     if any(not bool(ready_map.get(str(x.player_id), False)) for x in sps):
-                        await ws.send_text(json.dumps({"type": "error", "message": "Not all players are ready"}, ensure_ascii=False))
+                        await ws_error("Not all players are ready")
                         continue
 
                     sess.is_active = True
@@ -782,7 +793,7 @@ async def ws_room(ws: WebSocket, session_id: str):
 
                 if action == "pause":
                     if not await is_admin(db, sess, player):
-                        await ws.send_text(json.dumps({"type": "error", "message": "Only admin can pause"}, ensure_ascii=False))
+                        await ws_error("Only admin can pause")
                         continue
                     if sess.is_paused:
                         await broadcast_state(session_id)
@@ -798,7 +809,7 @@ async def ws_room(ws: WebSocket, session_id: str):
 
                 if action == "resume":
                     if not await is_admin(db, sess, player):
-                        await ws.send_text(json.dumps({"type": "error", "message": "Only admin can resume"}, ensure_ascii=False))
+                        await ws_error("Only admin can resume")
                         continue
                     if not sess.is_paused:
                         await broadcast_state(session_id)
@@ -823,18 +834,18 @@ async def ws_room(ws: WebSocket, session_id: str):
 
                 if action == "skip":
                     if not await is_admin(db, sess, player):
-                        await ws.send_text(json.dumps({"type": "error", "message": "Only admin can skip"}, ensure_ascii=False))
+                        await ws_error("Only admin can skip")
                         continue
                     if not sess.current_player_id:
-                        await ws.send_text(json.dumps({"type": "error", "message": "Not started"}, ensure_ascii=False))
+                        await ws_error("Not started")
                         continue
                     if sess.is_paused:
-                        await ws.send_text(json.dumps({"type": "error", "message": "Paused. Resume first."}, ensure_ascii=False))
+                        await ws_error("Paused. Resume first.")
                         continue
 
                     nxt = await advance_turn(db, sess)
                     if not nxt:
-                        await ws.send_text(json.dumps({"type": "error", "message": "No players"}, ensure_ascii=False))
+                        await ws_error("No players")
                         continue
                     await add_system_event(db, sess, f"Ход пропущен. Следующий: #{nxt.join_order}.")
                     await broadcast_state(session_id)
@@ -842,7 +853,7 @@ async def ws_room(ws: WebSocket, session_id: str):
 
                 # chat / command parsing
                 if action != "say":
-                    await ws.send_text(json.dumps({"type": "error", "message": "Unknown action"}, ensure_ascii=False))
+                    await ws_error("Unknown action")
                     continue
 
                 if not text:
@@ -865,7 +876,7 @@ async def ws_room(ws: WebSocket, session_id: str):
                 # GM (admin only, any time, no turn)
                 if lower.startswith("gm ") or lower.startswith("gm:"):
                     if not await is_admin(db, sess, player):
-                        await ws.send_text(json.dumps({"type": "error", "message": "Only admin can GM"}, ensure_ascii=False))
+                        await ws_error("Only admin can GM")
                         continue
                     msg = cmdline[2:].lstrip(":").strip()
                     await add_system_event(db, sess, f"🧙 GM: {msg}")
@@ -916,22 +927,22 @@ async def ws_room(ws: WebSocket, session_id: str):
                 # admin: kick <#>
                 if lower.startswith("kick "):
                     if not await is_admin(db, sess, player):
-                        await ws.send_text(json.dumps({"type": "error", "message": "Only admin can kick"}, ensure_ascii=False))
+                        await ws_error("Only admin can kick")
                         continue
                     arg = cmdline.split(" ", 1)[1].strip().lstrip("#")
                     target_order = as_int(arg, 0)
                     if target_order <= 0:
-                        await ws.send_text(json.dumps({"type": "error", "message": "Usage: kick 2 or kick #2"}, ensure_ascii=False))
+                        await ws_error("Usage: kick 2 or kick #2")
                         continue
 
                     # find target
                     sps_all = await list_session_players(db, sess, active_only=False)
                     target_sp = next((x for x in sps_all if int(x.join_order or 0) == target_order), None)
                     if not target_sp:
-                        await ws.send_text(json.dumps({"type": "error", "message": "Player not found"}, ensure_ascii=False))
+                        await ws_error("Player not found")
                         continue
                     if target_sp.player_id == player.id:
-                        await ws.send_text(json.dumps({"type": "error", "message": "You can't kick yourself"}, ensure_ascii=False))
+                        await ws_error("You can't kick yourself")
                         continue
 
                     # mark kicked
@@ -956,16 +967,16 @@ async def ws_room(ws: WebSocket, session_id: str):
                 # admin: turn/goto <#>
                 if lower.startswith("turn ") or lower.startswith("goto "):
                     if not await is_admin(db, sess, player):
-                        await ws.send_text(json.dumps({"type": "error", "message": "Only admin can change turn"}, ensure_ascii=False))
+                        await ws_error("Only admin can change turn")
                         continue
                     arg = cmdline.split(" ", 1)[1].strip().lstrip("#")
                     target_order = as_int(arg, 0)
                     if target_order <= 0:
-                        await ws.send_text(json.dumps({"type": "error", "message": "Usage: turn 2 or goto #2"}, ensure_ascii=False))
+                        await ws_error("Usage: turn 2 or goto #2")
                         continue
                     target = await set_turn_to_order(db, sess, target_order)
                     if not target:
-                        await ws.send_text(json.dumps({"type": "error", "message": "Player not found/active"}, ensure_ascii=False))
+                        await ws_error("Player not found/active")
                         continue
                     await add_system_event(db, sess, f"Админ передал ход игроку #{target.join_order}.")
                     await broadcast_state(session_id)
@@ -974,7 +985,7 @@ async def ws_room(ws: WebSocket, session_id: str):
                 # initiative commands (admin)
                 if lower.startswith("init"):
                     if not await is_admin(db, sess, player):
-                        await ws.send_text(json.dumps({"type": "error", "message": "Only admin can manage initiative"}, ensure_ascii=False))
+                        await ws_error("Only admin can manage initiative")
                         continue
                     parts = cmdline.split()
                     sub = parts[1].lower() if len(parts) > 1 else ""
@@ -1063,7 +1074,7 @@ async def ws_room(ws: WebSocket, session_id: str):
                         val = as_int(parts[3], 0)
                         target_sp = next((x for x in sps_active if int(x.join_order or 0) == target_order), None)
                         if not target_sp:
-                            await ws.send_text(json.dumps({"type": "error", "message": "Player not found/active"}, ensure_ascii=False))
+                            await ws_error("Player not found/active")
                             continue
                         _set_init_value(sess, target_sp.player_id, val)
                         await db.commit()
@@ -1118,20 +1129,20 @@ async def ws_room(ws: WebSocket, session_id: str):
                         await broadcast_state(session_id)
                         continue
 
-                    await ws.send_text(json.dumps({"type": "error", "message": "Unknown init command"}, ensure_ascii=False))
+                    await ws_error("Unknown init command")
                     continue
 
                 # DICE (must be started, not paused, your turn) — does NOT end turn
                 dice = parse_dice(cmdline)
                 if dice:
                     if not sess.current_player_id:
-                        await ws.send_text(json.dumps({"type": "error", "message": "Game not started. Press Start."}, ensure_ascii=False))
+                        await ws_error("Game not started. Press Start.")
                         continue
                     if sess.is_paused:
-                        await ws.send_text(json.dumps({"type": "error", "message": "Paused."}, ensure_ascii=False))
+                        await ws_error("Paused.")
                         continue
                     if player.id != sess.current_player_id:
-                        await ws.send_text(json.dumps({"type": "error", "message": "Not your turn."}, ensure_ascii=False))
+                        await ws_error("Not your turn.")
                         continue
 
                     mode, n, sides, mod, expr = dice
@@ -1167,17 +1178,17 @@ async def ws_room(ws: WebSocket, session_id: str):
                 # PASS/END — ends turn
                 if lower in ("pass", "end"):
                     if not sess.current_player_id:
-                        await ws.send_text(json.dumps({"type": "error", "message": "Game not started. Press Start."}, ensure_ascii=False))
+                        await ws_error("Game not started. Press Start.")
                         continue
                     if sess.is_paused:
-                        await ws.send_text(json.dumps({"type": "error", "message": "Paused."}, ensure_ascii=False))
+                        await ws_error("Paused.")
                         continue
                     if player.id != sess.current_player_id:
-                        await ws.send_text(json.dumps({"type": "error", "message": "Not your turn."}, ensure_ascii=False))
+                        await ws_error("Not your turn.")
                         continue
                     nxt = await advance_turn(db, sess)
                     if not nxt:
-                        await ws.send_text(json.dumps({"type": "error", "message": "No players"}, ensure_ascii=False))
+                        await ws_error("No players")
                         continue
                     await add_system_event(db, sess, f"Игрок #{sp.join_order} пропустил ход. Следующий: #{nxt.join_order}.")
                     await broadcast_state(session_id)
@@ -1185,13 +1196,13 @@ async def ws_room(ws: WebSocket, session_id: str):
 
                 # Normal SAY — ends turn
                 if not sess.current_player_id:
-                    await ws.send_text(json.dumps({"type": "error", "message": "Game not started. Press Start."}, ensure_ascii=False))
+                    await ws_error("Game not started. Press Start.")
                     continue
                 if sess.is_paused:
-                    await ws.send_text(json.dumps({"type": "error", "message": "Paused."}, ensure_ascii=False))
+                    await ws_error("Paused.")
                     continue
                 if player.id != sess.current_player_id:
-                    await ws.send_text(json.dumps({"type": "error", "message": "Not your turn."}, ensure_ascii=False))
+                    await ws_error("Not your turn.")
                     continue
 
                 # store message as player event (raw text)
@@ -1199,7 +1210,7 @@ async def ws_room(ws: WebSocket, session_id: str):
 
                 nxt = await advance_turn(db, sess)
                 if not nxt:
-                    await ws.send_text(json.dumps({"type": "error", "message": "No players"}, ensure_ascii=False))
+                    await ws_error("No players")
                     continue
                 await add_system_event(db, sess, f"Следующий ход: игрок #{nxt.join_order}.")
                 await broadcast_state(session_id)

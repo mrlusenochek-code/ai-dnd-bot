@@ -251,6 +251,11 @@ function logLine(text){
   el.scrollTop = el.scrollHeight;
 }
 
+function getRequestIdFromResponse(response){
+  if(!response || !response.headers) return null;
+  return response.headers.get("X-Request-ID") || response.headers.get("x-request-id");
+}
+
 function prepareKick(order, name){
   const inp = document.getElementById("msg");
   if(!inp) return;
@@ -282,7 +287,8 @@ async function joinIfNeeded(){
   const data = await r.json();
   if(!r.ok){
     const msg = data.detail || "Ошибка join";
-    logLine("[error] join: " + msg);
+    const rid = getRequestIdFromResponse(r);
+    logLine("[error] join: " + msg + (rid ? ` (rid=${rid})` : ""));
     // не блокируем websocket — просто покажем ошибку
     return false;
   }
@@ -326,7 +332,7 @@ function connectWS(){
     if(data.type === "state"){
       renderState(data);
     } else if(data.type === "error"){
-      logLine("[error] " + data.message);
+      logLine("[error] " + data.message + (data.request_id ? ` (rid=${data.request_id})` : ""));
       if(data.fatal){ alert(data.message); }
     }
   };
