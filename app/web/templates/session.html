@@ -50,7 +50,7 @@
       <button id="btnPause" onclick="wsAction('pause')">Pause</button>
       <button id="btnResume" onclick="wsAction('resume')">Resume</button>
       <button id="btnSkip" onclick="wsAction('skip')">Skip</button>
-      <button id="btnStatus" onclick="wsAction('status')">Status</button>
+      <button id="btnStatus" onclick="wsAction('status')">Статус</button>
       <button id="btnReady" onclick="toggleReady()">Ready</button>
     </div>
 
@@ -94,6 +94,7 @@ function isName(text){ return /^\/?name\b/i.test(normText(text)); }
 function isGM(text){ return /^gm\b/i.test(normText(text)); }
 function isDice(text){ return /^(roll|adv|dis)\b/i.test(normText(text)) || /^\d+d\d+([+-]\d+)?$/i.test(normText(text)); }
 function isPass(text){ return /^(pass|end)\b/i.test(normText(text)); }
+function isWsOpen(){ return !!ws && ws.readyState === WebSocket.OPEN; }
 
 function canSendText(text){
   const t = normText(text);
@@ -118,6 +119,21 @@ function updateSendAvailability(){
   if(!inp || !btn || !hint) return;
 
   inp.disabled = !uiCtx.connected;
+  const btnStatus = document.getElementById("btnStatus");
+  if(btnStatus){
+    btnStatus.disabled = !uiCtx.connected;
+  }
+  const btnReady = document.getElementById("btnReady");
+  if(btnReady){
+    btnReady.disabled = !uiCtx.connected;
+  }
+  const adminButtons = ["btnBegin", "btnPause", "btnResume", "btnSkip"];
+  for(const id of adminButtons){
+    const el = document.getElementById(id);
+    if(el && !uiCtx.connected){
+      el.disabled = true;
+    }
+  }
 
   // input highlight
   inp.classList.remove('input-ok','input-wait','input-bad');
@@ -351,6 +367,11 @@ function sendMsg(){
   const inp = document.getElementById("msg");
   const text = (inp.value || "").trim();
   if(!text) return;
+  if(!isWsOpen()){
+    logLine("[client] offline: can't send message");
+    updateSendAvailability();
+    return;
+  }
   if(!canSendText(text)){
     // don't send forbidden messages; UI should already block the button
     updateSendAvailability();
@@ -364,16 +385,12 @@ function sendMsg(){
     setNameLocal(m[1].trim());
   }
 
-  if(!ws || ws.readyState !== 1){
-    logLine("[error] websocket not connected");
-    return;
-  }
   ws.send(JSON.stringify({action:"say", text}));
 }
 
 function wsAction(action){
-  if(!ws || ws.readyState !== 1){
-    logLine("[error] websocket not connected");
+  if(!isWsOpen()){
+    logLine("[client] offline: can't send action: " + action);
     return;
   }
   ws.send(JSON.stringify({action}));
