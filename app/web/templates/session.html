@@ -35,7 +35,10 @@
 <div class="wrap">
   <div class="main">
     <h2 id="title">Session {{ session_id }}</h2>
-    <div class="muted">Session ID: <code>{{ session_id }}</code></div>
+    <div class="muted" style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
+      <span>Session ID: <code>{{ session_id }}</code></span>
+      <button id="btnCopyLink" onclick="copyInviteLink()" disabled>Копировать ссылку</button>
+    </div>
 
     <div class="log" id="log"></div>
 
@@ -92,6 +95,7 @@ function isOOC(text){
 function isHelp(text){ return /^help\b/i.test(normText(text)); }
 function isName(text){ return /^\/?name\b/i.test(normText(text)); }
 function isGM(text){ return /^gm\b/i.test(normText(text)); }
+function isKick(text){ return /^\/?kick\b/i.test(normText(text)); }
 function isDice(text){ return /^(roll|adv|dis)\b/i.test(normText(text)) || /^\d+d\d+([+-]\d+)?$/i.test(normText(text)); }
 function isPass(text){ return /^(pass|end)\b/i.test(normText(text)); }
 function isWsOpen(){ return !!ws && ws.readyState === WebSocket.OPEN; }
@@ -104,6 +108,7 @@ function canSendText(text){
   // always allowed
   if(isHelp(t) || isName(t) || isOOC(t)) return true;
   if(isGM(t)) return !!uiCtx.iAmAdmin;
+  if(isKick(t)) return !!uiCtx.iAmAdmin;
 
   // turn-required commands/messages
   if(!uiCtx.started) return false;
@@ -126,6 +131,14 @@ function updateSendAvailability(){
   const btnReady = document.getElementById("btnReady");
   if(btnReady){
     btnReady.disabled = !uiCtx.connected;
+  }
+  const btnCopyLink = document.getElementById("btnCopyLink");
+  if(btnCopyLink){
+    btnCopyLink.disabled = !uiCtx.connected;
+  }
+  const kickButtons = document.querySelectorAll(".btn-kick");
+  for(const el of kickButtons){
+    el.disabled = !uiCtx.connected;
   }
   const adminButtons = ["btnBegin", "btnPause", "btnResume", "btnSkip"];
   for(const id of adminButtons){
@@ -220,9 +233,38 @@ function escapeHtml(s){
   return (s||"").replaceAll("&","&amp;").replaceAll("<","&lt;").replaceAll(">","&gt;");
 }
 function logLine(text){
+  if(!logLine.meta){
+    logLine.meta = { reconnectLastByText: {} };
+  }
+  if(/^\[client\] disconnected, retry in \d+s$/.test(text)){
+    const now = Date.now();
+    const prev = logLine.meta.reconnectLastByText[text] || 0;
+    if(now - prev < 30000){
+      return;
+    }
+    logLine.meta.reconnectLastByText[text] = now;
+  }
   const el = document.getElementById("log");
   el.innerHTML += "<div style='margin-bottom:6px; white-space:pre-wrap;'>" + escapeHtml(text) + "</div>";
   el.scrollTop = el.scrollHeight;
+}
+
+function prepareKick(order, name){
+  const inp = document.getElementById("msg");
+  if(!inp) return;
+  inp.value = `/kick ${order}`;
+  inp.focus();
+  updateSendAvailability();
+  logLine(`[client] prepared /kick ${order} for ${name}`);
+}
+
+async function copyInviteLink(){
+  try{
+    await navigator.clipboard.writeText(location.href);
+    logLine("[client] link copied");
+  }catch(_e){
+    logLine("[client] can't copy link");
+  }
 }
 
 async function joinIfNeeded(){
@@ -337,7 +379,25 @@ function renderState(st){
     const readyMark = pl.is_ready ? "✅" : "⏳";
     const adminMark = pl.is_admin ? " [admin]" : "";
     const initMark = (pl.initiative !== null && pl.initiative !== undefined) ? (" | init: " + pl.initiative) : "";
-    div.textContent = `#${pl.order} ${readyMark} ${pl.name}${adminMark}${initMark}`;
+    const line = document.createElement("div");
+    line.style.display = "flex";
+    line.style.alignItems = "center";
+    line.style.justifyContent = "space-between";
+    line.style.gap = "8px";
+
+    const info = document.createElement("span");
+    info.textContent = `#${pl.order} ${readyMark} ${pl.name}${adminMark}${initMark}`;
+    line.appendChild(info);
+
+    if(iAmAdmin && String(pl.uid) !== String(myUid)){
+      const kickBtn = document.createElement("button");
+      kickBtn.className = "btn-kick";
+      kickBtn.textContent = "Кик";
+      kickBtn.disabled = !uiCtx.connected;
+      kickBtn.onclick = () => prepareKick(pl.order, pl.name);
+      line.appendChild(kickBtn);
+    }
+    div.appendChild(line);
     p.appendChild(div);
   }
 
