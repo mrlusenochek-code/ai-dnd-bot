@@ -216,6 +216,18 @@ function getUID(){
   }
   return Number(uid);
 }
+function getClientId(){
+  let cid = localStorage.getItem("client_id");
+  if(!cid){
+    if(window.crypto && crypto.randomUUID){
+      cid = crypto.randomUUID();
+    }else{
+      cid = (Date.now().toString(16) + Math.random().toString(16).slice(2));
+    }
+    localStorage.setItem("client_id", cid);
+  }
+  return cid;
+}
 function getName(){
   let name = localStorage.getItem("name");
   if(!name){
@@ -260,10 +272,11 @@ async function copyInviteLink(){
 async function joinIfNeeded(){
   const uid = getUID();
   const name = getName();
+  const cid = getClientId();
 
   const r = await fetch("/api/join", {
     method:"POST",
-    headers:{"Content-Type":"application/json"},
+    headers:{"Content-Type":"application/json", "X-Client-ID": cid},
     body: JSON.stringify({session_id: SESSION_ID, uid, name})
   });
   const data = await r.json();
@@ -281,6 +294,7 @@ let reconnectDelay = 1000; // старт 1с, дальше увеличивае�
 async function start(){
   // гарантируем, что uid/name уже сохранены
   getUID();
+  getClientId();
   getName();
   connectWS();
 }
@@ -292,8 +306,9 @@ function connectWS(){
   }
 
   const uid = getUID();
+  const cid = encodeURIComponent(getClientId());
   const proto = (location.protocol === "https:") ? "wss" : "ws";
-  ws = new WebSocket(`${proto}://${location.host}/ws/${SESSION_ID}?uid=${uid}`);
+  ws = new WebSocket(`${proto}://${location.host}/ws/${SESSION_ID}?uid=${uid}&cid=${cid}`);
 
   ws.onopen = async () => {
     uiCtx.connected = true;

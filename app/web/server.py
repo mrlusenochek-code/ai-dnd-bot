@@ -18,7 +18,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm.attributes import flag_modified
 
 from app.core.logging import configure_logging
-from app.core.log_context import request_id_var, session_id_var, uid_var, ws_conn_id_var
+from app.core.log_context import request_id_var, session_id_var, uid_var, ws_conn_id_var, client_id_var
 from app.db.connection import AsyncSessionLocal
 from app.db.models import Session, Player, SessionPlayer, Event
 
@@ -77,8 +77,12 @@ async def _log_context_middleware(request: Request, call_next):
 
     tok_sid = None
     tok_uid = None
+    tok_cid = None
     try:
         sid = None
+        cid = request.headers.get("x-client-id")
+        if cid:
+            tok_cid = client_id_var.set(str(cid))
 
         # session_id из URL вида /s/<uuid>
         m = re.search(r"/s/([0-9a-fA-F-]{36})", request.url.path)
@@ -115,6 +119,8 @@ async def _log_context_middleware(request: Request, call_next):
             session_id_var.reset(tok_sid)
         if tok_uid is not None:
             uid_var.reset(tok_uid)
+        if tok_cid is not None:
+            client_id_var.reset(tok_cid)
 
 # -------------------------
 # Settings helpers (Session.settings is JSON)
@@ -676,6 +682,9 @@ async def ws_room(ws: WebSocket, session_id: str):
     session_id_var.set(session_id)
     uid_var.set(uid)
     ws_conn_id_var.set(uuid.uuid4().hex[:12])
+    cid = ws.query_params.get("cid")
+    if cid:
+        client_id_var.set(str(cid))
 
     await manager.connect(session_id, ws)
     logger.info("ws connected")
