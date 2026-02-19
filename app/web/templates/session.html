@@ -228,21 +228,35 @@ async function joinIfNeeded(){
   return true;
 }
 
+let reconnectDelay = 1000; // старт 1с, дальше увеличиваем до лимита
+
 async function start(){
-  try{ await joinIfNeeded(); }catch(e){}
+  // гарантируем, что uid/name уже сохранены
+  getUID();
+  getName();
   connectWS();
 }
 
 function connectWS(){
+  // защита от параллельных подключений
+  if (ws && (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING)) {
+    return;
+  }
+
   const uid = getUID();
   const proto = (location.protocol === "https:") ? "wss" : "ws";
   ws = new WebSocket(`${proto}://${location.host}/ws/${SESSION_ID}?uid=${uid}`);
 
-  ws.onopen = () => {
+  ws.onopen = async () => {
     uiCtx.connected = true;
+    reconnectDelay = 1000; // сбрасываем паузу при успешном коннекте
     logLine("[client] connected");
     updateSendAvailability();
+
+    // ВАЖНО: join делаем только когда сервер доступен (WS открылся)
+    try { await joinIfNeeded(); } catch(e) {}
   };
+
   ws.onmessage = (ev) => {
     const data = JSON.parse(ev.data);
     if(data.type === "state"){
@@ -252,11 +266,14 @@ function connectWS(){
       if(data.fatal){ alert(data.message); }
     }
   };
+
   ws.onclose = () => {
     uiCtx.connected = false;
     updateSendAvailability();
-    logLine("[client] disconnected, retry in 1s");
-    setTimeout(start, 1000);
+    logLine(`[client] disconnected, retry in ${Math.round(reconnectDelay/1000)}s`);
+    const delay = reconnectDelay;
+    reconnectDelay = Math.min(10000, reconnectDelay * 2); // максимум 10с
+    setTimeout(connectWS, delay);
   };
 }
 
