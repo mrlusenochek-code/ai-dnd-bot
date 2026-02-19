@@ -77,3 +77,41 @@
 ## Логи “золотого прогона” (пример)
 (сюда можно вставлять последний успешный лог из консоли — коротким блоком,
 чтобы сравнивать при будущих регрессиях)
+lus@DESKTOP-TMTO836:~/code/ai-dnd-bot$ dnd-run
+INFO:     Started server process [13409]
+INFO:     Waiting for application startup.
+{"ts": "2026-02-19T12:30:24.739622+00:00", "level": "INFO", "logger": "app.web.server", "message": "Web server starting", "request_id": null, "session_id": null, "uid": null, "ws_conn_id": null}
+{"ts": "2026-02-19T12:30:24.744311+00:00", "level": "INFO", "logger": "uvicorn.error", "message": "Application startup complete.", "request_id": null, "session_id": null, "uid": null, "ws_conn_id": null}
+{"ts": "2026-02-19T12:30:24.744991+00:00", "level": "INFO", "logger": "uvicorn.error", "message": "Uvicorn running on http://127.0.0.1:8000 (Press CTRL+C to quit)", "request_id": null, "session_id": null, "uid": null, "ws_conn_id": null}
+{"ts": "2026-02-19T12:30:25.405203+00:00", "level": "INFO", "logger": "uvicorn.error", "message": "127.0.0.1:34398 - \"WebSocket /ws/ffc99ecc-bd61-4d4e-948d-1e429a30eefb?uid=1622692024\" [accepted]", "request_id": "affab684f2d6409f96da3ae19575a9fc", "session_id": "ffc99ecc-bd61-4d4e-948d-1e429a30eefb", "uid": 1622692024, "ws_conn_id": "aa392185d910"}
+{"ts": "2026-02-19T12:30:25.405392+00:00", "level": "INFO", "logger": "app.web.server", "message": "ws connected", "request_id": "affab684f2d6409f96da3ae19575a9fc", "session_id": "ffc99ecc-bd61-4d4e-948d-1e429a30eefb", "uid": 1622692024, "ws_conn_id": "aa392185d910"}
+{"ts": "2026-02-19T12:30:25.408821+00:00", "level": "INFO", "logger": "uvicorn.error", "message": "connection open", "request_id": null, "session_id": null, "uid": null, "ws_conn_id": null}
+{"ts": "2026-02-19T12:30:25.461267+00:00", "level": "INFO", "logger": "app.web.server", "message": "http request", "request_id": "f0e5de7e119b4770a72b49cb1aaf091d", "session_id": "ffc99ecc-bd61-4d4e-948d-1e429a30eefb", "uid": 1622692024, "ws_conn_id": null, "http": {"method": "POST", "path": "/api/join", "status": 200}}
+{"ts": "2026-02-19T12:30:25.461416+00:00", "level": "INFO", "logger": "uvicorn.access", "message": "127.0.0.1:34400 - \"POST /api/join HTTP/1.1\" 200", "request_id": null, "session_id": null, "uid": null, "ws_conn_id": null}
+^C{"ts": "2026-02-19T12:30:40.467840+00:00", "level": "INFO", "logger": "uvicorn.error", "message": "Shutting down", "request_id": null, "session_id": null, "uid": null, "ws_conn_id": null}
+{"ts": "2026-02-19T12:30:40.468583+00:00", "level": "INFO", "logger": "uvicorn.error", "message": "connection closed", "request_id": null, "session_id": null, "uid": null, "ws_conn_id": null}
+{"ts": "2026-02-19T12:30:40.568900+00:00", "level": "INFO", "logger": "uvicorn.error", "message": "Waiting for application shutdown.", "request_id": null, "session_id": null, "uid": null, "ws_conn_id": null}
+{"ts": "2026-02-19T12:30:40.569095+00:00", "level": "INFO", "logger": "uvicorn.error", "message": "Application shutdown complete.", "request_id": null, "session_id": null, "uid": null, "ws_conn_id": null}
+{"ts": "2026-02-19T12:30:40.569204+00:00", "level": "INFO", "logger": "uvicorn.error", "message": "Finished server process [13409]", "request_id": null, "session_id": null, "uid": null, "ws_conn_id": null}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
