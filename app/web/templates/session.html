@@ -74,6 +74,7 @@
 <script>
 const SESSION_ID = "{{ session_id }}";
 let ws = null;
+let lastLoggedReconnectDelaySec = null;
 
 let lastState = null;
 let uiCtx = {
@@ -233,17 +234,6 @@ function escapeHtml(s){
   return (s||"").replaceAll("&","&amp;").replaceAll("<","&lt;").replaceAll(">","&gt;");
 }
 function logLine(text){
-  if(!logLine.meta){
-    logLine.meta = { reconnectLastByText: {} };
-  }
-  if(/^\[client\] disconnected, retry in \d+s$/.test(text)){
-    const now = Date.now();
-    const prev = logLine.meta.reconnectLastByText[text] || 0;
-    if(now - prev < 30000){
-      return;
-    }
-    logLine.meta.reconnectLastByText[text] = now;
-  }
   const el = document.getElementById("log");
   el.innerHTML += "<div style='margin-bottom:6px; white-space:pre-wrap;'>" + escapeHtml(text) + "</div>";
   el.scrollTop = el.scrollHeight;
@@ -308,6 +298,7 @@ function connectWS(){
   ws.onopen = async () => {
     uiCtx.connected = true;
     reconnectDelay = 1000; // сбрасываем паузу при успешном коннекте
+    lastLoggedReconnectDelaySec = null; // заново логируем ступени при следующем оффлайне
     logLine("[client] connected");
     updateSendAvailability();
 
@@ -328,7 +319,11 @@ function connectWS(){
   ws.onclose = () => {
     uiCtx.connected = false;
     updateSendAvailability();
-    logLine(`[client] disconnected, retry in ${Math.round(reconnectDelay/1000)}s`);
+    const retrySec = Math.round(reconnectDelay / 1000);
+    if(lastLoggedReconnectDelaySec !== retrySec){
+      logLine(`[client] disconnected, retry in ${retrySec}s`);
+      lastLoggedReconnectDelaySec = retrySec;
+    }
     const delay = reconnectDelay;
     reconnectDelay = Math.min(10000, reconnectDelay * 2); // максимум 10с
     setTimeout(connectWS, delay);
