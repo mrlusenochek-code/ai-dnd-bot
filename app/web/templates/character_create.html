@@ -1,0 +1,239 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8"/>
+  <title>Создание персонажа</title>
+  <style>
+    body{font-family:Arial,sans-serif; margin:0; background:#f6f7fb;}
+    .wrap{max-width:980px; margin:24px auto; padding:0 12px;}
+    .grid{display:grid; grid-template-columns:1fr 1fr; gap:14px;}
+    .card{background:#fff; border:1px solid #d6dae5; border-radius:12px; padding:14px;}
+    .row{display:flex; gap:10px; align-items:center; margin-top:10px;}
+    label{display:block; margin-top:10px; font-size:14px; color:#3c445c;}
+    input,select,textarea,button{font-size:14px; padding:8px 10px;}
+    input,select,textarea{width:100%; box-sizing:border-box;}
+    textarea{min-height:80px; resize:vertical;}
+    .stat{display:grid; grid-template-columns:90px 40px 1fr 40px 50px; gap:8px; align-items:center; margin-top:8px;}
+    .muted{opacity:.7;}
+    .msg{margin-top:10px; font-size:14px;}
+    .err{color:#ab2638;}
+    .ok{color:#14631e;}
+    @media (max-width: 760px){ .grid{grid-template-columns:1fr;} }
+  </style>
+</head>
+<body>
+<div class="wrap">
+  <h2>Создай персонажа</h2>
+  <p class="muted">Session: <code id="sid"></code></p>
+  <div class="grid">
+    <div class="card">
+      <label>Имя персонажа</label>
+      <input id="charName" placeholder="Алена"/>
+
+      <label>Класс (preset)</label>
+      <select id="classId"></select>
+
+      <label>Или свой класс (опционально)</label>
+      <input id="customClass" placeholder="Shadowblade"/>
+
+      <label>Пол (опционально)</label>
+      <input id="gender" placeholder="Ж"/>
+
+      <label>Раса (опционально)</label>
+      <input id="race" placeholder="Человек"/>
+
+      <label>Описание (опционально)</label>
+      <textarea id="desc" placeholder="Короткая биография"></textarea>
+
+      <div class="row">
+        <button onclick="createHero()">Create Hero</button>
+        <button onclick="goSession()">Go to session</button>
+      </div>
+      <div id="msg" class="msg muted"></div>
+    </div>
+
+    <div class="card">
+      <h3 style="margin-top:0;">Статы</h3>
+      <div class="muted">Available points: <b id="pointsLeft">20</b></div>
+      <div id="statsBox"></div>
+      <div class="row">
+        <button onclick="resetStats()">Reset</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+const SESSION_ID = "{{ session_id }}";
+const STAT_KEYS = ["str","dex","con","int","wis","cha"];
+let classes = [];
+let currentPreset = null;
+let stats = {str:50,dex:50,con:50,int:50,wis:50,cha:50};
+
+function getUID(){
+  let uid = localStorage.getItem("uid");
+  if(!uid){
+    uid = String(Math.floor(1000000000 + Math.random()*9000000000));
+    localStorage.setItem("uid", uid);
+  }
+  return Number(uid);
+}
+function getName(){
+  let name = localStorage.getItem("name");
+  if(!name){
+    name = prompt("Имя игрока:", "Игрок");
+    if(!name) name = "Игрок";
+    localStorage.setItem("name", name);
+  }
+  return name;
+}
+function pointsUsed(){
+  let total = 0;
+  for(const k of STAT_KEYS){
+    total += Math.floor((Number(stats[k] || 50) - 50) / 5);
+  }
+  return total;
+}
+function pointsLeft(){ return 20 - pointsUsed(); }
+function renderStats(){
+  const box = document.getElementById("statsBox");
+  box.innerHTML = "";
+  for(const k of STAT_KEYS){
+    const row = document.createElement("div");
+    row.className = "stat";
+    row.innerHTML = `<b>${k.toUpperCase()}</b>`;
+    const b1 = document.createElement("button");
+    b1.textContent = "-";
+    b1.onclick = () => changeStat(k, -5);
+    row.appendChild(b1);
+    const slider = document.createElement("input");
+    slider.type = "range";
+    slider.min = "0";
+    slider.max = "100";
+    slider.step = "5";
+    slider.value = String(stats[k]);
+    slider.oninput = () => setStat(k, Number(slider.value));
+    row.appendChild(slider);
+    const b2 = document.createElement("button");
+    b2.textContent = "+";
+    b2.onclick = () => changeStat(k, +5);
+    row.appendChild(b2);
+    const out = document.createElement("span");
+    out.textContent = String(stats[k]);
+    row.appendChild(out);
+    box.appendChild(row);
+  }
+  document.getElementById("pointsLeft").textContent = String(pointsLeft());
+}
+function setMessage(text, ok){
+  const el = document.getElementById("msg");
+  el.className = "msg " + (ok ? "ok" : "err");
+  el.textContent = text || "";
+}
+function setStat(key, value){
+  stats[key] = Math.max(0, Math.min(100, value));
+  renderStats();
+}
+function changeStat(key, delta){
+  const next = Math.max(0, Math.min(100, Number(stats[key] || 50) + delta));
+  stats[key] = next;
+  renderStats();
+}
+function resetStats(){
+  if(currentPreset && currentPreset.stats){
+    stats = JSON.parse(JSON.stringify(currentPreset.stats));
+  }else{
+    stats = {str:50,dex:50,con:50,int:50,wis:50,cha:50};
+  }
+  renderStats();
+}
+function goSession(){
+  location.href = "/s/" + SESSION_ID;
+}
+async function ensureJoined(){
+  const r = await fetch("/api/join", {
+    method:"POST",
+    headers:{"Content-Type":"application/json"},
+    body: JSON.stringify({session_id: SESSION_ID, uid: getUID(), name: getName()})
+  });
+  if(!r.ok){
+    const data = await r.json();
+    throw new Error(data.detail || "join error");
+  }
+}
+async function loadClasses(){
+  const r = await fetch("/api/classes");
+  const data = await r.json();
+  classes = data.classes || [];
+  const sel = document.getElementById("classId");
+  sel.innerHTML = "";
+  for(const it of classes){
+    const opt = document.createElement("option");
+    opt.value = it.id;
+    opt.textContent = `${it.name} (HP ${it.hp_max}, STA ${it.sta_max})`;
+    sel.appendChild(opt);
+  }
+  sel.onchange = () => {
+    currentPreset = classes.find(x => x.id === sel.value) || null;
+    resetStats();
+  };
+  currentPreset = classes[0] || null;
+  resetStats();
+}
+async function createHero(){
+  const name = (document.getElementById("charName").value || "").trim();
+  const classId = (document.getElementById("classId").value || "").trim();
+  const customClass = (document.getElementById("customClass").value || "").trim();
+  if(!name){
+    setMessage("Имя персонажа обязательно", false);
+    return;
+  }
+  const payload = {
+    session_id: SESSION_ID,
+    uid: getUID(),
+    name,
+    class_id: classId,
+    custom_class: customClass,
+    stats,
+    gender: (document.getElementById("gender").value || "").trim(),
+    race: (document.getElementById("race").value || "").trim(),
+    description: (document.getElementById("desc").value || "").trim(),
+  };
+  const r = await fetch("/api/character/create", {
+    method:"POST",
+    headers:{"Content-Type":"application/json"},
+    body: JSON.stringify(payload)
+  });
+  const data = await r.json();
+  if(r.status === 409){
+    setMessage("Character already created. Go to session.", false);
+    return;
+  }
+  if(!r.ok){
+    setMessage(data.detail || "Ошибка создания персонажа", false);
+    return;
+  }
+  setMessage("Персонаж создан. Переход в сессию...", true);
+  setTimeout(goSession, 250);
+}
+
+async function init(){
+  document.getElementById("sid").textContent = SESSION_ID;
+  try{
+    await ensureJoined();
+    const meResp = await fetch(`/api/character/me?session_id=${encodeURIComponent(SESSION_ID)}&uid=${encodeURIComponent(String(getUID()))}`);
+    const meData = await meResp.json();
+    if(meResp.ok && meData.has_character){
+      setMessage("Character already created. Go to session.", false);
+      return;
+    }
+    await loadClasses();
+    setMessage("Заполни данные и нажми Create Hero.", true);
+  }catch(e){
+    setMessage(String(e.message || e), false);
+  }
+}
+init();
+</script>
+</body>
+</html>

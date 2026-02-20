@@ -13,6 +13,7 @@
 </head>
 <body>
   <h1>AI-DnD Web</h1>
+  <p class="muted">Шаги: 1) Создай/вступи в комнату. 2) Создай персонажа. 3) После этого Ready/Start.</p>
   <div class="card">
     <h3>Создать игру</h3>
     <div class="row">
@@ -26,7 +27,7 @@
     <h3>Войти в игру по ID</h3>
     <div class="row">
       <input id="join_id" placeholder="Session ID (UUID)" style="flex:1; min-width:240px"/>
-      <button onclick="goJoin()">Перейти</button>
+      <button onclick="goJoin()">Войти</button>
     </div>
   </div>
 
@@ -60,12 +61,21 @@ async function createGame(){
   });
   const data = await r.json();
   if(!r.ok){ alert(data.detail || "Ошибка"); return; }
-  location.href = "/s/" + data.session_id;
+  location.href = "/c/" + data.session_id;
 }
-function goJoin(){
+async function goJoin(){
   const id = (document.getElementById("join_id").value || "").trim();
   if(!id){ alert("Введи Session ID"); return; }
-  location.href = "/s/" + id;
+  const uid = getUID();
+  const name = getName();
+  const r = await fetch("/api/join", {
+    method:"POST",
+    headers:{"Content-Type":"application/json"},
+    body: JSON.stringify({session_id: id, uid, name})
+  });
+  const data = await r.json();
+  if(!r.ok){ alert(data.detail || "Ошибка join"); return; }
+  location.href = "/c/" + id;
 }
 </script>
 </body>

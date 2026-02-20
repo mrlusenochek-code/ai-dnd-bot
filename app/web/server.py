@@ -30,6 +30,50 @@ DEFAULT_TIMEZONE = os.getenv("DEFAULT_TIMEZONE", "Europe/Warsaw")
 logger = logging.getLogger(__name__)
 CHAR_STAT_KEYS = ("str", "dex", "con", "int", "wis", "cha")
 CHAR_DEFAULT_STATS = {k: 50 for k in CHAR_STAT_KEYS}
+CLASS_PRESETS: dict[str, dict[str, Any]] = {
+    "fighter": {
+        "display_name": "Fighter",
+        "hp_max": 24,
+        "sta_max": 12,
+        "stats_shift": {"str": 15, "con": 10, "dex": 5, "int": -5, "wis": -5, "cha": 0},
+        "starter_skills": {"athletics": 2, "endurance": 1},
+    },
+    "rogue": {
+        "display_name": "Rogue",
+        "hp_max": 18,
+        "sta_max": 14,
+        "stats_shift": {"str": 0, "con": 0, "dex": 15, "int": 5, "wis": 0, "cha": 5},
+        "starter_skills": {"stealth": 2, "trickery": 1},
+    },
+    "ranger": {
+        "display_name": "Ranger",
+        "hp_max": 20,
+        "sta_max": 13,
+        "stats_shift": {"str": 5, "con": 5, "dex": 10, "int": 0, "wis": 10, "cha": -5},
+        "starter_skills": {"survival": 2, "tracking": 1},
+    },
+    "mage": {
+        "display_name": "Mage",
+        "hp_max": 16,
+        "sta_max": 12,
+        "stats_shift": {"str": -10, "con": -5, "dex": 0, "int": 20, "wis": 10, "cha": 0},
+        "starter_skills": {"arcana": 2, "focus": 1},
+    },
+    "cleric": {
+        "display_name": "Cleric",
+        "hp_max": 20,
+        "sta_max": 11,
+        "stats_shift": {"str": 0, "con": 5, "dex": 0, "int": 5, "wis": 15, "cha": 5},
+        "starter_skills": {"faith": 2, "medicine": 1},
+    },
+    "bard": {
+        "display_name": "Bard",
+        "hp_max": 18,
+        "sta_max": 13,
+        "stats_shift": {"str": -5, "con": 0, "dex": 5, "int": 5, "wis": 0, "cha": 20},
+        "starter_skills": {"performance": 2, "persuasion": 1},
+    },
+}
 
 
 def utcnow() -> datetime:
@@ -222,6 +266,28 @@ def _normalized_stats(stats_raw: Any) -> dict[str, int]:
     return out
 
 
+def _stats_points_used(stats: dict[str, int]) -> int:
+    points = 0
+    for key in CHAR_STAT_KEYS:
+        v = _clamp(as_int(stats.get(key), 50), 0, 100)
+        points += int((v - 50) / 5)
+    return points
+
+
+def _resolve_character_stats(class_id: Optional[str], incoming_stats: Any) -> dict[str, int]:
+    stats = dict(CHAR_DEFAULT_STATS)
+    preset = CLASS_PRESETS.get((class_id or "").lower())
+    if preset:
+        shifts = preset.get("stats_shift") or {}
+        for key in CHAR_STAT_KEYS:
+            stats[key] = _clamp(50 + as_int(shifts.get(key), 0), 0, 100)
+    if isinstance(incoming_stats, dict):
+        for key in CHAR_STAT_KEYS:
+            if key in incoming_stats:
+                stats[key] = _clamp(as_int(incoming_stats.get(key), 50), 0, 100)
+    return stats
+
+
 def _char_to_payload(ch: Optional[Character]) -> Optional[dict]:
     if not ch:
         return None
@@ -257,7 +323,12 @@ async def create_character(
     name: str,
     class_kit: str = "Adventurer",
     class_skin: str = "Adventurer",
+    hp_max: int = 20,
+    sta_max: int = 10,
+    stats: Optional[dict[str, int]] = None,
 ) -> Character:
+    hp_max = max(1, hp_max)
+    sta_max = max(1, sta_max)
     ch = Character(
         session_id=session_id,
         player_id=player_id,
@@ -265,16 +336,41 @@ async def create_character(
         class_kit=class_kit,
         class_skin=class_skin,
         level=1,
-        hp_max=20,
-        hp=20,
-        sta_max=10,
-        sta=10,
-        stats=dict(CHAR_DEFAULT_STATS),
+        hp_max=hp_max,
+        hp=hp_max,
+        sta_max=sta_max,
+        sta=sta_max,
+        stats=(dict(stats) if isinstance(stats, dict) else dict(CHAR_DEFAULT_STATS)),
     )
     db.add(ch)
     await db.commit()
     await db.refresh(ch)
     return ch
+
+
+async def _upsert_starter_skills(db: AsyncSession, ch: Character, starter: dict[str, Any]) -> None:
+    changed = False
+    for raw_key, raw_rank in (starter or {}).items():
+        key = (str(raw_key or "").strip().lower())[:40]
+        if not key:
+            continue
+        rank = _clamp(as_int(raw_rank, 0), 0, 10)
+        q = await db.execute(
+            select(Skill).where(
+                Skill.character_id == ch.id,
+                Skill.skill_key == key,
+            )
+        )
+        sk = q.scalar_one_or_none()
+        if sk:
+            if int(sk.rank or 0) != rank:
+                sk.rank = rank
+                changed = True
+            continue
+        db.add(Skill(character_id=ch.id, skill_key=key, rank=rank, xp=0))
+        changed = True
+    if changed:
+        await db.commit()
 
 
 async def is_admin(db: AsyncSession, sess: Session, player: Player) -> bool:
@@ -614,6 +710,7 @@ async def build_state(db: AsyncSession, sess: Session) -> dict:
             "id": str(sess.id),
             "title": sess.title,
             "is_active": bool(sess.is_active),
+            "requires_character": True,
             "is_paused": bool(sess.is_paused),
             "turn_index": int(sess.turn_index or 0),
             "current_order": (int(cur_order) if cur_order is not None else None),
@@ -637,6 +734,7 @@ async def build_state(db: AsyncSession, sess: Session) -> dict:
                 "initiative": init_map.get(str(sp.player_id)) if sp.is_active is not False else None,
                 "last_seen": last_seen_map.get(str(sp.player_id)),
                 "char": _char_to_payload(chars_by_player_id.get(sp.player_id)),
+                "has_character": chars_by_player_id.get(sp.player_id) is not None,
             }
             for sp in all_sps
         ],
@@ -666,6 +764,11 @@ async def broadcast_state(session_id: str) -> None:
 @app.get("/", response_class=HTMLResponse)
 async def index(request: Request):
     return templates.TemplateResponse("index.html", {"request": request})
+
+
+@app.get("/c/{session_id}", response_class=HTMLResponse)
+async def character_create_page(request: Request, session_id: str):
+    return templates.TemplateResponse("character_create.html", {"request": request, "session_id": session_id})
 
 
 @app.post("/api/new")
@@ -782,6 +885,142 @@ async def api_join(payload: dict):
 
     await broadcast_state(session_id)
     return JSONResponse({"ok": True})
+
+
+@app.get("/api/classes")
+async def api_classes():
+    items = []
+    for class_id, preset in CLASS_PRESETS.items():
+        stats = _resolve_character_stats(class_id, None)
+        items.append(
+            {
+                "id": class_id,
+                "name": preset.get("display_name") or class_id,
+                "hp_max": max(1, as_int(preset.get("hp_max"), 20)),
+                "sta_max": max(1, as_int(preset.get("sta_max"), 10)),
+                "stats": stats,
+            }
+        )
+    return JSONResponse({"classes": items})
+
+
+@app.post("/api/character/create")
+async def api_character_create(payload: dict):
+    session_id = str(payload.get("session_id") or "").strip()
+    uid = as_int(payload.get("uid"), 0)
+    char_name = str(payload.get("name") or "").strip()
+    class_id = str(payload.get("class_id") or "").strip().lower()
+    custom_class = str(payload.get("custom_class") or "").strip()
+    stats_in = payload.get("stats")
+
+    if uid <= 0:
+        raise HTTPException(status_code=400, detail="Bad uid")
+    if not char_name:
+        raise HTTPException(status_code=400, detail="Character name is required")
+
+    async with AsyncSessionLocal() as db:
+        sess = await get_session(db, session_id)
+        if not sess:
+            raise HTTPException(status_code=404, detail="Session not found")
+
+        player = await get_or_create_player_web(db, uid, "")
+        q_sp = await db.execute(
+            select(SessionPlayer).where(
+                SessionPlayer.session_id == sess.id,
+                SessionPlayer.player_id == player.id,
+            )
+        )
+        sp = q_sp.scalar_one_or_none()
+        if not sp:
+            raise HTTPException(status_code=403, detail="Join session first")
+        if sp.is_active is False:
+            raise HTTPException(status_code=403, detail="You are offline in this session")
+
+        existing = await get_character(db, sess.id, player.id)
+        if existing:
+            return JSONResponse({"detail": "Character already exists"}, status_code=409)
+
+        selected_preset = CLASS_PRESETS.get(class_id) if class_id else None
+        class_name = custom_class or (selected_preset.get("display_name") if selected_preset else "Adventurer")
+        stats = _resolve_character_stats(class_id if selected_preset else None, stats_in)
+        if _stats_points_used(stats) > 20:
+            raise HTTPException(status_code=400, detail="Points budget exceeded (max 20)")
+
+        hp_max = max(1, as_int((selected_preset or {}).get("hp_max"), 20))
+        sta_max = max(1, as_int((selected_preset or {}).get("sta_max"), 10))
+        ch = await create_character(
+            db,
+            sess.id,
+            player.id,
+            name=char_name[:80],
+            class_kit=class_name[:40],
+            class_skin=class_name[:60],
+            hp_max=hp_max,
+            sta_max=sta_max,
+            stats=stats,
+        )
+        await _upsert_starter_skills(db, ch, (selected_preset or {}).get("starter_skills") or {})
+        await add_system_event(db, sess, f"Character ready: {ch.name} for player #{sp.join_order}.")
+
+        return JSONResponse({"ok": True, "character": _char_to_payload(ch)})
+
+
+@app.post("/api/character/update_stats")
+async def api_character_update_stats(payload: dict):
+    session_id = str(payload.get("session_id") or "").strip()
+    uid = as_int(payload.get("uid"), 0)
+    stats_in = payload.get("stats")
+
+    if uid <= 0:
+        raise HTTPException(status_code=400, detail="Bad uid")
+    if not isinstance(stats_in, dict):
+        raise HTTPException(status_code=400, detail="Bad stats payload")
+
+    async with AsyncSessionLocal() as db:
+        sess = await get_session(db, session_id)
+        if not sess:
+            raise HTTPException(status_code=404, detail="Session not found")
+
+        player = await get_or_create_player_web(db, uid, "")
+        q_sp = await db.execute(
+            select(SessionPlayer).where(
+                SessionPlayer.session_id == sess.id,
+                SessionPlayer.player_id == player.id,
+            )
+        )
+        sp = q_sp.scalar_one_or_none()
+        if not sp:
+            raise HTTPException(status_code=403, detail="Join session first")
+        if sp.is_active is False:
+            raise HTTPException(status_code=403, detail="You are offline in this session")
+
+        admin = await is_admin(db, sess, player)
+        if sess.is_active and not admin:
+            raise HTTPException(status_code=403, detail="Only admin can change stats after start")
+
+        ch = await get_character(db, sess.id, player.id)
+        if not ch:
+            raise HTTPException(status_code=404, detail="No character. Use: char create ...")
+
+        stats = _resolve_character_stats(None, stats_in)
+        if _stats_points_used(stats) > 20:
+            raise HTTPException(status_code=400, detail="Points budget exceeded (max 20)")
+
+        ch.stats = stats
+        await db.commit()
+        await add_system_event(db, sess, f"[STAT] player #{sp.join_order} updated character stats.")
+        return JSONResponse({"ok": True, "character": _char_to_payload(ch)})
+
+
+@app.get("/api/character/me")
+async def api_character_me(session_id: str, uid: int):
+    async with AsyncSessionLocal() as db:
+        sess = await get_session(db, session_id)
+        if not sess:
+            raise HTTPException(status_code=404, detail="Session not found")
+        player = await get_or_create_player_web(db, as_int(uid, 0), "")
+        ch = await get_character(db, sess.id, player.id)
+        return JSONResponse({"ok": True, "has_character": ch is not None, "character": _char_to_payload(ch)})
 
 
 # -------------------------
@@ -924,6 +1163,11 @@ async def ws_room(ws: WebSocket, session_id: str):
 
                 # ready/unready actions (do not require game started)
                 if action in ("ready", "unready"):
+                    if action == "ready":
+                        my_char = await get_character(db, sess.id, player.id)
+                        if not my_char:
+                            await ws_error("Create character first", request_id=msg_request_id)
+                            continue
                     _set_ready(sess, player.id, action == "ready")
                     await db.commit()
                     await add_system_event(db, sess, f"Готовность: игрок #{sp.join_order} — {'ГОТОВ' if action=='ready' else 'НЕ ГОТОВ'}.")
@@ -947,6 +1191,28 @@ async def ws_room(ws: WebSocket, session_id: str):
                     sps = await list_session_players(db, sess, active_only=True)
                     if not sps:
                         await ws_error("No players")
+                        continue
+
+                    active_ids = [x.player_id for x in sps]
+                    missing_sps: list[SessionPlayer] = []
+                    if active_ids:
+                        q_chars = await db.execute(
+                            select(Character).where(
+                                Character.session_id == sess.id,
+                                Character.player_id.in_(active_ids),
+                            )
+                        )
+                        char_ids = {ch.player_id for ch in q_chars.scalars().all()}
+                        missing_sps = [x for x in sps if x.player_id not in char_ids]
+                    if missing_sps:
+                        q_players = await db.execute(select(Player).where(Player.id.in_([x.player_id for x in missing_sps])))
+                        names_by_id = {p.id: p.display_name for p in q_players.scalars().all()}
+                        missing_names = ", ".join(
+                            f"#{x.join_order} {names_by_id.get(x.player_id, str(x.player_id))}" for x in missing_sps
+                        )
+                        await add_system_event(db, sess, f"Нельзя стартовать: персонаж не создан у {missing_names}.")
+                        await ws_error("Create character first", request_id=msg_request_id)
+                        await broadcast_state(session_id)
                         continue
 
                     # all ready check

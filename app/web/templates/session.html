@@ -70,6 +70,9 @@
 
     <h3 style="margin-top:18px;">Мой персонаж</h3>
     <div id="myChar" class="player muted">Создай: <code>char create Имя Класс</code></div>
+    <div class="row" style="margin-top:8px;">
+      <button id="btnGoChar" onclick="location.href='/c/' + SESSION_ID;">Создать/изменить персонажа</button>
+    </div>
 
     <h3 style="margin-top:18px;">Таймер</h3>
     <div id="timer" class="player">—</div>
@@ -163,7 +166,8 @@ function updateSendAvailability(){
   }
   const btnReady = document.getElementById("btnReady");
   if(btnReady){
-    btnReady.disabled = !uiCtx.connected;
+    const noChar = !uiCtx.me || !uiCtx.me.char;
+    btnReady.disabled = !uiCtx.connected || noChar || (uiCtx.me && uiCtx.me.is_active === false);
   }
   const btnLeave = document.getElementById("btnLeave");
   if(btnLeave){
@@ -479,7 +483,7 @@ function renderState(st){
       myChar.textContent = `Персонаж: ${ch.name} (${klass}) | HP ${ch.hp}/${ch.hp_max} | STA ${ch.sta}/${ch.sta_max} | lvl ${ch.level}`;
       myChar.classList.remove("muted");
     } else {
-      myChar.textContent = "Создай: char create Имя Класс";
+      myChar.textContent = "Create character first. Открой страницу персонажа: /c/<session_id>";
       myChar.classList.add("muted");
     }
   }
