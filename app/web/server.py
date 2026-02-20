@@ -286,6 +286,25 @@ def _touch_last_seen(sess: Session, player_id: uuid.UUID) -> None:
     settings_set(sess, "last_seen", m)
 
 
+def _remove_player_from_session_settings(sess: Session, player_id: uuid.UUID) -> None:
+    pid = str(player_id)
+
+    ready_map = dict(_get_ready_map(sess))
+    if pid in ready_map:
+        ready_map.pop(pid, None)
+        settings_set(sess, "ready", ready_map)
+
+    init_map = dict(_get_init_map(sess))
+    if pid in init_map:
+        init_map.pop(pid, None)
+        settings_set(sess, "initiative", init_map)
+
+    last_seen_map = dict(_get_last_seen_map(sess))
+    if pid in last_seen_map:
+        last_seen_map.pop(pid, None)
+        settings_set(sess, "last_seen", last_seen_map)
+
+
 def _parse_iso(ts: Any) -> Optional[datetime]:
     if not isinstance(ts, str) or not ts:
         return None
@@ -449,8 +468,9 @@ async def set_turn_to_order(db: AsyncSession, sess: Session, join_order: int) ->
 # State building / broadcasting
 # -------------------------
 async def build_state(db: AsyncSession, sess: Session) -> dict:
-    sps = await list_session_players(db, sess, active_only=True)
-    player_ids = [sp.player_id for sp in sps]
+    all_sps = await list_session_players(db, sess, active_only=False)
+    active_sps = [sp for sp in all_sps if sp.is_active is not False]
+    player_ids = [sp.player_id for sp in all_sps]
 
     players_by_id: dict = {}
     if player_ids:
@@ -475,7 +495,7 @@ async def build_state(db: AsyncSession, sess: Session) -> dict:
 
 
     cur_order = None
-    for sp in sps:
+    for sp in active_sps:
         if sp.player_id == sess.current_player_id:
             cur_order = sp.join_order
             break
@@ -493,10 +513,11 @@ async def build_state(db: AsyncSession, sess: Session) -> dict:
 
     ready_map = _get_ready_map(sess)
     init_map = _get_init_map(sess)
+    last_seen_map = _get_last_seen_map(sess)
 
     all_ready = True
-    if sps:
-        for sp in sps:
+    if active_sps:
+        for sp in active_sps:
             if not bool(ready_map.get(str(sp.player_id), False)):
                 all_ready = False
                 break
@@ -528,11 +549,13 @@ async def build_state(db: AsyncSession, sess: Session) -> dict:
                 "name": (players_by_id.get(sp.player_id).display_name if players_by_id.get(sp.player_id) else str(sp.player_id)),
                 "order": int(sp.join_order or 0),
                 "is_admin": bool(sp.is_admin),
-                "is_current": sp.player_id == sess.current_player_id,
-                "is_ready": bool(ready_map.get(str(sp.player_id), False)),
-                "initiative": init_map.get(str(sp.player_id)),
+                "is_current": (sp.is_active is not False) and sp.player_id == sess.current_player_id,
+                "is_active": sp.is_active is not False,
+                "is_ready": bool(ready_map.get(str(sp.player_id), False)) if sp.is_active is not False else False,
+                "initiative": init_map.get(str(sp.player_id)) if sp.is_active is not False else None,
+                "last_seen": last_seen_map.get(str(sp.player_id)),
             }
-            for sp in sps
+            for sp in all_sps
         ],
         "events": [
             {
@@ -781,6 +804,28 @@ async def ws_room(ws: WebSocket, session_id: str):
                     await ws_error("Not joined/active. Refresh page.")
                     continue
 
+                async def _process_leave_and_broadcast() -> None:
+                    if sess.current_player_id == player.id and bool(sess.is_active):
+                        await advance_turn(db, sess)
+
+                    sp.is_active = False
+                    _remove_player_from_session_settings(sess, player.id)
+
+                    active_left = await list_session_players(db, sess, active_only=True)
+                    if not active_left:
+                        sess.current_player_id = None
+                        sess.turn_started_at = None
+                        _clear_paused_remaining(sess)
+
+                    await db.commit()
+                    await add_system_event(db, sess, f"Игрок {player.display_name} вышел из игры.")
+                    await broadcast_state(session_id)
+
+                if action in ("leave", "quit", "exit"):
+                    await _process_leave_and_broadcast()
+                    await ws.close()
+                    return
+
                 _touch_last_seen(sess, player.id)
                 if action == "ping":
                     await db.commit()
@@ -949,20 +994,11 @@ async def ws_room(ws: WebSocket, session_id: str):
                         await broadcast_state(session_id)
                     continue
 
-                # leave/quit (any time)
-                if lower in ("leave", "quit"):
-                    sp.is_active = False
-                    await db.commit()
-                    _set_ready(sess, player.id, False)
-                    await db.commit()
-                    await add_system_event(db, sess, f"Игрок вышел: {player.display_name} (#{sp.join_order}).")
-                    # if it was their turn, advance turn
-                    if sess.current_player_id == player.id and not sess.is_paused:
-                        nxt = await advance_turn(db, sess)
-                        if nxt:
-                            await add_system_event(db, sess, f"Следующий ход: игрок #{nxt.join_order}.")
-                    await broadcast_state(session_id)
-                    continue
+                # leave/quit/exit (any time)
+                if lower in ("leave", "quit", "exit"):
+                    await _process_leave_and_broadcast()
+                    await ws.close()
+                    return
 
                 # admin: kick <#>
                 if lower.startswith("kick "):
@@ -1336,8 +1372,6 @@ async def inactive_watcher():
                                 q_players = await db.execute(select(Player).where(Player.id.in_(player_ids)))
                                 players_by_id = {p.id: p for p in q_players.scalars().all()}
 
-                            ready_map = dict(_get_ready_map(sess))
-                            init_map = dict(_get_init_map(sess))
                             last_seen_map = _get_last_seen_map(sess)
 
                             for sp in active_sps:
@@ -1350,27 +1384,23 @@ async def inactive_watcher():
                                 if (now - ts).total_seconds() <= INACTIVE_TIMEOUT_SECONDS:
                                     continue
 
-                                sp.is_active = False
-                                changed = True
+                                if sess.current_player_id == sp.player_id and bool(sess.is_active):
+                                    await advance_turn(db, sess)
 
-                                pid = str(sp.player_id)
-                                if pid in ready_map:
-                                    ready_map.pop(pid, None)
-                                    settings_set(sess, "ready", ready_map)
-                                if pid in init_map:
-                                    init_map.pop(pid, None)
-                                    settings_set(sess, "initiative", init_map)
+                                sp.is_active = False
+                                _remove_player_from_session_settings(sess, sp.player_id)
+                                changed = True
 
                                 pl = players_by_id.get(sp.player_id)
                                 name = pl.display_name if pl else f"#{sp.join_order}"
                                 await add_system_event(db, sess, f"Игрок {name} стал неактивен (timeout).")
 
-                                if sess.current_player_id == sp.player_id:
+                            if changed:
+                                active_left = await list_session_players(db, sess, active_only=True)
+                                if not active_left:
                                     sess.current_player_id = None
                                     sess.turn_started_at = None
-                                    await advance_turn(db, sess)
-
-                            if changed:
+                                    _clear_paused_remaining(sess)
                                 await db.commit()
                         finally:
                             request_id_var.reset(tok_rid)

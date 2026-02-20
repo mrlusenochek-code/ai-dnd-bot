@@ -26,6 +26,7 @@
     .hint-wait{color:#ffdf6c}
     .hint-bad{color:#ff7a7a}
     .player.me{border-style:dashed;}
+    .player.inactive{opacity:.5; filter:grayscale(.3);}
     button:disabled{opacity:.45; cursor:not-allowed;}
     input:disabled{opacity:.6;}
 
@@ -55,6 +56,7 @@
       <button id="btnSkip" onclick="wsAction('skip')">Skip</button>
       <button id="btnStatus" onclick="wsAction('status')">Статус</button>
       <button id="btnReady" onclick="toggleReady()">Ready</button>
+      <button id="btnLeave" onclick="leaveNow()">Выйти</button>
     </div>
 
     <div class="muted" style="margin-top:10px;">
@@ -76,6 +78,7 @@ const SESSION_ID = "{{ session_id }}";
 let ws = null;
 let lastLoggedReconnectDelaySec = null;
 let heartbeatInt = null;
+let manualLeave = false;
 
 let lastState = null;
 let uiCtx = {
@@ -98,6 +101,7 @@ function isHelp(text){ return /^help\b/i.test(normText(text)); }
 function isName(text){ return /^\/?name\b/i.test(normText(text)); }
 function isGM(text){ return /^gm\b/i.test(normText(text)); }
 function isKick(text){ return /^\/?kick\b/i.test(normText(text)); }
+function isLeave(text){ return /^\/?(leave|quit|exit)\b/i.test(normText(text)); }
 function isDice(text){ return /^(roll|adv|dis)\b/i.test(normText(text)) || /^\d+d\d+([+-]\d+)?$/i.test(normText(text)); }
 function isPass(text){ return /^(pass|end)\b/i.test(normText(text)); }
 function isWsOpen(){ return !!ws && ws.readyState === WebSocket.OPEN; }
@@ -122,6 +126,8 @@ function canSendText(text){
   if(!uiCtx.connected) return false;
 
   // always allowed
+  if(isLeave(t)) return true;
+  if(uiCtx.me && uiCtx.me.is_active === false) return false;
   if(isHelp(t) || isName(t) || isOOC(t)) return true;
   if(isGM(t)) return !!uiCtx.iAmAdmin;
   if(isKick(t)) return !!uiCtx.iAmAdmin;
@@ -147,6 +153,10 @@ function updateSendAvailability(){
   const btnReady = document.getElementById("btnReady");
   if(btnReady){
     btnReady.disabled = !uiCtx.connected;
+  }
+  const btnLeave = document.getElementById("btnLeave");
+  if(btnLeave){
+    btnLeave.disabled = !uiCtx.connected;
   }
   const btnCopyLink = document.getElementById("btnCopyLink");
   if(btnCopyLink){
@@ -176,6 +186,12 @@ function updateSendAvailability(){
     inp.classList.add('input-bad');
     hint.className = 'hintline hint-bad';
     hint.textContent = 'Нет соединения с сервером (WebSocket).';
+    return;
+  }
+  if(uiCtx.me && uiCtx.me.is_active === false){
+    inp.classList.add('input-wait');
+    hint.className = 'hintline hint-wait';
+    hint.textContent = 'Ты offline в этой сессии. Доступно только: /leave.';
     return;
   }
   if(!uiCtx.started){
@@ -333,6 +349,7 @@ function connectWS(){
 
   ws.onopen = async () => {
     uiCtx.connected = true;
+    manualLeave = false;
     reconnectDelay = 1000; // сбрасываем паузу при успешном коннекте
     lastLoggedReconnectDelaySec = null; // заново логируем ступени при следующем оффлайне
     startHeartbeat();
@@ -357,6 +374,10 @@ function connectWS(){
     stopHeartbeat();
     uiCtx.connected = false;
     updateSendAvailability();
+    if(manualLeave){
+      logLine("[client] disconnected (leave)");
+      return;
+    }
     const retrySec = Math.round(reconnectDelay / 1000);
     if(lastLoggedReconnectDelaySec !== retrySec){
       logLine(`[client] disconnected, retry in ${retrySec}s`);
@@ -386,7 +407,7 @@ function renderState(st){
   uiCtx.iAmAdmin = iAmAdmin;
   uiCtx.started = !!st.session.is_active;
   uiCtx.paused = !!st.session.is_paused;
-  uiCtx.myTurn = !!(me && me.is_current) && !uiCtx.paused;
+  uiCtx.myTurn = !!(me && me.is_current && me.is_active) && !uiCtx.paused;
 
 
   // buttons
@@ -407,10 +428,11 @@ function renderState(st){
   p.innerHTML = "";
   for(const pl of st.players){
     const div = document.createElement("div");
-    div.className = "player" + (pl.is_current ? " cur" : "") + (pl.uid === myUid ? " me" : "");
+    div.className = "player" + (pl.is_current ? " cur" : "") + (pl.uid === myUid ? " me" : "") + (!pl.is_active ? " inactive" : "");
 
-    const readyMark = pl.is_ready ? "✅" : "⏳";
+    const readyMark = pl.is_active ? (pl.is_ready ? "✅" : "⏳") : "⚪";
     const adminMark = pl.is_admin ? " [admin]" : "";
+    const offlineMark = pl.is_active ? "" : " [offline]";
     const initMark = (pl.initiative !== null && pl.initiative !== undefined) ? (" | init: " + pl.initiative) : "";
     const line = document.createElement("div");
     line.style.display = "flex";
@@ -419,7 +441,7 @@ function renderState(st){
     line.style.gap = "8px";
 
     const info = document.createElement("span");
-    info.textContent = `#${pl.order} ${readyMark} ${pl.name}${adminMark}${initMark}`;
+    info.textContent = `#${pl.order} ${readyMark} ${pl.name}${adminMark}${offlineMark}${initMark}`;
     line.appendChild(info);
 
     if(iAmAdmin && String(pl.uid) !== String(myUid)){
@@ -460,6 +482,11 @@ function sendMsg(){
   const inp = document.getElementById("msg");
   const text = (inp.value || "").trim();
   if(!text) return;
+  if(isLeave(text)){
+    inp.value = "";
+    leaveNow();
+    return;
+  }
   if(!isWsOpen()){
     logLine("[client] offline: can't send message");
     updateSendAvailability();
@@ -479,6 +506,17 @@ function sendMsg(){
   }
 
   ws.send(JSON.stringify({action:"say", text}));
+}
+
+function leaveNow(){
+  manualLeave = true;
+  if(!isWsOpen()){
+    logLine("[client] offline: can't leave");
+    return;
+  }
+  try { ws.send(JSON.stringify({action:"leave"})); } catch(_e){}
+  stopHeartbeat();
+  try { ws.close(1000, "leave"); } catch(_e){}
 }
 
 function wsAction(action){
