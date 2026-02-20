@@ -60,13 +60,16 @@
     </div>
 
     <div class="muted" style="margin-top:10px;">
-      Подсказка: <code>help</code>. Кубы не тратят ход: <code>roll 1d20+3</code>, <code>adv 1d20+3</code>, <code>dis 1d20+3</code>.
+      Подсказка: <code>help</code>, <code>char create Алена Rogue</code>, <code>me</code>, <code>hp -3</code>, <code>check wis dc15</code>, <code>check adv stealth dc14</code>.
     </div>
   </div>
 
   <div class="side">
     <h3>Игроки</h3>
     <div id="players"></div>
+
+    <h3 style="margin-top:18px;">Мой персонаж</h3>
+    <div id="myChar" class="player muted">Создай: <code>char create Имя Класс</code></div>
 
     <h3 style="margin-top:18px;">Таймер</h3>
     <div id="timer" class="player">—</div>
@@ -102,6 +105,12 @@ function isName(text){ return /^\/?name\b/i.test(normText(text)); }
 function isGM(text){ return /^gm\b/i.test(normText(text)); }
 function isKick(text){ return /^\/?kick\b/i.test(normText(text)); }
 function isLeave(text){ return /^\/?(leave|quit|exit)\b/i.test(normText(text)); }
+function isCharCmd(text){ return /^\/?char\b/i.test(normText(text)); }
+function isMeCmd(text){ return /^\/?me\b/i.test(normText(text)); }
+function isHpCmd(text){ return /^\/?hp\s+[+-]?\d+\b/i.test(normText(text)); }
+function isStaCmd(text){ return /^\/?sta\s+[+-]?\d+\b/i.test(normText(text)); }
+function isStatCmd(text){ return /^\/?stat\b/i.test(normText(text)); }
+function isCheckCmd(text){ return /^\/?check\b/i.test(normText(text)); }
 function isDice(text){ return /^(roll|adv|dis)\b/i.test(normText(text)) || /^\d+d\d+([+-]\d+)?$/i.test(normText(text)); }
 function isPass(text){ return /^(pass|end)\b/i.test(normText(text)); }
 function isWsOpen(){ return !!ws && ws.readyState === WebSocket.OPEN; }
@@ -131,6 +140,8 @@ function canSendText(text){
   if(isHelp(t) || isName(t) || isOOC(t)) return true;
   if(isGM(t)) return !!uiCtx.iAmAdmin;
   if(isKick(t)) return !!uiCtx.iAmAdmin;
+  if(isCharCmd(t) || isMeCmd(t) || isHpCmd(t) || isStaCmd(t) || isCheckCmd(t)) return true;
+  if(isStatCmd(t)) return !!uiCtx.iAmAdmin || !uiCtx.started;
 
   // turn-required commands/messages
   if(!uiCtx.started) return false;
@@ -195,16 +206,20 @@ function updateSendAvailability(){
     return;
   }
   if(!uiCtx.started){
-    // before start: only help/name/ooc/gm
+    // before start: utility commands are allowed
     inp.classList.add('input-wait');
     hint.className = 'hintline hint-wait';
-    hint.textContent = uiCtx.iAmAdmin ? 'Игра не началась: дождись готовности всех и нажми Start. Можно: help, ooc, name, gm.' : 'Игра не началась: нажми Ready. Можно: help, ooc, name.';
+    hint.textContent = uiCtx.iAmAdmin
+      ? 'Игра не началась: нажми Start когда все готовы. Можно: help, ooc, name, gm, char/me/hp/sta/check, stat.'
+      : 'Игра не началась: нажми Ready. Можно: help, ooc, name, char/me/hp/sta/check, stat (только себе).';
     return;
   }
   if(uiCtx.paused){
     inp.classList.add('input-wait');
     hint.className = 'hintline hint-wait';
-    hint.textContent = uiCtx.iAmAdmin ? 'Пауза: Resume чтобы продолжить. Можно: help, ooc, name, gm.' : 'Пауза: ждём. Можно: help, ooc, name.';
+    hint.textContent = uiCtx.iAmAdmin
+      ? 'Пауза: Resume чтобы продолжить. Можно: help, ooc, name, gm, char/me/hp/sta/check, stat.'
+      : 'Пауза: ждём. Можно: help, ooc, name, char/me/hp/sta/check.';
     return;
   }
   if(uiCtx.myTurn){
@@ -215,7 +230,7 @@ function updateSendAvailability(){
   }
   inp.classList.add('input-wait');
   hint.className = 'hintline hint-wait';
-  hint.textContent = 'Сейчас не твой ход. Можно: ooc/.., help, name' + (uiCtx.iAmAdmin ? ', gm' : '') + '.';
+  hint.textContent = 'Сейчас не твой ход. Можно: ooc/.., help, name, char/me/hp/sta/check' + (uiCtx.iAmAdmin ? ', gm, stat' : '') + '.';
 }
 
 let timerInt = null;
@@ -454,6 +469,19 @@ function renderState(st){
     }
     div.appendChild(line);
     p.appendChild(div);
+  }
+
+  const myChar = document.getElementById("myChar");
+  if(myChar){
+    const ch = me ? me.char : null;
+    if(ch){
+      const klass = ch.class_skin || ch.class_kit || "Adventurer";
+      myChar.textContent = `Персонаж: ${ch.name} (${klass}) | HP ${ch.hp}/${ch.hp_max} | STA ${ch.sta}/${ch.sta_max} | lvl ${ch.level}`;
+      myChar.classList.remove("muted");
+    } else {
+      myChar.textContent = "Создай: char create Имя Класс";
+      myChar.classList.add("muted");
+    }
   }
 
   // log

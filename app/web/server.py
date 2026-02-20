@@ -20,7 +20,7 @@ from sqlalchemy.orm.attributes import flag_modified
 from app.core.logging import configure_logging
 from app.core.log_context import request_id_var, session_id_var, uid_var, ws_conn_id_var, client_id_var
 from app.db.connection import AsyncSessionLocal
-from app.db.models import Session, Player, SessionPlayer, Event
+from app.db.models import Session, Player, SessionPlayer, Character, Skill, Event
 
 
 TURN_TIMEOUT_SECONDS = int(os.getenv("TURN_TIMEOUT_SECONDS", "300"))
@@ -28,6 +28,8 @@ INACTIVE_TIMEOUT_SECONDS = int(os.getenv("DND_INACTIVE_TIMEOUT_SECONDS", "600"))
 INACTIVE_SCAN_PERIOD_SECONDS = int(os.getenv("DND_INACTIVE_SCAN_PERIOD_SECONDS", "5"))
 DEFAULT_TIMEZONE = os.getenv("DEFAULT_TIMEZONE", "Europe/Warsaw")
 logger = logging.getLogger(__name__)
+CHAR_STAT_KEYS = ("str", "dex", "con", "int", "wis", "cha")
+CHAR_DEFAULT_STATS = {k: 50 for k in CHAR_STAT_KEYS}
 
 
 def utcnow() -> datetime:
@@ -205,6 +207,74 @@ async def list_session_players(db: AsyncSession, sess: Session, active_only: boo
         .order_by(SessionPlayer.join_order.asc())
     )
     return q.scalars().all()
+
+
+def _clamp(n: int, low: int, high: int) -> int:
+    return max(low, min(high, n))
+
+
+def _normalized_stats(stats_raw: Any) -> dict[str, int]:
+    out = dict(CHAR_DEFAULT_STATS)
+    if isinstance(stats_raw, dict):
+        for key in CHAR_STAT_KEYS:
+            if key in stats_raw:
+                out[key] = _clamp(as_int(stats_raw.get(key), 50), 0, 100)
+    return out
+
+
+def _char_to_payload(ch: Optional[Character]) -> Optional[dict]:
+    if not ch:
+        return None
+    return {
+        "name": ch.name,
+        "class_kit": ch.class_kit,
+        "class_skin": ch.class_skin,
+        "level": int(ch.level or 1),
+        "hp": int(ch.hp or 0),
+        "hp_max": int(ch.hp_max or 0),
+        "sta": int(ch.sta or 0),
+        "sta_max": int(ch.sta_max or 0),
+        "stats": _normalized_stats(ch.stats),
+    }
+
+
+async def get_character(db: AsyncSession, session_id: uuid.UUID, player_id: uuid.UUID) -> Optional[Character]:
+    q = await db.execute(
+        select(Character)
+        .where(
+            Character.session_id == session_id,
+            Character.player_id == player_id,
+        )
+        .limit(1)
+    )
+    return q.scalars().first()
+
+
+async def create_character(
+    db: AsyncSession,
+    session_id: uuid.UUID,
+    player_id: uuid.UUID,
+    name: str,
+    class_kit: str = "Adventurer",
+    class_skin: str = "Adventurer",
+) -> Character:
+    ch = Character(
+        session_id=session_id,
+        player_id=player_id,
+        name=name,
+        class_kit=class_kit,
+        class_skin=class_skin,
+        level=1,
+        hp_max=20,
+        hp=20,
+        sta_max=10,
+        sta=10,
+        stats=dict(CHAR_DEFAULT_STATS),
+    )
+    db.add(ch)
+    await db.commit()
+    await db.refresh(ch)
+    return ch
 
 
 async def is_admin(db: AsyncSession, sess: Session, player: Player) -> bool:
@@ -478,6 +548,16 @@ async def build_state(db: AsyncSession, sess: Session) -> dict:
     if player_ids:
         q = await db.execute(select(Player).where(Player.id.in_(player_ids)))
         players_by_id = {p.id: p for p in q.scalars().all()}
+    chars_by_player_id: dict[uuid.UUID, Character] = {}
+    if player_ids:
+        q_chars = await db.execute(
+            select(Character).where(
+                Character.session_id == sess.id,
+                Character.player_id.in_(player_ids),
+            )
+        )
+        for ch in q_chars.scalars().all():
+            chars_by_player_id[ch.player_id] = ch
 
     # ---------------------------------------
     q2 = await db.execute(
@@ -556,6 +636,7 @@ async def build_state(db: AsyncSession, sess: Session) -> dict:
                 "is_ready": bool(ready_map.get(str(sp.player_id), False)) if sp.is_active is not False else False,
                 "initiative": init_map.get(str(sp.player_id)) if sp.is_active is not False else None,
                 "last_seen": last_seen_map.get(str(sp.player_id)),
+                "char": _char_to_payload(chars_by_player_id.get(sp.player_id)),
             }
             for sp in all_sps
         ],
@@ -779,11 +860,12 @@ async def ws_room(ws: WebSocket, session_id: str):
 
             action = (data.get("action") or "").strip().lower()
             text = (data.get("text") or "").strip()
+            msg_request_id = data.get("request_id") if isinstance(data, dict) else None
 
             async with AsyncSessionLocal() as db:
                 sess = await get_session(db, session_id)
                 if not sess:
-                    await ws_error("Session not found")
+                    await ws_error("Session not found", request_id=msg_request_id)
                     continue
 
                 # don't overwrite name here; join sets it
@@ -802,8 +884,14 @@ async def ws_room(ws: WebSocket, session_id: str):
                     )
                 )
                 sp = q.scalar_one_or_none()
-                if not sp or sp.is_active is False:
-                    await ws_error("Not joined/active. Refresh page.")
+                if not sp:
+                    await ws_error("Not joined/active. Refresh page.", request_id=msg_request_id)
+                    continue
+                if sp.is_active is False:
+                    if action in ("leave", "quit", "exit"):
+                        await ws.close()
+                        return
+                    await ws_error("You are offline in this session", request_id=msg_request_id)
                     continue
 
                 async def _process_leave_and_broadcast() -> None:
@@ -940,7 +1028,7 @@ async def ws_room(ws: WebSocket, session_id: str):
 
                 # chat / command parsing
                 if action != "say":
-                    await ws_error("Unknown action")
+                    await ws_error("Unknown action", request_id=msg_request_id)
                     continue
 
                 if not text:
@@ -982,6 +1070,216 @@ async def ws_room(ws: WebSocket, session_id: str):
                         "leave (выйти), kick <#> (админ), turn <#> (админ), "
                         "init / init roll / init set <#> <val> / init start / init clear (админ)."
                     )
+                    await broadcast_state(session_id)
+                    continue
+
+                if lower == "char":
+                    await add_system_event(
+                        db,
+                        sess,
+                        "Character commands: char create <Name> [Class], me, hp <+N|-N|N>, sta <+N|-N|N>, "
+                        "stat <str|dex|con|int|wis|cha> <0..100>, check [adv|dis] <stat_or_skill> [dc N].",
+                    )
+                    await broadcast_state(session_id)
+                    continue
+
+                m_char_create = re.match(r"^char\s+create\s+(.+)$", cmdline, re.IGNORECASE)
+                if m_char_create:
+                    payload = m_char_create.group(1).strip()
+                    if not payload:
+                        await ws_error("Usage: char create <Name> [Class]", request_id=msg_request_id)
+                        continue
+                    ch_existing = await get_character(db, sess.id, player.id)
+                    if ch_existing:
+                        await ws_error("Character already exists", request_id=msg_request_id)
+                        continue
+                    parts = payload.split()
+                    ch_name = parts[0][:80]
+                    ch_class = (parts[1] if len(parts) > 1 else "Adventurer")[:40]
+                    await create_character(
+                        db,
+                        sess.id,
+                        player.id,
+                        name=ch_name,
+                        class_kit=ch_class,
+                        class_skin=ch_class,
+                    )
+                    await add_system_event(db, sess, f"Character created: {ch_name} ({ch_class}) for player #{sp.join_order}.")
+                    await broadcast_state(session_id)
+                    continue
+
+                if lower == "me":
+                    ch = await get_character(db, sess.id, player.id)
+                    if not ch:
+                        await ws_error("No character. Use: char create ...", request_id=msg_request_id)
+                        continue
+                    stats = _normalized_stats(ch.stats)
+                    await add_system_event(
+                        db,
+                        sess,
+                        f"[ME] {ch.name} ({ch.class_kit}) lvl {int(ch.level or 1)} | "
+                        f"HP {int(ch.hp or 0)}/{int(ch.hp_max or 0)} | STA {int(ch.sta or 0)}/{int(ch.sta_max or 0)} | "
+                        f"STR {stats['str']} DEX {stats['dex']} CON {stats['con']} INT {stats['int']} WIS {stats['wis']} CHA {stats['cha']}",
+                    )
+                    await broadcast_state(session_id)
+                    continue
+
+                m_res = re.match(r"^(hp|sta)\s+([+-]?\d+)$", lower, re.IGNORECASE)
+                if m_res:
+                    ch = await get_character(db, sess.id, player.id)
+                    if not ch:
+                        await ws_error("No character. Use: char create ...", request_id=msg_request_id)
+                        continue
+                    key = m_res.group(1).lower()
+                    raw_val = m_res.group(2)
+                    delta_or_value = as_int(raw_val, 0)
+                    cur_attr = "hp" if key == "hp" else "sta"
+                    max_attr = "hp_max" if key == "hp" else "sta_max"
+                    cur = as_int(getattr(ch, cur_attr), 0)
+                    max_v = max(0, as_int(getattr(ch, max_attr), 0))
+                    if raw_val.startswith("+") or raw_val.startswith("-"):
+                        nxt = _clamp(cur + delta_or_value, 0, max_v)
+                    else:
+                        nxt = _clamp(delta_or_value, 0, max_v)
+                    setattr(ch, cur_attr, nxt)
+                    await db.commit()
+                    await add_system_event(db, sess, f"{ch.name}: {key.upper()} {cur}->{nxt}/{max_v}")
+                    await broadcast_state(session_id)
+                    continue
+
+                if lower.startswith("stat "):
+                    parts = cmdline.split()
+                    if len(parts) < 3 or len(parts) > 4:
+                        await ws_error("Usage: stat <str|dex|con|int|wis|cha> <0..100>", request_id=msg_request_id)
+                        continue
+
+                    admin = await is_admin(db, sess, player)
+                    target_sp = sp
+
+                    if len(parts) == 4:
+                        maybe_order = parts[1].lstrip("#")
+                        if not maybe_order.isdigit():
+                            await ws_error("Usage: stat #<order> <stat> <0..100>", request_id=msg_request_id)
+                            continue
+                        target_order = as_int(maybe_order, 0)
+                        if target_order <= 0:
+                            await ws_error("Usage: stat #<order> <stat> <0..100>", request_id=msg_request_id)
+                            continue
+                        sps_all = await list_session_players(db, sess, active_only=False)
+                        target_sp = next((x for x in sps_all if int(x.join_order or 0) == target_order), None)
+                        if not target_sp:
+                            await ws_error("Player not found", request_id=msg_request_id)
+                            continue
+                        stat_key = parts[2].lower()
+                        stat_val = as_int(parts[3], -1)
+                    else:
+                        stat_key = parts[1].lower()
+                        stat_val = as_int(parts[2], -1)
+
+                    if stat_key not in CHAR_STAT_KEYS:
+                        await ws_error("Unknown stat key", request_id=msg_request_id)
+                        continue
+                    if stat_val < 0 or stat_val > 100:
+                        await ws_error("Stat must be 0..100", request_id=msg_request_id)
+                        continue
+                    if sess.is_active and not admin:
+                        await ws_error("Only admin can change stats after start", request_id=msg_request_id)
+                        continue
+                    if not admin and target_sp.player_id != player.id:
+                        await ws_error("You can change only your own stats before start", request_id=msg_request_id)
+                        continue
+
+                    target_ch = await get_character(db, sess.id, target_sp.player_id)
+                    if not target_ch:
+                        await ws_error("No character. Use: char create ...", request_id=msg_request_id)
+                        continue
+
+                    stats = _normalized_stats(target_ch.stats)
+                    old_val = stats.get(stat_key, 50)
+                    stats[stat_key] = stat_val
+                    target_ch.stats = stats
+                    await db.commit()
+                    await add_system_event(
+                        db,
+                        sess,
+                        f"[STAT] #{target_sp.join_order} {target_ch.name}: {stat_key} {old_val}->{stat_val}",
+                    )
+                    await broadcast_state(session_id)
+                    continue
+
+                if lower.startswith("check"):
+                    parts = cmdline.split()
+                    if len(parts) < 2:
+                        await ws_error("Usage: check [adv|dis] <stat_or_skill> [dc N]", request_id=msg_request_id)
+                        continue
+                    mode = "roll"
+                    idx = 1
+                    if idx < len(parts) and parts[idx].lower() in ("adv", "dis"):
+                        mode = parts[idx].lower()
+                        idx += 1
+                    if idx >= len(parts):
+                        await ws_error("Usage: check [adv|dis] <stat_or_skill> [dc N]", request_id=msg_request_id)
+                        continue
+
+                    key = parts[idx].lower()
+                    idx += 1
+                    dc: Optional[int] = None
+                    if idx < len(parts):
+                        tok = parts[idx].lower()
+                        if tok.startswith("dc"):
+                            if tok == "dc":
+                                if idx + 1 >= len(parts):
+                                    await ws_error("Usage: check ... dc <N>", request_id=msg_request_id)
+                                    continue
+                                dc = as_int(parts[idx + 1], -1)
+                                idx += 2
+                            else:
+                                dc = as_int(tok[2:], -1)
+                                idx += 1
+                        else:
+                            await ws_error("Usage: check [adv|dis] <stat_or_skill> [dc N]", request_id=msg_request_id)
+                            continue
+                    if idx != len(parts):
+                        await ws_error("Usage: check [adv|dis] <stat_or_skill> [dc N]", request_id=msg_request_id)
+                        continue
+                    if dc is not None and dc < 0:
+                        await ws_error("DC must be >= 0", request_id=msg_request_id)
+                        continue
+
+                    ch = await get_character(db, sess.id, player.id)
+                    if not ch:
+                        await ws_error("No character. Use: char create ...", request_id=msg_request_id)
+                        continue
+
+                    if key in CHAR_STAT_KEYS:
+                        stat_val = _normalized_stats(ch.stats).get(key, 50)
+                        mod = _clamp(int((stat_val - 50) / 10), -5, 5)
+                    else:
+                        q_skill = await db.execute(
+                            select(Skill).where(
+                                Skill.character_id == ch.id,
+                                Skill.skill_key == key,
+                            )
+                        )
+                        sk = q_skill.scalar_one_or_none()
+                        mod = _clamp(as_int(sk.rank, 0), 0, 10) if sk else 0
+
+                    if mode == "roll":
+                        roll = random.randint(1, 20)
+                        total = roll + mod
+                        rolls_text = str(roll)
+                    else:
+                        ra = random.randint(1, 20)
+                        rb = random.randint(1, 20)
+                        roll = max(ra, rb) if mode == "adv" else min(ra, rb)
+                        total = roll + mod
+                        rolls_text = f"{ra}/{rb}->{roll}"
+
+                    msg = f"[CHECK] {ch.name}: {key} = {rolls_text} + {mod:+d} => {total}"
+                    if dc is not None:
+                        ok = total >= dc
+                        msg += f" (DC {dc}) {'SUCCESS' if ok else 'FAIL'}"
+                    await add_system_event(db, sess, msg)
                     await broadcast_state(session_id)
                     continue
 
