@@ -75,6 +75,7 @@
 const SESSION_ID = "{{ session_id }}";
 let ws = null;
 let lastLoggedReconnectDelaySec = null;
+let heartbeatInt = null;
 
 let lastState = null;
 let uiCtx = {
@@ -100,6 +101,20 @@ function isKick(text){ return /^\/?kick\b/i.test(normText(text)); }
 function isDice(text){ return /^(roll|adv|dis)\b/i.test(normText(text)) || /^\d+d\d+([+-]\d+)?$/i.test(normText(text)); }
 function isPass(text){ return /^(pass|end)\b/i.test(normText(text)); }
 function isWsOpen(){ return !!ws && ws.readyState === WebSocket.OPEN; }
+function stopHeartbeat(){
+  if(heartbeatInt){
+    clearInterval(heartbeatInt);
+    heartbeatInt = null;
+  }
+}
+function startHeartbeat(){
+  stopHeartbeat();
+  heartbeatInt = setInterval(() => {
+    if(isWsOpen()){
+      ws.send(JSON.stringify({action:"ping"}));
+    }
+  }, 15000);
+}
 
 function canSendText(text){
   const t = normText(text);
@@ -320,6 +335,7 @@ function connectWS(){
     uiCtx.connected = true;
     reconnectDelay = 1000; // сбрасываем паузу при успешном коннекте
     lastLoggedReconnectDelaySec = null; // заново логируем ступени при следующем оффлайне
+    startHeartbeat();
     logLine("[client] connected");
     updateSendAvailability();
 
@@ -338,6 +354,7 @@ function connectWS(){
   };
 
   ws.onclose = () => {
+    stopHeartbeat();
     uiCtx.connected = false;
     updateSendAvailability();
     const retrySec = Math.round(reconnectDelay / 1000);

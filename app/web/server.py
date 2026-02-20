@@ -4,7 +4,7 @@ import logging
 import os
 import random
 import re
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import uuid
 from typing import Any, Optional
 
@@ -24,6 +24,8 @@ from app.db.models import Session, Player, SessionPlayer, Event
 
 
 TURN_TIMEOUT_SECONDS = int(os.getenv("TURN_TIMEOUT_SECONDS", "300"))
+INACTIVE_TIMEOUT_SECONDS = int(os.getenv("DND_INACTIVE_TIMEOUT_SECONDS", "600"))
+INACTIVE_SCAN_PERIOD_SECONDS = int(os.getenv("DND_INACTIVE_SCAN_PERIOD_SECONDS", "5"))
 DEFAULT_TIMEZONE = os.getenv("DEFAULT_TIMEZONE", "Europe/Warsaw")
 logger = logging.getLogger(__name__)
 
@@ -264,6 +266,36 @@ def _get_init_map(sess: Session) -> dict[str, int]:
     for k, v in raw.items():
         out[str(k)] = as_int(v, 0)
     return out
+
+
+def _get_last_seen_map(sess: Session) -> dict[str, str]:
+    raw = settings_get(sess, "last_seen", {}) or {}
+    out: dict[str, str] = {}
+    if not isinstance(raw, dict):
+        return out
+    for k, v in raw.items():
+        if k is None or v is None:
+            continue
+        out[str(k)] = str(v)
+    return out
+
+
+def _touch_last_seen(sess: Session, player_id: uuid.UUID) -> None:
+    m = dict(_get_last_seen_map(sess))
+    m[str(player_id)] = utcnow().isoformat()
+    settings_set(sess, "last_seen", m)
+
+
+def _parse_iso(ts: Any) -> Optional[datetime]:
+    if not isinstance(ts, str) or not ts:
+        return None
+    try:
+        dt = datetime.fromisoformat(ts)
+    except Exception:
+        return None
+    if dt.tzinfo is not None:
+        dt = dt.astimezone(timezone.utc).replace(tzinfo=None)
+    return dt
 
 
 def _set_init_value(sess: Session, player_id: uuid.UUID, value: int) -> None:
@@ -614,11 +646,14 @@ async def api_join(payload: dict):
             # reactivate if they had left
             if sp.is_active is False:
                 sp.is_active = True
-                await db.commit()
                 _set_ready(sess, player.id, False)
+                _touch_last_seen(sess, player.id)
                 await db.commit()
                 await add_system_event(db, sess, f"Игрок вернулся: {player.display_name} (#{sp.join_order}).")
                 await broadcast_state(session_id)
+                return JSONResponse({"ok": True})
+            _touch_last_seen(sess, player.id)
+            await db.commit()
             return JSONResponse({"ok": True})
 
         q2 = await db.execute(select(SessionPlayer.join_order).where(SessionPlayer.session_id == sess.id))
@@ -633,9 +668,8 @@ async def api_join(payload: dict):
             is_active=True,
         )
         db.add(sp)
-        await db.commit()
-
         _set_ready(sess, player.id, False)
+        _touch_last_seen(sess, player.id)
         await db.commit()
 
         await add_system_event(db, sess, f"Игрок присоединился: {player.display_name} (#{join_order}).")
@@ -746,6 +780,12 @@ async def ws_room(ws: WebSocket, session_id: str):
                 if not sp or sp.is_active is False:
                     await ws_error("Not joined/active. Refresh page.")
                     continue
+
+                _touch_last_seen(sess, player.id)
+                if action == "ping":
+                    await db.commit()
+                    continue
+                await db.commit()
 
                 # ready/unready actions (do not require game started)
                 if action in ("ready", "unready"):
@@ -1265,8 +1305,88 @@ async def timer_watcher():
         await asyncio.sleep(1)
 
 
+async def inactive_watcher():
+    while True:
+        try:
+            room_session_ids: list[uuid.UUID] = []
+            for sid_raw in list(manager.rooms.keys()):
+                try:
+                    room_session_ids.append(uuid.UUID(str(sid_raw)))
+                except Exception:
+                    continue
+
+            if room_session_ids:
+                async with AsyncSessionLocal() as db:
+                    q = await db.execute(select(Session).where(Session.id.in_(room_session_ids)))
+                    sessions = q.scalars().all()
+                    now = utcnow()
+
+                    for sess in sessions:
+                        tok_rid = request_id_var.set(_new_request_id())
+                        tok_sid = session_id_var.set(str(sess.id))
+                        changed = False
+                        try:
+                            active_sps = await list_session_players(db, sess, active_only=True)
+                            if not active_sps:
+                                continue
+
+                            player_ids = [sp.player_id for sp in active_sps]
+                            players_by_id: dict[uuid.UUID, Player] = {}
+                            if player_ids:
+                                q_players = await db.execute(select(Player).where(Player.id.in_(player_ids)))
+                                players_by_id = {p.id: p for p in q_players.scalars().all()}
+
+                            ready_map = dict(_get_ready_map(sess))
+                            init_map = dict(_get_init_map(sess))
+                            last_seen_map = _get_last_seen_map(sess)
+
+                            for sp in active_sps:
+                                ts = _parse_iso(last_seen_map.get(str(sp.player_id)))
+                                if ts is None:
+                                    _touch_last_seen(sess, sp.player_id)
+                                    changed = True
+                                    continue
+
+                                if (now - ts).total_seconds() <= INACTIVE_TIMEOUT_SECONDS:
+                                    continue
+
+                                sp.is_active = False
+                                changed = True
+
+                                pid = str(sp.player_id)
+                                if pid in ready_map:
+                                    ready_map.pop(pid, None)
+                                    settings_set(sess, "ready", ready_map)
+                                if pid in init_map:
+                                    init_map.pop(pid, None)
+                                    settings_set(sess, "initiative", init_map)
+
+                                pl = players_by_id.get(sp.player_id)
+                                name = pl.display_name if pl else f"#{sp.join_order}"
+                                await add_system_event(db, sess, f"Игрок {name} стал неактивен (timeout).")
+
+                                if sess.current_player_id == sp.player_id:
+                                    sess.current_player_id = None
+                                    sess.turn_started_at = None
+                                    await advance_turn(db, sess)
+
+                            if changed:
+                                await db.commit()
+                        finally:
+                            request_id_var.reset(tok_rid)
+                            session_id_var.reset(tok_sid)
+
+                        if changed:
+                            await broadcast_state(str(sess.id))
+        except Exception:
+            logger.exception("inactive_watcher iteration failed")
+
+        await asyncio.sleep(INACTIVE_SCAN_PERIOD_SECONDS)
+
+
 @app.on_event("startup")
 async def on_startup():
     configure_logging()
     logger.info("Web server starting")
     asyncio.create_task(timer_watcher())
+    asyncio.create_task(inactive_watcher())
