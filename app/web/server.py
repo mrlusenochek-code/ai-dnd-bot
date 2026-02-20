@@ -469,6 +469,8 @@ async def set_turn_to_order(db: AsyncSession, sess: Session, join_order: int) ->
 # -------------------------
 async def build_state(db: AsyncSession, sess: Session) -> dict:
     all_sps = await list_session_players(db, sess, active_only=False)
+    kicked = _get_kicked(sess)
+    all_sps = [sp for sp in all_sps if str(sp.player_id) not in kicked]
     active_sps = [sp for sp in all_sps if sp.is_active is not False]
     player_ids = [sp.player_id for sp in all_sps]
 
