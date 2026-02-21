@@ -378,7 +378,7 @@ def _infer_initial_zone(lore_text: str, last_gm_text: str) -> str:
     src = f"{lore_text}\n{last_gm_text}".lower()
     if "таверн" in src:
         return "таверна"
-    return "стартовая локация (вместе)"
+    return "стартовая локация"
 
 
 def _split_red_flags(raw: Any) -> list[str]:
@@ -1128,7 +1128,7 @@ def _inventory_state_line(ch: Optional[Character]) -> str:
 
 
 def _format_state_text_for_player(sess: Session, player: Player, ch: Optional[Character]) -> str:
-    zone = _get_pc_positions(sess).get(str(player.id), "стартовая локация (вместе)")
+    zone = _get_pc_positions(sess).get(str(player.id), "стартовая локация")
     char_name = str(ch.name).strip() if ch and str(ch.name or "").strip() else "(персонаж не создан)"
     hp_sta = "HP/STA: —"
     if ch:
@@ -1242,6 +1242,13 @@ def _sanitize_gm_output(text: str) -> str:
     )
     txt = re.sub(r"\bя\s+не\s+могу[^.!?\n]{0,260}[.!?]?", "Сцена продолжается.", txt, flags=re.IGNORECASE)
     txt = re.sub(r"\bне\s+могу\s+продолжить[^.!?\n]{0,260}[.!?]?", "Сцена продолжается.", txt, flags=re.IGNORECASE)
+    txt = re.sub(r"\bAppears to be\b[^.!?\n]{0,120}[.!?]?", "", txt, flags=re.IGNORECASE)
+    txt = re.sub(
+        r"\bвы\s+(?:решили|решаете|выбрали|выбираете|делаете\s+выбор)\b[^.!?\n]{0,220}[.!?]?",
+        "",
+        txt,
+        flags=re.IGNORECASE,
+    )
 
     fragments = re.findall(r"[^.!?\n]+[.!?]?|\n+", txt, flags=re.DOTALL)
     kept: list[str] = []
@@ -1256,6 +1263,67 @@ def _sanitize_gm_output(text: str) -> str:
             continue
         kept.append(frag)
     txt = "".join(kept)
+
+    deduped_lines: list[str] = []
+    variants_header_seen = False
+    prev_norm = ""
+    for line in txt.splitlines():
+        stripped = line.strip()
+        if re.match(r"^варианты\s+действий\s*:?\s*$", stripped, flags=re.IGNORECASE):
+            if variants_header_seen:
+                continue
+            variants_header_seen = True
+            line = "Варианты действий:"
+            stripped = line
+        if stripped and not stripped.startswith("@@"):
+            if (
+                len(stripped) <= 140
+                and re.search(r"[A-Za-z]", stripped)
+                and not re.search(r"[А-Яа-яЁё]", stripped)
+                and len(re.findall(r"[A-Za-z]{2,}", stripped)) >= 2
+            ):
+                continue
+        norm = re.sub(r"\s+", " ", stripped).strip().lower()
+        if norm and norm == prev_norm:
+            continue
+        if norm:
+            prev_norm = norm
+        deduped_lines.append(line)
+    txt = "\n".join(deduped_lines)
+
+    lines = txt.splitlines()
+    q_idx: Optional[int] = None
+    for i, line in enumerate(lines):
+        if re.search(r"что\s+делаете\s+дальше\??", line, flags=re.IGNORECASE):
+            q_idx = i
+            break
+    if q_idx is not None:
+        option_re = re.compile(r"^\s*(?:-\s+.+|\d+\)\s+.+)$")
+        header_re = re.compile(r"^варианты\s+действий\s*:?\s*$", flags=re.IGNORECASE)
+        options: list[str] = []
+        header_found = False
+        i = q_idx + 1
+        while i < len(lines):
+            ln = lines[i]
+            stripped = ln.strip()
+            if not stripped:
+                i += 1
+                continue
+            if header_re.match(stripped):
+                header_found = True
+                i += 1
+                continue
+            if option_re.match(ln):
+                options.append(ln.rstrip())
+                i += 1
+                continue
+            break
+        if len(options) >= 2:
+            rebuilt = lines[: q_idx + 1]
+            if header_found:
+                rebuilt.append("Варианты действий:")
+            rebuilt.extend(options[:4])
+            txt = "\n".join(rebuilt)
 
     txt = re.sub(r"[ \t]{2,}", " ", txt)
     txt = re.sub(r"[ \t]*\n[ \t]*", "\n", txt)
@@ -1456,7 +1524,7 @@ def _build_positions_block_for_prompt(
             if ch and str(ch.name or "").strip()
             else (str(pl.display_name or "").strip() or f"Игрок #{sp.join_order}")
         )
-        zone = positions.get(str(sp.player_id), "стартовая локация (вместе)")
+        zone = positions.get(str(sp.player_id), "стартовая локация")
         rows.append(f"- {actor_name} (#{uid}): {zone}")
     return "\n".join(rows) if rows else "- (нет активных игроков)"
 
@@ -1670,7 +1738,7 @@ def _set_pc_zone(sess: Session, player_id: uuid.UUID, zone: str) -> None:
 
 
 def _initialize_pc_positions(sess: Session, player_ids: list[uuid.UUID], default_zone: str) -> None:
-    zone = str(default_zone or "").strip() or "стартовая локация (вместе)"
+    zone = str(default_zone or "").strip() or "стартовая локация"
     m: dict[str, str] = {}
     for pid in player_ids:
         m[str(pid)] = zone
@@ -2025,7 +2093,7 @@ async def build_state(db: AsyncSession, sess: Session) -> dict:
                 "last_seen": last_seen_map.get(str(sp.player_id)),
                 "char": _char_to_payload(chars_by_player_id.get(sp.player_id)),
                 "has_character": chars_by_player_id.get(sp.player_id) is not None,
-                "zone": positions.get(str(sp.player_id), "стартовая локация (вместе)"),
+                "zone": positions.get(str(sp.player_id), "стартовая локация"),
             }
         )
 
@@ -2034,7 +2102,7 @@ async def build_state(db: AsyncSession, sess: Session) -> dict:
         pl = players_by_id.get(sp.player_id)
         uid = _player_uid(pl)
         key = str(uid) if uid is not None else str(sp.player_id)
-        zone = positions.get(str(sp.player_id), "стартовая локация (вместе)")
+        zone = positions.get(str(sp.player_id), "стартовая локация")
         pc_positions[key] = zone
 
     return {
@@ -2100,6 +2168,11 @@ def _build_turn_draft_prompt(
         "Нельзя продолжать прошлую сцену, игнорируя новое действие.\n"
         "Не цитируй действие игрока дословно: перефразируй атмосферно, но строго сохрани смысл.\n"
         "Если в одном сообщении игрок дал два связанных действия — обработай оба.\n"
+        "Игрок выбирает сам: запрещено писать 'Вы решили/выбрали/решаете/выбираете/вы делаете выбор'.\n"
+        "Если задаёшь 'Что делаете дальше?' и варианты, дай РОВНО 2-4 варианта и сразу остановись.\n"
+        "После списка вариантов нельзя продолжать сцену и нельзя описывать выбранный вариант.\n"
+        "Заголовок 'Варианты действий:' можно писать не более одного раза, дубли вариантов запрещены.\n"
+        "Строго только русский язык: не вставляй английские фразы.\n"
         "Если в действии есть обращение/вопрос без темы, отыграй приветствие и задай уточняющий вопрос по сцене.\n"
         "Если действие ломает сцену (побег из боя, уход из разговора, побег из тюрьмы), не отказывай: оформи попыткой через @@CHECK.\n"
         "Для таких попыток можно использовать dex/cha/wis; в опасной ситуации повышай DC.\n"
@@ -2159,6 +2232,11 @@ def _build_round_draft_prompt(
         "Нельзя продолжать прошлую сцену, игнорируя новые действия.\n"
         "Не цитируй действия игроков дословно: перефразируй атмосферно, но строго сохрани смысл каждого действия.\n"
         "Если в одном сообщении игрок дал два связанных действия — обработай оба.\n"
+        "Игрок выбирает сам: запрещено писать 'Вы решили/выбрали/решаете/выбираете/вы делаете выбор'.\n"
+        "Если задаёшь 'Что делаете дальше?' и варианты, дай РОВНО 2-4 варианта и сразу остановись.\n"
+        "После списка вариантов нельзя продолжать сцену и нельзя описывать выбранный вариант.\n"
+        "Заголовок 'Варианты действий:' можно писать не более одного раза, дубли вариантов запрещены.\n"
+        "Строго только русский язык: не вставляй английские фразы.\n"
         "Если в действии есть обращение/вопрос без темы, отыграй приветствие и задай уточняющий вопрос по сцене.\n"
         "Если действие ломает сцену (побег из боя, уход из разговора, побег из тюрьмы), не отказывай: оформи попыткой через @@CHECK.\n"
         "Для таких попыток можно использовать dex/cha/wis; в опасной ситуации повышай DC.\n"
@@ -2202,7 +2280,8 @@ def _build_round_draft_prompt(
         f"Позиции персонажей (важно):\n{positions_block}\n\n"
         f"Действия игроков в этом раунде:\n{acts}\n\n"
         + (f"Заметки мастеру: {notes}\n\n" if notes else "")
-        + "Черновик должен заканчиваться строкой 'Что делаете дальше?' и, если уместно, 2-4 краткими вариантами действий списком.\n"
+        + "Черновик должен заканчиваться строкой 'Что делаете дальше?' и, если уместно, РОВНО 2-4 краткими вариантами действий списком.\n"
+        + "После списка вариантов нельзя продолжать сцену.\n"
         + "Варианты должны быть нейтральными, без оценок, морали и нравоучений."
     )
 
@@ -2215,6 +2294,11 @@ def _build_finalize_prompt(draft_text: str, check_results: list[dict[str, Any]])
         "ПЕРВЫМ ДЕЛОМ обработай новое действие игрока/игроков из черновика, не продолжай прошлую сцену по инерции.\n"
         "Не цитируй действия игроков дословно: перефразируй атмосферно, но строго сохрани смысл.\n"
         "Если в одном сообщении есть два связанных действия — обработай оба.\n"
+        "Игрок выбирает сам: запрещено писать 'Вы решили/выбрали/решаете/выбираете/вы делаете выбор'.\n"
+        "Если задаёшь 'Что делаете дальше?' и варианты, дай РОВНО 2-4 варианта и сразу остановись.\n"
+        "После списка вариантов нельзя продолжать сцену и нельзя описывать выбранный вариант.\n"
+        "Заголовок 'Варианты действий:' можно писать не более одного раза, дубли вариантов запрещены.\n"
+        "Строго только русский язык: не вставляй английские фразы.\n"
         "Если в действии есть обращение/вопрос без темы, отыграй приветствие и задай уточняющий вопрос по сцене.\n"
         "Если действие ломает сцену (побег из боя, уход из разговора, побег из тюрьмы), не отказывай: оформи попыткой через @@CHECK.\n"
         "Для таких попыток можно использовать dex/cha/wis; в опасной ситуации повышай DC.\n"
@@ -2243,7 +2327,8 @@ def _build_finalize_prompt(draft_text: str, check_results: list[dict[str, Any]])
         "Не пиши извинения и отказы ('извиняюсь', 'я не могу', 'не могу продолжить'). Вместо этого продолжай сцену мягко.\n"
         "ВАЖНО: в финальном ответе не должно быть @@CHECK и @@CHECK_RESULT.\n"
         "Не проси игроков бросать кости вручную.\n\n"
-        "Завершай ответ строкой 'Что делаете дальше?' и, если уместно, дай 2-4 кратких варианта действий списком.\n"
+        "Завершай ответ строкой 'Что делаете дальше?' и, если уместно, дай РОВНО 2-4 кратких варианта действий списком.\n"
+        "После списка вариантов нельзя продолжать сцену.\n"
         "Варианты должны быть нейтральными, без оценок, морали и нравоучений.\n\n"
         f"Черновик:\n{draft_text}\n\n"
         f"Результаты проверок:\n{results_block}"
@@ -4130,7 +4215,7 @@ async def ws_room(ws: WebSocket, session_id: str):
 
                     round_actions[pid] = text
                     settings_set(sess, "round_actions", round_actions)
-                    current_zone = _get_pc_positions(sess).get(pid, "стартовая локация (вместе)")
+                    current_zone = _get_pc_positions(sess).get(pid, "стартовая локация")
                     _set_pc_zone(sess, player.id, infer_zone_from_action(text, current_zone))
                     actor_label = await _event_actor_label(db, sess, player)
                     await add_event(db, sess, f"{actor_label}: {text}", actor_player_id=player.id)
@@ -4162,13 +4247,14 @@ async def ws_room(ws: WebSocket, session_id: str):
                 actor_label = await _event_actor_label(db, sess, player)
                 await add_event(db, sess, f"{actor_label}: {text}", actor_player_id=player.id)
                 pid = str(player.id)
-                current_zone = _get_pc_positions(sess).get(pid, "стартовая локация (вместе)")
+                current_zone = _get_pc_positions(sess).get(pid, "стартовая локация")
                 _set_pc_zone(sess, player.id, infer_zone_from_action(text, current_zone))
                 action_id = _new_action_id()
                 _set_current_action_id(sess, action_id)
                 _set_phase(sess, "gm_pending")
                 sess.turn_started_at = None
                 await db.commit()
+                await add_system_event(db, sess, "Мастер обрабатывает действие...")
                 await broadcast_state(session_id)
                 asyncio.create_task(_auto_gm_reply_task(session_id, action_id))
                 continue
