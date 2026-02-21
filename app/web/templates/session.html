@@ -29,6 +29,19 @@
     .player.inactive{opacity:.5; filter:grayscale(.3);}
     button:disabled{opacity:.45; cursor:not-allowed;}
     input:disabled{opacity:.6;}
+    .char-card{cursor:pointer; transition:box-shadow .15s ease, border-color .15s ease, transform .15s ease;}
+    .char-card:hover{border-color:#5a8dff; box-shadow:0 6px 14px rgba(0,0,0,.18); transform:translateY(-1px);}
+    .char-card:focus-visible{outline:2px solid #5a8dff; outline-offset:2px;}
+    .char-modal{position:fixed; inset:0; background:rgba(0,0,0,.55); display:none; align-items:center; justify-content:center; padding:16px; z-index:1000;}
+    .char-modal.open{display:flex;}
+    .char-modal-window{width:min(680px,100%); max-height:85vh; overflow:auto; background:#fff; border-radius:12px; border:1px solid #dcdcdc; box-shadow:0 18px 48px rgba(0,0,0,.3); padding:16px 16px 14px;}
+    .char-modal-head{display:flex; align-items:flex-start; justify-content:space-between; gap:10px; margin-bottom:10px;}
+    .char-modal-title{margin:0; font-size:20px;}
+    .char-modal-close{padding:4px 10px; font-size:20px; line-height:1; border:1px solid #cfcfcf; border-radius:8px; background:#fafafa; cursor:pointer;}
+    .char-grid{display:grid; gap:8px;}
+    .char-line{padding:8px 10px; border:1px solid #ececec; border-radius:8px; background:#fafafa; white-space:pre-wrap;}
+    .char-list{margin:0; padding-left:20px;}
+    .char-list li{margin:4px 0;}
 
   </style>
 </head>
@@ -69,13 +82,23 @@
     <div id="players"></div>
 
     <h3 style="margin-top:18px;">Мой персонаж</h3>
-    <div id="myChar" class="player muted">Создай: <code>char create Имя Класс</code></div>
-    <div class="row" style="margin-top:8px;">
+    <div id="myChar" class="player muted char-card" role="button" tabindex="0" title="Открыть карточку персонажа">Создай: <code>char create Имя Класс</code></div>
+    <div id="charActionRow" class="row" style="margin-top:8px;">
       <button id="btnGoChar" onclick="location.href='/c/' + SESSION_ID;">Создать/изменить персонажа</button>
     </div>
 
     <h3 style="margin-top:18px;">Таймер</h3>
     <div id="timer" class="player">—</div>
+  </div>
+</div>
+
+<div id="charModal" class="char-modal" aria-hidden="true">
+  <div class="char-modal-window" role="dialog" aria-modal="true" aria-labelledby="charModalTitle">
+    <div class="char-modal-head">
+      <h3 id="charModalTitle" class="char-modal-title">Карточка персонажа</h3>
+      <button id="charModalClose" class="char-modal-close" type="button" aria-label="Закрыть">×</button>
+    </div>
+    <div id="charModalBody" class="char-grid"></div>
   </div>
 </div>
 
@@ -295,6 +318,90 @@ function setNameLocal(newName){
 function escapeHtml(s){
   return (s||"").replaceAll("&","&amp;").replaceAll("<","&lt;").replaceAll(">","&gt;");
 }
+function prettyStatValue(ch, keys){
+  const stats = (ch && typeof ch.stats === "object" && ch.stats) ? ch.stats : {};
+  for(const key of keys){
+    const v = stats[key];
+    if(v !== null && v !== undefined && v !== ""){
+      return v;
+    }
+  }
+  return "—";
+}
+function renderInventoryHtml(inv){
+  if(!Array.isArray(inv) || inv.length === 0){
+    return "<div class='char-line'><strong>Инвентарь:</strong> пусто</div>";
+  }
+  const rows = [];
+  for(const raw of inv){
+    if(!raw || typeof raw !== "object") continue;
+    const name = String(raw.name || "").trim();
+    if(!name) continue;
+    const qtyRaw = Number(raw.qty);
+    const qty = Number.isFinite(qtyRaw) ? Math.max(1, Math.floor(qtyRaw)) : 1;
+    rows.push(`<li>${escapeHtml(name)} x${qty}</li>`);
+  }
+  if(rows.length === 0){
+    return "<div class='char-line'><strong>Инвентарь:</strong> пусто</div>";
+  }
+  return `<div class='char-line'><strong>Инвентарь:</strong><ul class='char-list'>${rows.join("")}</ul></div>`;
+}
+function getCharacterFromState(){
+  if(!lastState || !Array.isArray(lastState.players)) return null;
+  const myUid = getUID();
+  const me = lastState.players.find(p => p.uid === myUid) || null;
+  return me && me.char ? me.char : null;
+}
+function showCreateCharacterHint(){
+  logLine("[hint] Сначала создайте персонажа");
+}
+function openCharacterModal(){
+  const ch = getCharacterFromState();
+  if(!ch){
+    showCreateCharacterHint();
+    return;
+  }
+  const klass = ch.class_skin || ch.class_kit || "Adventurer";
+  const details = [];
+  details.push(`<div class="char-line"><strong>Имя:</strong> ${escapeHtml(ch.name || "—")}</div>`);
+  details.push(`<div class="char-line"><strong>Класс:</strong> ${escapeHtml(klass)}</div>`);
+  details.push(`<div class="char-line"><strong>Уровень:</strong> ${escapeHtml(String(ch.level ?? "—"))}</div>`);
+  if(String(ch.gender || "").trim()){
+    details.push(`<div class="char-line"><strong>Пол:</strong> ${escapeHtml(ch.gender)}</div>`);
+  }
+  if(String(ch.race || "").trim()){
+    details.push(`<div class="char-line"><strong>Раса:</strong> ${escapeHtml(ch.race)}</div>`);
+  }
+  if(String(ch.description || "").trim()){
+    details.push(`<div class="char-line"><strong>Описание:</strong> ${escapeHtml(ch.description)}</div>`);
+  }
+  details.push(`<div class="char-line"><strong>HP / STA:</strong> ${escapeHtml(String(ch.hp ?? "—"))}/${escapeHtml(String(ch.hp_max ?? "—"))} | ${escapeHtml(String(ch.sta ?? "—"))}/${escapeHtml(String(ch.sta_max ?? "—"))}</div>`);
+  details.push(renderInventoryHtml(ch.inventory));
+  details.push(
+    "<div class='char-line'><strong>Атрибуты:</strong><ul class='char-list'>" +
+    `<li>Сила: ${escapeHtml(String(prettyStatValue(ch, ["str"])))}</li>` +
+    `<li>Ловкость: ${escapeHtml(String(prettyStatValue(ch, ["dex"])))}</li>` +
+    `<li>Выносливость: ${escapeHtml(String(prettyStatValue(ch, ["con"])))}</li>` +
+    `<li>Интеллект: ${escapeHtml(String(prettyStatValue(ch, ["int"])))}</li>` +
+    `<li>Воля: ${escapeHtml(String(prettyStatValue(ch, ["wil", "wis"])))}</li>` +
+    `<li>Харизма: ${escapeHtml(String(prettyStatValue(ch, ["cha"])))}</li>` +
+    "</ul></div>"
+  );
+  details.push("<div class='char-line'><strong>Навыки:</strong> — (в разработке)</div>");
+
+  const body = document.getElementById("charModalBody");
+  const modal = document.getElementById("charModal");
+  if(!body || !modal) return;
+  body.innerHTML = details.join("");
+  modal.classList.add("open");
+  modal.setAttribute("aria-hidden", "false");
+}
+function closeCharacterModal(){
+  const modal = document.getElementById("charModal");
+  if(!modal) return;
+  modal.classList.remove("open");
+  modal.setAttribute("aria-hidden", "true");
+}
 function logLine(text){
   const el = document.getElementById("log");
   el.innerHTML += "<div style='margin-bottom:6px; white-space:pre-wrap;'>" + escapeHtml(text) + "</div>";
@@ -476,15 +583,21 @@ function renderState(st){
   }
 
   const myChar = document.getElementById("myChar");
+  const btnGoChar = document.getElementById("btnGoChar");
+  const charActionRow = document.getElementById("charActionRow");
   if(myChar){
     const ch = me ? me.char : null;
     if(ch){
       const klass = ch.class_skin || ch.class_kit || "Adventurer";
       myChar.textContent = `Персонаж: ${ch.name} (${klass}) | HP ${ch.hp}/${ch.hp_max} | STA ${ch.sta}/${ch.sta_max} | lvl ${ch.level}`;
       myChar.classList.remove("muted");
+      if(btnGoChar) btnGoChar.style.display = "none";
+      if(charActionRow) charActionRow.style.display = "none";
     } else {
       myChar.textContent = "Create character first. Открой страницу персонажа: /c/<session_id>";
       myChar.classList.add("muted");
+      if(btnGoChar) btnGoChar.style.display = "";
+      if(charActionRow) charActionRow.style.display = "";
     }
   }
 
@@ -580,6 +693,36 @@ function toggleReady(){
     if(e.key === 'Enter' && !e.shiftKey){
       e.preventDefault();
       sendMsg();
+    }
+  });
+})();
+
+(function attachCharacterCardHandlers(){
+  const card = document.getElementById("myChar");
+  const modal = document.getElementById("charModal");
+  const closeBtn = document.getElementById("charModalClose");
+  if(card){
+    card.addEventListener("click", openCharacterModal);
+    card.addEventListener("keydown", (e) => {
+      if(e.key === "Enter" || e.key === " "){
+        e.preventDefault();
+        openCharacterModal();
+      }
+    });
+  }
+  if(closeBtn){
+    closeBtn.addEventListener("click", closeCharacterModal);
+  }
+  if(modal){
+    modal.addEventListener("click", (e) => {
+      if(e.target === modal){
+        closeCharacterModal();
+      }
+    });
+  }
+  document.addEventListener("keydown", (e) => {
+    if(e.key === "Escape"){
+      closeCharacterModal();
     }
   });
 })();
