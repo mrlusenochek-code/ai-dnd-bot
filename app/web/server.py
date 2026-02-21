@@ -38,6 +38,7 @@ CHAR_STAT_KEYS = ("str", "dex", "con", "int", "wis", "cha")
 CHAR_DEFAULT_STATS = {k: 50 for k in CHAR_STAT_KEYS}
 CHECK_LINE_RE = re.compile(r"^\s*@@CHECK\s+(\{.*\})\s*$", re.IGNORECASE)
 INV_MACHINE_LINE_RE = re.compile(r"^\s*@@(?P<cmd>INV_ADD|INV_REMOVE|INV_TRANSFER)\s*\((?P<args>.*)\)\s*$", re.IGNORECASE)
+ZONE_SET_MACHINE_LINE_RE = re.compile(r"^\s*@@ZONE_SET\s*\((?P<args>.*)\)\s*$", re.IGNORECASE)
 TEXTUAL_CHECK_RE = re.compile(
     r"(?:проверка|check)\s*[:\-]?\s*([a-zA-Zа-яА-Я_]+)[^\n]{0,40}?\bdc\s*[:=]?\s*(\d+)",
     re.IGNORECASE,
@@ -595,6 +596,18 @@ def _strip_machine_lines(text: str) -> str:
             continue
         if line.strip().startswith("@@CHECK_RESULT"):
             continue
+        # ВАЖНО: @@ZONE_SET НЕ вырезаем здесь, иначе команда пропадёт до парсинга в _extract_machine_commands.
+        out.append(line)
+    return "\n".join(out).strip()
+    
+    out: list[str] = []
+    for line in (text or "").splitlines():
+        if line.strip().startswith("@@CHECK"):
+            continue
+        if line.strip().startswith("@@CHECK_RESULT"):
+            continue
+        if line.strip().startswith("@@ZONE_SET"):
+            continue
         out.append(line)
     return "\n".join(out).strip()
 
@@ -873,6 +886,52 @@ def _extract_inventory_machine_commands(text: str) -> tuple[str, list[dict[str, 
     return "\n".join(out_lines).strip(), commands
 
 
+def _parse_zone_set_machine_line(line: str) -> Optional[dict[str, Any]]:
+    m = ZONE_SET_MACHINE_LINE_RE.match(str(line or ""))
+    if not m:
+        return None
+    args_raw = str(m.group("args") or "")
+    fields: dict[str, Any] = {}
+    for token in _split_machine_args(args_raw):
+        if "=" not in token:
+            continue
+        key, value = token.split("=", 1)
+        k = str(key or "").strip().lower()
+        if not k:
+            continue
+        fields[k] = _parse_machine_value(value)
+
+    uid = as_int(fields.get("uid"), 0)
+    zone = str(fields.get("zone") or "").strip()
+    if uid <= 0 or not zone:
+        return None
+    return {"uid": uid, "zone": zone[:80]}
+
+
+def _extract_machine_commands(text: str) -> tuple[str, list[dict[str, Any]], list[dict[str, Any]]]:
+    out_lines: list[str] = []
+    inv_commands: list[dict[str, Any]] = []
+    zone_set_commands: list[dict[str, Any]] = []
+    for line in str(text or "").splitlines():
+        lstripped = str(line).lstrip()
+        if lstripped.startswith("@@INV_"):
+            parsed = _parse_inventory_machine_line(line)
+            if parsed:
+                inv_commands.append(parsed)
+            else:
+                logger.warning("invalid inventory machine command", extra={"action": {"line": _trim_for_log(line, 260)}})
+            continue
+        if lstripped.startswith("@@ZONE_SET"):
+            parsed_zone = _parse_zone_set_machine_line(line)
+            if parsed_zone:
+                zone_set_commands.append(parsed_zone)
+            else:
+                logger.warning("invalid zone_set machine command", extra={"action": {"line": _trim_for_log(line, 260)}})
+            continue
+        out_lines.append(line)
+    return "\n".join(out_lines).strip(), inv_commands, zone_set_commands
+
+
 def _find_inventory_item_index(inv: list[dict[str, Any]], name_or_id: str) -> Optional[int]:
     needle_name = str(name_or_id or "").strip().lower()
     if not needle_name:
@@ -1035,6 +1094,21 @@ async def _apply_inventory_machine_commands(db: AsyncSession, sess: Session, com
             continue
 
 
+async def _apply_zone_set_machine_commands(db: AsyncSession, sess: Session, commands: list[dict[str, Any]]) -> None:
+    if not commands:
+        return
+    uid_map, _chars_by_uid, _skill_mods_by_char = await _load_actor_context(db, sess)
+    for cmd in commands:
+        uid = as_int(cmd.get("uid"), 0)
+        zone = str(cmd.get("zone") or "").strip()
+        actor_pair = uid_map.get(uid)
+        if uid <= 0 or not zone or not actor_pair:
+            logger.warning("ZONE_SET target not found", extra={"action": {"uid": uid, "zone": zone}})
+            continue
+        sp, _pl = actor_pair
+        _set_pc_zone(sess, sp.player_id, zone)
+
+
 def _inventory_state_line(ch: Optional[Character]) -> str:
     if not ch:
         return "пусто"
@@ -1099,6 +1173,32 @@ def _sanitize_gm_output(text: str) -> str:
     txt = re.sub(r"@@CHECK_RESULT", "", txt, flags=re.IGNORECASE)
     txt = re.sub(r"@@CHECK", "", txt, flags=re.IGNORECASE)
 
+    lines = txt.splitlines()
+    first_nonempty_idx: Optional[int] = None
+    for i, line in enumerate(lines):
+        if str(line).strip():
+            first_nonempty_idx = i
+            break
+    if first_nonempty_idx is not None:
+        first_line = lines[first_nonempty_idx]
+        if re.match(r"^\s*(анализ|analysis)\b", first_line, flags=re.IGNORECASE):
+            lines.pop(first_nonempty_idx)
+            first_nonempty_idx = None
+            for i, line in enumerate(lines):
+                if str(line).strip():
+                    first_nonempty_idx = i
+                    break
+    if first_nonempty_idx is not None:
+        first_line = lines[first_nonempty_idx]
+        m_response = re.match(r"^\s*(ответ|final answer|response|финальный ответ)\b\s*:?\s*(.*)$", first_line, flags=re.IGNORECASE)
+        if m_response:
+            tail = str(m_response.group(2) or "").strip()
+            if tail:
+                lines[first_nonempty_idx] = tail
+            else:
+                lines.pop(first_nonempty_idx)
+    txt = "\n".join(lines)
+
     cleaned_lines: list[str] = []
     for line in txt.splitlines():
         ln = line.strip()
@@ -1106,10 +1206,6 @@ def _sanitize_gm_output(text: str) -> str:
             continue
         cleaned_lines.append(line)
     txt = "\n".join(cleaned_lines)
-
-    txt = re.sub(r"\b(давайте\s+)?проанализируем\b", "Продолжим сцену", txt, flags=re.IGNORECASE)
-    txt = re.sub(r"\b(в\s+)?черновик\w*\b", "", txt, flags=re.IGNORECASE)
-    txt = re.sub(r"\bдрафт\w*\b", "", txt, flags=re.IGNORECASE)
 
     # Remove leaked check mechanics in narrative text.
     txt = re.sub(
@@ -2000,6 +2096,17 @@ def _build_turn_draft_prompt(
     return (
         "Ты Мастер настольной RPG в стиле D&D. Отвечай только по-русски.\n"
         "Сначала напиши черновик развития сцены (2-6 предложений).\n"
+        "ПЕРВЫМ ДЕЛОМ обработай новое действие игрока: это последнее сообщение именно игрока в контексте.\n"
+        "Нельзя продолжать прошлую сцену, игнорируя новое действие.\n"
+        "Не цитируй действие игрока дословно: перефразируй атмосферно, но строго сохрани смысл.\n"
+        "Если в одном сообщении игрок дал два связанных действия — обработай оба.\n"
+        "Если в действии есть обращение/вопрос без темы, отыграй приветствие и задай уточняющий вопрос по сцене.\n"
+        "Если действие ломает сцену (побег из боя, уход из разговора, побег из тюрьмы), не отказывай: оформи попыткой через @@CHECK.\n"
+        "Для таких попыток можно использовать dex/cha/wis; в опасной ситуации повышай DC.\n"
+        "Если по смыслу персонаж реально переходит в новую зону, опиши переход атмосферно и добавь машинную строку:\n"
+        "@@ZONE_SET(uid=<int>, zone=\"<string>\")\n"
+        "Запрещены мета-заголовки/фразы: 'Анализ:', 'Ответ:', 'Final answer:', 'как ИИ', 'давай проанализируем', 'в черновике'.\n"
+        "Только текст мастера.\n"
         "Инвентарь персонажей (inventory) — это истина сервера.\n"
         "Нельзя подтверждать использование предмета, которого нет у персонажа в inventory.\n"
         "Если игрок пишет 'достаю/зажигаю факел', а факела нет, прямо скажи, что факела нет, и предложи варианты: поискать, попросить у другого, импровизировать.\n"
@@ -2048,6 +2155,15 @@ def _build_round_draft_prompt(
     return (
         "Ты Мастер настольной RPG в стиле D&D. Отвечай только по-русски.\n"
         f"Сложность сцены: {diff}.\n"
+        "ПЕРВЫМ ДЕЛОМ обработай новые действия игроков из списка этого раунда.\n"
+        "Нельзя продолжать прошлую сцену, игнорируя новые действия.\n"
+        "Не цитируй действия игроков дословно: перефразируй атмосферно, но строго сохрани смысл каждого действия.\n"
+        "Если в одном сообщении игрок дал два связанных действия — обработай оба.\n"
+        "Если в действии есть обращение/вопрос без темы, отыграй приветствие и задай уточняющий вопрос по сцене.\n"
+        "Если действие ломает сцену (побег из боя, уход из разговора, побег из тюрьмы), не отказывай: оформи попыткой через @@CHECK.\n"
+        "Для таких попыток можно использовать dex/cha/wis; в опасной ситуации повышай DC.\n"
+        "Если по смыслу персонаж реально переходит в новую зону, опиши переход атмосферно и добавь машинную строку:\n"
+        "@@ZONE_SET(uid=<int>, zone=\"<string>\")\n"
         "Инвентарь персонажей (inventory) — это истина сервера.\n"
         "Нельзя подтверждать использование предмета, которого нет у персонажа в inventory.\n"
         "Если игрок пишет 'достаю/зажигаю факел', а факела нет, прямо скажи, что факела нет, и предложи варианты: поискать, попросить у другого, импровизировать.\n"
@@ -2055,6 +2171,7 @@ def _build_round_draft_prompt(
         "Если игроки действуют рядом (например сундук/факел), можно объединить в один связный эпизод.\n"
         "Если игроки далеко друг от друга, опиши обе ветки кратко и параллельно, но за 1-2 раунда создай событие, чтобы партия снова собралась.\n"
         "Запрещены мета-комментарии: 'проанализируем', 'в черновике', 'я модель/ИИ' и подобные.\n"
+        "Запрещены мета-заголовки: 'Анализ:', 'Ответ:', 'Final answer:', 'Response:'.\n"
         "Не предлагай помощь, не объясняй как продолжать, не делай мета-комментариев. Только повествование/диалог/действия.\n"
         "Запрещены отказы и извинения ('я не могу', 'извиняюсь', 'не могу продолжить'). Смягчай и продолжай сцену.\n"
         "Строго запрещено показывать игрокам механику проверок: слова 'fails', 'succeeds', 'успех', 'провал',"
@@ -2085,7 +2202,8 @@ def _build_round_draft_prompt(
         f"Позиции персонажей (важно):\n{positions_block}\n\n"
         f"Действия игроков в этом раунде:\n{acts}\n\n"
         + (f"Заметки мастеру: {notes}\n\n" if notes else "")
-        + "Черновик должен заканчиваться строкой 'Что делаете дальше?' и, если уместно, 2-4 краткими вариантами действий списком."
+        + "Черновик должен заканчиваться строкой 'Что делаете дальше?' и, если уместно, 2-4 краткими вариантами действий списком.\n"
+        + "Варианты должны быть нейтральными, без оценок, морали и нравоучений."
     )
 
 
@@ -2094,6 +2212,15 @@ def _build_finalize_prompt(draft_text: str, check_results: list[dict[str, Any]])
     results_block = "\n".join(results_lines) if results_lines else "(автопроверок не было)"
     return (
         "Ты Мастер настольной RPG в стиле D&D. Отвечай только по-русски.\n"
+        "ПЕРВЫМ ДЕЛОМ обработай новое действие игрока/игроков из черновика, не продолжай прошлую сцену по инерции.\n"
+        "Не цитируй действия игроков дословно: перефразируй атмосферно, но строго сохрани смысл.\n"
+        "Если в одном сообщении есть два связанных действия — обработай оба.\n"
+        "Если в действии есть обращение/вопрос без темы, отыграй приветствие и задай уточняющий вопрос по сцене.\n"
+        "Если действие ломает сцену (побег из боя, уход из разговора, побег из тюрьмы), не отказывай: оформи попыткой через @@CHECK.\n"
+        "Для таких попыток можно использовать dex/cha/wis; в опасной ситуации повышай DC.\n"
+        "Если по смыслу персонаж реально переходит в новую зону, опиши переход атмосферно и добавь машинную строку:\n"
+        "@@ZONE_SET(uid=<int>, zone=\"<string>\")\n"
+        "Не пиши заголовки/мета: 'Анализ:', 'Ответ:', 'Final answer:', 'Response:', 'как ИИ', 'давай проанализируем', 'в черновике'.\n"
         "Ниже черновик сцены и результаты автоматических проверок.\n"
         "Сделай финальный ответ игрокам: учитывай исходы проверок, продвигай сцену, добавь последствия.\n"
         "Строго запрещено показывать игрокам механику проверок: слова 'fails', 'succeeds', 'успех', 'провал',"
@@ -2116,7 +2243,8 @@ def _build_finalize_prompt(draft_text: str, check_results: list[dict[str, Any]])
         "Не пиши извинения и отказы ('извиняюсь', 'я не могу', 'не могу продолжить'). Вместо этого продолжай сцену мягко.\n"
         "ВАЖНО: в финальном ответе не должно быть @@CHECK и @@CHECK_RESULT.\n"
         "Не проси игроков бросать кости вручную.\n\n"
-        "Завершай ответ строкой 'Что делаете дальше?' и, если уместно, дай 2-4 кратких варианта действий списком.\n\n"
+        "Завершай ответ строкой 'Что делаете дальше?' и, если уместно, дай 2-4 кратких варианта действий списком.\n"
+        "Варианты должны быть нейтральными, без оценок, морали и нравоучений.\n\n"
         f"Черновик:\n{draft_text}\n\n"
         f"Результаты проверок:\n{results_block}"
     )
@@ -2392,12 +2520,13 @@ async def _auto_gm_reply_task(session_id: str, expected_action_id: str) -> None:
                     return
 
                 gm_text = gm_text.strip()
-                gm_text_visible, inv_commands = _extract_inventory_machine_commands(gm_text)
+                gm_text_visible, inv_commands, zone_set_commands = _extract_machine_commands(gm_text)
                 await _apply_inventory_machine_commands(db, sess, inv_commands)
+                await _apply_zone_set_machine_commands(db, sess, zone_set_commands)
                 gm_text_visible = gm_text_visible.strip()
                 if gm_text_visible and not _looks_like_refusal(gm_text_visible):
                     await add_system_event(db, sess, f"🧙 GM: {gm_text_visible}")
-                elif not inv_commands:
+                elif not inv_commands and not zone_set_commands:
                     await add_system_event(db, sess, "🧙 GM: (модель отказала. Переформулируй действие проще, без жести и откровенных деталей.)")
 
                 nxt = await advance_turn(db, sess)
@@ -2622,8 +2751,9 @@ async def _auto_round_task(session_id: str, expected_action_id: str) -> None:
                     return
 
                 gm_text = gm_text.strip()
-                gm_text_visible, inv_commands = _extract_inventory_machine_commands(gm_text)
+                gm_text_visible, inv_commands, zone_set_commands = _extract_machine_commands(gm_text)
                 await _apply_inventory_machine_commands(db, sess, inv_commands)
+                await _apply_zone_set_machine_commands(db, sess, zone_set_commands)
                 gm_text_visible = gm_text_visible.strip()
                 if gm_text_visible:
                     await add_system_event(db, sess, f"🧙 Мастер: {gm_text_visible}")
