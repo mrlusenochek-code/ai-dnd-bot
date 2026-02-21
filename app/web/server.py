@@ -1672,22 +1672,37 @@ async def is_admin(db: AsyncSession, sess: Session, player: Player) -> bool:
     return bool(sp and sp.is_admin)
 
 
-async def add_event(db: AsyncSession, sess: Session, text: str, actor_player_id: Optional[uuid.UUID] = None) -> None:
+async def add_event(
+    db: AsyncSession,
+    sess: Session,
+    text: str,
+    actor_player_id: Optional[uuid.UUID] = None,
+    actor_character_id: Optional[uuid.UUID] = None,
+    parsed_json: Optional[dict] = None,
+    result_json: Optional[dict] = None,
+) -> None:
     ev = Event(
         session_id=sess.id,
         turn_index=sess.turn_index or 0,
         actor_player_id=actor_player_id,
-        actor_character_id=None,
+        actor_character_id=actor_character_id,
         message_text=text,
-        parsed_json=None,
-        result_json=None,
+        parsed_json=parsed_json,
+        result_json=result_json,
     )
     db.add(ev)
     await db.commit()
 
 
-async def add_system_event(db: AsyncSession, sess: Session, text: str) -> None:
-    await add_event(db, sess, f"[SYSTEM] {text}", actor_player_id=None)
+async def add_system_event(
+    db: AsyncSession,
+    sess: Session,
+    text: str,
+    *,
+    result_json: Optional[dict] = None,
+    parsed_json: Optional[dict] = None,
+) -> None:
+    await add_event(db, sess, f"[SYSTEM] {text}", actor_player_id=None, parsed_json=parsed_json, result_json=result_json)
 
 
 def _get_ready_map(sess: Session) -> dict[str, bool]:
@@ -2632,7 +2647,18 @@ async def _auto_gm_reply_task(session_id: str, expected_action_id: str) -> None:
                 await _apply_zone_set_machine_commands(db, sess, zone_set_commands)
                 gm_text_visible = gm_text_visible.strip()
                 if gm_text_visible and not _looks_like_refusal(gm_text_visible):
-                    await add_system_event(db, sess, f"🧙 GM: {gm_text_visible}")
+                    await add_system_event(
+                        db,
+                        sess,
+                        f"🧙 GM: {gm_text_visible}",
+                        result_json={
+                            "type": "gm_reply",
+                            "checks": _checks,
+                            "check_results": _check_results,
+                            "inv_commands": inv_commands,
+                            "zone_set_commands": zone_set_commands,
+                        },
+                    )
                 elif not inv_commands and not zone_set_commands:
                     await add_system_event(db, sess, "🧙 GM: (модель отказала. Переформулируй действие проще, без жести и откровенных деталей.)")
 
@@ -2863,7 +2889,18 @@ async def _auto_round_task(session_id: str, expected_action_id: str) -> None:
                 await _apply_zone_set_machine_commands(db, sess, zone_set_commands)
                 gm_text_visible = gm_text_visible.strip()
                 if gm_text_visible:
-                    await add_system_event(db, sess, f"🧙 Мастер: {gm_text_visible}")
+                    await add_system_event(
+                        db,
+                        sess,
+                        f"🧙 Мастер: {gm_text_visible}",
+                        result_json={
+                            "type": "gm_reply",
+                            "checks": _checks,
+                            "check_results": _check_results,
+                            "inv_commands": inv_commands,
+                            "zone_set_commands": zone_set_commands,
+                        },
+                    )
 
                 sps_active = await list_session_players(db, sess, active_only=True)
                 if _should_use_round_mode(sess, sps_active):
