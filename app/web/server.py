@@ -1093,6 +1093,15 @@ def _is_free_turns(sess: Session) -> bool:
     return bool(settings_get(sess, "free_turns", False))
 
 
+def _ready_active_players(sess: Session, sps_active: list[SessionPlayer]) -> list[SessionPlayer]:
+    ready_map = _get_ready_map(sess)
+    return [sp for sp in sps_active if bool(ready_map.get(str(sp.player_id), False))]
+
+
+def _should_use_round_mode(sess: Session, sps_active: list[SessionPlayer]) -> bool:
+    return len(_ready_active_players(sess, sps_active)) >= 2
+
+
 def _get_free_round(sess: Session) -> int:
     return max(1, as_int(settings_get(sess, "free_round", 1), 1))
 
@@ -1275,8 +1284,9 @@ async def build_state(db: AsyncSession, sess: Session) -> dict:
     free_turns = _is_free_turns(sess)
     phase = _get_phase(sess)
     round_actions = _get_round_actions(sess)
-    actions_total = len(active_sps)
-    actions_done = sum(1 for sp in active_sps if str(sp.player_id) in round_actions)
+    round_participants = _ready_active_players(sess, active_sps) if free_turns else active_sps
+    actions_total = len(round_participants)
+    actions_done = sum(1 for sp in round_participants if str(sp.player_id) in round_actions)
 
     return {
         "type": "state",
@@ -1718,7 +1728,6 @@ async def _auto_lore_task(session_id: str) -> None:
             if not (isinstance(story, dict) and story.get("story_configured") is True):
                 return
 
-            free_turns = _is_free_turns(sess)
             lore_text = str(settings_get(sess, "lore_text", "") or "").strip()
             lore_posted = bool(settings_get(sess, "lore_posted", False))
 
@@ -1771,10 +1780,12 @@ async def _auto_lore_task(session_id: str) -> None:
                 settings_set(sess, "lore_posted", True)
 
             sps = await list_session_players(db, sess, active_only=True)
+            free_turns = _should_use_round_mode(sess, sps)
+            settings_set(sess, "free_turns", free_turns)
             if free_turns:
                 _set_phase(sess, "collecting_actions")
                 _clear_current_action_id(sess)
-                settings_set(sess, "free_round", _get_free_round(sess))
+                settings_set(sess, "free_round", 1)
                 settings_set(sess, "round_actions", {})
                 sess.current_player_id = None
                 sess.turn_started_at = None
@@ -1900,14 +1911,33 @@ async def _auto_round_task(session_id: str, expected_action_id: str) -> None:
                 if gm_text:
                     await add_system_event(db, sess, f"🧙 Мастер: {gm_text}")
 
-                next_round = _get_free_round(sess) + 1
-                settings_set(sess, "round_actions", {})
-                _set_phase(sess, "collecting_actions")
-                settings_set(sess, "free_round", next_round)
-                _clear_current_action_id(sess)
-                await db.commit()
-                await add_system_event(db, sess, f"Раунд {next_round}: опишите действия.")
-                await db.commit()
+                sps_active = await list_session_players(db, sess, active_only=True)
+                if _should_use_round_mode(sess, sps_active):
+                    next_round = _get_free_round(sess) + 1
+                    settings_set(sess, "free_turns", True)
+                    settings_set(sess, "round_actions", {})
+                    _set_phase(sess, "collecting_actions")
+                    settings_set(sess, "free_round", next_round)
+                    _clear_current_action_id(sess)
+                    sess.current_player_id = None
+                    sess.turn_started_at = None
+                    _clear_paused_remaining(sess)
+                    await db.commit()
+                    await add_system_event(db, sess, f"Раунд {next_round}: каждый отправьте ОДНО сообщение с действием.")
+                    await db.commit()
+                else:
+                    settings_set(sess, "free_turns", False)
+                    settings_set(sess, "round_actions", {})
+                    _set_phase(sess, "turns")
+                    _clear_current_action_id(sess)
+                    first = sps_active[0] if sps_active else None
+                    sess.current_player_id = first.player_id if first else None
+                    sess.turn_started_at = utcnow() if first else None
+                    _clear_paused_remaining(sess)
+                    await db.commit()
+                    if first:
+                        await add_system_event(db, sess, f"Следующий ход: игрок #{first.join_order}.")
+                    await db.commit()
 
         await broadcast_state(session_id)
     except Exception:
@@ -3234,6 +3264,11 @@ async def ws_room(ws: WebSocket, session_id: str):
                     if player.id not in active_ids:
                         await ws_error("You are offline in this session", request_id=msg_request_id)
                         continue
+                    ready_sps = _ready_active_players(sess, sps_active)
+                    ready_ids = {spx.player_id for spx in ready_sps}
+                    if player.id not in ready_ids:
+                        await ws_error("В этом раунде действие принимается только от READY игроков.")
+                        continue
 
                     round_actions = _get_round_actions(sess)
                     pid = str(player.id)
@@ -3247,7 +3282,7 @@ async def ws_room(ws: WebSocket, session_id: str):
                     await add_event(db, sess, f"{actor_label}: {text}", actor_player_id=player.id)
                     await db.commit()
 
-                    all_collected = bool(sps_active) and all(str(spx.player_id) in round_actions for spx in sps_active)
+                    all_collected = bool(ready_sps) and all(str(spx.player_id) in round_actions for spx in ready_sps)
                     if all_collected:
                         action_id = _new_action_id()
                         _set_current_action_id(sess, action_id)
