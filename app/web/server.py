@@ -316,6 +316,32 @@ def _story_is_configured(sess: Session) -> bool:
     return bool(isinstance(raw, dict) and raw.get("story_configured"))
 
 
+def infer_zone_from_action(text: str, current_zone: str) -> str:
+    t = str(text or "").strip().lower()
+    if not t:
+        return current_zone
+    if any(k in t for k in ("таверн", "бар", "внутри", "остаюсь")):
+        return "таверна"
+    if any(k in t for k in ("улиц", "выйду", "выхожу", "на улиц")):
+        return "улица у таверны"
+    if any(k in t for k in ("центр", "площад")):
+        return "центр города"
+    if any(k in t for k in ("река", "берег")):
+        return "берег реки"
+    if "замок" in t:
+        if any(k in t for k in ("в замк", "внутри замк", "захожу в зам", "войти в зам", "вхожу в зам")):
+            return "замок"
+        return "дорога к замку"
+    return current_zone
+
+
+def _infer_initial_zone(lore_text: str, last_gm_text: str) -> str:
+    src = f"{lore_text}\n{last_gm_text}".lower()
+    if "таверн" in src:
+        return "таверна"
+    return "стартовая локация (вместе)"
+
+
 def _split_red_flags(raw: Any) -> list[str]:
     if isinstance(raw, list):
         parts = [str(x).strip() for x in raw]
@@ -778,6 +804,26 @@ def _build_actor_list_for_prompt(uid_map: dict[int, tuple[SessionPlayer, Player]
         rows.append("- " + ", ".join(parts))
     return "\n".join(rows) if rows else "- (нет активных игроков)"
 
+
+def _build_positions_block_for_prompt(
+    sess: Session,
+    uid_map: dict[int, tuple[SessionPlayer, Player]],
+    chars_by_uid: dict[int, Character],
+) -> str:
+    positions = _get_pc_positions(sess)
+    rows: list[str] = []
+    for uid, (sp, pl) in sorted(uid_map.items(), key=lambda x: int(x[1][0].join_order or 0)):
+        ch = chars_by_uid.get(uid)
+        actor_name = (
+            str(ch.name).strip()
+            if ch and str(ch.name or "").strip()
+            else (str(pl.display_name or "").strip() or f"Игрок #{sp.join_order}")
+        )
+        zone = positions.get(str(sp.player_id), "стартовая локация (вместе)")
+        rows.append(f"- {actor_name} (#{uid}): {zone}")
+    return "\n".join(rows) if rows else "- (нет активных игроков)"
+
+
 def _stats_points_used(stats: dict[str, int]) -> int:
     points = 0
     for key in CHAR_STAT_KEYS:
@@ -962,6 +1008,38 @@ def _get_last_seen_map(sess: Session) -> dict[str, str]:
     return out
 
 
+def _get_pc_positions(sess: Session) -> dict[str, str]:
+    raw = settings_get(sess, "pc_positions", {}) or {}
+    out: dict[str, str] = {}
+    if not isinstance(raw, dict):
+        return out
+    for k, v in raw.items():
+        if k is None or v is None:
+            continue
+        pid = str(k).strip()
+        zone = str(v).strip()
+        if pid and zone:
+            out[pid] = zone[:80]
+    return out
+
+
+def _set_pc_zone(sess: Session, player_id: uuid.UUID, zone: str) -> None:
+    z = str(zone or "").strip()
+    if not z:
+        return
+    m = dict(_get_pc_positions(sess))
+    m[str(player_id)] = z[:80]
+    settings_set(sess, "pc_positions", m)
+
+
+def _initialize_pc_positions(sess: Session, player_ids: list[uuid.UUID], default_zone: str) -> None:
+    zone = str(default_zone or "").strip() or "стартовая локация (вместе)"
+    m: dict[str, str] = {}
+    for pid in player_ids:
+        m[str(pid)] = zone
+    settings_set(sess, "pc_positions", m)
+
+
 def _touch_last_seen(sess: Session, player_id: uuid.UUID) -> None:
     m = dict(_get_last_seen_map(sess))
     m[str(player_id)] = utcnow().isoformat()
@@ -990,6 +1068,11 @@ def _remove_player_from_session_settings(sess: Session, player_id: uuid.UUID) ->
     if pid in round_actions:
         round_actions.pop(pid, None)
         settings_set(sess, "round_actions", round_actions)
+
+    pc_positions = dict(_get_pc_positions(sess))
+    if pid in pc_positions:
+        pc_positions.pop(pid, None)
+        settings_set(sess, "pc_positions", pc_positions)
 
 
 def _parse_iso(ts: Any) -> Optional[datetime]:
@@ -1354,6 +1437,7 @@ def _build_turn_draft_prompt(
     context_events: list[str],
     actor_uid: Optional[int],
     actors_block: str,
+    positions_block: str,
 ) -> str:
     context = "\n".join(f"- {line}" for line in context_events[-50:]) or "- (контекст пуст)"
     title = (session_title or "Кампания").strip()
@@ -1367,9 +1451,15 @@ def _build_turn_draft_prompt(
         "В тексте для игрока не оставляй незакрытых требований формата 'Проверка ... DC ...'.\n"
         "Не пиши @@CHECK_RESULT.\n"
         "Не отвечай отказом. Если тема спорная — смягчай до приключенческого уровня.\n\n"
+        "ПРАВИЛА ПО ЗОНАМ (строго):\n"
+        "1) НЕЛЬЗЯ телепортировать персонажей между зонами без явного описания перехода.\n"
+        "2) Персонаж НЕ знает и НЕ слышит, что было в другой зоне, пока не подошёл/не вошёл/ему не сообщили.\n"
+        "3) Если нужно, чтобы персонаж оказался рядом и услышал разговор — явно опиши подход/вход и что это заняло время.\n"
+        "4) Не пиши мета-подсказки формата 'X может...': либо описывай действия, либо задавай прямой вопрос персонажу.\n\n"
         f"Название сессии: {title}\n"
         f"Предпочтительный actor_uid для текущего действия: {actor_hint}\n"
         f"Игроки:\n{actors_block}\n\n"
+        f"Позиции персонажей (важно):\n{positions_block}\n\n"
         f"Контекст (последние события):\n{context}"
     )
 
@@ -1382,6 +1472,7 @@ def _build_round_draft_prompt(
     master_notes: str,
     difficulty: str,
     actors_block: str,
+    positions_block: str,
 ) -> str:
     title = (session_title or "Кампания").strip()
     lore = (lore_text or "").strip()
@@ -1403,10 +1494,16 @@ def _build_round_draft_prompt(
         "Разрешено несколько @@CHECK. В тексте не оставляй 'Проверка ... DC ...'.\n"
         "Не пиши @@CHECK_RESULT.\n"
         "Не отвечай отказом. Спорные темы смягчай до приключенческого уровня.\n\n"
+        "ПРАВИЛА ПО ЗОНАМ (строго):\n"
+        "1) НЕЛЬЗЯ телепортировать персонажей между зонами без явного описания перехода.\n"
+        "2) Персонаж НЕ знает и НЕ слышит, что было в другой зоне, пока не подошёл/не вошёл/ему не сообщили.\n"
+        "3) Если нужно, чтобы персонаж оказался рядом и услышал разговор — явно опиши подход/вход и что это заняло время.\n"
+        "4) Не пиши мета-подсказки формата 'X может...': либо описывай действия, либо задавай прямой вопрос персонажу.\n\n"
         f"Название кампании: {title}\n"
         f"ЛОР:\n{lore}\n\n"
         f"Недавние события:\n{context}\n\n"
         f"Игроки:\n{actors_block}\n\n"
+        f"Позиции персонажей (важно):\n{positions_block}\n\n"
         f"Действия игроков в этом раунде:\n{acts}\n\n"
         + (f"Заметки мастеру: {notes}\n\n" if notes else "")
         + "Черновик должен закончиться вопросом к партии: что вы делаете дальше?"
@@ -1667,6 +1764,7 @@ async def _auto_gm_reply_task(session_id: str, expected_action_id: str) -> None:
 
                 uid_map, chars_by_uid, _skill_mods_by_char = await _load_actor_context(db, sess)
                 actors_block = _build_actor_list_for_prompt(uid_map, chars_by_uid)
+                positions_block = _build_positions_block_for_prompt(sess, uid_map, chars_by_uid)
                 cur_uid: Optional[int] = None
                 if sess.current_player_id:
                     q_cur_player = await db.execute(select(Player).where(Player.id == sess.current_player_id))
@@ -1677,6 +1775,7 @@ async def _auto_gm_reply_task(session_id: str, expected_action_id: str) -> None:
                     context_events=context_events,
                     actor_uid=cur_uid,
                     actors_block=actors_block,
+                    positions_block=positions_block,
                 )
                 gm_text, _draft_meta, _final_meta, _checks, _check_results = await _run_gm_two_pass(
                     db,
@@ -1780,6 +1879,15 @@ async def _auto_lore_task(session_id: str) -> None:
                 settings_set(sess, "lore_posted", True)
 
             sps = await list_session_players(db, sess, active_only=True)
+            q_recent_events = await db.execute(
+                select(Event)
+                .where(Event.session_id == sess.id)
+                .order_by(Event.created_at.desc())
+                .limit(20)
+            )
+            recent_events = [e.message_text for e in reversed(q_recent_events.scalars().all()) if e.message_text]
+            initial_zone = _infer_initial_zone(lore_text, _find_latest_gm_text(recent_events))
+            _initialize_pc_positions(sess, [sp.player_id for sp in sps], initial_zone)
             free_turns = _should_use_round_mode(sess, sps)
             settings_set(sess, "free_turns", free_turns)
             if free_turns:
@@ -1885,6 +1993,7 @@ async def _auto_round_task(session_id: str, expected_action_id: str) -> None:
                 story_title = str(story.get("story_title") or "").strip() or str(sess.title or "Campaign").strip() or "Campaign"
                 uid_map, chars_by_uid, _skill_mods_by_char = await _load_actor_context(db, sess)
                 actors_block = _build_actor_list_for_prompt(uid_map, chars_by_uid)
+                positions_block = _build_positions_block_for_prompt(sess, uid_map, chars_by_uid)
                 draft_prompt = _build_round_draft_prompt(
                     session_title=story_title,
                     lore_text=lore_text,
@@ -1893,6 +2002,7 @@ async def _auto_round_task(session_id: str, expected_action_id: str) -> None:
                     master_notes=gm_notes,
                     difficulty=difficulty,
                     actors_block=actors_block,
+                    positions_block=positions_block,
                 )
                 gm_text, _draft_meta, _final_meta, _checks, _check_results = await _run_gm_two_pass(
                     db,
@@ -3278,6 +3388,8 @@ async def ws_room(ws: WebSocket, session_id: str):
 
                     round_actions[pid] = text
                     settings_set(sess, "round_actions", round_actions)
+                    current_zone = _get_pc_positions(sess).get(pid, "стартовая локация (вместе)")
+                    _set_pc_zone(sess, player.id, infer_zone_from_action(text, current_zone))
                     actor_label = await _event_actor_label(db, sess, player)
                     await add_event(db, sess, f"{actor_label}: {text}", actor_player_id=player.id)
                     await db.commit()
@@ -3307,6 +3419,9 @@ async def ws_room(ws: WebSocket, session_id: str):
 
                 actor_label = await _event_actor_label(db, sess, player)
                 await add_event(db, sess, f"{actor_label}: {text}", actor_player_id=player.id)
+                pid = str(player.id)
+                current_zone = _get_pc_positions(sess).get(pid, "стартовая локация (вместе)")
+                _set_pc_zone(sess, player.id, infer_zone_from_action(text, current_zone))
                 action_id = _new_action_id()
                 _set_current_action_id(sess, action_id)
                 _set_phase(sess, "gm_pending")
