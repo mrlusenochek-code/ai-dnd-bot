@@ -384,14 +384,33 @@ function readZoneFromPositionEntry(entry){
 }
 function resolveCharacterZone(st, me, ch){
   if(!st) return "неизвестно";
+
+  const myUid = String((me && me.uid !== undefined && me.uid !== null) ? me.uid : getUID());
+  const charName = String((ch && ch.name) || "").trim().toLowerCase();
+
+  const meZone = firstFilled(me && me.zone);
+  if(meZone) return meZone;
+
+  const pcPositions = st.game && st.game.pc_positions;
+  if(pcPositions && typeof pcPositions === "object"){
+    const pcEntry = pcPositions[myUid];
+    const pcZone = (pcEntry && typeof pcEntry === "object")
+      ? readZoneFromPositionEntry(pcEntry)
+      : firstFilled(pcEntry);
+    if(pcZone) return pcZone;
+  }
+
+  if(!me && Array.isArray(st.players)){
+    const player = st.players.find((p) => p && String(p.uid) === myUid);
+    const playerZone = firstFilled(player && player.zone);
+    if(playerZone) return playerZone;
+  }
+
   const direct = firstFilled(st.zone, st.my_character_zone, ch && ch.zone);
   if(direct) return direct;
 
   const positions = st.positions_block;
   if(!positions) return "неизвестно";
-
-  const myUid = String((me && me.uid !== undefined && me.uid !== null) ? me.uid : getUID());
-  const charName = String((ch && ch.name) || "").trim().toLowerCase();
 
   if(typeof positions === "string"){
     const text = positions.trim();
