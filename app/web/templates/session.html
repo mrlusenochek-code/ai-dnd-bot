@@ -36,8 +36,13 @@
     .char-modal.open{display:flex;}
     .char-modal-window{width:min(680px,100%); max-height:85vh; overflow:auto; background:#fff; border-radius:12px; border:1px solid #dcdcdc; box-shadow:0 18px 48px rgba(0,0,0,.3); padding:16px 16px 14px;}
     .char-modal-head{display:flex; align-items:flex-start; justify-content:space-between; gap:10px; margin-bottom:10px;}
+    .char-modal-actions{display:flex; align-items:center; gap:8px;}
     .char-modal-title{margin:0; font-size:20px;}
+    .char-modal-copy{padding:6px 10px; font-size:13px; border:1px solid #cfcfcf; border-radius:8px; background:#fafafa; cursor:pointer;}
+    .char-modal-copy:disabled{opacity:.55; cursor:not-allowed;}
     .char-modal-close{padding:4px 10px; font-size:20px; line-height:1; border:1px solid #cfcfcf; border-radius:8px; background:#fafafa; cursor:pointer;}
+    .char-modal-toast{font-size:12px; color:#1f7a2f; opacity:0; transform:translateY(-2px); transition:opacity .18s ease, transform .18s ease; pointer-events:none;}
+    .char-modal-toast.show{opacity:1; transform:translateY(0);}
     .char-grid{display:grid; gap:8px;}
     .char-line{padding:8px 10px; border:1px solid #ececec; border-radius:8px; background:#fafafa; white-space:pre-wrap;}
     .char-list{margin:0; padding-left:20px;}
@@ -96,7 +101,11 @@
   <div class="char-modal-window" role="dialog" aria-modal="true" aria-labelledby="charModalTitle">
     <div class="char-modal-head">
       <h3 id="charModalTitle" class="char-modal-title">Карточка персонажа</h3>
-      <button id="charModalClose" class="char-modal-close" type="button" aria-label="Закрыть">×</button>
+      <div class="char-modal-actions">
+        <span id="charModalCopyToast" class="char-modal-toast" aria-live="polite">Скопировано</span>
+        <button id="charModalCopy" class="char-modal-copy" type="button">Скопировать</button>
+        <button id="charModalClose" class="char-modal-close" type="button" aria-label="Закрыть">×</button>
+      </div>
     </div>
     <div id="charModalBody" class="char-grid"></div>
   </div>
@@ -108,6 +117,8 @@ let ws = null;
 let lastLoggedReconnectDelaySec = null;
 let heartbeatInt = null;
 let manualLeave = false;
+let charModalCopyText = "";
+let charModalToastTimer = null;
 
 let lastState = null;
 let uiCtx = {
@@ -346,6 +357,102 @@ function renderInventoryHtml(inv){
   }
   return `<div class='char-line'><strong>Инвентарь:</strong><ul class='char-list'>${rows.join("")}</ul></div>`;
 }
+function getInventoryText(inv){
+  if(!Array.isArray(inv) || inv.length === 0) return "пусто";
+  const rows = [];
+  for(const raw of inv){
+    if(!raw || typeof raw !== "object") continue;
+    const name = String(raw.name || "").trim();
+    if(!name) continue;
+    const qtyRaw = Number(raw.qty);
+    const qty = Number.isFinite(qtyRaw) ? Math.max(1, Math.floor(qtyRaw)) : 1;
+    rows.push(`${name} x${qty}`);
+  }
+  return rows.length ? rows.join(", ") : "пусто";
+}
+function firstFilled(){
+  for(const val of arguments){
+    if(val === null || val === undefined) continue;
+    const txt = String(val).trim();
+    if(txt) return txt;
+  }
+  return "";
+}
+function readZoneFromPositionEntry(entry){
+  if(!entry || typeof entry !== "object") return "";
+  return firstFilled(entry.zone, entry.location, entry.area, entry.position_zone);
+}
+function resolveCharacterZone(st, me, ch){
+  if(!st) return "неизвестно";
+  const direct = firstFilled(st.zone, st.my_character_zone, ch && ch.zone);
+  if(direct) return direct;
+
+  const positions = st.positions_block;
+  if(!positions) return "неизвестно";
+
+  const myUid = String((me && me.uid !== undefined && me.uid !== null) ? me.uid : getUID());
+  const charName = String((ch && ch.name) || "").trim().toLowerCase();
+
+  if(typeof positions === "string"){
+    const text = positions.trim();
+    return text || "неизвестно";
+  }
+  if(Array.isArray(positions)){
+    for(const item of positions){
+      if(!item || typeof item !== "object") continue;
+      const uid = firstFilled(item.uid, item.player_uid, item.playerId, item.player_id);
+      const name = firstFilled(item.character_name, item.char_name, item.name).toLowerCase();
+      if((uid && uid === myUid) || (charName && name === charName)){
+        const zone = readZoneFromPositionEntry(item);
+        if(zone) return zone;
+      }
+    }
+    return "неизвестно";
+  }
+  if(typeof positions === "object"){
+    const byUid = positions.by_uid;
+    if(byUid && typeof byUid === "object" && byUid[myUid]){
+      const zone = readZoneFromPositionEntry(byUid[myUid]);
+      if(zone) return zone;
+    }
+    if(positions[myUid]){
+      const zone = readZoneFromPositionEntry(positions[myUid]);
+      if(zone) return zone;
+    }
+    if(charName && positions.by_character && typeof positions.by_character === "object"){
+      const byChar = positions.by_character[charName];
+      const zone = readZoneFromPositionEntry(byChar);
+      if(zone) return zone;
+    }
+    const fallback = readZoneFromPositionEntry(positions);
+    if(fallback) return fallback;
+  }
+  return "неизвестно";
+}
+function showCharacterCopyToast(){
+  const toast = document.getElementById("charModalCopyToast");
+  if(!toast) return;
+  toast.classList.add("show");
+  if(charModalToastTimer){
+    clearTimeout(charModalToastTimer);
+  }
+  charModalToastTimer = setTimeout(() => {
+    toast.classList.remove("show");
+    charModalToastTimer = null;
+  }, 1500);
+}
+async function copyCharacterCard(){
+  if(!charModalCopyText) return;
+  try{
+    if(navigator.clipboard && navigator.clipboard.writeText){
+      await navigator.clipboard.writeText(charModalCopyText);
+      showCharacterCopyToast();
+      return;
+    }
+  }catch(_e){}
+  prompt("Скопируйте карточку персонажа:", charModalCopyText);
+  showCharacterCopyToast();
+}
 function getCharacterFromState(){
   if(!lastState || !Array.isArray(lastState.players)) return null;
   const myUid = getUID();
@@ -356,12 +463,25 @@ function showCreateCharacterHint(){
   logLine("[hint] Сначала создайте персонажа");
 }
 function openCharacterModal(){
-  const ch = getCharacterFromState();
+  const me = lastState && Array.isArray(lastState.players)
+    ? (lastState.players.find(p => p.uid === getUID()) || null)
+    : null;
+  const ch = me && me.char ? me.char : null;
   if(!ch){
     showCreateCharacterHint();
     return;
   }
   const klass = ch.class_skin || ch.class_kit || "Adventurer";
+  const zone = resolveCharacterZone(lastState, me, ch);
+  const statsText = [
+    `Сила: ${prettyStatValue(ch, ["str"])}`,
+    `Ловкость: ${prettyStatValue(ch, ["dex"])}`,
+    `Выносливость: ${prettyStatValue(ch, ["con"])}`,
+    `Интеллект: ${prettyStatValue(ch, ["int"])}`,
+    `Воля: ${prettyStatValue(ch, ["wil", "wis"])}`,
+    `Харизма: ${prettyStatValue(ch, ["cha"])}`
+  ];
+  const skillsText = "— (в разработке)";
   const details = [];
   details.push(`<div class="char-line"><strong>Имя:</strong> ${escapeHtml(ch.name || "—")}</div>`);
   details.push(`<div class="char-line"><strong>Класс:</strong> ${escapeHtml(klass)}</div>`);
@@ -372,6 +492,7 @@ function openCharacterModal(){
   if(String(ch.race || "").trim()){
     details.push(`<div class="char-line"><strong>Раса:</strong> ${escapeHtml(ch.race)}</div>`);
   }
+  details.push(`<div class="char-line"><strong>Зона:</strong> ${escapeHtml(zone)}</div>`);
   if(String(ch.description || "").trim()){
     details.push(`<div class="char-line"><strong>Описание:</strong> ${escapeHtml(ch.description)}</div>`);
   }
@@ -387,18 +508,47 @@ function openCharacterModal(){
     `<li>Харизма: ${escapeHtml(String(prettyStatValue(ch, ["cha"])))}</li>` +
     "</ul></div>"
   );
-  details.push("<div class='char-line'><strong>Навыки:</strong> — (в разработке)</div>");
+  details.push(`<div class='char-line'><strong>Навыки:</strong> ${escapeHtml(skillsText)}</div>`);
+
+  const copyLines = [
+    `Имя: ${String(ch.name || "—")}`,
+    `Класс: ${String(klass)}`,
+    `Уровень: ${String(ch.level ?? "—")}`
+  ];
+  const gender = String(ch.gender || "").trim();
+  const race = String(ch.race || "").trim();
+  if(gender || race){
+    copyLines.push(`Пол/Раса: ${gender || "—"} / ${race || "—"}`);
+  }
+  copyLines.push(`Зона: ${zone}`);
+  copyLines.push(`HP/STA: ${String(ch.hp ?? "—")}/${String(ch.hp_max ?? "—")} | ${String(ch.sta ?? "—")}/${String(ch.sta_max ?? "—")}`);
+  copyLines.push(`Инвентарь: ${getInventoryText(ch.inventory)}`);
+  copyLines.push(`Атрибуты: ${statsText.join(", ")}`);
+  copyLines.push(`Навыки: ${skillsText}`);
+  charModalCopyText = copyLines.join("\n");
 
   const body = document.getElementById("charModalBody");
   const modal = document.getElementById("charModal");
+  const copyBtn = document.getElementById("charModalCopy");
   if(!body || !modal) return;
   body.innerHTML = details.join("");
+  if(copyBtn){
+    copyBtn.disabled = !charModalCopyText;
+  }
   modal.classList.add("open");
   modal.setAttribute("aria-hidden", "false");
 }
 function closeCharacterModal(){
   const modal = document.getElementById("charModal");
   if(!modal) return;
+  if(charModalToastTimer){
+    clearTimeout(charModalToastTimer);
+    charModalToastTimer = null;
+  }
+  const toast = document.getElementById("charModalCopyToast");
+  if(toast){
+    toast.classList.remove("show");
+  }
   modal.classList.remove("open");
   modal.setAttribute("aria-hidden", "true");
 }
@@ -701,6 +851,7 @@ function toggleReady(){
   const card = document.getElementById("myChar");
   const modal = document.getElementById("charModal");
   const closeBtn = document.getElementById("charModalClose");
+  const copyBtn = document.getElementById("charModalCopy");
   if(card){
     card.addEventListener("click", openCharacterModal);
     card.addEventListener("keydown", (e) => {
@@ -712,6 +863,9 @@ function toggleReady(){
   }
   if(closeBtn){
     closeBtn.addEventListener("click", closeCharacterModal);
+  }
+  if(copyBtn){
+    copyBtn.addEventListener("click", copyCharacterCard);
   }
   if(modal){
     modal.addEventListener("click", (e) => {
