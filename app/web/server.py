@@ -140,6 +140,11 @@ STORY_HEALTH_SYSTEM_VALUES = {"none", "normal"}
 STORY_DMG_SCALE_VALUES = {"reduced", "standard", "increased"}
 STORY_AI_VERBOSITY_VALUES = {"auto", "restrained", "very_restrained"}
 STATE_COMMAND_ALIASES = {"state", "inv", "инв", "inventory"}
+ZONE_MOVE_RE = re.compile(
+    r"\b(?:иду|пойду|направляюсь|отправляюсь|захожу|вхожу|перехожу|возвращаюсь)\b"
+    r"(?:\s+\S+){0,4}?\s+\b(?:в|на|к)\b\s+([^\n\.,;:!\?\(\)\[\]\{\}]+)",
+    re.IGNORECASE,
+)
 
 
 def utcnow() -> datetime:
@@ -335,18 +340,36 @@ def infer_zone_from_action(text: str, current_zone: str) -> str:
     t = str(text or "").strip().lower()
     if not t:
         return current_zone
-    if any(k in t for k in ("таверн", "бар", "внутри", "остаюсь")):
-        return "таверна"
-    if any(k in t for k in ("улиц", "выйду", "выхожу", "на улиц")):
-        return "улица у таверны"
-    if any(k in t for k in ("центр", "площад")):
-        return "центр города"
-    if any(k in t for k in ("река", "берег")):
-        return "берег реки"
-    if "замок" in t:
-        if any(k in t for k in ("в замк", "внутри замк", "захожу в зам", "войти в зам", "вхожу в зам")):
-            return "замок"
-        return "дорога к замку"
+
+    def _known_zone(src: str) -> str:
+        if any(k in src for k in ("таверн", "бар", "внутри", "остаюсь")):
+            return "таверна"
+        if any(k in src for k in ("улиц", "выйду", "выхожу", "на улиц")):
+            return "улица у таверны"
+        if any(k in src for k in ("центр", "площад")):
+            return "центр города"
+        if any(k in src for k in ("река", "берег")):
+            return "берег реки"
+        if "замок" in src:
+            if any(k in src for k in ("в замк", "внутри замк", "захожу в зам", "войти в зам", "вхожу в зам")):
+                return "замок"
+            return "дорога к замку"
+        return ""
+
+    m = ZONE_MOVE_RE.search(t)
+    if m:
+        candidate = re.sub(r"\s+", " ", m.group(1)).strip(" \t\r\n\"'`").lower()
+        if len(candidate) > 80:
+            candidate = candidate[:80].rstrip()
+        known = _known_zone(t)
+        if known:
+            return known
+        if len(candidate) >= 3:
+            return candidate
+
+    known = _known_zone(t)
+    if known:
+        return known
     return current_zone
 
 
@@ -1888,6 +1911,35 @@ async def build_state(db: AsyncSession, sess: Session) -> dict:
     round_participants = _ready_active_players(sess, active_sps) if free_turns else active_sps
     actions_total = len(round_participants)
     actions_done = sum(1 for sp in round_participants if str(sp.player_id) in round_actions)
+    positions = _get_pc_positions(sess)
+    players_payload = []
+    for sp in all_sps:
+        pl = players_by_id.get(sp.player_id)
+        players_payload.append(
+            {
+                "id": str(sp.player_id),
+                "uid": _player_uid(pl),
+                "name": (pl.display_name if pl else str(sp.player_id)),
+                "order": int(sp.join_order or 0),
+                "is_admin": bool(sp.is_admin),
+                "is_current": (sp.is_active is not False) and sp.player_id == sess.current_player_id,
+                "is_active": sp.is_active is not False,
+                "is_ready": bool(ready_map.get(str(sp.player_id), False)) if sp.is_active is not False else False,
+                "initiative": init_map.get(str(sp.player_id)) if sp.is_active is not False else None,
+                "last_seen": last_seen_map.get(str(sp.player_id)),
+                "char": _char_to_payload(chars_by_player_id.get(sp.player_id)),
+                "has_character": chars_by_player_id.get(sp.player_id) is not None,
+                "zone": positions.get(str(sp.player_id), "стартовая локация (вместе)"),
+            }
+        )
+
+    pc_positions: dict[str, str] = {}
+    for sp in all_sps:
+        pl = players_by_id.get(sp.player_id)
+        uid = _player_uid(pl)
+        key = str(uid) if uid is not None else str(sp.player_id)
+        zone = positions.get(str(sp.player_id), "стартовая локация (вместе)")
+        pc_positions[key] = zone
 
     return {
         "type": "state",
@@ -1906,23 +1958,7 @@ async def build_state(db: AsyncSession, sess: Session) -> dict:
             "initiative_fixed": _initiative_fixed(sess),
             "round": (as_int(settings_get(sess, "round", 0), 0) or 1) if _initiative_fixed(sess) else None,
         },
-        "players": [
-            {
-                "id": str(sp.player_id),
-                "uid": _player_uid(players_by_id.get(sp.player_id)),
-                "name": (players_by_id.get(sp.player_id).display_name if players_by_id.get(sp.player_id) else str(sp.player_id)),
-                "order": int(sp.join_order or 0),
-                "is_admin": bool(sp.is_admin),
-                "is_current": (sp.is_active is not False) and sp.player_id == sess.current_player_id,
-                "is_active": sp.is_active is not False,
-                "is_ready": bool(ready_map.get(str(sp.player_id), False)) if sp.is_active is not False else False,
-                "initiative": init_map.get(str(sp.player_id)) if sp.is_active is not False else None,
-                "last_seen": last_seen_map.get(str(sp.player_id)),
-                "char": _char_to_payload(chars_by_player_id.get(sp.player_id)),
-                "has_character": chars_by_player_id.get(sp.player_id) is not None,
-            }
-            for sp in all_sps
-        ],
+        "players": players_payload,
         "events": [
             {
                 "turn": int(e.turn_index or 0),
@@ -1937,6 +1973,7 @@ async def build_state(db: AsyncSession, sess: Session) -> dict:
             "free_round": _get_free_round(sess) if free_turns else None,
             "actions_done": actions_done,
             "actions_total": actions_total,
+            "pc_positions": pc_positions,
         },
     }
 
