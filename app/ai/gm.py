@@ -87,17 +87,48 @@ async def generate_from_prompt(
         return {"text": "", "finish_reason": "error", "usage": {}, "error": str(e)}
 
 
+def build_lore_prompt(session_title: str, setting_text: str) -> str:
+    title = (session_title or "Кампания").strip()
+    setting = (setting_text or "").strip()
+    return (
+        "Ты Мастер настольной RPG в стиле D&D. Отвечай только по-русски.\n"
+        "Сгенерируй вступительный ЛОР кампании и стартовую сцену.\n"
+        "Запрещены мета-комментарии и заголовки 'Анализ/Ответ'. Пиши как мастер.\n"
+        "Тон: приключение, атмосферно, без жести.\n\n"
+        f"Название кампании: {title}\n"
+        f"Сеттинг от пользователя:\n{setting}\n\n"
+        "Выдай:\n"
+        "1) Короткий лор мира (6-12 предложений).\n"
+        "2) Стартовую сцену (6-12 предложений), где герои оказываются в ситуации, требующей решения.\n"
+        "3) В конце строку: 'Что делаете дальше?'\n"
+        "4) Затем 2-4 нейтральных варианта действий списком (без оценок и морали).\n"
+    )
+
+
 async def generate_lore(
     *,
-    prompt: str,
+    # Поддерживаем оба варианта вызова:
+    # 1) server.py: generate_lore(session_title=..., setting_text=..., timeout_seconds=...)
+    session_title: Optional[str] = None,
+    setting_text: Optional[str] = None,
+    # 2) запасной: generate_lore(prompt="...")
+    prompt: Optional[str] = None,
     timeout_seconds: Optional[float] = None,
     num_predict: Optional[int] = None,
 ) -> dict[str, Any]:
     """
-    Аналогично generate_from_prompt, но можно использовать отдельную модель для лора.
+    Совместимо с app/web/server.py.
+    Возвращает dict с ключами: text, finish_reason, usage
     """
     timeout = float(timeout_seconds if timeout_seconds is not None else DEFAULT_TIMEOUT_SECONDS)
-    predict = int(num_predict if num_predict is not None else 768)
+    predict = int(num_predict if num_predict is not None else 900)
+
+    if prompt is None:
+        prompt = build_lore_prompt(
+            session_title=str(session_title or ""),
+            setting_text=str(setting_text or ""),
+        )
+
     try:
         data = await asyncio.to_thread(
             _post_generate_json,
@@ -109,14 +140,3 @@ async def generate_lore(
         return _ollama_to_response_dict(data)
     except Exception as e:
         return {"text": "", "finish_reason": "error", "usage": {}, "error": str(e)}
-
-
-async def generate_gm_reply(
-    session_title: str,
-    context_events: Sequence[str],
-    timeout_seconds: float | None = None,
-) -> str:
-    # оставляем для обратной совместимости старого режима
-    p = build_gm_prompt(session_title=session_title, context_events=context_events)
-    resp = await generate_from_prompt(prompt=p, timeout_seconds=timeout_seconds, num_predict=256)
-    return str(resp.get("text") or "").strip()
