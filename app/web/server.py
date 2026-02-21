@@ -31,6 +31,8 @@ INACTIVE_SCAN_PERIOD_SECONDS = int(os.getenv("DND_INACTIVE_SCAN_PERIOD_SECONDS",
 DEFAULT_TIMEZONE = os.getenv("DEFAULT_TIMEZONE", "Europe/Warsaw")
 GM_CONTEXT_EVENTS = max(1, int(os.getenv("GM_CONTEXT_EVENTS", "20")))
 GM_OLLAMA_TIMEOUT_SECONDS = max(1.0, float(os.getenv("GM_OLLAMA_TIMEOUT_SECONDS", "30")))
+GM_DRAFT_NUM_PREDICT = max(200, int(os.getenv("GM_DRAFT_NUM_PREDICT", "1000")))
+GM_FINAL_NUM_PREDICT = max(400, int(os.getenv("GM_FINAL_NUM_PREDICT", "1600")))
 logger = logging.getLogger(__name__)
 CHAR_STAT_KEYS = ("str", "dex", "con", "int", "wis", "cha")
 CHAR_DEFAULT_STATS = {k: 50 for k in CHAR_STAT_KEYS}
@@ -39,6 +41,16 @@ INV_MACHINE_LINE_RE = re.compile(r"^\s*@@(?P<cmd>INV_ADD|INV_REMOVE|INV_TRANSFER
 TEXTUAL_CHECK_RE = re.compile(
     r"(?:проверка|check)\s*[:\-]?\s*([a-zA-Zа-яА-Я_]+)[^\n]{0,40}?\bdc\s*[:=]?\s*(\d+)",
     re.IGNORECASE,
+)
+GM_META_BANNED_PHRASES = (
+    "сцена продолжается",
+    "если вы хотите",
+    "я могу помочь",
+    "могу предложить",
+    "могу дать информацию",
+    "если у вас есть вопросы",
+    "чтобы продолжить историю",
+    "дальнейшее развитие сюжета",
 )
 SKILL_TO_ABILITY: dict[str, str] = {
     "acrobatics": "dex",
@@ -1085,7 +1097,22 @@ def _sanitize_gm_output(text: str) -> str:
     txt = re.sub(r"\bя\s+не\s+могу[^.!?\n]{0,260}[.!?]?", "Сцена продолжается.", txt, flags=re.IGNORECASE)
     txt = re.sub(r"\bне\s+могу\s+продолжить[^.!?\n]{0,260}[.!?]?", "Сцена продолжается.", txt, flags=re.IGNORECASE)
 
-    txt = re.sub(r"[ \t]+", " ", txt)
+    fragments = re.findall(r"[^.!?\n]+[.!?]?|\n+", txt, flags=re.DOTALL)
+    kept: list[str] = []
+    for frag in fragments:
+        if not frag:
+            continue
+        if frag.isspace() and "\n" in frag:
+            kept.append(frag)
+            continue
+        normalized = re.sub(r"\s+", " ", frag).strip().lower()
+        if normalized and any(phrase in normalized for phrase in GM_META_BANNED_PHRASES):
+            continue
+        kept.append(frag)
+    txt = "".join(kept)
+
+    txt = re.sub(r"[ \t]{2,}", " ", txt)
+    txt = re.sub(r"[ \t]*\n[ \t]*", "\n", txt)
     txt = re.sub(r"\n{3,}", "\n\n", txt)
     return txt.strip(" \n\r\t-")
 
@@ -1964,6 +1991,7 @@ def _build_round_draft_prompt(
         "Если игроки действуют рядом (например сундук/факел), можно объединить в один связный эпизод.\n"
         "Если игроки далеко друг от друга, опиши обе ветки кратко и параллельно, но за 1-2 раунда создай событие, чтобы партия снова собралась.\n"
         "Запрещены мета-комментарии: 'проанализируем', 'в черновике', 'я модель/ИИ' и подобные.\n"
+        "Не предлагай помощь, не объясняй как продолжать, не делай мета-комментариев. Только повествование/диалог/действия.\n"
         "Запрещены отказы и извинения ('я не могу', 'извиняюсь', 'не могу продолжить'). Смягчай и продолжай сцену.\n"
         "Если нужна проверка, не проси бросок в тексте: выдай в конце строки @@CHECK в JSON-формате.\n"
         "Формат строки:\n"
@@ -1989,7 +2017,7 @@ def _build_round_draft_prompt(
         f"Позиции персонажей (важно):\n{positions_block}\n\n"
         f"Действия игроков в этом раунде:\n{acts}\n\n"
         + (f"Заметки мастеру: {notes}\n\n" if notes else "")
-        + "Черновик должен закончиться вопросом к партии: что вы делаете дальше?"
+        + "Черновик должен заканчиваться строкой 'Что делаете дальше?' и, если уместно, 2-4 краткими вариантами действий списком."
     )
 
 
@@ -2012,9 +2040,11 @@ def _build_finalize_prompt(draft_text: str, check_results: list[dict[str, Any]])
         "Это финальный ответ игрокам.\n"
         "НЕ упоминай слова черновик/драфт/анализ/проверка/проверку в мета-смысле и не ссылайся на 'черновик'.\n"
         "Не добавляй мета-комментарии ('проанализируем', 'как модель/ИИ', 'в черновике').\n"
+        "Не предлагай помощь, не объясняй как продолжать, не делай мета-комментариев. Только повествование/диалог/действия.\n"
         "Не пиши извинения и отказы ('извиняюсь', 'я не могу', 'не могу продолжить'). Вместо этого продолжай сцену мягко.\n"
         "ВАЖНО: в финальном ответе не должно быть @@CHECK и @@CHECK_RESULT.\n"
         "Не проси игроков бросать кости вручную.\n\n"
+        "Завершай ответ строкой 'Что делаете дальше?' и, если уместно, дай 2-4 кратких варианта действий списком.\n\n"
         f"Черновик:\n{draft_text}\n\n"
         f"Результаты проверок:\n{results_block}"
     )
@@ -2033,6 +2063,7 @@ async def _run_gm_two_pass(
     draft_resp = await generate_from_prompt(
         prompt=draft_prompt,
         timeout_seconds=GM_OLLAMA_TIMEOUT_SECONDS,
+        num_predict=GM_DRAFT_NUM_PREDICT,
     )
     draft_text_raw = str(draft_resp.get("text") or "").strip()
     draft_text, checks, has_human_check = _extract_checks_from_draft(draft_text_raw, default_actor_uid)
@@ -2055,6 +2086,7 @@ async def _run_gm_two_pass(
             forced_resp = await generate_from_prompt(
                 prompt=force_prompt,
                 timeout_seconds=GM_OLLAMA_TIMEOUT_SECONDS,
+                num_predict=GM_DRAFT_NUM_PREDICT,
             )
             draft_resp = forced_resp
             draft_text_raw = str(forced_resp.get("text") or "").strip()
@@ -2096,6 +2128,7 @@ async def _run_gm_two_pass(
     final_resp = await generate_from_prompt(
         prompt=final_prompt,
         timeout_seconds=GM_OLLAMA_TIMEOUT_SECONDS,
+        num_predict=GM_FINAL_NUM_PREDICT,
     )
     final_text = _sanitize_gm_output(_strip_machine_lines(str(final_resp.get("text") or "").strip()))
     if not final_text:
@@ -2107,6 +2140,7 @@ async def _run_gm_two_pass(
         fallback_resp = await generate_from_prompt(
             prompt=fallback_prompt,
             timeout_seconds=GM_OLLAMA_TIMEOUT_SECONDS,
+            num_predict=GM_FINAL_NUM_PREDICT,
         )
         final_text = _sanitize_gm_output(_strip_machine_lines(str(fallback_resp.get("text") or "").strip()))
         if not final_text:
@@ -2128,6 +2162,7 @@ async def _run_gm_two_pass(
             continuation_resp = await generate_from_prompt(
                 prompt=continuation_prompt,
                 timeout_seconds=GM_OLLAMA_TIMEOUT_SECONDS,
+                num_predict=GM_FINAL_NUM_PREDICT,
             )
             continuation_text = _sanitize_gm_output(_strip_machine_lines(str(continuation_resp.get("text") or "").strip()))
             if not continuation_text:
@@ -2159,6 +2194,7 @@ async def _run_gm_two_pass(
                 anti_repeat_resp = await generate_from_prompt(
                     prompt=anti_repeat_prompt,
                     timeout_seconds=GM_OLLAMA_TIMEOUT_SECONDS,
+                    num_predict=GM_FINAL_NUM_PREDICT,
                 )
                 anti_repeat_text = _sanitize_gm_output(_strip_machine_lines(str(anti_repeat_resp.get("text") or "").strip()))
                 if anti_repeat_text:
@@ -2175,6 +2211,7 @@ async def _run_gm_two_pass(
         cleanup_resp = await generate_from_prompt(
             prompt=cleanup_prompt,
             timeout_seconds=GM_OLLAMA_TIMEOUT_SECONDS,
+            num_predict=GM_FINAL_NUM_PREDICT,
         )
         cleaned = _sanitize_gm_output(_strip_machine_lines(str(cleanup_resp.get("text") or "").strip()))
         if cleaned:
