@@ -1,4 +1,5 @@
 import asyncio
+import ast
 import json
 import logging
 import os
@@ -34,6 +35,7 @@ logger = logging.getLogger(__name__)
 CHAR_STAT_KEYS = ("str", "dex", "con", "int", "wis", "cha")
 CHAR_DEFAULT_STATS = {k: 50 for k in CHAR_STAT_KEYS}
 CHECK_LINE_RE = re.compile(r"^\s*@@CHECK\s+(\{.*\})\s*$", re.IGNORECASE)
+INV_MACHINE_LINE_RE = re.compile(r"^\s*@@(?P<cmd>INV_ADD|INV_REMOVE|INV_TRANSFER)\s*\((?P<args>.*)\)\s*$", re.IGNORECASE)
 TEXTUAL_CHECK_RE = re.compile(
     r"(?:проверка|check)\s*[:\-]?\s*([a-zA-Zа-яА-Я_]+)[^\n]{0,40}?\bdc\s*[:=]?\s*(\d+)",
     re.IGNORECASE,
@@ -125,6 +127,7 @@ STORY_DIFFICULTY_VALUES = {"easy", "medium", "hard"}
 STORY_HEALTH_SYSTEM_VALUES = {"none", "normal"}
 STORY_DMG_SCALE_VALUES = {"reduced", "standard", "increased"}
 STORY_AI_VERBOSITY_VALUES = {"auto", "restrained", "very_restrained"}
+STATE_COMMAND_ALIASES = {"state", "inv", "инв", "inventory"}
 
 
 def utcnow() -> datetime:
@@ -582,6 +585,467 @@ def _put_character_meta_into_stats(stats_raw: Any, *, gender: str, race: str, de
         "description": str(description or "").strip()[:1000],
     }
     return stats
+
+
+def _slugify_inventory_id(raw: Any, fallback_name: str, index: int) -> str:
+    src = str(raw or fallback_name or "").strip().lower()
+    src = re.sub(r"[^a-z0-9]+", "-", src)
+    src = src.strip("-")
+    if src:
+        return src[:40]
+    return f"item-{max(1, index)}"
+
+
+def _normalize_inventory_item(raw_item: Any, index: int) -> Optional[dict[str, Any]]:
+    if isinstance(raw_item, str):
+        name = raw_item.strip()
+        qty = 1
+        item_id_raw = ""
+        tags_raw = None
+        notes_raw = ""
+    elif isinstance(raw_item, dict):
+        name = str(raw_item.get("name") or "").strip()
+        qty = _clamp(as_int(raw_item.get("qty"), 1), 1, 99)
+        item_id_raw = str(raw_item.get("id") or "").strip()
+        tags_raw = raw_item.get("tags")
+        notes_raw = str(raw_item.get("notes") or "").strip()
+    else:
+        return None
+
+    if not name:
+        return None
+
+    item: dict[str, Any] = {
+        "id": _slugify_inventory_id(item_id_raw, name, index),
+        "name": name[:80],
+        "qty": _clamp(as_int(qty, 1), 1, 99),
+    }
+
+    if isinstance(tags_raw, list):
+        tags: list[str] = []
+        for tag in tags_raw:
+            t = str(tag or "").strip()
+            if t:
+                tags.append(t[:30])
+            if len(tags) >= 8:
+                break
+        if tags:
+            item["tags"] = tags
+
+    notes = str(notes_raw or "").strip()[:200]
+    if notes:
+        item["notes"] = notes
+
+    return item
+
+
+def _parse_inventory_text(raw_text: Any) -> list[dict[str, Any]]:
+    text = str(raw_text or "")
+    items: list[dict[str, Any]] = []
+    for line in text.splitlines():
+        ln = re.sub(r"^\s*(?:[-*•]|\d+[.)])\s*", "", str(line or "").strip())
+        if not ln:
+            continue
+        qty = 1
+        name = ln
+        m_tail = re.match(r"^(.*?)\s*[xх*]\s*(\d{1,2})\s*$", ln, flags=re.IGNORECASE)
+        if m_tail:
+            name = m_tail.group(1).strip()
+            qty = _clamp(as_int(m_tail.group(2), 1), 1, 99)
+        else:
+            m_head = re.match(r"^(\d{1,2})\s*[xх*]?\s+(.+?)\s*$", ln, flags=re.IGNORECASE)
+            if m_head:
+                qty = _clamp(as_int(m_head.group(1), 1), 1, 99)
+                name = m_head.group(2).strip()
+        if name:
+            items.append({"name": name, "qty": qty})
+    return items
+
+
+def _normalize_inventory_payload(inventory_raw: Any, inventory_text_raw: Any) -> list[dict[str, Any]]:
+    source_items: list[Any]
+    if isinstance(inventory_raw, list):
+        source_items = inventory_raw
+    elif str(inventory_text_raw or "").strip():
+        source_items = _parse_inventory_text(inventory_text_raw)
+    else:
+        source_items = []
+
+    out: list[dict[str, Any]] = []
+    for idx, raw_item in enumerate(source_items, start=1):
+        normalized = _normalize_inventory_item(raw_item, idx)
+        if normalized:
+            out.append(normalized)
+        if len(out) >= 60:
+            break
+    return out
+
+
+def _character_inventory_from_stats(stats_raw: Any) -> list[dict[str, Any]]:
+    if not isinstance(stats_raw, dict):
+        return []
+    raw = stats_raw.get("_inv")
+    return raw if isinstance(raw, list) else []
+
+
+def _put_character_inventory_into_stats(stats_raw: Any, inventory: list[dict[str, Any]]) -> dict[str, Any]:
+    stats = dict(stats_raw) if isinstance(stats_raw, dict) else {}
+    stats["_inv"] = list(inventory) if isinstance(inventory, list) else []
+    return stats
+
+
+def _split_machine_args(args_raw: str) -> list[str]:
+    parts: list[str] = []
+    cur: list[str] = []
+    in_quote: Optional[str] = None
+    depth = 0
+    esc = False
+    for ch in str(args_raw or ""):
+        if esc:
+            cur.append(ch)
+            esc = False
+            continue
+        if ch == "\\":
+            cur.append(ch)
+            esc = True
+            continue
+        if in_quote:
+            cur.append(ch)
+            if ch == in_quote:
+                in_quote = None
+            continue
+        if ch in ("'", '"'):
+            cur.append(ch)
+            in_quote = ch
+            continue
+        if ch in ("[", "{", "("):
+            depth += 1
+            cur.append(ch)
+            continue
+        if ch in ("]", "}", ")"):
+            depth = max(0, depth - 1)
+            cur.append(ch)
+            continue
+        if ch == "," and depth == 0:
+            token = "".join(cur).strip()
+            if token:
+                parts.append(token)
+            cur = []
+            continue
+        cur.append(ch)
+    tail = "".join(cur).strip()
+    if tail:
+        parts.append(tail)
+    return parts
+
+
+def _parse_machine_value(raw: str) -> Any:
+    src = str(raw or "").strip()
+    if not src:
+        return ""
+    if re.fullmatch(r"[+-]?\d+", src):
+        return as_int(src, 0)
+    if src[0] in ("'", '"', "[", "{", "("):
+        try:
+            return ast.literal_eval(src)
+        except Exception:
+            pass
+    return src
+
+
+def _parse_inventory_machine_line(line: str) -> Optional[dict[str, Any]]:
+    m = INV_MACHINE_LINE_RE.match(str(line or ""))
+    if not m:
+        return None
+    cmd = str(m.group("cmd") or "").strip().upper()
+    args_raw = str(m.group("args") or "")
+    fields: dict[str, Any] = {}
+    for token in _split_machine_args(args_raw):
+        if "=" not in token:
+            continue
+        key, value = token.split("=", 1)
+        k = str(key or "").strip().lower()
+        if not k:
+            continue
+        fields[k] = _parse_machine_value(value)
+
+    if cmd == "INV_ADD":
+        uid = as_int(fields.get("uid"), 0)
+        name = str(fields.get("name") or "").strip()
+        if uid <= 0 or not name:
+            return None
+        tags: Optional[list[str]] = None
+        tags_raw = fields.get("tags")
+        if isinstance(tags_raw, (list, tuple)):
+            tag_vals: list[str] = []
+            for tag in tags_raw:
+                t = str(tag or "").strip()
+                if not t:
+                    continue
+                tag_vals.append(t[:30])
+                if len(tag_vals) >= 8:
+                    break
+            if tag_vals:
+                tags = tag_vals
+        notes = str(fields.get("notes") or "").strip()[:200]
+        return {
+            "op": "add",
+            "uid": uid,
+            "name": name[:80],
+            "qty": _clamp(as_int(fields.get("qty"), 1), 1, 99),
+            "tags": tags,
+            "notes": notes or None,
+        }
+    if cmd == "INV_REMOVE":
+        uid = as_int(fields.get("uid"), 0)
+        name = str(fields.get("name") or "").strip()
+        if uid <= 0 or not name:
+            return None
+        return {
+            "op": "remove",
+            "uid": uid,
+            "name": name[:80],
+            "qty": _clamp(as_int(fields.get("qty"), 1), 1, 99),
+        }
+    if cmd == "INV_TRANSFER":
+        from_uid = as_int(fields.get("from_uid"), 0)
+        to_uid = as_int(fields.get("to_uid"), 0)
+        name = str(fields.get("name") or "").strip()
+        if from_uid <= 0 or to_uid <= 0 or not name:
+            return None
+        return {
+            "op": "transfer",
+            "from_uid": from_uid,
+            "to_uid": to_uid,
+            "name": name[:80],
+            "qty": _clamp(as_int(fields.get("qty"), 1), 1, 99),
+        }
+    return None
+
+
+def _extract_inventory_machine_commands(text: str) -> tuple[str, list[dict[str, Any]]]:
+    out_lines: list[str] = []
+    commands: list[dict[str, Any]] = []
+    for line in str(text or "").splitlines():
+        if not str(line).lstrip().startswith("@@INV_"):
+            out_lines.append(line)
+            continue
+        parsed = _parse_inventory_machine_line(line)
+        if parsed:
+            commands.append(parsed)
+        else:
+            logger.warning("invalid inventory machine command", extra={"action": {"line": _trim_for_log(line, 260)}})
+    return "\n".join(out_lines).strip(), commands
+
+
+def _find_inventory_item_index(inv: list[dict[str, Any]], name_or_id: str) -> Optional[int]:
+    needle_name = str(name_or_id or "").strip().lower()
+    if not needle_name:
+        return None
+    needle_id = _slugify_inventory_id(name_or_id, name_or_id, 1)
+    for idx, raw_item in enumerate(inv):
+        if not isinstance(raw_item, dict):
+            continue
+        item_name = str(raw_item.get("name") or "").strip().lower()
+        item_id = str(raw_item.get("id") or "").strip().lower()
+        if item_name == needle_name or item_id == needle_id:
+            return idx
+    return None
+
+
+def _inv_add_on_character(
+    ch: Character,
+    *,
+    name: str,
+    qty: int,
+    tags: Optional[list[str]] = None,
+    notes: Optional[str] = None,
+) -> bool:
+    inv_raw = _character_inventory_from_stats(ch.stats)
+    inv: list[dict[str, Any]] = [dict(x) for x in inv_raw if isinstance(x, dict)]
+    idx = _find_inventory_item_index(inv, name)
+    changed = False
+    if idx is not None:
+        item = dict(inv[idx])
+        cur_qty = _clamp(as_int(item.get("qty"), 1), 1, 99)
+        next_qty = _clamp(cur_qty + _clamp(as_int(qty, 1), 1, 99), 1, 99)
+        if next_qty != cur_qty:
+            item["qty"] = next_qty
+            changed = True
+        if tags is not None:
+            item["tags"] = tags
+            changed = True
+        if notes:
+            item["notes"] = str(notes).strip()[:200]
+            changed = True
+        inv[idx] = item
+    else:
+        normalized = _normalize_inventory_item(
+            {"id": _slugify_inventory_id("", name, len(inv) + 1), "name": name, "qty": qty, "tags": tags, "notes": notes or ""},
+            len(inv) + 1,
+        )
+        if normalized:
+            inv.append(normalized)
+            changed = True
+    if changed:
+        ch.stats = _put_character_inventory_into_stats(ch.stats, inv)
+    return changed
+
+
+def _inv_remove_on_character(ch: Character, *, name: str, qty: int) -> tuple[bool, int, Optional[dict[str, Any]]]:
+    inv_raw = _character_inventory_from_stats(ch.stats)
+    inv: list[dict[str, Any]] = [dict(x) for x in inv_raw if isinstance(x, dict)]
+    idx = _find_inventory_item_index(inv, name)
+    if idx is None:
+        return False, 0, None
+    item = dict(inv[idx])
+    cur_qty = _clamp(as_int(item.get("qty"), 1), 1, 99)
+    take = min(cur_qty, _clamp(as_int(qty, 1), 1, 99))
+    next_qty = cur_qty - take
+    if next_qty <= 0:
+        inv.pop(idx)
+    else:
+        item["qty"] = next_qty
+        inv[idx] = item
+    ch.stats = _put_character_inventory_into_stats(ch.stats, inv)
+    removed_item = dict(item)
+    removed_item["qty"] = take
+    return True, take, removed_item
+
+
+async def _apply_inventory_machine_commands(db: AsyncSession, sess: Session, commands: list[dict[str, Any]]) -> None:
+    if not commands:
+        return
+    uid_map, chars_by_uid, _ = await _load_actor_context(db, sess)
+    positions = _get_pc_positions(sess)
+    for cmd in commands:
+        op = str(cmd.get("op") or "").strip().lower()
+        if op == "add":
+            uid = as_int(cmd.get("uid"), 0)
+            ch = chars_by_uid.get(uid)
+            if not ch:
+                logger.warning("INV_ADD target not found", extra={"action": {"uid": uid, "name": cmd.get("name")}})
+                continue
+            _inv_add_on_character(
+                ch,
+                name=str(cmd.get("name") or ""),
+                qty=_clamp(as_int(cmd.get("qty"), 1), 1, 99),
+                tags=cmd.get("tags") if isinstance(cmd.get("tags"), list) else None,
+                notes=str(cmd.get("notes") or "").strip() or None,
+            )
+            continue
+
+        if op == "remove":
+            uid = as_int(cmd.get("uid"), 0)
+            ch = chars_by_uid.get(uid)
+            if not ch:
+                logger.warning("INV_REMOVE target not found", extra={"action": {"uid": uid, "name": cmd.get("name")}})
+                continue
+            changed, _qty, _removed = _inv_remove_on_character(
+                ch,
+                name=str(cmd.get("name") or ""),
+                qty=_clamp(as_int(cmd.get("qty"), 1), 1, 99),
+            )
+            if not changed:
+                logger.warning("INV_REMOVE source item not found", extra={"action": {"uid": uid, "name": cmd.get("name")}})
+            continue
+
+        if op == "transfer":
+            from_uid = as_int(cmd.get("from_uid"), 0)
+            to_uid = as_int(cmd.get("to_uid"), 0)
+            from_ch = chars_by_uid.get(from_uid)
+            to_ch = chars_by_uid.get(to_uid)
+            from_pair = uid_map.get(from_uid)
+            to_pair = uid_map.get(to_uid)
+            if not from_ch or not to_ch or not from_pair or not to_pair:
+                logger.warning(
+                    "INV_TRANSFER participants not found",
+                    extra={"action": {"from_uid": from_uid, "to_uid": to_uid, "name": cmd.get("name")}},
+                )
+                continue
+            from_zone = str(positions.get(str(from_pair[0].player_id), "") or "")
+            to_zone = str(positions.get(str(to_pair[0].player_id), "") or "")
+            if from_zone != to_zone:
+                logger.warning(
+                    "INV_TRANSFER blocked due to different zones",
+                    extra={
+                        "action": {
+                            "from_uid": from_uid,
+                            "to_uid": to_uid,
+                            "name": cmd.get("name"),
+                            "from_zone": from_zone,
+                            "to_zone": to_zone,
+                        }
+                    },
+                )
+                continue
+            changed, moved_qty, removed_item = _inv_remove_on_character(
+                from_ch,
+                name=str(cmd.get("name") or ""),
+                qty=_clamp(as_int(cmd.get("qty"), 1), 1, 99),
+            )
+            if not changed or moved_qty <= 0 or not removed_item:
+                logger.warning(
+                    "INV_TRANSFER source item not found",
+                    extra={"action": {"from_uid": from_uid, "to_uid": to_uid, "name": cmd.get("name")}},
+                )
+                continue
+            _inv_add_on_character(
+                to_ch,
+                name=str(removed_item.get("name") or cmd.get("name") or ""),
+                qty=moved_qty,
+                tags=removed_item.get("tags") if isinstance(removed_item.get("tags"), list) else None,
+                notes=str(removed_item.get("notes") or "").strip() or None,
+            )
+            continue
+
+
+def _inventory_state_line(ch: Optional[Character]) -> str:
+    if not ch:
+        return "пусто"
+    inv = _character_inventory_from_stats(ch.stats)
+    parts: list[str] = []
+    for item in inv:
+        if not isinstance(item, dict):
+            continue
+        name = str(item.get("name") or "").strip()
+        if not name:
+            continue
+        qty = _clamp(as_int(item.get("qty"), 1), 1, 99)
+        parts.append(f"{name} x{qty}" if qty > 1 else name)
+        if len(parts) >= 20:
+            break
+    return "; ".join(parts) if parts else "пусто"
+
+
+def _format_state_text_for_player(sess: Session, player: Player, ch: Optional[Character]) -> str:
+    zone = _get_pc_positions(sess).get(str(player.id), "стартовая локация (вместе)")
+    char_name = str(ch.name).strip() if ch and str(ch.name or "").strip() else "(персонаж не создан)"
+    hp_sta = "HP/STA: —"
+    if ch:
+        hp_sta = f"HP {as_int(ch.hp, 0)}/{as_int(ch.hp_max, 0)} | STA {as_int(ch.sta, 0)}/{as_int(ch.sta_max, 0)}"
+    inv_line = _inventory_state_line(ch)
+    return f"Состояние: {char_name}\nЗона: {zone}\n{hp_sta}\nИнвентарь: {inv_line}"
+
+
+def _inventory_prompt_line(stats_raw: Any, max_len: int = 150) -> str:
+    inv = _character_inventory_from_stats(stats_raw)
+    if not inv:
+        return ""
+    parts: list[str] = []
+    for item in inv:
+        if not isinstance(item, dict):
+            continue
+        name = str(item.get("name") or "").strip()
+        if not name:
+            continue
+        qty = _clamp(as_int(item.get("qty"), 1), 1, 99)
+        parts.append(f"{name} x{qty}" if qty > 1 else name)
+        if len(parts) >= 12:
+            break
+    if not parts:
+        return ""
+    return _short_text("inventory: " + "; ".join(parts), max(120, min(160, max_len)))
 
 
 def _short_text(text: str, limit: int) -> str:
@@ -1445,9 +1909,19 @@ def _build_turn_draft_prompt(
     return (
         "Ты Мастер настольной RPG в стиле D&D. Отвечай только по-русски.\n"
         "Сначала напиши черновик развития сцены (2-6 предложений).\n"
+        "Инвентарь персонажей (inventory) — это истина сервера.\n"
+        "Нельзя подтверждать использование предмета, которого нет у персонажа в inventory.\n"
+        "Если игрок пишет 'достаю/зажигаю факел', а факела нет, прямо скажи, что факела нет, и предложи варианты: поискать, попросить у другого, импровизировать.\n"
+        "Если игрок ищет/обыскивает, назначай @@CHECK (например perception/investigation).\n"
         "Если нужна проверка, НЕ проси игрока кидать вручную. В конце добавь машинные строки:\n"
         "@@CHECK {\"actor_uid\":<uid>,\"kind\":\"skill|ability\",\"name\":\"perception|wis|...\",\"dc\":15,\"mode\":\"normal|advantage|disadvantage\",\"reason\":\"...\"}\n"
+        "После успешного поиска/получения предмета выдай его ТОЛЬКО машинной строкой:\n"
+        "@@INV_ADD(uid=<int>, name=\"<item>\", qty=<int optional>, tags=[... optional], notes=\"...\" optional)\n"
+        "Также можно использовать:\n"
+        "@@INV_REMOVE(uid=<int>, name=\"<item>\", qty=<int optional>)\n"
+        "@@INV_TRANSFER(from_uid=<int>, to_uid=<int>, name=\"<item>\", qty=<int optional>)\n"
         "Можно несколько @@CHECK, каждая в отдельной строке.\n"
+        "Можно несколько @@INV_* строк, каждая в отдельной строке.\n"
         "В тексте для игрока не оставляй незакрытых требований формата 'Проверка ... DC ...'.\n"
         "Не пиши @@CHECK_RESULT.\n"
         "Не отвечай отказом. Если тема спорная — смягчай до приключенческого уровня.\n\n"
@@ -1483,6 +1957,9 @@ def _build_round_draft_prompt(
     return (
         "Ты Мастер настольной RPG в стиле D&D. Отвечай только по-русски.\n"
         f"Сложность сцены: {diff}.\n"
+        "Инвентарь персонажей (inventory) — это истина сервера.\n"
+        "Нельзя подтверждать использование предмета, которого нет у персонажа в inventory.\n"
+        "Если игрок пишет 'достаю/зажигаю факел', а факела нет, прямо скажи, что факела нет, и предложи варианты: поискать, попросить у другого, импровизировать.\n"
         "Обработай действия КАЖДОГО игрока. Не игнорируй второе/третье действие.\n"
         "Если игроки действуют рядом (например сундук/факел), можно объединить в один связный эпизод.\n"
         "Если игроки далеко друг от друга, опиши обе ветки кратко и параллельно, но за 1-2 раунда создай событие, чтобы партия снова собралась.\n"
@@ -1491,7 +1968,13 @@ def _build_round_draft_prompt(
         "Если нужна проверка, не проси бросок в тексте: выдай в конце строки @@CHECK в JSON-формате.\n"
         "Формат строки:\n"
         "@@CHECK {\"actor_uid\":<uid>,\"kind\":\"skill|ability\",\"name\":\"...\",\"dc\":15,\"mode\":\"normal|advantage|disadvantage\",\"reason\":\"...\"}\n"
+        "Если после успеха проверки персонаж получает предмет, выдай это ТОЛЬКО машинной строкой:\n"
+        "@@INV_ADD(uid=<int>, name=\"<item>\", qty=<int optional>, tags=[... optional], notes=\"...\" optional)\n"
+        "Разрешены также:\n"
+        "@@INV_REMOVE(uid=<int>, name=\"<item>\", qty=<int optional>)\n"
+        "@@INV_TRANSFER(from_uid=<int>, to_uid=<int>, name=\"<item>\", qty=<int optional>)\n"
         "Разрешено несколько @@CHECK. В тексте не оставляй 'Проверка ... DC ...'.\n"
+        "Разрешено несколько @@INV_*.\n"
         "Не пиши @@CHECK_RESULT.\n"
         "Не отвечай отказом. Спорные темы смягчай до приключенческого уровня.\n\n"
         "ПРАВИЛА ПО ЗОНАМ (строго):\n"
@@ -1517,6 +2000,15 @@ def _build_finalize_prompt(draft_text: str, check_results: list[dict[str, Any]])
         "Ты Мастер настольной RPG в стиле D&D. Отвечай только по-русски.\n"
         "Ниже черновик сцены и результаты автоматических проверок.\n"
         "Сделай финальный ответ игрокам: учитывай успех/провал, продвигай сцену, добавь последствия.\n"
+        "Инвентарь персонажей (inventory) — это истина сервера.\n"
+        "Нельзя подтверждать использование предмета, которого нет в inventory персонажа.\n"
+        "Если игрок пытается использовать отсутствующий предмет (например факел), скажи, что предмета нет, и предложи варианты: поискать, попросить у другого, импровизировать.\n"
+        "Если после успеха проверки или события выдаёшь предмет/забираешь/переносишь, делай это ТОЛЬКО через машинные строки @@INV_*.\n"
+        "Форматы:\n"
+        "@@INV_ADD(uid=<int>, name=\"<item>\", qty=<int optional>, tags=[... optional], notes=\"...\" optional)\n"
+        "@@INV_REMOVE(uid=<int>, name=\"<item>\", qty=<int optional>)\n"
+        "@@INV_TRANSFER(from_uid=<int>, to_uid=<int>, name=\"<item>\", qty=<int optional>)\n"
+        "Эти строки для сервера: они будут скрыты от игроков.\n"
         "Это финальный ответ игрокам.\n"
         "НЕ упоминай слова черновик/драфт/анализ/проверка/проверку в мета-смысле и не ссылайся на 'черновик'.\n"
         "Не добавляй мета-комментарии ('проанализируем', 'как модель/ИИ', 'в черновике').\n"
@@ -1791,10 +2283,13 @@ async def _auto_gm_reply_task(session_id: str, expected_action_id: str) -> None:
                     return
 
                 gm_text = gm_text.strip()
-                if not gm_text or _looks_like_refusal(gm_text):
+                gm_text_visible, inv_commands = _extract_inventory_machine_commands(gm_text)
+                await _apply_inventory_machine_commands(db, sess, inv_commands)
+                gm_text_visible = gm_text_visible.strip()
+                if gm_text_visible and not _looks_like_refusal(gm_text_visible):
+                    await add_system_event(db, sess, f"🧙 GM: {gm_text_visible}")
+                elif not inv_commands:
                     await add_system_event(db, sess, "🧙 GM: (модель отказала. Переформулируй действие проще, без жести и откровенных деталей.)")
-                else:
-                    await add_system_event(db, sess, f"🧙 GM: {gm_text}")
 
                 nxt = await advance_turn(db, sess)
                 if nxt:
@@ -2018,8 +2513,11 @@ async def _auto_round_task(session_id: str, expected_action_id: str) -> None:
                     return
 
                 gm_text = gm_text.strip()
-                if gm_text:
-                    await add_system_event(db, sess, f"🧙 Мастер: {gm_text}")
+                gm_text_visible, inv_commands = _extract_inventory_machine_commands(gm_text)
+                await _apply_inventory_machine_commands(db, sess, inv_commands)
+                gm_text_visible = gm_text_visible.strip()
+                if gm_text_visible:
+                    await add_system_event(db, sess, f"🧙 Мастер: {gm_text_visible}")
 
                 sps_active = await list_session_players(db, sess, active_only=True)
                 if _should_use_round_mode(sess, sps_active):
@@ -2812,6 +3310,18 @@ async def ws_room(ws: WebSocket, session_id: str):
                 if not text:
                     continue
 
+                # normalize leading slash for typed commands
+                cmdline = text.lstrip()
+                if cmdline.startswith("/"):
+                    cmdline = cmdline[1:].lstrip()
+
+                lower = cmdline.lower()
+                if lower in STATE_COMMAND_ALIASES:
+                    ch = await get_character(db, sess.id, player.id)
+                    await add_system_event(db, sess, _format_state_text_for_player(sess, player, ch))
+                    await broadcast_state(session_id)
+                    continue
+
                 phase_now = _get_phase(sess)
                 if phase_now == "lore_pending":
                     await ws_error("Ждём вступительную историю...")
@@ -2819,13 +3329,6 @@ async def ws_room(ws: WebSocket, session_id: str):
                 if phase_now == "gm_pending":
                     await ws_error("Ждём ответа мастера...")
                     continue
-
-                # normalize leading slash for typed commands
-                cmdline = text.lstrip()
-                if cmdline.startswith("/"):
-                    cmdline = cmdline[1:].lstrip()
-
-                lower = cmdline.lower()
 
                 # OOC (any time, no turn)
                 if lower.startswith("ooc ") or cmdline.startswith("//"):
