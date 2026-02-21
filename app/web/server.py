@@ -1165,6 +1165,8 @@ def _short_text(text: str, limit: int) -> str:
 
 
 def _sanitize_gm_output(text: str) -> str:
+    max_len_without_question = 1800
+    long_repeat_line_min_len = 80
     txt = str(text or "").strip()
     if not txt:
         return ""
@@ -1268,6 +1270,7 @@ def _sanitize_gm_output(text: str) -> str:
     deduped_lines: list[str] = []
     variants_header_seen = False
     prev_norm = ""
+    long_line_repeat_counts: dict[str, int] = {}
     for line in txt.splitlines():
         stripped = line.strip()
         if re.match(r"^варианты\s+действий\s*:?\s*$", stripped, flags=re.IGNORECASE):
@@ -1287,6 +1290,11 @@ def _sanitize_gm_output(text: str) -> str:
         norm = re.sub(r"\s+", " ", stripped).strip().lower()
         if norm and norm == prev_norm:
             continue
+        if norm and len(norm) >= long_repeat_line_min_len:
+            seen = long_line_repeat_counts.get(norm, 0)
+            if seen >= 2:
+                continue
+            long_line_repeat_counts[norm] = seen + 1
         if norm:
             prev_norm = norm
         deduped_lines.append(line)
@@ -1325,10 +1333,17 @@ def _sanitize_gm_output(text: str) -> str:
     if q_idx is not None:
         lines[q_idx] = "Что делаете дальше?"
         txt = "\n".join(lines[: q_idx + 1])
+    elif len(txt) > max_len_without_question:
+        clipped = txt[:max_len_without_question]
+        cut_pos = max(clipped.rfind("\n"), clipped.rfind(". "), clipped.rfind("! "), clipped.rfind("? "))
+        if cut_pos > max_len_without_question // 2:
+            clipped = clipped[:cut_pos]
+        clipped = clipped.strip()
+        txt = (clipped + "\nЧто делаете дальше?").strip()
 
     txt = re.sub(r"[ \t]{2,}", " ", txt)
     txt = re.sub(r"[ \t]*\n[ \t]*", "\n", txt)
-    txt = re.sub(r"\n{3,}", "\n\n", txt)
+    txt = re.sub(r"\n{2,}", "\n", txt)
     return txt.strip(" \n\r\t-")
 
 
