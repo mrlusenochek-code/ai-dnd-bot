@@ -511,7 +511,12 @@ def _player_uid(player: Optional[Player]) -> Optional[int]:
 def _ability_mod_from_stats(stats_raw: Any, stat_key: str) -> int:
     stats = _normalized_stats(stats_raw)
     val = stats.get(stat_key, 50)
-    return _clamp(int((val - 50) / 10), -5, 5)
+    return _clamp((val - 50) // 10, -5, 5)
+
+
+def _skill_bonus_from_rank(rank_raw: Any) -> int:
+    rank = _clamp(as_int(rank_raw, 0), 0, 10)
+    return _clamp(rank // 2, 0, 5)
 
 
 def _normalize_check_mode(raw_mode: Any) -> str:
@@ -1436,7 +1441,7 @@ async def _load_actor_context(
     if char_ids:
         q_skills = await db.execute(select(Skill).where(Skill.character_id.in_(char_ids)))
         for sk in q_skills.scalars().all():
-            skill_mods_by_char.setdefault(sk.character_id, {})[str(sk.skill_key or "").strip().lower()] = _clamp(as_int(sk.rank, 0), 0, 10)
+            skill_mods_by_char.setdefault(sk.character_id, {})[str(sk.skill_key or "").strip().lower()] = _skill_bonus_from_rank(sk.rank)
     return uid_map, chars_by_uid, skill_mods_by_char
 
 
@@ -3882,8 +3887,7 @@ async def ws_room(ws: WebSocket, session_id: str):
                         continue
 
                     if key in CHAR_STAT_KEYS:
-                        stat_val = _normalized_stats(ch.stats).get(key, 50)
-                        mod = _clamp(int((stat_val - 50) / 10), -5, 5)
+                        mod = _ability_mod_from_stats(ch.stats, key)
                     else:
                         q_skill = await db.execute(
                             select(Skill).where(
@@ -3892,7 +3896,7 @@ async def ws_room(ws: WebSocket, session_id: str):
                             )
                         )
                         sk = q_skill.scalar_one_or_none()
-                        mod = _clamp(as_int(sk.rank, 0), 0, 10) if sk else 0
+                        mod = _skill_bonus_from_rank(sk.rank) if sk else 0
 
                     if mode == "roll":
                         roll = random.randint(1, 20)
