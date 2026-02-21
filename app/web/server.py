@@ -9,7 +9,7 @@ import uuid
 from typing import Any, Optional
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException, Request
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from pathlib import Path
 
@@ -17,6 +17,7 @@ from sqlalchemy import select, or_
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm.attributes import flag_modified
 
+from app.ai.gm import generate_from_prompt, generate_lore
 from app.core.logging import configure_logging
 from app.core.log_context import request_id_var, session_id_var, uid_var, ws_conn_id_var, client_id_var
 from app.db.connection import AsyncSessionLocal
@@ -27,9 +28,55 @@ TURN_TIMEOUT_SECONDS = int(os.getenv("TURN_TIMEOUT_SECONDS", "300"))
 INACTIVE_TIMEOUT_SECONDS = int(os.getenv("DND_INACTIVE_TIMEOUT_SECONDS", "600"))
 INACTIVE_SCAN_PERIOD_SECONDS = int(os.getenv("DND_INACTIVE_SCAN_PERIOD_SECONDS", "5"))
 DEFAULT_TIMEZONE = os.getenv("DEFAULT_TIMEZONE", "Europe/Warsaw")
+GM_CONTEXT_EVENTS = max(1, int(os.getenv("GM_CONTEXT_EVENTS", "20")))
+GM_OLLAMA_TIMEOUT_SECONDS = max(1.0, float(os.getenv("GM_OLLAMA_TIMEOUT_SECONDS", "30")))
 logger = logging.getLogger(__name__)
 CHAR_STAT_KEYS = ("str", "dex", "con", "int", "wis", "cha")
 CHAR_DEFAULT_STATS = {k: 50 for k in CHAR_STAT_KEYS}
+CHECK_LINE_RE = re.compile(r"^\s*@@CHECK\s+(\{.*\})\s*$", re.IGNORECASE)
+TEXTUAL_CHECK_RE = re.compile(
+    r"(?:проверка|check)\s*[:\-]?\s*([a-zA-Zа-яА-Я_]+)[^\n]{0,40}?\bdc\s*[:=]?\s*(\d+)",
+    re.IGNORECASE,
+)
+SKILL_TO_ABILITY: dict[str, str] = {
+    "acrobatics": "dex",
+    "animal_handling": "wis",
+    "arcana": "int",
+    "athletics": "str",
+    "deception": "cha",
+    "history": "int",
+    "insight": "wis",
+    "intimidation": "cha",
+    "investigation": "int",
+    "medicine": "wis",
+    "nature": "int",
+    "perception": "wis",
+    "performance": "cha",
+    "persuasion": "cha",
+    "religion": "int",
+    "sleight_of_hand": "dex",
+    "stealth": "dex",
+    "survival": "wis",
+    "endurance": "con",
+    "tracking": "wis",
+    "trickery": "dex",
+    "focus": "wis",
+    "faith": "wis",
+}
+STAT_ALIASES = {
+    "strength": "str",
+    "dexterity": "dex",
+    "constitution": "con",
+    "intelligence": "int",
+    "wisdom": "wis",
+    "charisma": "cha",
+    "сила": "str",
+    "ловкость": "dex",
+    "телосложение": "con",
+    "интеллект": "int",
+    "мудрость": "wis",
+    "харизма": "cha",
+}
 CLASS_PRESETS: dict[str, dict[str, Any]] = {
     "fighter": {
         "display_name": "Fighter",
@@ -74,6 +121,10 @@ CLASS_PRESETS: dict[str, dict[str, Any]] = {
         "starter_skills": {"performance": 2, "persuasion": 1},
     },
 }
+STORY_DIFFICULTY_VALUES = {"easy", "medium", "hard"}
+STORY_HEALTH_SYSTEM_VALUES = {"none", "normal"}
+STORY_DMG_SCALE_VALUES = {"reduced", "standard", "increased"}
+STORY_AI_VERBOSITY_VALUES = {"auto", "restrained", "very_restrained"}
 
 
 def utcnow() -> datetime:
@@ -114,6 +165,17 @@ class ConnectionManager:
 
 manager = ConnectionManager()
 app = FastAPI()
+_GM_SESSION_LOCKS: dict[str, asyncio.Lock] = {}
+
+
+def _get_session_gm_lock(session_id: str) -> asyncio.Lock:
+    lock = _GM_SESSION_LOCKS.get(session_id)
+    if lock is None:
+        lock = asyncio.Lock()
+        _GM_SESSION_LOCKS[session_id] = lock
+    return lock
+
+
 def _new_request_id() -> str:
     return uuid.uuid4().hex
 
@@ -197,6 +259,109 @@ def as_int(s: Any, default: int = 0) -> int:
         return default
 
 
+def _looks_like_refusal(text: str) -> bool:
+    t = str(text or "").strip().lower()
+    if not t:
+        return False
+
+    # базовые маркеры "не могу"
+    cannot = ("не могу" in t) or ("can't" in t) or ("cannot" in t) or ("can’t" in t)
+    if not cannot:
+        return False
+
+    # жёсткие шаблоны отказов (почти всегда это именно отказ ассистента)
+    hard = [
+        "я не могу продолжить эту тему",
+        "я не могу продолжать эту тему",
+        "я не могу помочь с этим",
+        "не могу помочь с этим",
+        "я не могу предоставить",
+        "не могу предоставить",
+        "i can't help",
+        "i cannot help",
+        "i can't continue",
+        "i cannot continue",
+        "i can't comply",
+        "i cannot comply",
+    ]
+    if any(x in t for x in hard):
+        return True
+
+    # мягкие маркеры отказа: извинения / предложение помочь "с другим" / ссылки на правила
+    starts_apology = t.startswith(("извини", "простите", "прошу прощения", "sorry", "i'm sorry", "i am sorry"))
+    offers_other = any(x in t for x in (
+        "я могу помочь с другим",
+        "могу помочь с другим",
+        "могу помочь с чем-то другим",
+        "i can help with something else",
+        "something else",
+    ))
+    mentions_policy = any(x in t for x in (
+        "политик", "правил", "policy", "guideline",
+        "как модель", "как ии", "as an ai",
+    ))
+
+    if starts_apology or offers_other or mentions_policy:
+        return True
+
+    return False
+    t = str(text or "").lower()
+    if "я не могу" not in t and "i can't" not in t:
+        return False
+    return any(k in t for k in ["сексу", "насил", "эксплуатац", "sexual", "violence"])
+
+
+def _story_is_configured(sess: Session) -> bool:
+    raw = settings_get(sess, "story", {}) or {}
+    return bool(isinstance(raw, dict) and raw.get("story_configured"))
+
+
+def _split_red_flags(raw: Any) -> list[str]:
+    if isinstance(raw, list):
+        parts = [str(x).strip() for x in raw]
+    else:
+        txt = str(raw or "")
+        parts = [x.strip() for x in re.split(r"[\n,]+", txt)]
+    out: list[str] = []
+    for item in parts:
+        if item:
+            out.append(item[:200])
+    return out
+
+
+def _normalize_story_config(sess: Session, raw: Any) -> dict[str, Any]:
+    cfg = raw if isinstance(raw, dict) else {}
+    difficulty = str(cfg.get("difficulty") or "medium").strip().lower()
+    if difficulty not in STORY_DIFFICULTY_VALUES:
+        difficulty = "medium"
+    health_system = str(cfg.get("health_system") or "normal").strip().lower()
+    if health_system not in STORY_HEALTH_SYSTEM_VALUES:
+        health_system = "normal"
+    dmg_scale = str(cfg.get("dmg_scale") or "standard").strip().lower()
+    if dmg_scale not in STORY_DMG_SCALE_VALUES:
+        dmg_scale = "standard"
+    ai_verbosity = str(cfg.get("ai_verbosity") or "auto").strip().lower()
+    if ai_verbosity not in STORY_AI_VERBOSITY_VALUES:
+        ai_verbosity = "auto"
+
+    story_title = str(cfg.get("story_title") or "").strip()
+    if not story_title:
+        story_title = str(sess.title or "Campaign").strip() or "Campaign"
+
+    return {
+        "story_title": story_title[:200],
+        "story_setting": str(cfg.get("story_setting") or "").strip()[:2000],
+        "free_turns": bool(cfg.get("free_turns")),
+        "difficulty": difficulty,
+        "health_system": health_system,
+        "dmg_scale": dmg_scale,
+        "journal_hint": str(cfg.get("journal_hint") or "").strip()[:1000],
+        "red_flags": _split_red_flags(cfg.get("red_flags")),
+        "ai_verbosity": ai_verbosity,
+        "gm_notes": str(cfg.get("gm_notes") or "").strip()[:1000],
+    }
+
+
 # -------------------------
 # -------------------------
 # Templates (Jinja2)
@@ -229,6 +394,11 @@ async def get_or_create_player_web(db: AsyncSession, uid: int, display_name: str
     await db.commit()
     await db.refresh(player)
     return player
+
+
+async def get_player_by_uid(db: AsyncSession, uid: int) -> Optional[Player]:
+    q = await db.execute(select(Player).where(Player.web_user_id == uid))
+    return q.scalar_one_or_none()
 
 
 async def get_session(db: AsyncSession, session_id: str) -> Optional[Session]:
@@ -266,6 +436,348 @@ def _normalized_stats(stats_raw: Any) -> dict[str, int]:
     return out
 
 
+def _player_uid(player: Optional[Player]) -> Optional[int]:
+    if not player:
+        return None
+    raw = player.web_user_id if player.web_user_id is not None else player.telegram_user_id
+    return int(raw) if raw is not None else None
+
+
+def _ability_mod_from_stats(stats_raw: Any, stat_key: str) -> int:
+    stats = _normalized_stats(stats_raw)
+    val = stats.get(stat_key, 50)
+    return _clamp(int((val - 50) / 10), -5, 5)
+
+
+def _normalize_check_mode(raw_mode: Any) -> str:
+    mode = str(raw_mode or "normal").strip().lower()
+    if mode in {"adv", "advantage"}:
+        return "advantage"
+    if mode in {"dis", "disadvantage"}:
+        return "disadvantage"
+    return "normal"
+
+
+def _normalize_check_name(raw_name: Any) -> str:
+    name = str(raw_name or "").strip().lower()
+    return STAT_ALIASES.get(name, name)
+
+
+def _check_kind_for_name(raw_kind: Any, normalized_name: str) -> str:
+    kind = str(raw_kind or "").strip().lower()
+    if normalized_name in CHAR_STAT_KEYS:
+        return "ability"
+    if kind in {"skill", "ability", "stat"}:
+        return kind
+    return "skill"
+
+
+def _extract_checks_from_draft(draft_text: str, default_actor_uid: Optional[int]) -> tuple[str, list[dict[str, Any]], bool]:
+    checks: list[dict[str, Any]] = []
+    text_lines: list[str] = []
+    for line in (draft_text or "").splitlines():
+        m = CHECK_LINE_RE.match(line)
+        if not m:
+            text_lines.append(line)
+            continue
+        raw_json = m.group(1)
+        try:
+            payload = json.loads(raw_json)
+        except Exception:
+            text_lines.append(line)
+            continue
+        if not isinstance(payload, dict):
+            text_lines.append(line)
+            continue
+        if payload.get("actor_uid") is None and default_actor_uid is not None:
+            payload["actor_uid"] = default_actor_uid
+        checks.append(payload)
+    text = "\n".join(text_lines).strip()
+    has_human_check_request = bool(TEXTUAL_CHECK_RE.search(text))
+    return text, checks, has_human_check_request
+
+
+def _checks_from_human_text(draft_text: str, default_actor_uid: Optional[int]) -> list[dict[str, Any]]:
+    out: list[dict[str, Any]] = []
+    for m in TEXTUAL_CHECK_RE.finditer(draft_text or ""):
+        name = _normalize_check_name(m.group(1))
+        dc = as_int(m.group(2), 0)
+        if dc <= 0:
+            continue
+        out.append(
+            {
+                "actor_uid": default_actor_uid,
+                "kind": _check_kind_for_name(None, name),
+                "name": name,
+                "dc": dc,
+                "mode": "normal",
+                "reason": "ранее запрошено текстом",
+            }
+        )
+    return out
+
+
+def _trim_for_log(text: str, limit: int = 700) -> str:
+    txt = str(text or "").strip()
+    if len(txt) <= limit:
+        return txt
+    return txt[:limit] + "... [truncated]"
+
+
+def _strip_machine_lines(text: str) -> str:
+    out: list[str] = []
+    for line in (text or "").splitlines():
+        if line.strip().startswith("@@CHECK"):
+            continue
+        if line.strip().startswith("@@CHECK_RESULT"):
+            continue
+        out.append(line)
+    return "\n".join(out).strip()
+
+
+def _character_meta_from_stats(stats_raw: Any) -> dict[str, str]:
+    if not isinstance(stats_raw, dict):
+        return {"gender": "", "race": "", "description": ""}
+    raw_meta = stats_raw.get("_meta")
+    if not isinstance(raw_meta, dict):
+        return {"gender": "", "race": "", "description": ""}
+    return {
+        "gender": str(raw_meta.get("gender") or "").strip()[:40],
+        "race": str(raw_meta.get("race") or "").strip()[:60],
+        "description": str(raw_meta.get("description") or "").strip()[:1000],
+    }
+
+
+def _put_character_meta_into_stats(stats_raw: Any, *, gender: str, race: str, description: str) -> dict[str, Any]:
+    stats = dict(stats_raw) if isinstance(stats_raw, dict) else {}
+    stats["_meta"] = {
+        "gender": str(gender or "").strip()[:40],
+        "race": str(race or "").strip()[:60],
+        "description": str(description or "").strip()[:1000],
+    }
+    return stats
+
+
+def _short_text(text: str, limit: int) -> str:
+    txt = str(text or "").strip()
+    if len(txt) <= limit:
+        return txt
+    return txt[:limit].rstrip() + "..."
+
+
+def _sanitize_gm_output(text: str) -> str:
+    txt = str(text or "").strip()
+    if not txt:
+        return ""
+    txt = re.sub(r"<think\b[^>]*>.*?</think\s*>", " ", txt, flags=re.IGNORECASE | re.DOTALL)
+    txt = re.sub(r"</?think\b[^>]*>", " ", txt, flags=re.IGNORECASE)
+    txt = re.sub(r"@@CHECK_RESULT", "", txt, flags=re.IGNORECASE)
+    txt = re.sub(r"@@CHECK", "", txt, flags=re.IGNORECASE)
+
+    cleaned_lines: list[str] = []
+    for line in txt.splitlines():
+        ln = line.strip()
+        if re.match(r"^(финальный|итоговый)\s+ответ\b[:\s-]*$", ln, flags=re.IGNORECASE):
+            continue
+        cleaned_lines.append(line)
+    txt = "\n".join(cleaned_lines)
+
+    txt = re.sub(r"\b(давайте\s+)?проанализируем\b", "Продолжим сцену", txt, flags=re.IGNORECASE)
+    txt = re.sub(r"\b(в\s+)?черновик\w*\b", "", txt, flags=re.IGNORECASE)
+    txt = re.sub(r"\bдрафт\w*\b", "", txt, flags=re.IGNORECASE)
+
+    txt = re.sub(
+        r"(извиняюсь|извини(?:те)?|прошу прощения)[^.!?\n]{0,160}(я\s+)?не\s+могу[^.!?\n]{0,220}[.!?]?",
+        "Сцена продолжается.",
+        txt,
+        flags=re.IGNORECASE,
+    )
+    txt = re.sub(r"\bя\s+не\s+могу[^.!?\n]{0,260}[.!?]?", "Сцена продолжается.", txt, flags=re.IGNORECASE)
+    txt = re.sub(r"\bне\s+могу\s+продолжить[^.!?\n]{0,260}[.!?]?", "Сцена продолжается.", txt, flags=re.IGNORECASE)
+
+    txt = re.sub(r"[ \t]+", " ", txt)
+    txt = re.sub(r"\n{3,}", "\n\n", txt)
+    return txt.strip(" \n\r\t-")
+
+
+async def _event_actor_label(db: AsyncSession, sess: Session, player: Player) -> str:
+    ch = await get_character(db, sess.id, player.id)
+    if ch and str(ch.name or "").strip():
+        return str(ch.name).strip()
+    return str(player.display_name or "").strip() or "Игрок"
+
+
+def _extract_gm_message_body(event_text: str) -> str:
+    txt = str(event_text or "").strip()
+    if not txt:
+        return ""
+    if txt.startswith("[SYSTEM] "):
+        txt = txt[9:].strip()
+    for prefix in ("🧙 GM:", "🧙 Мастер:"):
+        if txt.startswith(prefix):
+            return txt[len(prefix):].strip()
+    return ""
+
+
+def _find_latest_gm_text(lines: list[str]) -> str:
+    for line in reversed(lines):
+        body = _extract_gm_message_body(line)
+        if body:
+            return body
+    return ""
+
+
+def _common_prefix_len(a: str, b: str) -> int:
+    limit = min(len(a), len(b))
+    i = 0
+    while i < limit and a[i] == b[i]:
+        i += 1
+    return i
+
+
+def _looks_truncated_tail(text: str) -> bool:
+    tail = str(text or "").rstrip()
+    if not tail:
+        return False
+    if tail.endswith("-"):
+        return True
+    if tail.endswith(("...", "…")):
+        return True
+    if tail[-1] not in ".!?\"'»”)]":
+        return True
+    if tail.count("(") > tail.count(")"):
+        return True
+    if tail.count("«") > tail.count("»"):
+        return True
+    return False
+
+
+async def _load_actor_context(
+    db: AsyncSession,
+    sess: Session,
+) -> tuple[dict[int, tuple[SessionPlayer, Player]], dict[int, Character], dict[uuid.UUID, dict[str, int]]]:
+    sps = await list_session_players(db, sess, active_only=True)
+    if not sps:
+        return {}, {}, {}
+    player_ids = [sp.player_id for sp in sps]
+    q_players = await db.execute(select(Player).where(Player.id.in_(player_ids)))
+    players = q_players.scalars().all()
+    players_by_id = {p.id: p for p in players}
+    uid_map: dict[int, tuple[SessionPlayer, Player]] = {}
+    for sp in sps:
+        pl = players_by_id.get(sp.player_id)
+        uid = _player_uid(pl)
+        if pl and uid is not None and uid > 0:
+            uid_map[uid] = (sp, pl)
+
+    q_chars = await db.execute(
+        select(Character).where(
+            Character.session_id == sess.id,
+            Character.player_id.in_(player_ids),
+        )
+    )
+    chars = q_chars.scalars().all()
+    chars_by_player = {ch.player_id: ch for ch in chars}
+    chars_by_uid: dict[int, Character] = {}
+    for uid, (sp, _pl) in uid_map.items():
+        ch = chars_by_player.get(sp.player_id)
+        if ch:
+            chars_by_uid[uid] = ch
+
+    skill_mods_by_char: dict[uuid.UUID, dict[str, int]] = {}
+    char_ids = [ch.id for ch in chars]
+    if char_ids:
+        q_skills = await db.execute(select(Skill).where(Skill.character_id.in_(char_ids)))
+        for sk in q_skills.scalars().all():
+            skill_mods_by_char.setdefault(sk.character_id, {})[str(sk.skill_key or "").strip().lower()] = _clamp(as_int(sk.rank, 0), 0, 10)
+    return uid_map, chars_by_uid, skill_mods_by_char
+
+
+def _compute_check_mod(
+    check: dict[str, Any],
+    character: Optional[Character],
+    skill_mods_by_char: dict[uuid.UUID, dict[str, int]],
+) -> int:
+    if not character:
+        return 0
+    name = _normalize_check_name(check.get("name"))
+    kind = _check_kind_for_name(check.get("kind"), name)
+    if kind in {"ability", "stat"} or name in CHAR_STAT_KEYS:
+        stat_key = STAT_ALIASES.get(name, name)
+        if stat_key not in CHAR_STAT_KEYS:
+            return 0
+        return _ability_mod_from_stats(character.stats, stat_key)
+
+    skill_mods = skill_mods_by_char.get(character.id, {})
+    if name in skill_mods:
+        return int(skill_mods[name])
+
+    stat_key = SKILL_TO_ABILITY.get(name)
+    if not stat_key:
+        return 0
+    return _ability_mod_from_stats(character.stats, stat_key)
+
+
+def _roll_check(mode: str) -> tuple[int, Optional[int], int]:
+    normalized = _normalize_check_mode(mode)
+    if normalized == "advantage":
+        r1 = random.randint(1, 20)
+        r2 = random.randint(1, 20)
+        return r1, r2, max(r1, r2)
+    if normalized == "disadvantage":
+        r1 = random.randint(1, 20)
+        r2 = random.randint(1, 20)
+        return r1, r2, min(r1, r2)
+    r = random.randint(1, 20)
+    return r, None, r
+
+
+def _build_check_result(check: dict[str, Any], mod: int, roll_a: int, roll_b: Optional[int], roll: int) -> dict[str, Any]:
+    dc = max(0, as_int(check.get("dc"), 0))
+    total = roll + mod
+    result = {
+        "actor_uid": as_int(check.get("actor_uid"), 0),
+        "kind": _check_kind_for_name(check.get("kind"), _normalize_check_name(check.get("name"))),
+        "name": _normalize_check_name(check.get("name")),
+        "dc": dc,
+        "roll": roll,
+        "mod": mod,
+        "total": total,
+        "success": total >= dc if dc > 0 else True,
+        "mode": _normalize_check_mode(check.get("mode")),
+    }
+    if roll_b is not None:
+        result["roll_a"] = roll_a
+        result["roll_b"] = roll_b
+    if check.get("reason"):
+        result["reason"] = str(check.get("reason"))
+    return result
+
+
+def _build_actor_list_for_prompt(uid_map: dict[int, tuple[SessionPlayer, Player]], chars_by_uid: dict[int, Character]) -> str:
+    rows: list[str] = []
+    for uid, (sp, pl) in sorted(uid_map.items(), key=lambda x: int(x[1][0].join_order or 0)):
+        ch = chars_by_uid.get(uid)
+        ch_name = str(ch.name).strip() if ch and ch.name else "без персонажа"
+        ch_class = ""
+        meta = {"gender": "", "race": "", "description": ""}
+        if ch:
+            ch_class = str(ch.class_skin or "").strip() or str(ch.class_kit or "").strip()
+            meta = _character_meta_from_stats(ch.stats)
+        parts = [
+            f"uid={uid}",
+            f"order={sp.join_order}",
+            f"player={pl.display_name}",
+            f"character={ch_name}",
+            f"class={ch_class or '-'}",
+            f"gender={meta['gender'] or '-'}",
+            f"race={meta['race'] or '-'}",
+        ]
+        if meta["description"]:
+            parts.append(f"description={_short_text(meta['description'], 120)}")
+        rows.append("- " + ", ".join(parts))
+    return "\n".join(rows) if rows else "- (нет активных игроков)"
+
 def _stats_points_used(stats: dict[str, int]) -> int:
     points = 0
     for key in CHAR_STAT_KEYS:
@@ -291,6 +803,7 @@ def _resolve_character_stats(class_id: Optional[str], incoming_stats: Any) -> di
 def _char_to_payload(ch: Optional[Character]) -> Optional[dict]:
     if not ch:
         return None
+    meta = _character_meta_from_stats(ch.stats)
     return {
         "name": ch.name,
         "class_kit": ch.class_kit,
@@ -301,6 +814,9 @@ def _char_to_payload(ch: Optional[Character]) -> Optional[dict]:
         "sta": int(ch.sta or 0),
         "sta_max": int(ch.sta_max or 0),
         "stats": _normalized_stats(ch.stats),
+        "gender": meta["gender"],
+        "race": meta["race"],
+        "description": meta["description"],
     }
 
 
@@ -470,6 +986,11 @@ def _remove_player_from_session_settings(sess: Session, player_id: uuid.UUID) ->
         last_seen_map.pop(pid, None)
         settings_set(sess, "last_seen", last_seen_map)
 
+    round_actions = _get_round_actions(sess)
+    if pid in round_actions:
+        round_actions.pop(pid, None)
+        settings_set(sess, "round_actions", round_actions)
+
 
 def _parse_iso(ts: Any) -> Optional[datetime]:
     if not isinstance(ts, str) or not ts:
@@ -536,6 +1057,60 @@ def _clear_paused_remaining(sess: Session) -> None:
     if sess.settings and isinstance(sess.settings, dict) and "paused_remaining_seconds" in sess.settings:
         sess.settings.pop("paused_remaining_seconds", None)
         flag_modified(sess, "settings")
+
+
+def _get_phase(sess: Session) -> str:
+    phase = str(settings_get(sess, "phase", "turns") or "turns").strip().lower()
+    if phase not in {"lore_pending", "collecting_actions", "gm_pending", "turns"}:
+        return "turns"
+    return phase
+
+
+def _set_phase(sess: Session, phase: str) -> None:
+    settings_set(sess, "phase", str(phase).strip().lower())
+
+
+def _new_action_id() -> str:
+    return uuid.uuid4().hex
+
+
+def _get_current_action_id(sess: Session) -> Optional[str]:
+    raw = str(settings_get(sess, "current_action_id", "") or "").strip()
+    return raw or None
+
+
+def _set_current_action_id(sess: Session, action_id: str) -> None:
+    settings_set(sess, "current_action_id", str(action_id).strip())
+
+
+def _clear_current_action_id(sess: Session) -> None:
+    if sess.settings and isinstance(sess.settings, dict) and "current_action_id" in sess.settings:
+        sess.settings.pop("current_action_id", None)
+        flag_modified(sess, "settings")
+
+
+def _is_free_turns(sess: Session) -> bool:
+    return bool(settings_get(sess, "free_turns", False))
+
+
+def _get_free_round(sess: Session) -> int:
+    return max(1, as_int(settings_get(sess, "free_round", 1), 1))
+
+
+def _get_round_actions(sess: Session) -> dict[str, str]:
+    raw = settings_get(sess, "round_actions", {}) or {}
+    if not isinstance(raw, dict):
+        return {}
+    out: dict[str, str] = {}
+    for k, v in raw.items():
+        pid = str(k or "").strip()
+        if not pid:
+            continue
+        txt = str(v or "").strip()
+        if not txt:
+            continue
+        out[pid] = txt
+    return out
 
 
 async def _compute_remaining(sess: Session) -> Optional[int]:
@@ -678,12 +1253,6 @@ async def build_state(db: AsyncSession, sess: Session) -> dict:
             cur_order = sp.join_order
             break
 
-    def _player_uid(pl: Optional[Player]) -> Optional[int]:
-        if not pl:
-            return None
-        raw = pl.web_user_id if pl.web_user_id is not None else pl.telegram_user_id
-        return int(raw) if raw is not None else None
-
     # UID текущего игрока (нужно для UI, независимо от паузы/таймера)
     current_uid = None
     if sess.current_player_id:
@@ -702,7 +1271,12 @@ async def build_state(db: AsyncSession, sess: Session) -> dict:
     else:
         all_ready = False
 
-    can_begin = all_ready and not bool(sess.current_player_id)
+    can_begin = all_ready and not bool(sess.current_player_id) and not bool(sess.is_active)
+    free_turns = _is_free_turns(sess)
+    phase = _get_phase(sess)
+    round_actions = _get_round_actions(sess)
+    actions_total = len(active_sps)
+    actions_done = sum(1 for sp in active_sps if str(sp.player_id) in round_actions)
 
     return {
         "type": "state",
@@ -746,6 +1320,13 @@ async def build_state(db: AsyncSession, sess: Session) -> dict:
             }
             for e in events
         ],
+        "game": {
+            "free_turns": free_turns,
+            "phase": phase,
+            "free_round": _get_free_round(sess) if free_turns else None,
+            "actions_done": actions_done,
+            "actions_total": actions_total,
+        },
     }
 
 
@@ -756,6 +1337,594 @@ async def broadcast_state(session_id: str) -> None:
             return
         state = await build_state(db, sess)
     await manager.broadcast_json(session_id, state)
+
+
+def _build_turn_draft_prompt(
+    session_title: str,
+    context_events: list[str],
+    actor_uid: Optional[int],
+    actors_block: str,
+) -> str:
+    context = "\n".join(f"- {line}" for line in context_events[-50:]) or "- (контекст пуст)"
+    title = (session_title or "Кампания").strip()
+    actor_hint = str(actor_uid) if actor_uid is not None else "unknown"
+    return (
+        "Ты Мастер настольной RPG в стиле D&D. Отвечай только по-русски.\n"
+        "Сначала напиши черновик развития сцены (2-6 предложений).\n"
+        "Если нужна проверка, НЕ проси игрока кидать вручную. В конце добавь машинные строки:\n"
+        "@@CHECK {\"actor_uid\":<uid>,\"kind\":\"skill|ability\",\"name\":\"perception|wis|...\",\"dc\":15,\"mode\":\"normal|advantage|disadvantage\",\"reason\":\"...\"}\n"
+        "Можно несколько @@CHECK, каждая в отдельной строке.\n"
+        "В тексте для игрока не оставляй незакрытых требований формата 'Проверка ... DC ...'.\n"
+        "Не пиши @@CHECK_RESULT.\n"
+        "Не отвечай отказом. Если тема спорная — смягчай до приключенческого уровня.\n\n"
+        f"Название сессии: {title}\n"
+        f"Предпочтительный actor_uid для текущего действия: {actor_hint}\n"
+        f"Игроки:\n{actors_block}\n\n"
+        f"Контекст (последние события):\n{context}"
+    )
+
+
+def _build_round_draft_prompt(
+    session_title: str,
+    lore_text: str,
+    recent_events: list[str],
+    player_actions: list[str],
+    master_notes: str,
+    difficulty: str,
+    actors_block: str,
+) -> str:
+    title = (session_title or "Кампания").strip()
+    lore = (lore_text or "").strip()
+    notes = (master_notes or "").strip()
+    context = "\n".join(f"- {line}" for line in recent_events[-40:]) or "- (контекст пуст)"
+    acts = "\n".join(f"- {a}" for a in player_actions if a.strip()) or "- (нет действий)"
+    diff = {"easy": "лёгкая", "medium": "средняя", "hard": "сложная"}.get(difficulty, "средняя")
+    return (
+        "Ты Мастер настольной RPG в стиле D&D. Отвечай только по-русски.\n"
+        f"Сложность сцены: {diff}.\n"
+        "Обработай действия КАЖДОГО игрока. Не игнорируй второе/третье действие.\n"
+        "Если игроки действуют рядом (например сундук/факел), можно объединить в один связный эпизод.\n"
+        "Если игроки далеко друг от друга, опиши обе ветки кратко и параллельно, но за 1-2 раунда создай событие, чтобы партия снова собралась.\n"
+        "Запрещены мета-комментарии: 'проанализируем', 'в черновике', 'я модель/ИИ' и подобные.\n"
+        "Запрещены отказы и извинения ('я не могу', 'извиняюсь', 'не могу продолжить'). Смягчай и продолжай сцену.\n"
+        "Если нужна проверка, не проси бросок в тексте: выдай в конце строки @@CHECK в JSON-формате.\n"
+        "Формат строки:\n"
+        "@@CHECK {\"actor_uid\":<uid>,\"kind\":\"skill|ability\",\"name\":\"...\",\"dc\":15,\"mode\":\"normal|advantage|disadvantage\",\"reason\":\"...\"}\n"
+        "Разрешено несколько @@CHECK. В тексте не оставляй 'Проверка ... DC ...'.\n"
+        "Не пиши @@CHECK_RESULT.\n"
+        "Не отвечай отказом. Спорные темы смягчай до приключенческого уровня.\n\n"
+        f"Название кампании: {title}\n"
+        f"ЛОР:\n{lore}\n\n"
+        f"Недавние события:\n{context}\n\n"
+        f"Игроки:\n{actors_block}\n\n"
+        f"Действия игроков в этом раунде:\n{acts}\n\n"
+        + (f"Заметки мастеру: {notes}\n\n" if notes else "")
+        + "Черновик должен закончиться вопросом к партии: что вы делаете дальше?"
+    )
+
+
+def _build_finalize_prompt(draft_text: str, check_results: list[dict[str, Any]]) -> str:
+    results_lines = [f"@@CHECK_RESULT {json.dumps(x, ensure_ascii=False)}" for x in check_results]
+    results_block = "\n".join(results_lines) if results_lines else "(автопроверок не было)"
+    return (
+        "Ты Мастер настольной RPG в стиле D&D. Отвечай только по-русски.\n"
+        "Ниже черновик сцены и результаты автоматических проверок.\n"
+        "Сделай финальный ответ игрокам: учитывай успех/провал, продвигай сцену, добавь последствия.\n"
+        "Это финальный ответ игрокам.\n"
+        "НЕ упоминай слова черновик/драфт/анализ/проверка/проверку в мета-смысле и не ссылайся на 'черновик'.\n"
+        "Не добавляй мета-комментарии ('проанализируем', 'как модель/ИИ', 'в черновике').\n"
+        "Не пиши извинения и отказы ('извиняюсь', 'я не могу', 'не могу продолжить'). Вместо этого продолжай сцену мягко.\n"
+        "ВАЖНО: в финальном ответе не должно быть @@CHECK и @@CHECK_RESULT.\n"
+        "Не проси игроков бросать кости вручную.\n\n"
+        f"Черновик:\n{draft_text}\n\n"
+        f"Результаты проверок:\n{results_block}"
+    )
+
+
+async def _run_gm_two_pass(
+    db: AsyncSession,
+    sess: Session,
+    *,
+    draft_prompt: str,
+    default_actor_uid: Optional[int],
+    previous_gm_text: str = "",
+) -> tuple[str, dict[str, Any], dict[str, Any], list[dict[str, Any]], list[dict[str, Any]]]:
+    uid_map, chars_by_uid, skill_mods_by_char = await _load_actor_context(db, sess)
+
+    draft_resp = await generate_from_prompt(
+        prompt=draft_prompt,
+        timeout_seconds=GM_OLLAMA_TIMEOUT_SECONDS,
+    )
+    draft_text_raw = str(draft_resp.get("text") or "").strip()
+    draft_text, checks, has_human_check = _extract_checks_from_draft(draft_text_raw, default_actor_uid)
+
+    reparsed = False
+    forced_reprompt = False
+    cleaned_human_check = False
+    if not checks and has_human_check:
+        inferred = _checks_from_human_text(draft_text, default_actor_uid)
+        if inferred:
+            checks = inferred
+            reparsed = True
+        else:
+            forced_reprompt = True
+            force_prompt = (
+                "Перепиши этот же ответ как черновик мастера.\n"
+                "Если нужна проверка, добавь @@CHECK JSON-строки в конце. Не пиши текст 'Проверка ... DC ...'.\n\n"
+                f"Черновик для исправления:\n{draft_text_raw}"
+            )
+            forced_resp = await generate_from_prompt(
+                prompt=force_prompt,
+                timeout_seconds=GM_OLLAMA_TIMEOUT_SECONDS,
+            )
+            draft_resp = forced_resp
+            draft_text_raw = str(forced_resp.get("text") or "").strip()
+            draft_text, checks, _has_human_check_2 = _extract_checks_from_draft(draft_text_raw, default_actor_uid)
+
+    normalized_checks: list[dict[str, Any]] = []
+    for c in checks:
+        if not isinstance(c, dict):
+            continue
+        actor_uid = as_int(c.get("actor_uid"), 0)
+        if actor_uid <= 0 and default_actor_uid is not None:
+            actor_uid = default_actor_uid
+        if actor_uid is None or actor_uid <= 0:
+            continue
+        name = _normalize_check_name(c.get("name"))
+        if not name:
+            continue
+        normalized_checks.append(
+            {
+                "actor_uid": actor_uid,
+                "kind": _check_kind_for_name(c.get("kind"), name),
+                "name": name,
+                "dc": max(0, as_int(c.get("dc"), 0)),
+                "mode": _normalize_check_mode(c.get("mode")),
+                "reason": str(c.get("reason") or "").strip(),
+            }
+        )
+
+    check_results: list[dict[str, Any]] = []
+    for check in normalized_checks:
+        actor_uid = as_int(check.get("actor_uid"), 0)
+        character = chars_by_uid.get(actor_uid)
+        mod = _compute_check_mod(check, character, skill_mods_by_char)
+        roll_a, roll_b, roll = _roll_check(str(check.get("mode") or "normal"))
+        result = _build_check_result(check, mod, roll_a, roll_b, roll)
+        check_results.append(result)
+
+    final_prompt = _build_finalize_prompt(draft_text, check_results)
+    final_resp = await generate_from_prompt(
+        prompt=final_prompt,
+        timeout_seconds=GM_OLLAMA_TIMEOUT_SECONDS,
+    )
+    final_text = _sanitize_gm_output(_strip_machine_lines(str(final_resp.get("text") or "").strip()))
+    if not final_text:
+        fallback_prompt = (
+            "Дай финальный ответ мастера игрокам по этому черновику.\n"
+            "Не используй служебные строки, не упоминай что это черновик.\n\n"
+            f"Черновик:\n{draft_text}"
+        )
+        fallback_resp = await generate_from_prompt(
+            prompt=fallback_prompt,
+            timeout_seconds=GM_OLLAMA_TIMEOUT_SECONDS,
+        )
+        final_text = _sanitize_gm_output(_strip_machine_lines(str(fallback_resp.get("text") or "").strip()))
+        if not final_text:
+            final_text = "Мастер на миг задумывается и просит описать следующее действие точнее."
+
+    initial_final_len = len(final_text)
+    initial_finish_reason = str(final_resp.get("finish_reason") or "").strip().lower()
+    continuation_len = 0
+    continuation_attempts = 0
+    if final_text and (initial_finish_reason == "length" or _looks_truncated_tail(final_text)):
+        for _ in range(2):
+            if not final_text:
+                break
+            continuation_attempts += 1
+            continuation_prompt = (
+                "Продолжи ровно с места обрыва. Не повторяй уже сказанное. Начни с продолжения последней фразы.\n\n"
+                f"Последние символы текущего ответа:\n{final_text[-320:]}"
+            )
+            continuation_resp = await generate_from_prompt(
+                prompt=continuation_prompt,
+                timeout_seconds=GM_OLLAMA_TIMEOUT_SECONDS,
+            )
+            continuation_text = _sanitize_gm_output(_strip_machine_lines(str(continuation_resp.get("text") or "").strip()))
+            if not continuation_text:
+                break
+            if final_text[-1].isalnum() and continuation_text[0].isalnum():
+                final_text += " "
+            final_text += continuation_text
+            continuation_len += len(continuation_text)
+            if str(continuation_resp.get("finish_reason") or "").strip().lower() != "length" and not _looks_truncated_tail(final_text):
+                break
+
+    anti_repeat_prefix_len = 0
+    anti_repeat_strategy = "none"
+    prev_gm = str(previous_gm_text or "").strip()
+    if prev_gm and final_text:
+        anti_repeat_prefix_len = _common_prefix_len(prev_gm, final_text)
+        if anti_repeat_prefix_len > 200:
+            trimmed = final_text[anti_repeat_prefix_len:].lstrip(" \n\r\t-—:,.!?;")
+            if len(trimmed) >= 80:
+                final_text = trimmed
+                anti_repeat_strategy = "trim_prefix"
+            else:
+                anti_repeat_prompt = (
+                    "Не повторяй предыдущий текст, продолжай сцену.\n"
+                    "Дай только новое продолжение, без пересказа.\n\n"
+                    f"Предыдущий текст мастера:\n{prev_gm}\n\n"
+                    f"Текущий вариант:\n{final_text}"
+                )
+                anti_repeat_resp = await generate_from_prompt(
+                    prompt=anti_repeat_prompt,
+                    timeout_seconds=GM_OLLAMA_TIMEOUT_SECONDS,
+                )
+                anti_repeat_text = _sanitize_gm_output(_strip_machine_lines(str(anti_repeat_resp.get("text") or "").strip()))
+                if anti_repeat_text:
+                    final_text = anti_repeat_text
+                    anti_repeat_strategy = "reprompt"
+
+    if TEXTUAL_CHECK_RE.search(final_text):
+        cleaned_human_check = True
+        cleanup_prompt = (
+            "Перепиши текст мастера так, чтобы не было просьб к игроку бросать проверку/DC.\n"
+            "Сцена должна продвинуться вперёд сама, с понятными последствиями.\n\n"
+            f"Текст:\n{final_text}"
+        )
+        cleanup_resp = await generate_from_prompt(
+            prompt=cleanup_prompt,
+            timeout_seconds=GM_OLLAMA_TIMEOUT_SECONDS,
+        )
+        cleaned = _sanitize_gm_output(_strip_machine_lines(str(cleanup_resp.get("text") or "").strip()))
+        if cleaned:
+            final_text = cleaned
+    final_text = _sanitize_gm_output(final_text)
+    if not final_text:
+        final_text = "Сцена продолжается: опишите следующее действие."
+
+    logger.info(
+        "gm two-pass completed",
+        extra={
+            "action": {
+                "phase": _get_phase(sess),
+                "draft_preview": _trim_for_log(draft_text_raw),
+                "checks": normalized_checks,
+                "check_results": check_results,
+                "fallback_textual_check_parse": reparsed,
+                "fallback_forced_reprompt": forced_reprompt,
+                "fallback_cleanup_human_check_text": cleaned_human_check,
+                "llm_draft_finish_reason": draft_resp.get("finish_reason"),
+                "llm_draft_usage": draft_resp.get("usage"),
+                "llm_final_finish_reason": final_resp.get("finish_reason"),
+                "llm_final_usage": final_resp.get("usage"),
+                "final_initial_len": initial_final_len,
+                "final_initial_finish_reason": initial_finish_reason,
+                "final_continuation_attempts": continuation_attempts,
+                "final_continuation_len": continuation_len,
+                "final_len": len(final_text),
+                "anti_repeat_prefix_len": anti_repeat_prefix_len,
+                "anti_repeat_strategy": anti_repeat_strategy,
+            }
+        },
+    )
+    return final_text, draft_resp, final_resp, normalized_checks, check_results
+
+
+async def _auto_gm_reply_task(session_id: str, expected_action_id: str) -> None:
+    tok_rid = request_id_var.set(_new_request_id())
+    tok_sid = session_id_var.set(session_id)
+    try:
+        lock = _get_session_gm_lock(session_id)
+        async with lock:
+            async with AsyncSessionLocal() as db:
+                sess = await get_session(db, session_id)
+                if not sess:
+                    return
+                if _is_free_turns(sess):
+                    return
+                if _get_phase(sess) != "gm_pending":
+                    return
+                if _get_current_action_id(sess) != expected_action_id:
+                    return
+
+                q_events = await db.execute(
+                    select(Event)
+                    .where(Event.session_id == sess.id)
+                    .order_by(Event.created_at.desc())
+                    .limit(GM_CONTEXT_EVENTS)
+                )
+                events_desc = q_events.scalars().all()
+                context_events: list[str] = []
+                for ev in reversed(events_desc):
+                    msg = str(ev.message_text or "").strip()
+                    if not msg:
+                        continue
+                    if msg.startswith("[SYSTEM] 📜 История:"):
+                        continue
+                    if _looks_like_refusal(msg):
+                        continue
+                    context_events.append(msg)
+                if not context_events:
+                    context_events = ["(контекст пуст)"]
+                previous_gm_text = _find_latest_gm_text(context_events)
+
+                story = settings_get(sess, "story", {}) or {}
+                if not isinstance(story, dict):
+                    story = {}
+                story_title = str(story.get("story_title") or "").strip() or str(sess.title or "Campaign").strip() or "Campaign"
+
+                uid_map, chars_by_uid, _skill_mods_by_char = await _load_actor_context(db, sess)
+                actors_block = _build_actor_list_for_prompt(uid_map, chars_by_uid)
+                cur_uid: Optional[int] = None
+                if sess.current_player_id:
+                    q_cur_player = await db.execute(select(Player).where(Player.id == sess.current_player_id))
+                    cur_player = q_cur_player.scalar_one_or_none()
+                    cur_uid = _player_uid(cur_player)
+                draft_prompt = _build_turn_draft_prompt(
+                    session_title=story_title,
+                    context_events=context_events,
+                    actor_uid=cur_uid,
+                    actors_block=actors_block,
+                )
+                gm_text, _draft_meta, _final_meta, _checks, _check_results = await _run_gm_two_pass(
+                    db,
+                    sess,
+                    draft_prompt=draft_prompt,
+                    default_actor_uid=cur_uid,
+                    previous_gm_text=previous_gm_text,
+                )
+
+                await db.refresh(sess)
+                if _get_current_action_id(sess) != expected_action_id:
+                    logger.info("gm final dropped due to action mismatch", extra={"action": {"expected_action_id": expected_action_id}})
+                    return
+
+                gm_text = gm_text.strip()
+                if not gm_text or _looks_like_refusal(gm_text):
+                    await add_system_event(db, sess, "🧙 GM: (модель отказала. Переформулируй действие проще, без жести и откровенных деталей.)")
+                else:
+                    await add_system_event(db, sess, f"🧙 GM: {gm_text}")
+
+                nxt = await advance_turn(db, sess)
+                if nxt:
+                    sess.current_player_id = nxt.player_id
+                    sess.turn_started_at = utcnow()
+                    await add_system_event(db, sess, f"Следующий ход: игрок #{nxt.join_order}.")
+                _set_phase(sess, "turns")
+                _clear_current_action_id(sess)
+                await db.commit()
+
+        await broadcast_state(session_id)
+    except Exception:
+        logger.exception("auto gm reply task failed")
+    finally:
+        request_id_var.reset(tok_rid)
+        session_id_var.reset(tok_sid)
+
+
+async def _auto_lore_task(session_id: str) -> None:
+    tok_rid = request_id_var.set(_new_request_id())
+    tok_sid = session_id_var.set(session_id)
+    try:
+        logger.info("lore generation started")
+        async with AsyncSessionLocal() as db:
+            sess = await get_session(db, session_id)
+            if not sess:
+                return
+
+            story = settings_get(sess, "story", {}) or {}
+            if not (isinstance(story, dict) and story.get("story_configured") is True):
+                return
+
+            free_turns = _is_free_turns(sess)
+            lore_text = str(settings_get(sess, "lore_text", "") or "").strip()
+            lore_posted = bool(settings_get(sess, "lore_posted", False))
+
+            if not lore_text and not bool(settings_get(sess, "lore_generated", False)):
+                story_setting = str(story.get("story_setting") or "").strip()
+                story_title = str(story.get("story_title") or "").strip() or str(sess.title or "Campaign").strip() or "Campaign"
+                lore_resp = await generate_lore(
+                    session_title=story_title,
+                    setting_text=story_setting,
+                    timeout_seconds=GM_OLLAMA_TIMEOUT_SECONDS,
+                )
+                logger.info(
+                    "lore generation call",
+                    extra={
+                        "action": {
+                            "llm_finish_reason": lore_resp.get("finish_reason"),
+                            "llm_usage": lore_resp.get("usage"),
+                        }
+                    },
+                )
+                lore_text = str(lore_resp.get("text") or "")
+                lore_text = lore_text.strip()
+                if not lore_text:
+                    _set_phase(sess, "lore_pending")
+                    _clear_current_action_id(sess)
+                    sess.current_player_id = None
+                    sess.turn_started_at = None
+                    await db.commit()
+                    await add_system_event(db, sess, "Лор не сгенерирован: модель отказала. Измени сеттинг или нажми Сгенерировать лор.")
+                    await broadcast_state(session_id)
+                    return
+                if _looks_like_refusal(lore_text):
+                    _set_phase(sess, "lore_pending")
+                    _clear_current_action_id(sess)
+                    sess.current_player_id = None
+                    sess.turn_started_at = None
+                    await db.commit()
+                    await add_system_event(db, sess, "Лор не сгенерирован: модель отказала. Измени сеттинг или нажми Сгенерировать лор.")
+                    await broadcast_state(session_id)
+                    return
+
+                settings_set(sess, "lore_text", lore_text)
+                settings_set(sess, "lore_generated", True)
+                settings_set(sess, "lore_generated_at", datetime.now(timezone.utc).isoformat())
+                settings_set(sess, "lore_posted", False)
+                lore_posted = False
+
+            if lore_text and not lore_posted:
+                await add_system_event(db, sess, f"📜 История:\n{lore_text}")
+                settings_set(sess, "lore_posted", True)
+
+            sps = await list_session_players(db, sess, active_only=True)
+            if free_turns:
+                _set_phase(sess, "collecting_actions")
+                _clear_current_action_id(sess)
+                settings_set(sess, "free_round", _get_free_round(sess))
+                settings_set(sess, "round_actions", {})
+                sess.current_player_id = None
+                sess.turn_started_at = None
+                _clear_paused_remaining(sess)
+                await db.commit()
+                await add_system_event(db, sess, f"Раунд {_get_free_round(sess)}: каждый отправьте ОДНО сообщение с действием.")
+            else:
+                _set_phase(sess, "turns")
+                _clear_current_action_id(sess)
+                first = sps[0] if sps else None
+                sess.current_player_id = first.player_id if first else None
+                sess.turn_started_at = utcnow() if first else None
+                _clear_paused_remaining(sess)
+                await db.commit()
+                if first:
+                    await add_system_event(db, sess, f"Игра началась. Ход игрока #{first.join_order}.")
+            await db.commit()
+
+        logger.info("lore generation finished")
+        await broadcast_state(session_id)
+    except Exception:
+        logger.exception("auto lore task failed")
+    finally:
+        request_id_var.reset(tok_rid)
+        session_id_var.reset(tok_sid)
+
+
+async def _auto_round_task(session_id: str, expected_action_id: str) -> None:
+    tok_rid = request_id_var.set(_new_request_id())
+    tok_sid = session_id_var.set(session_id)
+    try:
+        lock = _get_session_gm_lock(session_id)
+        async with lock:
+            async with AsyncSessionLocal() as db:
+                sess = await get_session(db, session_id)
+                if not sess:
+                    return
+                if not _is_free_turns(sess) or _get_phase(sess) != "gm_pending":
+                    return
+                if _get_current_action_id(sess) != expected_action_id:
+                    return
+
+                story = settings_get(sess, "story", {}) or {}
+                if not isinstance(story, dict):
+                    story = {}
+                difficulty = str(story.get("difficulty") or "medium").strip().lower()
+                gm_notes = str(story.get("gm_notes") or "").strip()
+                lore_text = str(settings_get(sess, "lore_text", "") or "").strip()
+
+                round_actions = _get_round_actions(sess)
+                if not round_actions:
+                    _set_phase(sess, "collecting_actions")
+                    _clear_current_action_id(sess)
+                    await db.commit()
+                    await broadcast_state(session_id)
+                    return
+
+                sps = await list_session_players(db, sess, active_only=True)
+                players_by_id: dict[uuid.UUID, Player] = {}
+                if sps:
+                    q_players = await db.execute(select(Player).where(Player.id.in_([sp.player_id for sp in sps])))
+                    players_by_id = {p.id: p for p in q_players.scalars().all()}
+
+                player_actions: list[str] = []
+                chars_by_player_id: dict[uuid.UUID, Character] = {}
+                if sps:
+                    q_chars = await db.execute(
+                        select(Character).where(
+                            Character.session_id == sess.id,
+                            Character.player_id.in_([sp.player_id for sp in sps]),
+                        )
+                    )
+                    chars_by_player_id = {c.player_id: c for c in q_chars.scalars().all()}
+                for sp in sps:
+                    action_text = str(round_actions.get(str(sp.player_id), "") or "").strip()
+                    if not action_text:
+                        continue
+                    pl = players_by_id.get(sp.player_id)
+                    ch = chars_by_player_id.get(sp.player_id)
+                    pname = (
+                        str(ch.name).strip()
+                        if ch and str(ch.name or "").strip()
+                        else (pl.display_name if pl else f"Игрок #{sp.join_order}")
+                    )
+                    player_actions.append(f"{pname} (#{sp.join_order}): {action_text}")
+
+                q_events = await db.execute(
+                    select(Event)
+                    .where(Event.session_id == sess.id)
+                    .order_by(Event.created_at.desc())
+                    .limit(40)
+                )
+                events_desc = q_events.scalars().all()
+                recent_events = [e.message_text for e in reversed(events_desc) if e.message_text]
+                previous_gm_text = _find_latest_gm_text(recent_events)
+
+                story_title = str(story.get("story_title") or "").strip() or str(sess.title or "Campaign").strip() or "Campaign"
+                uid_map, chars_by_uid, _skill_mods_by_char = await _load_actor_context(db, sess)
+                actors_block = _build_actor_list_for_prompt(uid_map, chars_by_uid)
+                draft_prompt = _build_round_draft_prompt(
+                    session_title=story_title,
+                    lore_text=lore_text,
+                    recent_events=recent_events,
+                    player_actions=player_actions,
+                    master_notes=gm_notes,
+                    difficulty=difficulty,
+                    actors_block=actors_block,
+                )
+                gm_text, _draft_meta, _final_meta, _checks, _check_results = await _run_gm_two_pass(
+                    db,
+                    sess,
+                    draft_prompt=draft_prompt,
+                    default_actor_uid=None,
+                    previous_gm_text=previous_gm_text,
+                )
+
+                await db.refresh(sess)
+                if _get_current_action_id(sess) != expected_action_id:
+                    logger.info("round final dropped due to action mismatch", extra={"action": {"expected_action_id": expected_action_id}})
+                    return
+
+                gm_text = gm_text.strip()
+                if gm_text:
+                    await add_system_event(db, sess, f"🧙 Мастер: {gm_text}")
+
+                next_round = _get_free_round(sess) + 1
+                settings_set(sess, "round_actions", {})
+                _set_phase(sess, "collecting_actions")
+                settings_set(sess, "free_round", next_round)
+                _clear_current_action_id(sess)
+                await db.commit()
+                await add_system_event(db, sess, f"Раунд {next_round}: опишите действия.")
+                await db.commit()
+
+        await broadcast_state(session_id)
+    except Exception:
+        logger.exception("auto round task failed")
+        try:
+            async with AsyncSessionLocal() as db:
+                sess = await get_session(db, session_id)
+                if sess and _is_free_turns(sess):
+                    _set_phase(sess, "collecting_actions")
+                    _clear_current_action_id(sess)
+                    await db.commit()
+            await broadcast_state(session_id)
+        except Exception:
+            logger.exception("auto round recovery failed")
+    finally:
+        request_id_var.reset(tok_rid)
+        session_id_var.reset(tok_sid)
 
 
 # -------------------------
@@ -769,6 +1938,36 @@ async def index(request: Request):
 @app.get("/c/{session_id}", response_class=HTMLResponse)
 async def character_create_page(request: Request, session_id: str):
     return templates.TemplateResponse("character_create.html", {"request": request, "session_id": session_id})
+
+
+@app.get("/story/{session_id}", response_class=HTMLResponse)
+async def story_setup_page(request: Request, session_id: str, uid: Optional[int] = None):
+    if not uid or uid <= 0:
+        return RedirectResponse(url=f"/s/{session_id}", status_code=303)
+
+    async with AsyncSessionLocal() as db:
+        sess = await get_session(db, session_id)
+        if not sess:
+            raise HTTPException(status_code=404, detail="Session not found")
+
+        player = await get_player_by_uid(db, uid)
+        if not player:
+            return RedirectResponse(url=f"/s/{session_id}", status_code=303)
+
+        q_sp = await db.execute(
+            select(SessionPlayer).where(
+                SessionPlayer.session_id == sess.id,
+                SessionPlayer.player_id == player.id,
+            )
+        )
+        sp = q_sp.scalar_one_or_none()
+        if not sp or not sp.is_admin:
+            return RedirectResponse(url=f"/s/{session_id}", status_code=303)
+
+    return templates.TemplateResponse(
+        "story_setup.html",
+        {"request": request, "session_id": session_id, "uid": uid},
+    )
 
 
 @app.post("/api/new")
@@ -904,6 +2103,159 @@ async def api_classes():
     return JSONResponse({"classes": items})
 
 
+@app.get("/api/story/get")
+async def api_story_get(session_id: str, uid: int):
+    if uid <= 0:
+        raise HTTPException(status_code=400, detail="Bad uid")
+
+    async with AsyncSessionLocal() as db:
+        sess = await get_session(db, session_id)
+        if not sess:
+            raise HTTPException(status_code=404, detail="Session not found")
+
+        player = await get_player_by_uid(db, uid)
+        if not player:
+            raise HTTPException(status_code=403, detail="Admin access required")
+
+        q_sp = await db.execute(
+            select(SessionPlayer).where(
+                SessionPlayer.session_id == sess.id,
+                SessionPlayer.player_id == player.id,
+            )
+        )
+        sp = q_sp.scalar_one_or_none()
+        if not sp or not sp.is_admin:
+            raise HTTPException(status_code=403, detail="Admin access required")
+
+        raw_story = settings_get(sess, "story", {}) or {}
+        config = _normalize_story_config(sess, raw_story)
+        configured = bool(isinstance(raw_story, dict) and raw_story.get("story_configured"))
+        if configured:
+            config["story_configured"] = True
+            config["configured_at"] = str(raw_story.get("configured_at") or "")
+        lore_text = str(settings_get(sess, "lore_text", "") or "")
+        lore_generated = bool(settings_get(sess, "lore_generated", False))
+
+    return JSONResponse({"ok": True, "config": config, "lore_text": lore_text, "lore_generated": lore_generated})
+
+
+@app.post("/api/story/save")
+async def api_story_save(payload: dict):
+    session_id = str(payload.get("session_id") or "").strip()
+    uid = as_int(payload.get("uid"), 0)
+    config_raw = payload.get("config")
+
+    if uid <= 0:
+        raise HTTPException(status_code=400, detail="Bad uid")
+    if not isinstance(config_raw, dict):
+        raise HTTPException(status_code=400, detail="Bad config payload")
+
+    async with AsyncSessionLocal() as db:
+        sess = await get_session(db, session_id)
+        if not sess:
+            raise HTTPException(status_code=404, detail="Session not found")
+
+        player = await get_player_by_uid(db, uid)
+        if not player:
+            raise HTTPException(status_code=403, detail="Admin access required")
+
+        q_sp = await db.execute(
+            select(SessionPlayer).where(
+                SessionPlayer.session_id == sess.id,
+                SessionPlayer.player_id == player.id,
+            )
+        )
+        sp = q_sp.scalar_one_or_none()
+        if not sp or not sp.is_admin:
+            raise HTTPException(status_code=403, detail="Admin access required")
+
+        config = _normalize_story_config(sess, config_raw)
+        config["story_configured"] = True
+        config["configured_at"] = datetime.now(timezone.utc).isoformat()
+        settings_set(sess, "story", config)
+        if "lore_text" in config_raw:
+            lore_text = str(config_raw.get("lore_text") or "").strip()
+            if lore_text and not _looks_like_refusal(lore_text):
+                settings_set(sess, "lore_text", lore_text)
+                settings_set(sess, "lore_generated", True)
+                settings_set(sess, "lore_posted", False)
+            else:
+                # очистка (или защита от сохранения отказа)
+                settings_set(sess, "lore_text", "")
+                settings_set(sess, "lore_generated", False)
+                settings_set(sess, "lore_posted", False)
+        await db.commit()
+
+    return JSONResponse({"ok": True})
+
+
+@app.post("/api/story/lore/generate")
+async def api_story_lore_generate(payload: dict):
+    session_id = str(payload.get("session_id") or "").strip()
+    uid = as_int(payload.get("uid"), 0)
+    force = bool(payload.get("force", False))
+
+    if uid <= 0:
+        raise HTTPException(status_code=400, detail="Bad uid")
+
+    async with AsyncSessionLocal() as db:
+        sess = await get_session(db, session_id)
+        if not sess:
+            raise HTTPException(status_code=404, detail="Session not found")
+
+        player = await get_player_by_uid(db, uid)
+        if not player:
+            raise HTTPException(status_code=403, detail="Admin access required")
+
+        q_sp = await db.execute(
+            select(SessionPlayer).where(
+                SessionPlayer.session_id == sess.id,
+                SessionPlayer.player_id == player.id,
+            )
+        )
+        sp = q_sp.scalar_one_or_none()
+        if not sp or not sp.is_admin:
+            raise HTTPException(status_code=403, detail="Admin access required")
+
+        existing_lore = str(settings_get(sess, "lore_text", "") or "").strip()
+        if existing_lore and not force:
+            return JSONResponse({"ok": True, "lore_text": existing_lore})
+
+        story = settings_get(sess, "story", {}) or {}
+        if not isinstance(story, dict):
+            story = {}
+        story_setting = str(story.get("story_setting") or "").strip()
+        story_title = str(story.get("story_title") or "").strip() or str(sess.title or "Campaign").strip() or "Campaign"
+        lore_resp = await generate_lore(
+            session_title=story_title,
+            setting_text=story_setting,
+            timeout_seconds=GM_OLLAMA_TIMEOUT_SECONDS,
+        )
+        logger.info(
+            "lore generation call",
+            extra={
+                "action": {
+                    "llm_finish_reason": lore_resp.get("finish_reason"),
+                    "llm_usage": lore_resp.get("usage"),
+                }
+            },
+        )
+        lore_text = str(lore_resp.get("text") or "")
+        lore_text = lore_text.strip()
+        if not lore_text:
+            raise HTTPException(status_code=400, detail="Lore generation refused...")
+        if _looks_like_refusal(lore_text):
+            raise HTTPException(status_code=400, detail="Lore generation refused...")
+
+        settings_set(sess, "lore_text", lore_text)
+        settings_set(sess, "lore_generated", True)
+        settings_set(sess, "lore_generated_at", datetime.now(timezone.utc).isoformat())
+        settings_set(sess, "lore_posted", False)
+        await db.commit()
+
+    return JSONResponse({"ok": True, "lore_text": lore_text})
+
+
 @app.post("/api/character/create")
 async def api_character_create(payload: dict):
     session_id = str(payload.get("session_id") or "").strip()
@@ -912,6 +2264,9 @@ async def api_character_create(payload: dict):
     class_id = str(payload.get("class_id") or "").strip().lower()
     custom_class = str(payload.get("custom_class") or "").strip()
     stats_in = payload.get("stats")
+    meta_gender = str(payload.get("gender") or "").strip()[:40]
+    meta_race = str(payload.get("race") or "").strip()[:60]
+    meta_description = str(payload.get("description") or "").strip()[:1000]
 
     if uid <= 0:
         raise HTTPException(status_code=400, detail="Bad uid")
@@ -943,6 +2298,12 @@ async def api_character_create(payload: dict):
         selected_preset = CLASS_PRESETS.get(class_id) if class_id else None
         class_name = custom_class or (selected_preset.get("display_name") if selected_preset else "Adventurer")
         stats = _resolve_character_stats(class_id if selected_preset else None, stats_in)
+        stats = _put_character_meta_into_stats(
+            stats,
+            gender=meta_gender,
+            race=meta_race,
+            description=meta_description,
+        )
         if _stats_points_used(stats) > 20:
             raise HTTPException(status_code=400, detail="Points budget exceeded (max 20)")
 
@@ -961,8 +2322,10 @@ async def api_character_create(payload: dict):
         )
         await _upsert_starter_skills(db, ch, (selected_preset or {}).get("starter_skills") or {})
         await add_system_event(db, sess, f"Character ready: {ch.name} for player #{sp.join_order}.")
-
-        return JSONResponse({"ok": True, "character": _char_to_payload(ch)})
+        next_url = f"/s/{session_id}"
+        if sp.is_admin and not _story_is_configured(sess):
+            next_url = f"/story/{session_id}?uid={uid}"
+        return JSONResponse({"ok": True, "character": _char_to_payload(ch), "next_url": next_url})
 
 
 @app.post("/api/character/update_stats")
@@ -1184,7 +2547,7 @@ async def ws_room(ws: WebSocket, session_id: str):
                     if not await is_admin(db, sess, player):
                         await ws_error("Only admin can start")
                         continue
-                    if sess.current_player_id:
+                    if sess.is_active:
                         await ws_error("Already started")
                         continue
 
@@ -1222,14 +2585,20 @@ async def ws_room(ws: WebSocket, session_id: str):
                         continue
 
                     sess.is_active = True
-                    sess.current_player_id = sps[0].player_id
-                    sess.turn_index = 1
-                    sess.turn_started_at = utcnow()
                     sess.is_paused = False
+                    sess.current_player_id = None
+                    sess.turn_started_at = None
+                    sess.turn_index = 1
+                    raw_story = settings_get(sess, "story", {}) or {}
+                    if isinstance(raw_story, dict):
+                        settings_set(sess, "free_turns", bool(raw_story.get("free_turns")))
+                    _set_phase(sess, "lore_pending")
+                    _clear_current_action_id(sess)
                     _clear_paused_remaining(sess)
                     await db.commit()
-                    await add_system_event(db, sess, f"Игра началась. Ход игрока #{sps[0].join_order}.")
+                    await add_system_event(db, sess, "Игра началась. Генерируем вступительную историю...")
                     await broadcast_state(session_id)
+                    asyncio.create_task(_auto_lore_task(session_id))
                     continue
 
                 if action == "pause":
@@ -1277,6 +2646,9 @@ async def ws_room(ws: WebSocket, session_id: str):
                     if not await is_admin(db, sess, player):
                         await ws_error("Only admin can skip")
                         continue
+                    if _get_phase(sess) == "gm_pending":
+                        await ws_error("Ждём ответа мастера...")
+                        continue
                     if not sess.current_player_id:
                         await ws_error("Not started")
                         continue
@@ -1298,6 +2670,14 @@ async def ws_room(ws: WebSocket, session_id: str):
                     continue
 
                 if not text:
+                    continue
+
+                phase_now = _get_phase(sess)
+                if phase_now == "lore_pending":
+                    await ws_error("Ждём вступительную историю...")
+                    continue
+                if phase_now == "gm_pending":
+                    await ws_error("Ждём ответа мастера...")
                     continue
 
                 # normalize leading slash for typed commands
@@ -1344,7 +2724,7 @@ async def ws_room(ws: WebSocket, session_id: str):
                         db,
                         sess,
                         "Character commands: char create <Name> [Class], me, hp <+N|-N|N>, sta <+N|-N|N>, "
-                        "stat <str|dex|con|int|wis|cha> <0..100>, check [adv|dis] <stat_or_skill> [dc N].",
+                        "stat <str|dex|con|int|wis|cha> <0..100>, check [adv|dis] <stat_or_skill> [dc N] (ручной бросок, опционально).",
                     )
                     await broadcast_state(session_id)
                     continue
@@ -1837,6 +3217,49 @@ async def ws_room(ws: WebSocket, session_id: str):
                     continue
 
                 # Normal SAY — ends turn
+                if _is_free_turns(sess):
+                    phase = _get_phase(sess)
+                    if phase == "lore_pending":
+                        await ws_error("Ждём вступительную историю...")
+                        continue
+                    if phase == "gm_pending":
+                        await ws_error("Ждём ответа мастера...")
+                        continue
+                    if phase != "collecting_actions":
+                        await ws_error("Сейчас нельзя отправлять действие.")
+                        continue
+
+                    sps_active = await list_session_players(db, sess, active_only=True)
+                    active_ids = {spx.player_id for spx in sps_active}
+                    if player.id not in active_ids:
+                        await ws_error("You are offline in this session", request_id=msg_request_id)
+                        continue
+
+                    round_actions = _get_round_actions(sess)
+                    pid = str(player.id)
+                    if pid in round_actions:
+                        await ws_error("В этом раунде вы уже отправили действие.")
+                        continue
+
+                    round_actions[pid] = text
+                    settings_set(sess, "round_actions", round_actions)
+                    actor_label = await _event_actor_label(db, sess, player)
+                    await add_event(db, sess, f"{actor_label}: {text}", actor_player_id=player.id)
+                    await db.commit()
+
+                    all_collected = bool(sps_active) and all(str(spx.player_id) in round_actions for spx in sps_active)
+                    if all_collected:
+                        action_id = _new_action_id()
+                        _set_current_action_id(sess, action_id)
+                        _set_phase(sess, "gm_pending")
+                        await db.commit()
+                        await add_system_event(db, sess, "Мастер обрабатывает действия...")
+                        await broadcast_state(session_id)
+                        asyncio.create_task(_auto_round_task(session_id, action_id))
+                    else:
+                        await broadcast_state(session_id)
+                    continue
+
                 if not sess.current_player_id:
                     await ws_error("Game not started. Press Start.")
                     continue
@@ -1847,15 +3270,16 @@ async def ws_room(ws: WebSocket, session_id: str):
                     await ws_error("Not your turn.")
                     continue
 
-                # store message as player event (raw text)
-                await add_event(db, sess, text, actor_player_id=player.id)
-
-                nxt = await advance_turn(db, sess)
-                if not nxt:
-                    await ws_error("No players")
-                    continue
-                await add_system_event(db, sess, f"Следующий ход: игрок #{nxt.join_order}.")
+                actor_label = await _event_actor_label(db, sess, player)
+                await add_event(db, sess, f"{actor_label}: {text}", actor_player_id=player.id)
+                action_id = _new_action_id()
+                _set_current_action_id(sess, action_id)
+                _set_phase(sess, "gm_pending")
+                sess.turn_started_at = None
+                await db.commit()
                 await broadcast_state(session_id)
+                asyncio.create_task(_auto_gm_reply_task(session_id, action_id))
+                continue
 
     except WebSocketDisconnect:
         manager.disconnect(session_id, ws)
