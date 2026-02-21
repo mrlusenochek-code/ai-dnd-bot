@@ -1,0 +1,280 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <title>Настройка истории</title>
+  <style>
+    body{font-family:Arial, sans-serif; margin:0; background:#0f0f0f; color:#eaeaea;}
+    .wrap{max-width:980px; margin:24px auto; padding:0 12px 30px;}
+    .card{border:1px solid #333; border-radius:12px; padding:16px; background:#121212;}
+    .grid{display:grid; grid-template-columns:1fr 1fr; gap:12px;}
+    label{display:block; margin:10px 0 6px; font-size:14px; color:#cfcfcf;}
+    input,select,textarea,button{font-size:14px; padding:10px; border-radius:8px;}
+    input,select,textarea{width:100%; box-sizing:border-box; border:1px solid #333; background:#0b0b0b; color:#eaeaea;}
+    textarea{min-height:110px; resize:vertical;}
+    button{border:1px solid #333; background:#1a1a1a; color:#eaeaea; cursor:pointer;}
+    button:hover{background:#222;}
+    button:disabled{opacity:.55; cursor:not-allowed;}
+    .full{grid-column:1 / -1;}
+    .row{display:flex; gap:10px; margin-top:14px; flex-wrap:wrap;}
+    .muted{opacity:.75;}
+    .msg{margin-top:10px; font-size:14px;}
+    .ok{color:#6cff6c;}
+    .err{color:#ff6c6c;}
+    code{background:#1b1b1b; padding:2px 6px; border-radius:6px;}
+    @media (max-width: 760px){ .grid{grid-template-columns:1fr;} }
+  </style>
+</head>
+<body>
+<div class="wrap">
+  <h2>Настройка истории</h2>
+  <p class="muted">Session: <code>{{ session_id }}</code></p>
+
+  <div class="card">
+    <div class="grid">
+      <div class="full">
+        <label for="story_title">Название истории</label>
+        <input id="story_title" maxlength="200" placeholder="Например: Пепельные улицы"/>
+      </div>
+
+      <div class="full">
+        <label for="story_setting">Сеттинг истории</label>
+        <textarea id="story_setting" maxlength="2000" placeholder="Опиши мир, тон, стартовую ситуацию"></textarea>
+        <div class="row" style="margin-top:8px; align-items:center; gap:12px;">
+          <button id="genLoreBtn" type="button" onclick="generateLore()">Сгенерировать лор</button>
+          <span id="genLoreStatus" style="font-size:13px; opacity:.85;"></span>
+        </div>
+      </div>
+
+      <div class="full">
+        <label for="lore_text">Лор (превью)</label>
+        <textarea id="lore_text" maxlength="8000" placeholder="Здесь появится лор"></textarea>
+      </div>
+
+      <div>
+        <label for="difficulty">Сложность</label>
+        <select id="difficulty">
+          <option value="easy">easy</option>
+          <option value="medium">medium</option>
+          <option value="hard">hard</option>
+        </select>
+      </div>
+
+      <div>
+        <label for="health_system">Система здоровья</label>
+        <select id="health_system">
+          <option value="none">none</option>
+          <option value="normal">normal</option>
+        </select>
+      </div>
+
+      <div>
+        <label for="dmg_scale">Масштаб урона</label>
+        <select id="dmg_scale">
+          <option value="reduced">reduced</option>
+          <option value="standard">standard</option>
+          <option value="increased">increased</option>
+        </select>
+      </div>
+
+      <div>
+        <label for="ai_verbosity">Многословность AI</label>
+        <select id="ai_verbosity">
+          <option value="auto">auto</option>
+          <option value="restrained">restrained</option>
+          <option value="very_restrained">very_restrained</option>
+        </select>
+      </div>
+
+      <div class="full">
+        <label style="display:flex; align-items:center; gap:8px;">
+          <input id="free_turns" type="checkbox" style="width:auto;"/>
+          free_turns (будущий режим свободных ходов)
+        </label>
+      </div>
+
+      <div class="full">
+        <label for="journal_hint">Подсказка по журналу</label>
+        <textarea id="journal_hint" maxlength="1000" placeholder="Что мастер должен фиксировать в журнале"></textarea>
+      </div>
+
+      <div class="full">
+        <label for="red_flags">Red flags (по одному на строку или через запятую)</label>
+        <textarea id="red_flags" placeholder="Триггеры, запреты, нежелательные темы"></textarea>
+      </div>
+
+      <div class="full">
+        <label for="gm_notes">Заметки мастеру</label>
+        <textarea id="gm_notes" maxlength="1000" placeholder="Рекомендации по ведению сессии"></textarea>
+      </div>
+    </div>
+
+    <div class="row">
+      <button id="saveBtn" onclick="saveStory()">Сохранить</button>
+      <button id="goBtn" onclick="goGame()" style="display:none;">Перейти в игру</button>
+    </div>
+    <div id="msg" class="msg muted"></div>
+  </div>
+</div>
+
+<script>
+const SESSION_ID = "{{ session_id }}";
+const UID_FROM_SERVER = Number("{{ uid }}") || 0;
+
+function getUID() {
+  const local = Number(localStorage.getItem("uid") || "0");
+  if (UID_FROM_SERVER > 0) return UID_FROM_SERVER;
+  return local;
+}
+
+function setMessage(text, ok) {
+  const el = document.getElementById("msg");
+  el.className = "msg " + (ok ? "ok" : "err");
+  el.textContent = text || "";
+}
+
+function goGame() {
+  location.href = "/s/" + SESSION_ID;
+}
+
+function fillForm(cfg) {
+  document.getElementById("story_title").value = cfg.story_title || "";
+  document.getElementById("story_setting").value = cfg.story_setting || "";
+  document.getElementById("free_turns").checked = !!cfg.free_turns;
+
+  document.getElementById("difficulty").value = cfg.difficulty || "medium";
+  document.getElementById("health_system").value = cfg.health_system || "normal";
+  document.getElementById("dmg_scale").value = cfg.dmg_scale || "standard";
+  document.getElementById("ai_verbosity").value = cfg.ai_verbosity || "auto";
+
+  document.getElementById("journal_hint").value = cfg.journal_hint || "";
+  const flags = Array.isArray(cfg.red_flags) ? cfg.red_flags.join("\n") : (cfg.red_flags || "");
+  document.getElementById("red_flags").value = flags;
+  document.getElementById("gm_notes").value = cfg.gm_notes || "";
+  document.getElementById("lore_text").value = cfg.lore_text || "";
+
+  if (cfg.story_configured) {
+    document.getElementById("goBtn").style.display = "inline-block";
+  }
+}
+
+function collectConfig() {
+  return {
+    story_title: (document.getElementById("story_title").value || "").trim(),
+    story_setting: (document.getElementById("story_setting").value || "").trim(),
+    free_turns: document.getElementById("free_turns").checked,
+    difficulty: document.getElementById("difficulty").value,
+    health_system: document.getElementById("health_system").value,
+    dmg_scale: document.getElementById("dmg_scale").value,
+    journal_hint: (document.getElementById("journal_hint").value || "").trim(),
+    red_flags: (document.getElementById("red_flags").value || "").trim(),
+    ai_verbosity: document.getElementById("ai_verbosity").value,
+    gm_notes: (document.getElementById("gm_notes").value || "").trim(),
+    lore_text: (document.getElementById("lore_text").value || "").trim(),
+  };
+}
+
+async function loadConfig() {
+  const uid = getUID();
+  if (!uid) {
+    location.href = "/s/" + SESSION_ID;
+    return;
+  }
+  const url = `/api/story/get?session_id=${encodeURIComponent(SESSION_ID)}&uid=${encodeURIComponent(String(uid))}`;
+  const r = await fetch(url);
+  if (!r.ok) {
+    location.href = "/s/" + SESSION_ID;
+    return;
+  }
+  const data = await r.json();
+  const cfg = (data && data.config) ? data.config : {};
+  if (data && typeof data.lore_text === "string") {
+    cfg.lore_text = data.lore_text;
+  }
+  fillForm(cfg);
+  setMessage("Заполни поля и нажми «Сохранить».", true);
+}
+
+async function generateLore() {
+  const btn = document.getElementById("genLoreBtn");
+  const st = document.getElementById("genLoreStatus");
+  const setLoreStatus = (text, ok=true) => {
+    if(!st) return;
+    st.textContent = text || "";
+    st.style.color = ok ? "#57ff57" : "#ff6b6b";
+  };
+
+  btn.disabled = true;
+  setLoreStatus("Генерация...", true);
+
+  try {
+    const payload = {
+      session_id: SESSION_ID,
+      uid: getUID(),
+      force: true,
+    };
+
+    const r = await fetch("/api/story/lore/generate", {
+      method: "POST",
+      headers: {"Content-Type":"application/json"},
+      body: JSON.stringify(payload),
+    });
+
+    const data = await r.json().catch(() => ({}));
+
+    if (!r.ok) {
+      setLoreStatus(data.detail || "Не удалось сгенерировать лор", false);
+      return;
+    }
+
+    document.getElementById("lore_text").value = data.lore_text || "";
+    setLoreStatus("Лор сгенерирован", true);
+    setTimeout(() => setLoreStatus(""), 2500);
+
+  } catch (e) {
+    setLoreStatus(String((e && e.message) ? e.message : e), false);
+  } finally {
+    btn.disabled = false;
+    setTimeout(() => setLoreStatus(""), 2500);
+  }
+}
+window.generateLore = generateLore;
+
+async function saveStory() {
+  const saveBtn = document.getElementById("saveBtn");
+  saveBtn.disabled = true;
+  setMessage("Сохраняю...", true);
+
+  try {
+    const payload = {
+      session_id: SESSION_ID,
+      uid: getUID(),
+      config: collectConfig(),
+    };
+
+    const r = await fetch("/api/story/save", {
+      method: "POST",
+      headers: {"Content-Type":"application/json"},
+      body: JSON.stringify(payload),
+    });
+
+    const data = await r.json().catch(() => ({}));
+    if (!r.ok) {
+      setMessage(data.detail || "Ошибка сохранения", false);
+      return;
+    }
+
+    setMessage("Сохранено", true);
+    document.getElementById("goBtn").style.display = "inline-block";
+  } catch (e) {
+    setMessage(String((e && e.message) ? e.message : e), false);
+  } finally {
+    saveBtn.disabled = false;
+  }
+}
+
+loadConfig();
+</script>
+</body>
+</html>

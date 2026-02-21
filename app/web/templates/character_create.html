@@ -213,8 +213,9 @@ async function createHero(){
     setMessage(data.detail || "Ошибка создания персонажа", false);
     return;
   }
-  setMessage("Персонаж создан. Переход в сессию...", true);
-  setTimeout(goSession, 250);
+  const next = (data && data.next_url) ? String(data.next_url) : ("/s/" + SESSION_ID);
+  setMessage("Персонаж создан. Переход...", true);
+  setTimeout(() => { location.href = next; }, 250);
 }
 
 async function init(){
