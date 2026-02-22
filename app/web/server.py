@@ -530,6 +530,13 @@ def _normalize_check_mode(raw_mode: Any) -> str:
 
 def _normalize_check_name(raw_name: Any) -> str:
     name = str(raw_name or "").strip().lower()
+    if "|" in name:
+        parts: list[str] = []
+        for token in name.split("|"):
+            normalized = STAT_ALIASES.get(token.strip().lower(), token.strip().lower())
+            if normalized:
+                parts.append(normalized)
+        return "|".join(parts)
     return STAT_ALIASES.get(name, name)
 
 
@@ -1453,6 +1460,31 @@ def _compute_check_mod(
     if not character:
         return 0
     name = _normalize_check_name(check.get("name"))
+    skill_mods = skill_mods_by_char.get(character.id, {})
+
+    if "|" in name:
+        candidates = [x for x in name.split("|") if x]
+        if not candidates:
+            return 0
+        candidate_mods: list[int] = []
+        for candidate in candidates:
+            candidate_kind = _check_kind_for_name(check.get("kind"), candidate)
+            if candidate_kind in {"ability", "stat"} or candidate in CHAR_STAT_KEYS:
+                if candidate in CHAR_STAT_KEYS:
+                    candidate_mods.append(_ability_mod_from_stats(character.stats, candidate))
+                else:
+                    candidate_mods.append(0)
+                continue
+            if candidate in skill_mods:
+                candidate_mods.append(int(skill_mods[candidate]))
+                continue
+            stat_key = SKILL_TO_ABILITY.get(candidate)
+            if not stat_key:
+                candidate_mods.append(0)
+                continue
+            candidate_mods.append(_ability_mod_from_stats(character.stats, stat_key))
+        return max(candidate_mods) if candidate_mods else 0
+
     kind = _check_kind_for_name(check.get("kind"), name)
     if kind in {"ability", "stat"} or name in CHAR_STAT_KEYS:
         stat_key = STAT_ALIASES.get(name, name)
@@ -1460,7 +1492,6 @@ def _compute_check_mod(
             return 0
         return _ability_mod_from_stats(character.stats, stat_key)
 
-    skill_mods = skill_mods_by_char.get(character.id, {})
     if name in skill_mods:
         return int(skill_mods[name])
 
