@@ -1672,15 +1672,23 @@ async def is_admin(db: AsyncSession, sess: Session, player: Player) -> bool:
     return bool(sp and sp.is_admin)
 
 
+def _safe_event_text(text: Any) -> str:
+    s = str(text or "")
+    s = s.replace("\x00", "")
+    s = s.encode("utf-8", "replace").decode("utf-8")
+    return s[:8000]
+
+
 async def add_event(
     db: AsyncSession,
     sess: Session,
-    text: str,
+    text: Any,
     actor_player_id: Optional[uuid.UUID] = None,
     actor_character_id: Optional[uuid.UUID] = None,
     parsed_json: Optional[dict] = None,
     result_json: Optional[dict] = None,
 ) -> None:
+    text = _safe_event_text(text)
     ev = Event(
         session_id=sess.id,
         turn_index=sess.turn_index or 0,
