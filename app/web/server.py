@@ -1463,26 +1463,23 @@ def _compute_check_mod(
     skill_mods = skill_mods_by_char.get(character.id, {})
 
     if "|" in name:
-        candidates = [x for x in name.split("|") if x]
+        candidates = [x.strip() for x in name.split("|") if x.strip()]
         if not candidates:
             return 0
         candidate_mods: list[int] = []
         for candidate in candidates:
             candidate_kind = _check_kind_for_name(check.get("kind"), candidate)
             if candidate_kind in {"ability", "stat"} or candidate in CHAR_STAT_KEYS:
-                if candidate in CHAR_STAT_KEYS:
-                    candidate_mods.append(_ability_mod_from_stats(character.stats, candidate))
+                stat_key = STAT_ALIASES.get(candidate, candidate)
+                if stat_key in CHAR_STAT_KEYS:
+                    candidate_mods.append(_ability_mod_from_stats(character.stats, stat_key))
                 else:
                     candidate_mods.append(0)
                 continue
-            if candidate in skill_mods:
-                candidate_mods.append(int(skill_mods[candidate]))
-                continue
-            stat_key = SKILL_TO_ABILITY.get(candidate)
-            if not stat_key:
-                candidate_mods.append(0)
-                continue
-            candidate_mods.append(_ability_mod_from_stats(character.stats, stat_key))
+            ability_key = SKILL_TO_ABILITY.get(candidate)
+            ability_mod = _ability_mod_from_stats(character.stats, ability_key) if ability_key else 0
+            skill_bonus = int(skill_mods.get(candidate, 0))
+            candidate_mods.append(ability_mod + skill_bonus)
         return max(candidate_mods) if candidate_mods else 0
 
     kind = _check_kind_for_name(check.get("kind"), name)
@@ -1492,13 +1489,10 @@ def _compute_check_mod(
             return 0
         return _ability_mod_from_stats(character.stats, stat_key)
 
-    if name in skill_mods:
-        return int(skill_mods[name])
-
-    stat_key = SKILL_TO_ABILITY.get(name)
-    if not stat_key:
-        return 0
-    return _ability_mod_from_stats(character.stats, stat_key)
+    ability_key = SKILL_TO_ABILITY.get(name)
+    ability_mod = _ability_mod_from_stats(character.stats, ability_key) if ability_key else 0
+    skill_bonus = int(skill_mods.get(name, 0))
+    return ability_mod + skill_bonus
 
 
 def _roll_check(mode: str) -> tuple[int, Optional[int], int]:
@@ -3932,7 +3926,7 @@ async def ws_room(ws: WebSocket, session_id: str):
                         await ws_error("Usage: check [adv|dis] <stat_or_skill> [dc N]", request_id=msg_request_id)
                         continue
 
-                    key = parts[idx].lower()
+                    key = _normalize_check_name(parts[idx].lower())
                     idx += 1
                     dc: Optional[int] = None
                     if idx < len(parts):
@@ -3962,7 +3956,32 @@ async def ws_room(ws: WebSocket, session_id: str):
                         await ws_error("No character. Use: char create ...", request_id=msg_request_id)
                         continue
 
-                    if key in CHAR_STAT_KEYS:
+                    def _manual_candidate_mod(candidate: str, skills_by_key: dict[str, Skill]) -> int:
+                        if candidate in CHAR_STAT_KEYS:
+                            return _ability_mod_from_stats(ch.stats, candidate)
+                        ability_key = SKILL_TO_ABILITY.get(candidate)
+                        ability_mod = _ability_mod_from_stats(ch.stats, ability_key) if ability_key else 0
+                        sk = skills_by_key.get(candidate)
+                        skill_bonus = _skill_bonus_from_rank(sk.rank) if sk else 0
+                        return ability_mod + skill_bonus
+
+                    skills_by_key: dict[str, Skill] = {}
+                    if "|" in key:
+                        candidates = [x.strip() for x in key.split("|") if x.strip()]
+                        if not candidates:
+                            mod = 0
+                        else:
+                            skill_candidates = [c for c in candidates if c not in CHAR_STAT_KEYS]
+                            if skill_candidates:
+                                q_skills = await db.execute(
+                                    select(Skill).where(
+                                        Skill.character_id == ch.id,
+                                        Skill.skill_key.in_(skill_candidates),
+                                    )
+                                )
+                                skills_by_key = {str(sk.skill_key or "").strip().lower(): sk for sk in q_skills.scalars().all()}
+                            mod = max(_manual_candidate_mod(c, skills_by_key) for c in candidates)
+                    elif key in CHAR_STAT_KEYS:
                         mod = _ability_mod_from_stats(ch.stats, key)
                     else:
                         q_skill = await db.execute(
@@ -3972,7 +3991,10 @@ async def ws_room(ws: WebSocket, session_id: str):
                             )
                         )
                         sk = q_skill.scalar_one_or_none()
-                        mod = _skill_bonus_from_rank(sk.rank) if sk else 0
+                        ability_key = SKILL_TO_ABILITY.get(key)
+                        ability_mod = _ability_mod_from_stats(ch.stats, ability_key) if ability_key else 0
+                        skill_bonus = _skill_bonus_from_rank(sk.rank) if sk else 0
+                        mod = ability_mod + skill_bonus
 
                     if mode == "roll":
                         roll = random.randint(1, 20)
