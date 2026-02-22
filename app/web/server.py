@@ -2566,26 +2566,34 @@ async def _run_gm_two_pass(
 
     xp_changed = False
     for result in check_results:
-        name = _normalize_check_name(str(result.get("name") or ""))
-        skill_key: Optional[str] = None
-        if "|" in name:
-            for candidate_raw in name.split("|"):
-                candidate = _normalize_check_name(candidate_raw)
-                if not candidate or candidate in CHAR_STAT_KEYS:
-                    continue
-                if candidate in SKILL_TO_ABILITY:
-                    skill_key = candidate
-                    break
-        else:
-            if name and name not in CHAR_STAT_KEYS and name in SKILL_TO_ABILITY:
-                skill_key = name
-        if not skill_key:
-            continue
         actor_uid = as_int(result.get("actor_uid"), 0)
         if actor_uid <= 0:
             continue
         ch = chars_by_uid.get(actor_uid)
         if not ch:
+            continue
+        name = _normalize_check_name(str(result.get("name") or ""))
+        skill_key: Optional[str] = None
+        if "|" in name:
+            # For composite checks, grant XP to the skill with the highest check modifier.
+            best_mod: Optional[int] = None
+            for candidate_raw in name.split("|"):
+                candidate = _normalize_check_name(candidate_raw)
+                if not candidate or candidate in CHAR_STAT_KEYS:
+                    continue
+                if candidate in SKILL_TO_ABILITY:
+                    cand_mod = _compute_check_mod(
+                        {"actor_uid": actor_uid, "kind": "skill", "name": candidate},
+                        ch,
+                        skill_mods_by_char,
+                    )
+                    if best_mod is None or cand_mod > best_mod:
+                        best_mod = cand_mod
+                        skill_key = candidate
+        else:
+            if name and name not in CHAR_STAT_KEYS and name in SKILL_TO_ABILITY:
+                skill_key = name
+        if not skill_key:
             continue
         q_skill = await db.execute(
             select(Skill).where(
