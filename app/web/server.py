@@ -4282,9 +4282,28 @@ async def ws_room(ws: WebSocket, session_id: str):
                     round_actions[pid] = text
                     settings_set(sess, "round_actions", round_actions)
                     current_zone = _get_pc_positions(sess).get(pid, "стартовая локация")
-                    _set_pc_zone(sess, player.id, infer_zone_from_action(text, current_zone))
+                    new_zone = infer_zone_from_action(text, current_zone)
+                    _set_pc_zone(sess, player.id, new_zone)
                     actor_label = await _event_actor_label(db, sess, player)
-                    await add_event(db, sess, f"{actor_label}: {text}", actor_player_id=player.id)
+                    payload = {
+                        "type": "player_action",
+                        "actor_uid": _player_uid(player),
+                        "actor_player_id": str(player.id),
+                        "join_order": int(sp.join_order or 0),
+                        "raw_text": text,
+                        "mode": "free_turns",
+                        "phase": phase,
+                        "zone_before": current_zone,
+                        "zone_after": new_zone,
+                        "turn_index": int(sess.turn_index or 0),
+                    }
+                    await add_event(
+                        db,
+                        sess,
+                        f"{actor_label}: {text}",
+                        actor_player_id=player.id,
+                        result_json=payload,
+                    )
                     await db.commit()
 
                     all_collected = bool(ready_sps) and all(str(spx.player_id) in round_actions for spx in ready_sps)
@@ -4311,10 +4330,30 @@ async def ws_room(ws: WebSocket, session_id: str):
                     continue
 
                 actor_label = await _event_actor_label(db, sess, player)
-                await add_event(db, sess, f"{actor_label}: {text}", actor_player_id=player.id)
                 pid = str(player.id)
+                phase = _get_phase(sess)
                 current_zone = _get_pc_positions(sess).get(pid, "стартовая локация")
-                _set_pc_zone(sess, player.id, infer_zone_from_action(text, current_zone))
+                new_zone = infer_zone_from_action(text, current_zone)
+                _set_pc_zone(sess, player.id, new_zone)
+                payload = {
+                    "type": "player_action",
+                    "actor_uid": _player_uid(player),
+                    "actor_player_id": str(player.id),
+                    "join_order": int(sp.join_order or 0),
+                    "raw_text": text,
+                    "mode": "free_turns" if _is_free_turns(sess) else "turns",
+                    "phase": phase,
+                    "zone_before": current_zone,
+                    "zone_after": new_zone,
+                    "turn_index": int(sess.turn_index or 0),
+                }
+                await add_event(
+                    db,
+                    sess,
+                    f"{actor_label}: {text}",
+                    actor_player_id=player.id,
+                    result_json=payload,
+                )
                 action_id = _new_action_id()
                 _set_current_action_id(sess, action_id)
                 _set_phase(sess, "gm_pending")
