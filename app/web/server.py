@@ -519,6 +519,33 @@ def _skill_bonus_from_rank(rank_raw: Any) -> int:
     return _clamp(rank // 2, 0, 5)
 
 
+def _xp_to_next_skill_rank(rank: int) -> int:
+    rank = _clamp(as_int(rank, 0), 0, 10)
+    return 20 + 15 * rank + 10 * (rank ** 2)
+
+
+def _dc_xp_bonus(dc: int) -> int:
+    dc = max(0, int(dc))
+    bonus = 0
+    if dc >= 15:
+        bonus = 1
+    if dc >= 20:
+        bonus = 2
+    if dc >= 25:
+        bonus = 3
+    if dc >= 30:
+        bonus = 4
+    return bonus
+
+
+def _skill_xp_gain(result: dict) -> int:
+    dc = int(result.get("dc") or 0)
+    roll = int(result.get("roll") or 0)
+    success = bool(result.get("success"))
+    base = 6 if roll == 20 else (3 if success else 1)
+    return base + _dc_xp_bonus(dc)
+
+
 def _normalize_check_mode(raw_mode: Any) -> str:
     mode = str(raw_mode or "normal").strip().lower()
     if mode in {"adv", "advantage"}:
@@ -2478,6 +2505,55 @@ async def _run_gm_two_pass(
         roll_a, roll_b, roll = _roll_check(str(check.get("mode") or "normal"))
         result = _build_check_result(check, mod, roll_a, roll_b, roll)
         check_results.append(result)
+
+    xp_changed = False
+    for result in check_results:
+        name = _normalize_check_name(str(result.get("name") or ""))
+        skill_key: Optional[str] = None
+        if "|" in name:
+            for candidate_raw in name.split("|"):
+                candidate = _normalize_check_name(candidate_raw)
+                if not candidate or candidate in CHAR_STAT_KEYS:
+                    continue
+                if candidate in SKILL_TO_ABILITY:
+                    skill_key = candidate
+                    break
+        else:
+            if name and name not in CHAR_STAT_KEYS and name in SKILL_TO_ABILITY:
+                skill_key = name
+        if not skill_key:
+            continue
+        actor_uid = as_int(result.get("actor_uid"), 0)
+        if actor_uid <= 0:
+            continue
+        ch = chars_by_uid.get(actor_uid)
+        if not ch:
+            continue
+        q_skill = await db.execute(
+            select(Skill).where(
+                Skill.character_id == ch.id,
+                Skill.skill_key == skill_key,
+            )
+        )
+        sk = q_skill.scalar_one_or_none()
+        if not sk:
+            sk = Skill(character_id=ch.id, skill_key=skill_key, rank=0, xp=0)
+            db.add(sk)
+        xp = max(0, as_int(sk.xp, 0)) + _skill_xp_gain(result)
+        rank = _clamp(as_int(sk.rank, 0), 0, 10)
+        while rank < 10:
+            need = _xp_to_next_skill_rank(rank)
+            if xp < need:
+                break
+            xp -= need
+            rank += 1
+        if as_int(sk.rank, 0) != rank:
+            sk.rank = rank
+        if as_int(sk.xp, 0) != xp:
+            sk.xp = xp
+        xp_changed = True
+    if xp_changed:
+        await db.commit()
 
     final_prompt = _build_finalize_prompt(draft_text, check_results)
     final_resp = await generate_from_prompt(
