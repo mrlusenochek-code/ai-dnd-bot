@@ -146,6 +146,11 @@ SKILL_ALIASES: dict[str, str] = {
     "интуиция": "insight",
     "лидерство": "persuasion",
     "сопротивление": "endurance",
+    "perc": "perception",
+    "percep": "perception",
+    "mechanism": "crafting",
+    "mechanics": "crafting",
+    "mech": "crafting",
 }
 CLASS_PRESETS: dict[str, dict[str, Any]] = {
     "fighter": {
@@ -2347,6 +2352,7 @@ def _build_turn_draft_prompt(
         "Крафт/ремесло/починка/сборка/взлом устройства — crafting (int); карман/ловкость рук/шулерство — trickery или sleight_of_hand.\n"
         "Сила удара — power_strike (str); меткость/прицел/выстрел — marksmanship (dex); лидерство/переговоры/давление словами — persuasion (cha).\n"
         "В тексте мастера для игроков пиши строго по-русски; английские слова допускаются только внутри машинной строки @@CHECK в поле name.\n"
+        "В @@CHECK поле name используй только каноничные ключи (perception, investigation, crafting, endurance, focus, trickery, sleight_of_hand, power_strike, marksmanship, persuasion и статы str/dex/con/int/wis/cha). Не используй сокращения вроде perc и слова вроде mechanism.\n"
         "Если нужна проверка, НЕ проси игрока кидать вручную. В конце добавь машинные строки:\n"
         "@@CHECK {\"actor_uid\":<uid>,\"kind\":\"skill|ability\",\"name\":\"perception|wis|...\",\"dc\":15,\"mode\":\"normal|advantage|disadvantage\",\"reason\":\"...\"}\n"
         "После успешного поиска/получения предмета выдай его ТОЛЬКО машинной строкой:\n"
@@ -2429,6 +2435,7 @@ def _build_round_draft_prompt(
         "Крафт/ремесло/починка/сборка/взлом устройства — crafting (int); карман/ловкость рук/шулерство — trickery или sleight_of_hand.\n"
         "Сила удара — power_strike (str); меткость/прицел/выстрел — marksmanship (dex); лидерство/переговоры/давление словами — persuasion (cha).\n"
         "В тексте мастера для игроков пиши строго по-русски; английские слова допускаются только внутри машинной строки @@CHECK в поле name.\n"
+        "В @@CHECK поле name используй только каноничные ключи (perception, investigation, crafting, endurance, focus, trickery, sleight_of_hand, power_strike, marksmanship, persuasion и статы str/dex/con/int/wis/cha). Не используй сокращения вроде perc и слова вроде mechanism.\n"
         "Формат строки:\n"
         "@@CHECK {\"actor_uid\":<uid>,\"kind\":\"skill|ability\",\"name\":\"...\",\"dc\":15,\"mode\":\"normal|advantage|disadvantage\",\"reason\":\"...\"}\n"
         "Если после успеха проверки персонаж получает предмет, выдай это ТОЛЬКО машинной строкой:\n"
