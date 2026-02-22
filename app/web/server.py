@@ -584,6 +584,25 @@ def _xp_to_next_skill_rank(rank: int) -> int:
     return 20 + 15 * rank + 10 * (rank ** 2)
 
 
+LEVEL_CAP = 20
+
+
+def _xp_total_for_level(level: int) -> int:
+    return 100 * (max(1, level) - 1) ** 2
+
+
+def _level_from_xp_total(xp_total: int, current_level: int) -> int:
+    level = _clamp(as_int(current_level, 1), 1, LEVEL_CAP)
+    xp_total = max(0, as_int(xp_total, 0))
+    while level < LEVEL_CAP and xp_total >= _xp_total_for_level(level + 1):
+        level += 1
+    return level
+
+
+def _character_xp_gain_from_check(result: dict) -> int:
+    return _skill_xp_gain(result)
+
+
 def _dc_xp_bonus(dc: int) -> int:
     dc = max(0, int(dc))
     bonus = 0
@@ -1696,6 +1715,7 @@ def _char_to_payload(ch: Optional[Character]) -> Optional[dict]:
         "class_kit": ch.class_kit,
         "class_skin": ch.class_skin,
         "level": int(ch.level or 1),
+        "xp_total": int(ch.xp_total or 0),
         "hp": int(ch.hp or 0),
         "hp_max": int(ch.hp_max or 0),
         "sta": int(ch.sta or 0),
@@ -2599,6 +2619,15 @@ async def _run_gm_two_pass(
         ch = chars_by_uid.get(actor_uid)
         if not ch:
             continue
+        gain = _character_xp_gain_from_check(result)
+        new_xp_total = max(0, as_int(ch.xp_total, 0)) + gain
+        new_level = _level_from_xp_total(new_xp_total, as_int(ch.level, 1))
+        if as_int(ch.xp_total, 0) != new_xp_total:
+            ch.xp_total = new_xp_total
+            xp_changed = True
+        if as_int(ch.level, 1) != new_level:
+            ch.level = new_level
+            xp_changed = True
         name = _normalize_check_name(str(result.get("name") or ""))
         skill_key: Optional[str] = None
         if "|" in name:
