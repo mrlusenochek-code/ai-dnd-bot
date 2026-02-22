@@ -77,6 +77,9 @@ SKILL_TO_ABILITY: dict[str, str] = {
     "trickery": "dex",
     "focus": "wis",
     "faith": "wis",
+    "power_strike": "str",
+    "marksmanship": "dex",
+    "crafting": "int",
 }
 STAT_ALIASES = {
     "strength": "str",
@@ -91,6 +94,58 @@ STAT_ALIASES = {
     "интеллект": "int",
     "мудрость": "wis",
     "харизма": "cha",
+    "wil": "wis",
+    "воля": "wis",
+    "will": "wis",
+    "willpower": "wis",
+}
+SKILL_ALIASES: dict[str, str] = {
+    "акробатика": "acrobatics",
+    "атлетика": "athletics",
+    "восприятие": "perception",
+    "выживание": "survival",
+    "выступление": "performance",
+    "запугивание": "intimidation",
+    "история": "history",
+    "ловкость_рук": "sleight_of_hand",
+    "медицина": "medicine",
+    "обман": "deception",
+    "природа": "nature",
+    "проницательность": "insight",
+    "расследование": "investigation",
+    "религия": "religion",
+    "скрытность": "stealth",
+    "тайная_магия": "arcana",
+    "убеждение": "persuasion",
+    "уход_за_животными": "animal_handling",
+    "sleight_of_hand": "sleight_of_hand",
+    "sleight of hand": "sleight_of_hand",
+    "sleight-of-hand": "sleight_of_hand",
+    "animal_handling": "animal_handling",
+    "animal handling": "animal_handling",
+    "animal-handling": "animal_handling",
+    "listen": "perception",
+    "listening": "perception",
+    "слух": "perception",
+    "прислушивание": "perception",
+    "обостренный_слух": "perception",
+    "обострённый_слух": "perception",
+    "сила_удара": "power_strike",
+    "меткость": "marksmanship",
+    "воровство": "trickery",
+    "внимательность": "perception",
+    "наблюдательность": "perception",
+    "бдительность": "perception",
+    "анализ": "investigation",
+    "логика": "investigation",
+    "знания_мира": "history",
+    "ремесло": "crafting",
+    "крафт": "crafting",
+    "самоконтроль": "focus",
+    "концентрация": "focus",
+    "интуиция": "insight",
+    "лидерство": "persuasion",
+    "сопротивление": "endurance",
 }
 CLASS_PRESETS: dict[str, dict[str, Any]] = {
     "fighter": {
@@ -556,15 +611,18 @@ def _normalize_check_mode(raw_mode: Any) -> str:
 
 
 def _normalize_check_name(raw_name: Any) -> str:
-    name = str(raw_name or "").strip().lower()
-    if "|" in name:
-        parts: list[str] = []
-        for token in name.split("|"):
-            normalized = STAT_ALIASES.get(token.strip().lower(), token.strip().lower())
-            if normalized:
-                parts.append(normalized)
-        return "|".join(parts)
-    return STAT_ALIASES.get(name, name)
+    name = str(raw_name or "")
+    parts: list[str] = []
+    for token in name.split("|"):
+        normalized = token.strip().lower().replace("ё", "е")
+        normalized = re.sub(r"[\s\-]+", "_", normalized)
+        if not normalized:
+            continue
+        normalized = STAT_ALIASES.get(normalized, normalized)
+        normalized = SKILL_ALIASES.get(normalized, normalized)
+        if normalized:
+            parts.append(normalized)
+    return "|".join(parts)
 
 
 def _check_kind_for_name(raw_kind: Any, normalized_name: str) -> str:
@@ -4002,8 +4060,12 @@ async def ws_room(ws: WebSocket, session_id: str):
                         await ws_error("Usage: check [adv|dis] <stat_or_skill> [dc N]", request_id=msg_request_id)
                         continue
 
-                    key = _normalize_check_name(parts[idx].lower())
+                    key = parts[idx].lower()
                     idx += 1
+                    while idx < len(parts) and not parts[idx].lower().startswith("dc"):
+                        key += f" {parts[idx].lower()}"
+                        idx += 1
+                    key = _normalize_check_name(key)
                     dc: Optional[int] = None
                     if idx < len(parts):
                         tok = parts[idx].lower()
