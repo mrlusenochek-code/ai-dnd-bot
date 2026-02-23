@@ -38,7 +38,7 @@ CHAR_STAT_KEYS = ("str", "dex", "con", "int", "wis", "cha")
 CHAR_DEFAULT_STATS = {k: 50 for k in CHAR_STAT_KEYS}
 CHECK_LINE_RE = re.compile(r"^\s*@@CHECK\s+(\{.*\})\s*$", re.IGNORECASE)
 INV_MACHINE_LINE_RE = re.compile(r"^\s*@@(?P<cmd>INV_ADD|INV_REMOVE|INV_TRANSFER)\s*\((?P<args>.*)\)\s*$", re.IGNORECASE)
-ZONE_SET_MACHINE_LINE_RE = re.compile(r"^\s*\(?\s*@@ZONE_SET\s*\((?P<args>.*)\)\s*\)?\s*$", re.IGNORECASE)
+ZONE_SET_MACHINE_LINE_RE = re.compile(r"^\s*(?:\(\s*)?@@ZONE_SET\s*\((?P<args>.*?)\)\s*(?:\))?\s*$", re.IGNORECASE)
 TEXTUAL_CHECK_RE = re.compile(
     r"(?:проверка|check)\s*[:\-]?\s*([a-zA-Zа-яА-Я_]+)[^\n]{0,40}?\bdc\s*[:=]?\s*(\d+)",
     re.IGNORECASE,
