@@ -43,89 +43,119 @@ TEXTUAL_CHECK_RE = re.compile(
     r"(?:проверка|check)\s*[:\-]?\s*([a-zA-Zа-яА-Я_]+)[^\n]{0,40}?\bdc\s*[:=]?\s*(\d+)",
     re.IGNORECASE,
 )
+MANDATORY_ACTION_PATTERNS_BY_CATEGORY: list[tuple[str, list[str]]] = [
+    (
+        "mechanics",
+        [
+            r"замок\w*",
+            r"замоч\w*",
+            r"механизм\w*",
+            r"ловушк\w*",
+            r"устройств\w*",
+            r"пружин\w*",
+            r"шестер\w*",
+            r"вскры\w*",
+            r"взлом\w*",
+            r"отпер\w*",
+            r"откр\w*",
+            r"подкрут\w*",
+            r"настро\w*",
+            r"обезвред\w*",
+            r"размини\w*",
+            r"перекус\w*",
+            r"перерез\w*",
+            r"заклин\w*",
+            r"слом\w*",
+        ],
+    ),
+    (
+        "theft",
+        [
+            r"карман\w*",
+            r"обчист\w*",
+            r"похит\w*",
+            r"укра\w*",
+            r"стащ\w*",
+            r"спер\w*",
+            r"свист\w*",
+            r"вытащ\w*",
+            r"дост\w+_?незамет\w*",
+            r"незамет\w+_?дост\w*",
+            r"незамет\w+_?вытащ\w*",
+            r"подмен\w*",
+            r"подброс\w*",
+            r"подкин\w*",
+            r"спрят\w*",
+            r"припрят\w*",
+            r"сунул\w*",
+            r"засунул\w*",
+            r"срез\w*",
+            r"подрез\w*",
+            r"сорва\w*",
+            r"сня\w*_(ремешок|ремень|петл\w*)",
+            r"вынул\w*",
+            r"выуд\w*",
+            r"утаил\w*",
+            r"крад\w*",
+        ],
+    ),
+    (
+        "stealth",
+        [
+            r"проскольз\w*",
+            r"тих\w+_?пройти\w*",
+            r"незамет\w+_?пройти\w*",
+            r"затаил\w*",
+            r"след\w+_?за\w*",
+            r"подкрад\w*",
+            r"обойти\w+_?(охран\w*|страж\w*)",
+            r"проник\w*",
+            r"влез\w*",
+            r"перелез\w*",
+            r"взобра\w*",
+        ],
+    ),
+    (
+        "social",
+        [
+            r"убед\w*",
+            r"уговор\w*",
+            r"давл\w*",
+            r"надав\w*",
+            r"припуг\w*",
+            r"запуг\w*",
+            r"пригроз\w*",
+            r"обман\w*",
+            r"совр\w*",
+            r"блеф\w*",
+            r"прикин\w*_(что|будто)",
+            r"допрос\w*",
+            r"выпрос\w*",
+            r"выман\w*",
+        ],
+    ),
+    (
+        "search",
+        [
+            r"осмотр\w*",
+            r"обыск\w*",
+            r"обслед\w*",
+            r"иск\w+_?след\w*",
+            r"иск\w+_?ули\w*",
+            r"высмат\w*",
+            r"прислуш\w*",
+            r"замет\w*",
+            r"обнаруж\w*",
+            r"най\w+_?ули\w*",
+            r"вычисл\w*",
+            r"раскры\w*",
+        ],
+    ),
+]
 MANDATORY_ACTION_PATTERNS: list[str] = [
-    r"замок\w*",
-    r"замоч\w*",
-    r"механизм\w*",
-    r"ловушк\w*",
-    r"устройств\w*",
-    r"пружин\w*",
-    r"шестер\w*",
-    r"вскры\w*",
-    r"взлом\w*",
-    r"отпер\w*",
-    r"откр\w*",
-    r"подкрут\w*",
-    r"настро\w*",
-    r"обезвред\w*",
-    r"размини\w*",
-    r"перекус\w*",
-    r"перерез\w*",
-    r"заклин\w*",
-    r"слом\w*",
-    r"карман\w*",
-    r"обчист\w*",
-    r"похит\w*",
-    r"укра\w*",
-    r"стащ\w*",
-    r"спер\w*",
-    r"свист\w*",
-    r"вытащ\w*",
-    r"дост\w+_?незамет\w*",
-    r"незамет\w+_?дост\w*",
-    r"незамет\w+_?вытащ\w*",
-    r"подмен\w*",
-    r"подброс\w*",
-    r"подкин\w*",
-    r"спрят\w*",
-    r"припрят\w*",
-    r"сунул\w*",
-    r"засунул\w*",
-    r"срез\w*",
-    r"подрез\w*",
-    r"сорва\w*",
-    r"сня\w*_(ремешок|ремень|петл\w*)",
-    r"вынул\w*",
-    r"выуд\w*",
-    r"утаил\w*",
-    r"крад\w*",
-    r"проскольз\w*",
-    r"тих\w+_?пройти\w*",
-    r"незамет\w+_?пройти\w*",
-    r"затаил\w*",
-    r"след\w+_?за\w*",
-    r"подкрад\w*",
-    r"обойти\w+_?(охран\w*|страж\w*)",
-    r"проник\w*",
-    r"влез\w*",
-    r"перелез\w*",
-    r"взобра\w*",
-    r"убед\w*",
-    r"уговор\w*",
-    r"давл\w*",
-    r"надав\w*",
-    r"припуг\w*",
-    r"запуг\w*",
-    r"пригроз\w*",
-    r"обман\w*",
-    r"совр\w*",
-    r"блеф\w*",
-    r"прикин\w*_(что|будто)",
-    r"допрос\w*",
-    r"выпрос\w*",
-    r"выман\w*",
-    r"осмотр\w*",
-    r"обыск\w*",
-    r"обслед\w*",
-    r"иск\w+_?след\w*",
-    r"иск\w+_?ули\w*",
-    r"высмат\w*",
-    r"прислуш\w*",
-    r"замет\w*",
-    r"обнаруж\w*",
-    r"най\w+_?ули\w*",
-    r"вычисл\w*",
-    r"раскры\w*",
+    pattern
+    for _category, patterns in MANDATORY_ACTION_PATTERNS_BY_CATEGORY
+    for pattern in patterns
 ]
 MANDATORY_OUTCOME_PATTERNS: list[str] = [
     r"успешн\w*",
@@ -824,20 +854,23 @@ def _extract_checks_from_draft(draft_text: str, default_actor_uid: Optional[int]
 
 
 def _needs_mandatory_mech_check(draft_text_raw: str) -> bool:
+    return _mandatory_check_category(draft_text_raw) is not None
+
+
+def _mandatory_check_category(draft_text_raw: str) -> Optional[str]:
     txt = str(draft_text_raw or "")
     if not txt:
-        return False
-    action_matches = list(MECH_ACTION_RE.finditer(txt))
-    if not action_matches:
-        return False
-    if not MECH_OUTCOME_RE.search(txt):
-        return False
-    for action_match in action_matches:
-        window_start = max(0, action_match.start() - 220)
-        window_end = min(len(txt), action_match.end() + 220)
-        if MECH_OUTCOME_RE.search(txt[window_start:window_end]):
-            return True
-    return False
+        return None
+    for category, patterns in MANDATORY_ACTION_PATTERNS_BY_CATEGORY:
+        if not patterns:
+            continue
+        compiled = re.compile(r"(" + "|".join(patterns) + r")", re.IGNORECASE)
+        for action_match in compiled.finditer(txt):
+            window_start = max(0, action_match.start() - 220)
+            window_end = min(len(txt), action_match.end() + 220)
+            if MECH_OUTCOME_RE.search(txt[window_start:window_end]):
+                return category
+    return None
 
 
 def _checks_from_human_text(draft_text: str, default_actor_uid: Optional[int]) -> list[dict[str, Any]]:
@@ -2715,13 +2748,28 @@ async def _run_gm_two_pass(
     reparsed = False
     forced_reprompt = False
     cleaned_human_check = False
-    if not checks and _needs_mandatory_mech_check(draft_text_raw):
+    mandatory_cat = _mandatory_check_category(draft_text_raw)
+    if not checks and mandatory_cat:
         forced_reprompt = True
+        required_skill_hint = {
+            "mechanics": "mechanics: crafting (обычно) или dex",
+            "theft": "theft: sleight_of_hand (обычно) или trickery",
+            "stealth": "stealth: stealth",
+            "social": "social: deception или persuasion или intimidation (выбери по смыслу)",
+            "search": "search: perception или investigation (выбери по смыслу)",
+        }.get(mandatory_cat, "используй подходящий каноничный навык или стат")
         force_prompt = (
             "Перепиши этот же ответ как черновик мастера.\n"
-            "ВАЖНО: ты описал исход обязательного действия (механика/замки/ловушки/устройства, карманка/кража/подмена/срезание, скрытность/проникновение, социальное давление/обман, поиск/расследование) без @@CHECK — так нельзя.\n"
-            "Не утверждай итог. Вместо этого оформи попытку и добавь @@CHECK в конце.\n"
-            "Обязательно добавь в конце одну или несколько строк @@CHECK (обычно crafting или dex) с подходящим DC.\n"
+            f"ВАЖНО: это обязательное действие категории {mandatory_cat}; подменять его на другое действие запрещено.\n"
+            "Сохрани исходное действие игрока по смыслу. НЕ меняй попытку на наблюдение/разговор/переход, если игрок делал карманку/взлом/скрытность.\n"
+            "Не утверждай итог (успех/провал/получил/не получил) без проверки.\n"
+            "В конце ОБЯЗАТЕЛЬНО добавь минимум одну строку @@CHECK.\n"
+            "@@CHECK.name = один ключ, без '|' и без добавления статов.\n"
+            f"Шпаргалка по категории: {required_skill_hint}.\n"
+            "Запрещено:\n"
+            "- для theft нельзя perception/investigation;\n"
+            "- для mechanics нельзя perception;\n"
+            "- для stealth нельзя perception/investigation.\n"
             "Не пиши текст 'Проверка ... DC ...'.\n\n"
             f"Черновик для исправления:\n{draft_text_raw}"
         )
