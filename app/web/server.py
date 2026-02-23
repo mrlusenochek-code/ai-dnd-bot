@@ -38,7 +38,7 @@ CHAR_STAT_KEYS = ("str", "dex", "con", "int", "wis", "cha")
 CHAR_DEFAULT_STATS = {k: 50 for k in CHAR_STAT_KEYS}
 CHECK_LINE_RE = re.compile(r"^\s*@@CHECK\s+(\{.*\})\s*$", re.IGNORECASE)
 INV_MACHINE_LINE_RE = re.compile(r"^\s*@@(?P<cmd>INV_ADD|INV_REMOVE|INV_TRANSFER)\s*\((?P<args>.*)\)\s*$", re.IGNORECASE)
-ZONE_SET_MACHINE_LINE_RE = re.compile(r"^\s*@@ZONE_SET\s*\((?P<args>.*)\)\s*$", re.IGNORECASE)
+ZONE_SET_MACHINE_LINE_RE = re.compile(r"^\s*\(?\s*@@ZONE_SET\s*\((?P<args>.*)\)\s*\)?\s*$", re.IGNORECASE)
 TEXTUAL_CHECK_RE = re.compile(
     r"(?:проверка|check)\s*[:\-]?\s*([a-zA-Zа-яА-Я_]+)[^\n]{0,40}?\bdc\s*[:=]?\s*(\d+)",
     re.IGNORECASE,
@@ -1409,7 +1409,7 @@ def _extract_machine_commands(text: str) -> tuple[str, list[dict[str, Any]], lis
             else:
                 logger.warning("invalid inventory machine command", extra={"action": {"line": _trim_for_log(line, 260)}})
             continue
-        if lstripped.startswith("@@ZONE_SET"):
+        if ZONE_SET_MACHINE_LINE_RE.match(lstripped):
             parsed_zone = _parse_zone_set_machine_line(line)
             if parsed_zone:
                 zone_set_commands.append(parsed_zone)
