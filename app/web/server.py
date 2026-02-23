@@ -951,6 +951,24 @@ def _mandatory_check_category(draft_text_raw: str) -> Optional[str]:
     return None
 
 
+def _extract_last_context_line_from_prompt(draft_prompt: str) -> str:
+    marker = "Контекст (последние события):"
+    txt = str(draft_prompt or "")
+    marker_index = txt.find(marker)
+    if marker_index < 0:
+        return ""
+    context_block = txt[marker_index + len(marker):]
+    lines = []
+    for raw_line in context_block.splitlines():
+        line = raw_line.strip()
+        if not line.startswith("- "):
+            continue
+        content = line[2:].strip()
+        if content:
+            lines.append(content)
+    return lines[-1] if lines else ""
+
+
 def _checks_from_human_text(draft_text: str, default_actor_uid: Optional[int]) -> list[dict[str, Any]]:
     out: list[dict[str, Any]] = []
     for m in TEXTUAL_CHECK_RE.finditer(draft_text or ""):
@@ -2827,6 +2845,9 @@ async def _run_gm_two_pass(
     forced_reprompt = False
     cleaned_human_check = False
     mandatory_cat = _mandatory_check_category(draft_text_raw)
+    ctx_line = _extract_last_context_line_from_prompt(draft_prompt)
+    if mandatory_cat is None and ctx_line:
+        mandatory_cat = _mandatory_check_category(ctx_line)
     if not checks and mandatory_cat:
         forced_reprompt = True
         required_skill_hint = {
