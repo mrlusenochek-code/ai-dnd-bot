@@ -43,11 +43,138 @@ TEXTUAL_CHECK_RE = re.compile(
     r"(?:проверка|check)\s*[:\-]?\s*([a-zA-Zа-яА-Я_]+)[^\n]{0,40}?\bdc\s*[:=]?\s*(\d+)",
     re.IGNORECASE,
 )
-MECH_ACTION_RE = re.compile(r"(замок|замоч|механизм|ловушк|устройств|вскры|взлом|откр|подкрут|обезвред)", re.IGNORECASE)
-MECH_OUTCOME_RE = re.compile(
-    r"(получил(о|ось)|не получилось|удал(о|ось)|не удалось|вскрыл|открыл|обезвредил|сработал|сломал|заклинил)",
-    re.IGNORECASE,
-)
+MANDATORY_ACTION_PATTERNS: list[str] = [
+    r"замок\w*",
+    r"замоч\w*",
+    r"механизм\w*",
+    r"ловушк\w*",
+    r"устройств\w*",
+    r"пружин\w*",
+    r"шестер\w*",
+    r"вскры\w*",
+    r"взлом\w*",
+    r"отпер\w*",
+    r"откр\w*",
+    r"подкрут\w*",
+    r"настро\w*",
+    r"обезвред\w*",
+    r"размини\w*",
+    r"перекус\w*",
+    r"перерез\w*",
+    r"заклин\w*",
+    r"слом\w*",
+    r"карман\w*",
+    r"обчист\w*",
+    r"похит\w*",
+    r"укра\w*",
+    r"стащ\w*",
+    r"спер\w*",
+    r"свист\w*",
+    r"вытащ\w*",
+    r"дост\w+_?незамет\w*",
+    r"незамет\w+_?дост\w*",
+    r"незамет\w+_?вытащ\w*",
+    r"подмен\w*",
+    r"подброс\w*",
+    r"подкин\w*",
+    r"спрят\w*",
+    r"припрят\w*",
+    r"сунул\w*",
+    r"засунул\w*",
+    r"срез\w*",
+    r"подрез\w*",
+    r"сорва\w*",
+    r"сня\w*_(ремешок|ремень|петл\w*)",
+    r"вынул\w*",
+    r"выуд\w*",
+    r"утаил\w*",
+    r"крад\w*",
+    r"проскольз\w*",
+    r"тих\w+_?пройти\w*",
+    r"незамет\w+_?пройти\w*",
+    r"затаил\w*",
+    r"след\w+_?за\w*",
+    r"подкрад\w*",
+    r"обойти\w+_?(охран\w*|страж\w*)",
+    r"проник\w*",
+    r"влез\w*",
+    r"перелез\w*",
+    r"взобра\w*",
+    r"убед\w*",
+    r"уговор\w*",
+    r"давл\w*",
+    r"надав\w*",
+    r"припуг\w*",
+    r"запуг\w*",
+    r"пригроз\w*",
+    r"обман\w*",
+    r"совр\w*",
+    r"блеф\w*",
+    r"прикин\w*_(что|будто)",
+    r"допрос\w*",
+    r"выпрос\w*",
+    r"выман\w*",
+    r"осмотр\w*",
+    r"обыск\w*",
+    r"обслед\w*",
+    r"иск\w+_?след\w*",
+    r"иск\w+_?ули\w*",
+    r"высмат\w*",
+    r"прислуш\w*",
+    r"замет\w*",
+    r"обнаруж\w*",
+    r"най\w+_?ули\w*",
+    r"вычисл\w*",
+    r"раскры\w*",
+]
+MANDATORY_OUTCOME_PATTERNS: list[str] = [
+    r"успешн\w*",
+    r"неуспешн\w*",
+    r"провал\w*",
+    r"успех\w*",
+    r"получил\w*",
+    r"не\s+получил\w*",
+    r"удал\w*",
+    r"не\s+удал\w*",
+    r"смог\w*",
+    r"не\s+смог\w*",
+    r"сумел\w*",
+    r"не\s+сумел\w*",
+    r"наш[её]л\w*",
+    r"не\s+наш[её]л\w*",
+    r"обнаруж\w*",
+    r"не\s+обнаруж\w*",
+    r"замет\w*",
+    r"не\s+замет\w*",
+    r"вскрыл\w*",
+    r"открыл\w*",
+    r"отпер\w*",
+    r"обезвред\w*",
+    r"сломал\w*",
+    r"заклинил\w*",
+    r"сработал\w*",
+    r"украл\w*",
+    r"стащил\w*",
+    r"вытащил\w*",
+    r"достал\w*",
+    r"подменил\w*",
+    r"спрятал\w*",
+    r"забрал\w*",
+    r"взял\w*",
+    r"урон\w*",
+    r"убедил\w*",
+    r"обманул\w*",
+    r"запугал\w*",
+    r"пригрозил\w*",
+    r"уговорил\w*",
+    r"незамет\w*",
+    r"скрылс\w*",
+    r"спряталс\w*",
+    r"тебя\s+заметил\w*",
+    r"вас\s+заметил\w*",
+]
+MECH_ACTION_RE = re.compile(r"(" + "|".join(MANDATORY_ACTION_PATTERNS) + r")", re.IGNORECASE)
+MECH_OUTCOME_RE = re.compile(r"(" + "|".join(MANDATORY_OUTCOME_PATTERNS) + r")", re.IGNORECASE)
 GM_META_BANNED_PHRASES = (
     "сцена продолжается",
     "если вы хотите",
@@ -698,7 +825,19 @@ def _extract_checks_from_draft(draft_text: str, default_actor_uid: Optional[int]
 
 def _needs_mandatory_mech_check(draft_text_raw: str) -> bool:
     txt = str(draft_text_raw or "")
-    return bool(MECH_ACTION_RE.search(txt) and MECH_OUTCOME_RE.search(txt))
+    if not txt:
+        return False
+    action_matches = list(MECH_ACTION_RE.finditer(txt))
+    if not action_matches:
+        return False
+    if not MECH_OUTCOME_RE.search(txt):
+        return False
+    for action_match in action_matches:
+        window_start = max(0, action_match.start() - 220)
+        window_end = min(len(txt), action_match.end() + 220)
+        if MECH_OUTCOME_RE.search(txt[window_start:window_end]):
+            return True
+    return False
 
 
 def _checks_from_human_text(draft_text: str, default_actor_uid: Optional[int]) -> list[dict[str, Any]]:
@@ -2580,8 +2719,8 @@ async def _run_gm_two_pass(
         forced_reprompt = True
         force_prompt = (
             "Перепиши этот же ответ как черновик мастера.\n"
-            "ВАЖНО: ты описал исход попытки с замком/механизмом/ловушкой/устройством без @@CHECK — так нельзя.\n"
-            "Сохрани атмосферу, но НЕ утверждай успех/провал попытки без проверки.\n"
+            "ВАЖНО: ты описал исход обязательного действия (механика/замки/ловушки/устройства, карманка/кража/подмена/срезание, скрытность/проникновение, социальное давление/обман, поиск/расследование) без @@CHECK — так нельзя.\n"
+            "Не утверждай итог. Вместо этого оформи попытку и добавь @@CHECK в конце.\n"
             "Обязательно добавь в конце одну или несколько строк @@CHECK (обычно crafting или dex) с подходящим DC.\n"
             "Не пиши текст 'Проверка ... DC ...'.\n\n"
             f"Черновик для исправления:\n{draft_text_raw}"
