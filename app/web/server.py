@@ -215,6 +215,7 @@ MANDATORY_ACTION_PATTERNS_BY_CATEGORY: list[tuple[str, list[str]]] = [
         ],
     ),
 ]
+MANDATORY_ALWAYS_CHECK_CATEGORIES = {"theft", "stealth"}
 MANDATORY_ACTION_PATTERNS: list[str] = [
     pattern
     for _category, patterns in MANDATORY_ACTION_PATTERNS_BY_CATEGORY
@@ -942,7 +943,10 @@ def _mandatory_check_category(draft_text_raw: str) -> Optional[str]:
         for action_match in compiled.finditer(txt):
             window_start = max(0, action_match.start() - 220)
             window_end = min(len(txt), action_match.end() + 220)
-            if MECH_OUTCOME_RE.search(txt[window_start:window_end]):
+            window_txt = txt[window_start:window_end]
+            if category in MANDATORY_ALWAYS_CHECK_CATEGORIES:
+                return category
+            if MECH_OUTCOME_RE.search(window_txt):
                 return category
     return None
 
