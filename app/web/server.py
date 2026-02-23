@@ -1839,7 +1839,7 @@ async def _event_actor_label(db: AsyncSession, sess: Session, player: Player) ->
     ch = await get_character(db, sess.id, player.id)
     if ch and str(ch.name or "").strip():
         return str(ch.name).strip()
-    return str(player.display_name or "").strip() or "Игрок"
+    return str(player.display_name or "").strip() or "Персонаж"
 
 
 def _extract_gm_message_body(event_text: str) -> str:
@@ -2044,7 +2044,7 @@ def _build_positions_block_for_prompt(
         actor_name = (
             str(ch.name).strip()
             if ch and str(ch.name or "").strip()
-            else (str(pl.display_name or "").strip() or f"Игрок #{sp.join_order}")
+            else (str(pl.display_name or "").strip() or f"Персонаж #{sp.join_order}")
         )
         zone = positions.get(str(sp.player_id), "стартовая локация")
         rows.append(f"- {actor_name} (#{uid}): {zone}")
