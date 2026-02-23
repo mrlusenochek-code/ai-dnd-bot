@@ -86,6 +86,7 @@ SKILL_TO_ABILITY: dict[str, str] = {
     "marksmanship": "dex",
     "crafting": "int",
 }
+ALLOWED_CHECK_KEYS: set[str] = set(CHAR_STAT_KEYS) | set(SKILL_TO_ABILITY.keys())
 STAT_ALIASES = {
     "strength": "str",
     "dexterity": "dex",
@@ -645,12 +646,19 @@ def _normalize_check_name(raw_name: Any) -> str:
     for token in name.split("|"):
         normalized = token.strip().lower().replace("ё", "е")
         normalized = re.sub(r"[\s\-]+", "_", normalized)
-        if not normalized:
-            continue
         normalized = STAT_ALIASES.get(normalized, normalized)
         normalized = SKILL_ALIASES.get(normalized, normalized)
-        if normalized:
-            parts.append(normalized)
+        if not normalized:
+            continue
+        if re.fullmatch(r"[.…]+", normalized):
+            continue
+        if normalized not in ALLOWED_CHECK_KEYS:
+            continue
+        if normalized in parts:
+            continue
+        parts.append(normalized)
+    if any(token in SKILL_TO_ABILITY for token in parts):
+        parts = [token for token in parts if token not in CHAR_STAT_KEYS]
     return "|".join(parts)
 
 
