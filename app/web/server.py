@@ -1873,6 +1873,9 @@ def _sanitize_gm_output(text: str) -> str:
     lat_count = len(re.findall(r"[A-Za-z]", txt))
     if (cyr_count < 20 and lat_count > 40) or (lat_count > cyr_count * 2 and lat_count > 30):
         return "Сцена продолжается.\nЧто делаете дальше?"
+    prompt_only = re.sub(r"\s+", " ", txt).strip()
+    if prompt_only in ("", "Что делаете дальше?"):
+        return "Сцена продолжается.\nЧто делаете дальше?"
     return txt
 
 
