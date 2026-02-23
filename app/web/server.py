@@ -951,6 +951,87 @@ def _mandatory_check_category(draft_text_raw: str) -> Optional[str]:
     return None
 
 
+def _normalize_free_text_for_match(text: str) -> str:
+    normalized = str(text or "").lower().replace("ё", "е")
+    normalized = re.sub(r"[\s\-]+", "_", normalized)
+    normalized = re.sub(r"[^a-zа-я0-9_]", "_", normalized)
+    normalized = re.sub(r"_+", "_", normalized)
+    return normalized
+
+
+def _pick_check_key_from_text(text: str, preferred: list[str], forbidden: set[str]) -> Optional[str]:
+    norm = _normalize_free_text_for_match(text)
+    candidates: list[str] = []
+
+    for key, candidate in SKILL_ALIASES.items():
+        if _normalize_free_text_for_match(key) in norm:
+            normalized = _normalize_check_name(candidate)
+            if normalized:
+                candidates.append(normalized)
+
+    for key, candidate in STAT_ALIASES.items():
+        if _normalize_free_text_for_match(key) in norm:
+            normalized = _normalize_check_name(candidate)
+            if normalized:
+                candidates.append(normalized)
+
+    canonical_sources = list(SKILL_TO_ABILITY.keys()) + list(CHAR_STAT_KEYS)
+    for candidate in canonical_sources:
+        if _normalize_free_text_for_match(candidate) in norm:
+            normalized = _normalize_check_name(candidate)
+            if normalized:
+                candidates.append(normalized)
+
+    uniq: list[str] = []
+    for candidate in candidates:
+        if candidate not in ALLOWED_CHECK_KEYS:
+            continue
+        if candidate in forbidden:
+            continue
+        if candidate in uniq:
+            continue
+        uniq.append(candidate)
+
+    for candidate in uniq:
+        if candidate in preferred:
+            return candidate
+    return uniq[0] if uniq else None
+
+
+def _autogen_check_for_category(cat: str, text: str, actor_uid: Optional[int]) -> Optional[dict[str, Any]]:
+    if actor_uid is None or actor_uid <= 0:
+        return None
+
+    preferred, forbidden = {
+        "mechanics": (["crafting"], {"perception"}),
+        "theft": (["sleight_of_hand", "trickery"], {"perception", "investigation"}),
+        "stealth": (["stealth"], {"perception", "investigation"}),
+        "social": (["deception", "persuasion", "intimidation"], set()),
+        "search": (["investigation", "perception"], set()),
+    }.get(cat, ([], set()))
+
+    key = _pick_check_key_from_text(text, preferred, forbidden)
+    if not key:
+        key = {
+            "mechanics": "crafting",
+            "theft": "sleight_of_hand",
+            "stealth": "stealth",
+            "social": "persuasion",
+            "search": "perception",
+        }.get(cat)
+    if not key:
+        return None
+
+    return {
+        "actor_uid": actor_uid,
+        "kind": "skill" if key in SKILL_TO_ABILITY else "ability",
+        "name": key,
+        "dc": 15,
+        "mode": "normal",
+        "reason": f"auto:{cat}",
+    }
+
+
 def _extract_last_context_line_from_prompt(draft_prompt: str) -> str:
     marker = "Контекст (последние события):"
     txt = str(draft_prompt or "")
@@ -2844,6 +2925,7 @@ async def _run_gm_two_pass(
     reparsed = False
     forced_reprompt = False
     cleaned_human_check = False
+    fallback_autogen_check = False
     mandatory_cat = _mandatory_check_category(draft_text_raw)
     ctx_line = _extract_last_context_line_from_prompt(draft_prompt)
     if mandatory_cat is None and ctx_line:
@@ -2901,6 +2983,13 @@ async def _run_gm_two_pass(
             draft_resp = forced_resp
             draft_text_raw = str(forced_resp.get("text") or "").strip()
             draft_text, checks, _has_human_check_2 = _extract_checks_from_draft(draft_text_raw, default_actor_uid)
+
+    if not checks and mandatory_cat:
+        auto_check = _autogen_check_for_category(mandatory_cat, (ctx_line or draft_text_raw), default_actor_uid)
+        if auto_check:
+            checks = [auto_check]
+            reparsed = True
+            fallback_autogen_check = True
 
     normalized_checks: list[dict[str, Any]] = []
     for c in checks:
@@ -3107,6 +3196,7 @@ async def _run_gm_two_pass(
                 "fallback_textual_check_parse": reparsed,
                 "fallback_forced_reprompt": forced_reprompt,
                 "fallback_cleanup_human_check_text": cleaned_human_check,
+                "fallback_autogen_check": bool(fallback_autogen_check),
                 "llm_draft_finish_reason": draft_resp.get("finish_reason"),
                 "llm_draft_usage": draft_resp.get("usage"),
                 "llm_final_finish_reason": final_resp.get("finish_reason"),
