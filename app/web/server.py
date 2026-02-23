@@ -43,6 +43,11 @@ TEXTUAL_CHECK_RE = re.compile(
     r"(?:проверка|check)\s*[:\-]?\s*([a-zA-Zа-яА-Я_]+)[^\n]{0,40}?\bdc\s*[:=]?\s*(\d+)",
     re.IGNORECASE,
 )
+MECH_ACTION_RE = re.compile(r"(замок|замоч|механизм|ловушк|устройств|вскры|взлом|откр|подкрут|обезвред)", re.IGNORECASE)
+MECH_OUTCOME_RE = re.compile(
+    r"(получил(о|ось)|не получилось|удал(о|ось)|не удалось|вскрыл|открыл|обезвредил|сработал|сломал|заклинил)",
+    re.IGNORECASE,
+)
 GM_META_BANNED_PHRASES = (
     "сцена продолжается",
     "если вы хотите",
@@ -681,6 +686,11 @@ def _extract_checks_from_draft(draft_text: str, default_actor_uid: Optional[int]
     text = "\n".join(text_lines).strip()
     has_human_check_request = bool(TEXTUAL_CHECK_RE.search(text))
     return text, checks, has_human_check_request
+
+
+def _needs_mandatory_mech_check(draft_text_raw: str) -> bool:
+    txt = str(draft_text_raw or "")
+    return bool(MECH_ACTION_RE.search(txt) and MECH_OUTCOME_RE.search(txt))
 
 
 def _checks_from_human_text(draft_text: str, default_actor_uid: Optional[int]) -> list[dict[str, Any]]:
@@ -2558,6 +2568,25 @@ async def _run_gm_two_pass(
     reparsed = False
     forced_reprompt = False
     cleaned_human_check = False
+    if not checks and _needs_mandatory_mech_check(draft_text_raw):
+        forced_reprompt = True
+        force_prompt = (
+            "Перепиши этот же ответ как черновик мастера.\n"
+            "ВАЖНО: ты описал исход попытки с замком/механизмом/ловушкой/устройством без @@CHECK — так нельзя.\n"
+            "Сохрани атмосферу, но НЕ утверждай успех/провал попытки без проверки.\n"
+            "Обязательно добавь в конце одну или несколько строк @@CHECK (обычно crafting или dex) с подходящим DC.\n"
+            "Не пиши текст 'Проверка ... DC ...'.\n\n"
+            f"Черновик для исправления:\n{draft_text_raw}"
+        )
+        forced_resp = await generate_from_prompt(
+            prompt=force_prompt,
+            timeout_seconds=GM_OLLAMA_TIMEOUT_SECONDS,
+            num_predict=GM_DRAFT_NUM_PREDICT,
+        )
+        draft_resp = forced_resp
+        draft_text_raw = str(forced_resp.get("text") or "").strip()
+        draft_text, checks, has_human_check = _extract_checks_from_draft(draft_text_raw, default_actor_uid)
+
     if not checks and has_human_check:
         inferred = _checks_from_human_text(draft_text, default_actor_uid)
         if inferred:
