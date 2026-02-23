@@ -1699,6 +1699,42 @@ def _sanitize_gm_output(text: str) -> str:
     txt = "\n".join(cleaned_lines)
 
     # Remove leaked check mechanics in narrative text.
+    # Keep this block small and explicit: it strips common dice/check readouts both as
+    # full lines and as inline fragments that may leak into descriptive paragraphs.
+    mechanic_line_patterns = [
+        re.compile(
+            r"^\s*[A-Za-zА-Яа-яЁё][A-Za-zА-Яа-яЁё'()\- ]{1,60}:\s*\d{1,3}\s*\([+-]?\d{1,3}\)\s*=\s*\d{1,3}"
+            r"(?:\s*\((?:успех|успешно|провал|success|fail(?:ed)?)\))?\s*$",
+            flags=re.IGNORECASE,
+        ),
+        re.compile(
+            r"^\s*[A-Za-zА-Яа-яЁё][A-Za-zА-Яа-яЁё'()\- ]{1,60}\s+\d{1,3}\s*\([+-]?\d{1,3}\)\s*=\s*\d{1,3}"
+            r"(?:\s*\((?:успех|успешно|провал|success|fail(?:ed)?)\))?\s*$",
+            flags=re.IGNORECASE,
+        ),
+        re.compile(r"^\s*(?:\d*d20|d20)\s*:?\s*\d{1,3}(?:\s*[+-]\s*\d{1,3})+\s*=\s*\d{1,3}\s*$", flags=re.IGNORECASE),
+        re.compile(r"^\s*\d+\s*d\s*\d+(?:\s*[+-]\s*\d+)*\s*=\s*\d+\s*$", flags=re.IGNORECASE),
+        re.compile(
+            r"^\s*(?:dc|кс)\s*[:=]?\s*\d{1,3}(?:\s*(?:успех|успешно|провал|success|fail(?:ed)?))?\s*$",
+            flags=re.IGNORECASE,
+        ),
+    ]
+    mechanic_inline_patterns = [
+        r"\b(?:\d*d20|d20)\s*:?\s*\d{1,3}(?:\s*[+-]\s*\d{1,3})+\s*=\s*\d{1,3}\b",
+        r"\b\d+\s*d\s*\d+(?:\s*[+-]\s*\d+)*\s*=\s*\d+\b",
+        r"\b[A-Za-zА-Яа-яЁё][A-Za-zА-Яа-яЁё'()\- ]{1,60}:\s*\d{1,3}\s*\([+-]?\d{1,3}\)\s*=\s*\d{1,3}(?:\s*\((?:успех|успешно|провал|success|fail(?:ed)?)\))?",
+        r"\b[A-Za-zА-Яа-яЁё][A-Za-zА-Яа-яЁё'()\- ]{1,60}\s+\d{1,3}\s*\([+-]?\d{1,3}\)\s*=\s*\d{1,3}(?:\s*\((?:успех|успешно|провал|success|fail(?:ed)?)\))?",
+        r"\b(?:dc|кс)\s*[:=]?\s*\d{1,3}(?:\s*(?:успех|успешно|провал|success|fail(?:ed)?))?\b",
+    ]
+    filtered_lines: list[str] = []
+    for line in txt.splitlines():
+        if any(p.match(line.strip()) for p in mechanic_line_patterns):
+            continue
+        filtered_lines.append(line)
+    txt = "\n".join(filtered_lines)
+    for pattern in mechanic_inline_patterns:
+        txt = re.sub(pattern, "", txt, flags=re.IGNORECASE)
+
     txt = re.sub(
         r"\b(?:fails?|succeeds?|успех|провал)\b\s+на\s+проверке\b[^()\n]{0,240}"
         r"(?:\(\s*результат\s*:[^)\n]{0,120}\))?",
@@ -1769,8 +1805,7 @@ def _sanitize_gm_output(text: str) -> str:
             stripped = line
         if stripped and not stripped.startswith("@@"):
             if (
-                len(stripped) <= 140
-                and re.search(r"[A-Za-z]", stripped)
+                re.search(r"[A-Za-z]", stripped)
                 and not re.search(r"[А-Яа-яЁё]", stripped)
                 and len(re.findall(r"[A-Za-z]{2,}", stripped)) >= 2
             ):
@@ -1832,7 +1867,13 @@ def _sanitize_gm_output(text: str) -> str:
     txt = re.sub(r"[ \t]{2,}", " ", txt)
     txt = re.sub(r"[ \t]*\n[ \t]*", "\n", txt)
     txt = re.sub(r"\n{2,}", "\n", txt)
-    return txt.strip(" \n\r\t-")
+    txt = txt.strip(" \n\r\t-")
+
+    cyr_count = len(re.findall(r"[А-Яа-яЁё]", txt))
+    lat_count = len(re.findall(r"[A-Za-z]", txt))
+    if (cyr_count < 20 and lat_count > 40) or (lat_count > cyr_count * 2 and lat_count > 30):
+        return "Сцена продолжается.\nЧто делаете дальше?"
+    return txt
 
 
 async def _event_actor_label(db: AsyncSession, sess: Session, player: Player) -> str:
