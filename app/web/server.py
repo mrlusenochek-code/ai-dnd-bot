@@ -1697,6 +1697,15 @@ def _sanitize_gm_output(text: str) -> str:
                 lines.pop(first_nonempty_idx)
     txt = "\n".join(lines)
     txt = re.sub(r"(?<=[А-Яа-яЁё])[A-Za-z]+|[A-Za-z]+(?=[А-Яа-яЁё])", "", txt)
+    leaked_word_map = {
+        "moment": "момент",
+        "continues": "продолжает",
+        "business": "дело",
+        "financial": "финансовый",
+    }
+    for en_word, ru_word in leaked_word_map.items():
+        txt = re.sub(rf"\b{re.escape(en_word)}\b", ru_word, txt, flags=re.IGNORECASE)
+    txt = re.sub(r"(?<![A-Za-z])[A-Za-z]{3,}(?![A-Za-z])", "", txt)
 
     cleaned_lines: list[str] = []
     for line in txt.splitlines():
