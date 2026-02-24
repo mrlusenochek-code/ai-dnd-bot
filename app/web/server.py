@@ -1409,12 +1409,12 @@ def _extract_machine_commands(text: str) -> tuple[str, list[dict[str, Any]], lis
     out_lines: list[str] = []
     inv_commands: list[dict[str, Any]] = []
     zone_set_commands: list[dict[str, Any]] = []
-    # Временное мягкое подключение боевого парсера до полной интеграции команд.
+    # На этом этапе боевые команды только скрываем из видимого текста; применение подключим позже.
     try:
-        _combat_preview = extract_combat_machine_commands(text)
+        combat_visible_text = extract_combat_machine_commands(text).visible_text
     except Exception:
-        _combat_preview = None
-    for line in str(text or "").splitlines():
+        combat_visible_text = str(text or "")
+    for line in str(combat_visible_text or "").splitlines():
         lstripped = str(line).lstrip()
         if lstripped.startswith("@@INV_"):
             parsed = _parse_inventory_machine_line(line)
