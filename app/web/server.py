@@ -1411,7 +1411,16 @@ def _extract_machine_commands(text: str) -> tuple[str, list[dict[str, Any]], lis
     zone_set_commands: list[dict[str, Any]] = []
     # На этом этапе боевые команды только скрываем из видимого текста; применение подключим позже.
     try:
-        combat_visible_text = extract_combat_machine_commands(text).visible_text
+        combat_parsed = extract_combat_machine_commands(text)
+        if combat_parsed.had_any_commands:
+            logger.debug(
+                "combat machine preview: start=%s enemies=%d end=%s random_events=%d",
+                combat_parsed.combat_start is not None,
+                len(combat_parsed.combat_enemy_add),
+                combat_parsed.combat_end is not None,
+                len(combat_parsed.random_events),
+            )
+        combat_visible_text = combat_parsed.visible_text
     except Exception:
         combat_visible_text = str(text or "")
     for line in str(combat_visible_text or "").splitlines():
