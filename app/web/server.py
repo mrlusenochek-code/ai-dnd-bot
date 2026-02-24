@@ -19,6 +19,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm.attributes import flag_modified
 
 from app.ai.gm import generate_from_prompt, generate_lore
+from app.combat.machine_commands import extract_combat_machine_commands
 from app.core.logging import configure_logging
 from app.core.log_context import request_id_var, session_id_var, uid_var, ws_conn_id_var, client_id_var
 from app.db.connection import AsyncSessionLocal
@@ -1408,6 +1409,11 @@ def _extract_machine_commands(text: str) -> tuple[str, list[dict[str, Any]], lis
     out_lines: list[str] = []
     inv_commands: list[dict[str, Any]] = []
     zone_set_commands: list[dict[str, Any]] = []
+    # Временное мягкое подключение боевого парсера до полной интеграции команд.
+    try:
+        _combat_preview = extract_combat_machine_commands(text)
+    except Exception:
+        _combat_preview = None
     for line in str(text or "").splitlines():
         lstripped = str(line).lstrip()
         if lstripped.startswith("@@INV_"):
