@@ -1047,6 +1047,14 @@ def _extract_last_context_line_from_prompt(draft_prompt: str) -> str:
         content = line[2:].strip()
         if content:
             lines.append(content)
+    # Предпочитаем последнее действие игрока, чтобы не подхватывать системные/GM строки в контексте.
+    systemish_prefixes = ("следующий ход", "пауза", "продолжили игру", "мастер обрабатывает")
+    for line in reversed(lines):
+        if line.startswith("[SYSTEM]") or line.startswith("🧙"):
+            continue
+        if not any(line.lower().startswith(prefix) for prefix in systemish_prefixes):
+            if ":" in line and line.split(":", 1)[1].strip():
+                return line
     return lines[-1] if lines else ""
 
 
