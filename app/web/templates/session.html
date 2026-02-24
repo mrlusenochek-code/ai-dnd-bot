@@ -882,9 +882,28 @@ function wsAction(action){
   ws.send(JSON.stringify({action}));
 }
 
+function clearCombatLogPlaceholdersOnce(){
+  const content = document.getElementById("combatLogContent");
+  if(!content) return;
+  if(content.dataset.placeholderCleared === "1") return;
+
+  const placeholders = content.querySelectorAll(".combat-log-placeholder");
+  placeholders.forEach((el) => el.remove());
+
+  const status = content.querySelector(".combat-log-status");
+  if(status){
+    status.remove();
+  }
+
+  content.dataset.placeholderCleared = "1";
+}
+
 function appendCombatLogLine(text, opts = {}){
   const content = document.getElementById("combatLogContent");
   if(!content) return;
+  if(!(opts && opts.muted === true)){
+    clearCombatLogPlaceholdersOnce();
+  }
 
   const line = document.createElement("div");
   line.className = "combat-log-line";
