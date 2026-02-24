@@ -2982,6 +2982,7 @@ async def _run_gm_two_pass(
     forced_reprompt = False
     cleaned_human_check = False
     fallback_autogen_check = False
+    fallback_coherence_reprompt = False
     mandatory_cat = _mandatory_check_category(draft_text_raw)
     ctx_line = _extract_last_context_line_from_prompt(draft_prompt)
     if mandatory_cat is None and ctx_line:
@@ -3241,6 +3242,72 @@ async def _run_gm_two_pass(
     if not final_text:
         final_text = "Сцена продолжается: опишите следующее действие."
 
+    action_text = (ctx_line.split(":", 1)[1] if (ctx_line and ":" in ctx_line) else (ctx_line or "")).strip()
+    if action_text and final_text:
+        stopwords = {
+            "когда",
+            "потом",
+            "после",
+            "перед",
+            "снова",
+            "сейчас",
+            "просто",
+            "очень",
+            "чтобы",
+            "этого",
+            "этот",
+            "эта",
+            "эти",
+            "того",
+            "только",
+            "здесь",
+            "туда",
+            "сюда",
+            "если",
+            "лишь",
+            "тоже",
+            "меня",
+            "тебя",
+            "него",
+            "неё",
+            "ними",
+            "вами",
+            "нами",
+            "игрок",
+            "персонаж",
+            "действие",
+            "делаю",
+            "делает",
+        }
+        action_keywords = [
+            w for w in re.findall(r"[а-яё]{4,}", action_text.lower()) if w not in stopwords
+        ]
+        if len(action_keywords) >= 2:
+            final_text_lower = final_text.lower()
+            if not any(k in final_text_lower for k in action_keywords):
+                fallback_coherence_reprompt = True
+                repair_prompt = (
+                    "Перепиши ответ мастера так, чтобы он напрямую отреагировал на ПОСЛЕДНЕЕ действие игрока. "
+                    "Не меняй локацию/сцену по инерции.\n"
+                    "Строго опирайся на это последнее действие игрока (точная строка):\n"
+                    f"{action_text}\n\n"
+                    "Текущий ответ мастера:\n"
+                    f"{final_text}\n\n"
+                    "Запрещено уводить сцену в магазин/рынок/лавку или любую другую нерелевантную сцену, "
+                    "если этого нет в последнем действии игрока или в исходном черновике.\n"
+                    "Пиши во 2 лице (ты/вы), не используй 3 лицо с именем игрока.\n"
+                    "Строго русский язык.\n"
+                    "Заверши ответ строкой: Что делаете дальше?"
+                )
+                repair_resp = await generate_from_prompt(
+                    prompt=repair_prompt,
+                    timeout_seconds=GM_OLLAMA_TIMEOUT_SECONDS,
+                    num_predict=GM_FINAL_NUM_PREDICT,
+                )
+                repaired = _sanitize_gm_output(_strip_machine_lines(str(repair_resp.get("text") or "").strip()))
+                if repaired:
+                    final_text = repaired
+
     logger.info(
         "gm two-pass completed",
         extra={
@@ -3253,6 +3320,7 @@ async def _run_gm_two_pass(
                 "fallback_forced_reprompt": forced_reprompt,
                 "fallback_cleanup_human_check_text": cleaned_human_check,
                 "fallback_autogen_check": bool(fallback_autogen_check),
+                "fallback_coherence_reprompt": bool(fallback_coherence_reprompt),
                 "llm_draft_finish_reason": draft_resp.get("finish_reason"),
                 "llm_draft_usage": draft_resp.get("usage"),
                 "llm_final_finish_reason": final_resp.get("finish_reason"),
