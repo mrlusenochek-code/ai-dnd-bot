@@ -891,11 +891,27 @@ function clearCombatLogPlaceholdersOnce(){
   placeholders.forEach((el) => el.remove());
 
   const status = content.querySelector(".combat-log-status");
-  if(status){
+  if(status && status.textContent.trim() === "Бой не начат"){
     status.remove();
   }
 
   content.dataset.placeholderCleared = "1";
+}
+
+function setCombatLogStatus(text){
+  const content = document.getElementById("combatLogContent");
+  if(!content) return;
+
+  const status = content.querySelector(".combat-log-status");
+  if(status){
+    status.textContent = String(text ?? "");
+    return;
+  }
+
+  const nextStatus = document.createElement("div");
+  nextStatus.className = "combat-log-status";
+  nextStatus.textContent = String(text ?? "");
+  content.prepend(nextStatus);
 }
 
 function appendCombatLogLine(text, opts = {}){
@@ -999,6 +1015,7 @@ function toggleReady(){
 })();
 
 appendCombatLogLine("Система: боевой журнал готов.", { muted: true });
+setCombatLogStatus("Бой не начат");
 
 // стартуем: join не должен блокировать ws
 start();
