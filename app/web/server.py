@@ -1790,6 +1790,22 @@ def _sanitize_gm_output(text: str) -> str:
     txt = re.sub(r"\bты\s+(?:могла|мог)\s+бы\b", "ты можешь", txt, flags=re.IGNORECASE)
     txt = txt.replace(". ты можешь", ". Ты можешь")
     txt = txt.replace("\nты можешь", "\nТы можешь")
+    # Remove occasional leaked LLM meta-processing lines/fragments.
+    txt = re.sub(
+        r"(?im)^\s*[\"'«»“”„]?\s*мастер\s+обрабатывает(?:\s+действие)?\b[^\n]*\n?",
+        "",
+        txt,
+    )
+    txt = re.sub(
+        r"(?im)\s*[\"'«»“”„]?\s*мастер\s+обрабатывает(?:\s+действие)?\b[^\n]*",
+        "",
+        txt,
+    )
+    txt = re.sub(
+        r"(?im)^\s*начн[её]м\s+с\s+последнего\s+действия\s+игрока\.\s*$\n?",
+        "",
+        txt,
+    )
 
     fragments = re.findall(r"[^.!?\n]+[.!?]*|\n+", txt, flags=re.DOTALL)
     kept: list[str] = []
