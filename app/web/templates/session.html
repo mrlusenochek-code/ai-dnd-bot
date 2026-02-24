@@ -75,6 +75,8 @@
     }
     .combat-log-status{font-weight:600; color:#eaeaea; margin-bottom:6px;}
     .combat-log-placeholder{opacity:.75; margin:4px 0;}
+    .combat-log-line{margin:4px 0; color:#d8d8d8; word-break:break-word;}
+    .combat-log-line-muted{opacity:.7;}
 
   </style>
 </head>
@@ -880,6 +882,30 @@ function wsAction(action){
   ws.send(JSON.stringify({action}));
 }
 
+function appendCombatLogLine(text, opts = {}){
+  const content = document.getElementById("combatLogContent");
+  if(!content) return;
+
+  const line = document.createElement("div");
+  line.className = "combat-log-line";
+  if(opts && opts.muted === true){
+    line.classList.add("combat-log-line-muted");
+  }
+  line.textContent = String(text ?? "");
+  content.appendChild(line);
+
+  const maxLines = 50;
+  const lines = content.querySelectorAll(".combat-log-line");
+  const overflow = lines.length - maxLines;
+  if(overflow > 0){
+    for(let i = 0; i < overflow; i += 1){
+      lines[i].remove();
+    }
+  }
+
+  content.scrollTop = content.scrollHeight;
+}
+
 function toggleReady(){
   if(!ws || ws.readyState !== 1){
     logLine("[error] websocket not connected");
@@ -952,6 +978,8 @@ function toggleReady(){
     indicator.textContent = next ? "▾" : "▸";
   });
 })();
+
+appendCombatLogLine("Система: боевой журнал готов.", { muted: true });
 
 // стартуем: join не должен блокировать ws
 start();
