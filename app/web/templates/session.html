@@ -941,6 +941,28 @@ function appendCombatLogLine(text, opts = {}){
   content.scrollTop = content.scrollHeight;
 }
 
+function setCombatLogExpanded(next){
+  const toggle = document.getElementById("combatLogToggle");
+  const content = document.getElementById("combatLogContent");
+  const indicator = document.getElementById("combatLogIndicator");
+  if(!toggle || !content || !indicator) return;
+
+  const expanded = !!next;
+  toggle.setAttribute("aria-expanded", expanded ? "true" : "false");
+  content.hidden = !expanded;
+  indicator.textContent = expanded ? "▾" : "▸";
+}
+
+// Позже эти функции будут вызываться при старте и завершении боя.
+function openCombatLog(){
+  setCombatLogExpanded(true);
+}
+
+// Позже эти функции будут вызываться при старте и завершении боя.
+function closeCombatLog(){
+  setCombatLogExpanded(false);
+}
+
 function toggleReady(){
   if(!ws || ws.readyState !== 1){
     logLine("[error] websocket not connected");
@@ -1002,15 +1024,10 @@ function toggleReady(){
 
 (function attachCombatLogToggle(){
   const toggle = document.getElementById("combatLogToggle");
-  const content = document.getElementById("combatLogContent");
-  const indicator = document.getElementById("combatLogIndicator");
-  if(!toggle || !content || !indicator) return;
+  if(!toggle) return;
   toggle.addEventListener("click", () => {
     const expanded = toggle.getAttribute("aria-expanded") === "true";
-    const next = !expanded;
-    toggle.setAttribute("aria-expanded", next ? "true" : "false");
-    content.hidden = !next;
-    indicator.textContent = next ? "▾" : "▸";
+    setCombatLogExpanded(!expanded);
   });
 })();
 
