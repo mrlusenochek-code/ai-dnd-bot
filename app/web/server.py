@@ -3289,6 +3289,8 @@ async def _run_gm_two_pass(
             w for w in re.findall(r"[а-яё]{4,}", action_text.lower()) if w not in stopwords
         ]
         if len(action_keywords) >= 2:
+            sampled_keywords = list(dict.fromkeys(action_keywords))[:6]
+            keywords_text = ", ".join(sampled_keywords)
             final_text_lower = final_text.lower()
             if not any(k in final_text_lower for k in action_keywords):
                 fallback_coherence_reprompt = True
@@ -3301,6 +3303,7 @@ async def _run_gm_two_pass(
                     f"{final_text}\n\n"
                     "Запрещено уводить сцену в магазин/рынок/лавку или любую другую нерелевантную сцену, "
                     "если этого нет в последнем действии игрока или в исходном черновике.\n"
+                    f"Обязательно упомяни в тексте минимум 2 из этих слов: {keywords_text}.\n"
                     "Пиши во 2 лице (ты/вы), не используй 3 лицо с именем игрока.\n"
                     "Строго русский язык.\n"
                     "Заверши ответ строкой: Что делаете дальше?"
