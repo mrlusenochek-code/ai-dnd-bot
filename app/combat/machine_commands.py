@@ -150,6 +150,8 @@ def extract_combat_machine_commands(text: str) -> ParsedMachineCommands:
             had_any_commands = True
             args = parse_machine_args(enemy_add_match.group('args'))
             enemy_id = _clean_str(args.get('enemy_id'))
+            if enemy_id is None:
+                enemy_id = _clean_str(args.get('id'))
             name = _clean_str(args.get('name'))
             if enemy_id is not None and name is not None:
                 combat_enemy_add.append(
@@ -205,7 +207,7 @@ def extract_combat_machine_commands(text: str) -> ParsedMachineCommands:
 # Выход: visible_text="Туман\nБой начинается", combat_start.zone="bridge", had_any_commands=True
 #
 # Пример 2:
-# Вход: "@@COMBAT_ENEMY_ADD(enemy_id=gob1, name=\"Goblin Raider\", hp=12, ac=13, init_mod=2, threat=1)"
+# Вход: "@@COMBAT_ENEMY_ADD(id=gob1, name=\"Goblin Raider\", hp=12, ac=13, init_mod=2, threat=1)"
 # Выход: combat_enemy_add=(CombatEnemyAddCommand(...),), visible_text=""
 #
 # Пример 3:
