@@ -1776,6 +1776,10 @@ def _sanitize_gm_output(text: str) -> str:
         txt,
         flags=re.IGNORECASE,
     )
+    # LLM sometimes drifts into gendered/person-specific 2nd-person wording; normalize to neutral phrasing.
+    txt = re.sub(r"\bправильно\s+ли\s+ты\s+(?:должна|должен)\b", "стоит ли тебе", txt, flags=re.IGNORECASE)
+    txt = re.sub(r"\bты\s+(?:должна|должен|должны)\b", "тебе нужно", txt, flags=re.IGNORECASE)
+    txt = re.sub(r"\bты\s+(?:могла|мог)\s+бы\b", "ты можешь", txt, flags=re.IGNORECASE)
 
     fragments = re.findall(r"[^.!?\n]+[.!?]*|\n+", txt, flags=re.DOTALL)
     kept: list[str] = []
