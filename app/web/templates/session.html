@@ -47,6 +47,34 @@
     .char-line{padding:8px 10px; border:1px solid #ececec; border-radius:8px; background:#fafafa; white-space:pre-wrap;}
     .char-list{margin:0; padding-left:20px;}
     .char-list li{margin:4px 0;}
+    .combat-log{margin-top:10px; border:1px solid #333; border-radius:10px; background:#121212;}
+    .combat-log-toggle{
+      width:100%;
+      display:flex;
+      justify-content:space-between;
+      align-items:center;
+      gap:8px;
+      border:0;
+      background:transparent;
+      color:#eaeaea;
+      padding:10px 12px;
+      cursor:pointer;
+      font-size:14px;
+      text-align:left;
+    }
+    .combat-log-toggle:hover{background:rgba(255,255,255,.04);}
+    .combat-log-indicator{opacity:.9;}
+    .combat-log-content{
+      border-top:1px solid rgba(255,255,255,.1);
+      padding:10px 12px;
+      max-height:130px;
+      overflow:auto;
+      color:#cfcfcf;
+      font-size:13px;
+      line-height:1.4;
+    }
+    .combat-log-status{font-weight:600; color:#eaeaea; margin-bottom:6px;}
+    .combat-log-placeholder{opacity:.75; margin:4px 0;}
 
   </style>
 </head>
@@ -94,6 +122,17 @@
 
     <h3 style="margin-top:18px;">Таймер</h3>
     <div id="timer" class="player">—</div>
+    <div class="combat-log" id="combatLog">
+      <button id="combatLogToggle" class="combat-log-toggle" type="button" aria-expanded="false" aria-controls="combatLogContent">
+        <span>Боевой журнал</span>
+        <span id="combatLogIndicator" class="combat-log-indicator">▸</span>
+      </button>
+      <div id="combatLogContent" class="combat-log-content" hidden>
+        <div class="combat-log-status">Бой не начат</div>
+        <div class="combat-log-placeholder">Здесь будут отображаться броски кубиков и механика боя.</div>
+        <div class="combat-log-placeholder">Пример: Атака → бросок d20 → попадание/промах.</div>
+      </div>
+    </div>
   </div>
 </div>
 
@@ -897,6 +936,20 @@ function toggleReady(){
     if(e.key === "Escape"){
       closeCharacterModal();
     }
+  });
+})();
+
+(function attachCombatLogToggle(){
+  const toggle = document.getElementById("combatLogToggle");
+  const content = document.getElementById("combatLogContent");
+  const indicator = document.getElementById("combatLogIndicator");
+  if(!toggle || !content || !indicator) return;
+  toggle.addEventListener("click", () => {
+    const expanded = toggle.getAttribute("aria-expanded") === "true";
+    const next = !expanded;
+    toggle.setAttribute("aria-expanded", next ? "true" : "false");
+    content.hidden = !next;
+    indicator.textContent = next ? "▾" : "▸";
   });
 })();
 
