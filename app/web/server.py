@@ -20,6 +20,7 @@ from sqlalchemy.orm.attributes import flag_modified
 
 from app.ai.gm import generate_from_prompt, generate_lore
 from app.combat.machine_commands import extract_combat_machine_commands
+from app.combat.resolution import AttackResolution, resolve_attack_roll
 from app.core.logging import configure_logging
 from app.core.log_context import request_id_var, session_id_var, uid_var, ws_conn_id_var, client_id_var
 from app.db.connection import AsyncSessionLocal
@@ -1460,6 +1461,46 @@ def _build_combat_log_ui_patch_from_text(text: str) -> Optional[dict[str, Any]]:
             "status": "⚔ Бой начался",
         }
     return None
+
+
+def _build_combat_test_patch_with_lines(
+    lines: list[dict[str, Any]],
+    *,
+    status: str = "⚔ Бой (тест)",
+    open_panel: bool = True,
+    reset: bool = False,
+) -> dict[str, Any]:
+    patch: dict[str, Any] = {
+        "open": open_panel,
+        "status": status,
+        "lines": lines,
+    }
+    if reset:
+        patch["reset"] = True
+    return patch
+
+
+def _build_combat_test_attack_lines(title: str, res: AttackResolution) -> list[dict[str, Any]]:
+    attack_line = f"Бросок атаки: d20({res.d20_roll}) + {res.attack_bonus} = {res.total_to_hit} vs AC {res.target_ac}"
+    if res.is_crit:
+        result_line = "Результат: критическое попадание"
+    elif res.is_hit:
+        result_line = "Результат: попадание"
+    else:
+        result_line = "Результат: промах"
+
+    if res.is_hit:
+        roll_damage = res.damage_roll * 2 if res.is_crit else res.damage_roll
+        damage_line = f"Урон: {roll_damage} + {res.damage_bonus} = {res.total_damage}"
+    else:
+        damage_line = "Урон: 0 (промах)"
+
+    return [
+        {"text": f"Тест-атака: {title}", "muted": True},
+        {"text": attack_line},
+        {"text": result_line},
+        {"text": damage_line},
+    ]
 
 
 def _find_inventory_item_index(inv: list[dict[str, Any]], name_or_id: str) -> Optional[int]:
@@ -4568,14 +4609,10 @@ async def ws_room(ws: WebSocket, session_id: str):
                         continue
                     await broadcast_state(
                         session_id,
-                        combat_log_ui_patch={
-                            "reset": True,
-                            "open": True,
-                            "status": "⚔ Бой начался (тест)",
-                            "lines": [
-                                {"text": "Тест: админ запустил боевой режим.", "muted": True},
-                            ],
-                        },
+                        combat_log_ui_patch=_build_combat_test_patch_with_lines(
+                            [{"text": "Тест: админ запустил боевой режим.", "muted": True}],
+                            reset=True,
+                        ),
                     )
                     continue
 
@@ -4592,6 +4629,44 @@ async def ws_room(ws: WebSocket, session_id: str):
                                 {"text": "Тест: админ завершил боевой режим.", "muted": True},
                             ],
                         },
+                    )
+                    continue
+
+                # Temporary admin test actions for combat log UI/mechanics without real combat state.
+                if action in {
+                    "admin_combat_test_attack_hit",
+                    "admin_combat_test_attack_miss",
+                    "admin_combat_test_attack_crit",
+                    "admin_combat_test_attack_fumble",
+                }:
+                    if not await is_admin(db, sess, player):
+                        await ws_error("Only admin can run combat UI test")
+                        continue
+                    test_scenarios: dict[str, tuple[str, dict[str, int]]] = {
+                        "admin_combat_test_attack_hit": (
+                            "попадание",
+                            {"d20_roll": 14, "attack_bonus": 3, "target_ac": 15, "damage_roll": 5, "damage_bonus": 2},
+                        ),
+                        "admin_combat_test_attack_miss": (
+                            "промах",
+                            {"d20_roll": 7, "attack_bonus": 3, "target_ac": 15, "damage_roll": 5, "damage_bonus": 2},
+                        ),
+                        "admin_combat_test_attack_crit": (
+                            "крит",
+                            {"d20_roll": 20, "attack_bonus": 3, "target_ac": 15, "damage_roll": 6, "damage_bonus": 2},
+                        ),
+                        "admin_combat_test_attack_fumble": (
+                            "фатальный промах",
+                            {"d20_roll": 1, "attack_bonus": 9, "target_ac": 10, "damage_roll": 12, "damage_bonus": 5},
+                        ),
+                    }
+                    title, kwargs = test_scenarios[action]
+                    resolution = resolve_attack_roll(**kwargs)
+                    await broadcast_state(
+                        session_id,
+                        combat_log_ui_patch=_build_combat_test_patch_with_lines(
+                            _build_combat_test_attack_lines(title, resolution),
+                        ),
                     )
                     continue
 
