@@ -4561,6 +4561,40 @@ async def ws_room(ws: WebSocket, session_id: str):
                     await broadcast_state(session_id)
                     continue
 
+                # Temporary admin test actions for combat log UI (no real combat state changes).
+                if action == "admin_combat_test_start":
+                    if not await is_admin(db, sess, player):
+                        await ws_error("Only admin can run combat UI test")
+                        continue
+                    await broadcast_state(
+                        session_id,
+                        combat_log_ui_patch={
+                            "reset": True,
+                            "open": True,
+                            "status": "⚔ Бой начался (тест)",
+                            "lines": [
+                                {"text": "Тест: админ запустил боевой режим.", "muted": True},
+                            ],
+                        },
+                    )
+                    continue
+
+                if action == "admin_combat_test_end":
+                    if not await is_admin(db, sess, player):
+                        await ws_error("Only admin can run combat UI test")
+                        continue
+                    await broadcast_state(
+                        session_id,
+                        combat_log_ui_patch={
+                            "status": "Бой завершён (тест)",
+                            "open": False,
+                            "lines": [
+                                {"text": "Тест: админ завершил боевой режим.", "muted": True},
+                            ],
+                        },
+                    )
+                    continue
+
                 # chat / command parsing
                 if action != "say":
                     await ws_error("Unknown action", request_id=msg_request_id)
