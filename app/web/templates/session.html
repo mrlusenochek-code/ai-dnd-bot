@@ -77,6 +77,12 @@
     .combat-log-placeholder{opacity:.75; margin:4px 0;}
     .combat-log-line{margin:4px 0; color:#d8d8d8; word-break:break-word;}
     .combat-log-line-muted{opacity:.7;}
+    .combat-log-dev-btn{
+      margin-top:6px;
+      padding:3px 8px;
+      font-size:11px;
+      opacity:.75;
+    }
 
   </style>
 </head>
@@ -135,6 +141,8 @@
         <div class="combat-log-placeholder">Пример: Атака → бросок d20 → попадание/промах.</div>
       </div>
     </div>
+    <!-- Временный UI demo-helper; позже убрать или скрыть в dev-режиме. -->
+    <button type="button" class="combat-log-dev-btn" onclick="demoCombatLogScenario()">DEMO бой</button>
   </div>
 </div>
 
@@ -1007,6 +1015,18 @@ function openCombatLog(){
 // Позже эти функции будут вызываться при старте и завершении боя.
 function closeCombatLog(){
   setCombatLogExpanded(false);
+}
+
+function demoCombatLogScenario(){
+  resetCombatLogPanel();
+  openCombatLog();
+  setCombatLogStatus("⚔ Бой • Раунд 1 • Ход: Персонаж #1");
+  appendCombatLogLine("Персонаж #1 атакует Разбойника.");
+  appendCombatLogLine("Бросок атаки: d20 (14) + 3 = 17 → попадание.");
+  appendCombatLogLine("Урон: 1d8 + 2 = 7.");
+  appendCombatLogLine("Разбойник получает 7 урона.");
+  appendCombatLogLine("Разбойник: HP -7.");
+  appendCombatLogLine("Демо-режим: строка только для локальной проверки UI.", { muted: true });
 }
 
 function toggleReady(){
