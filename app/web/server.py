@@ -1443,6 +1443,25 @@ def _extract_machine_commands(text: str) -> tuple[str, list[dict[str, Any]], lis
     return "\n".join(out_lines).strip(), inv_commands, zone_set_commands
 
 
+def _build_combat_log_ui_patch_from_text(text: str) -> Optional[dict[str, Any]]:
+    try:
+        parsed = extract_combat_machine_commands(text)
+    except Exception:
+        return None
+    if parsed.combat_end is not None:
+        return {
+            "status": "Бой завершён",
+            "open": False,
+        }
+    if parsed.combat_start is not None:
+        return {
+            "reset": True,
+            "open": True,
+            "status": "⚔ Бой начался",
+        }
+    return None
+
+
 def _find_inventory_item_index(inv: list[dict[str, Any]], name_or_id: str) -> Optional[int]:
     needle_name = str(name_or_id or "").strip().lower()
     if not needle_name:
@@ -2796,24 +2815,32 @@ async def build_state(db: AsyncSession, sess: Session) -> dict:
     }
 
 
-async def broadcast_state(session_id: str) -> None:
-    async with AsyncSessionLocal() as db:
-        sess = await get_session(db, session_id)
-        if not sess:
-            return
-        state = await build_state(db, sess)
-    await manager.broadcast_json(session_id, state)
-
-
-async def send_state_to_ws(
+async def broadcast_state(
     session_id: str,
-    ws: WebSocket,
+    combat_log_ui_patch: Optional[dict[str, Any]] = None,
 ) -> None:
     async with AsyncSessionLocal() as db:
         sess = await get_session(db, session_id)
         if not sess:
             return
         state = await build_state(db, sess)
+    if combat_log_ui_patch is not None:
+        state["combat_log_ui_patch"] = combat_log_ui_patch
+    await manager.broadcast_json(session_id, state)
+
+
+async def send_state_to_ws(
+    session_id: str,
+    ws: WebSocket,
+    combat_log_ui_patch: Optional[dict[str, Any]] = None,
+) -> None:
+    async with AsyncSessionLocal() as db:
+        sess = await get_session(db, session_id)
+        if not sess:
+            return
+        state = await build_state(db, sess)
+    if combat_log_ui_patch is not None:
+        state["combat_log_ui_patch"] = combat_log_ui_patch
     await ws.send_text(json.dumps(state, ensure_ascii=False))
 
 
@@ -3489,6 +3516,7 @@ async def _auto_gm_reply_task(session_id: str, expected_action_id: str) -> None:
                     return
 
                 gm_text = gm_text.strip()
+                combat_log_ui_patch = _build_combat_log_ui_patch_from_text(gm_text)
                 gm_text_visible, inv_commands, zone_set_commands = _extract_machine_commands(gm_text)
                 await _apply_inventory_machine_commands(db, sess, inv_commands)
                 await _apply_zone_set_machine_commands(db, sess, zone_set_commands)
@@ -3518,7 +3546,7 @@ async def _auto_gm_reply_task(session_id: str, expected_action_id: str) -> None:
                 _clear_current_action_id(sess)
                 await db.commit()
 
-        await broadcast_state(session_id)
+        await broadcast_state(session_id, combat_log_ui_patch=combat_log_ui_patch)
     except Exception:
         logger.exception("auto gm reply task failed")
     finally:
@@ -3731,6 +3759,7 @@ async def _auto_round_task(session_id: str, expected_action_id: str) -> None:
                     return
 
                 gm_text = gm_text.strip()
+                combat_log_ui_patch = _build_combat_log_ui_patch_from_text(gm_text)
                 gm_text_visible, inv_commands, zone_set_commands = _extract_machine_commands(gm_text)
                 await _apply_inventory_machine_commands(db, sess, inv_commands)
                 await _apply_zone_set_machine_commands(db, sess, zone_set_commands)
@@ -3777,7 +3806,7 @@ async def _auto_round_task(session_id: str, expected_action_id: str) -> None:
                         await add_system_event(db, sess, f"Следующий ход: игрок #{first.join_order}.")
                     await db.commit()
 
-        await broadcast_state(session_id)
+        await broadcast_state(session_id, combat_log_ui_patch=combat_log_ui_patch)
     except Exception:
         logger.exception("auto round task failed")
         try:
