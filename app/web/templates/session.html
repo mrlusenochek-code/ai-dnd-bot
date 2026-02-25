@@ -706,6 +706,10 @@ function connectWS(){
 
   ws.onmessage = (ev) => {
     const data = JSON.parse(ev.data);
+    // Заготовка под будущий проброс боевых событий/бросков с сервера.
+    if(data && data.combat_log_ui_patch !== undefined){
+      applyCombatLogUiPatch(data.combat_log_ui_patch);
+    }
     if(data.type === "state"){
       renderState(data);
     } else if(data.type === "error"){
@@ -947,6 +951,38 @@ function appendCombatLogLine(text, opts = {}){
   }
 
   content.scrollTop = content.scrollHeight;
+}
+
+function applyCombatLogUiPatch(patch){
+  if(!patch || typeof patch !== "object") return;
+
+  if(typeof patch.open === "boolean"){
+    if(patch.open){
+      openCombatLog();
+    } else {
+      closeCombatLog();
+    }
+  }
+
+  if(patch.reset === true){
+    resetCombatLogPanel();
+  }
+
+  if(typeof patch.status === "string"){
+    setCombatLogStatus(patch.status);
+  }
+
+  if(Array.isArray(patch.lines)){
+    for(const item of patch.lines){
+      if(typeof item === "string"){
+        appendCombatLogLine(item);
+        continue;
+      }
+      if(!item || typeof item !== "object") continue;
+      if(typeof item.text !== "string") continue;
+      appendCombatLogLine(item.text, { muted: item.muted === true });
+    }
+  }
 }
 
 // Позже будет вызываться при завершении боя/старте новой сцены.
