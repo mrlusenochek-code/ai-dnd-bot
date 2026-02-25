@@ -3547,6 +3547,9 @@ async def _auto_gm_reply_task(session_id: str, expected_action_id: str) -> None:
                 if combat_log_ui_patch is not None:
                     combat_state = get_combat(session_id)
                     if combat_state is not None and combat_state.active:
+                        if combat_log_ui_patch.get("reset") is True:
+                            combat_state.round_no = 1
+                            combat_state.turn_index = 0
                         combat_log_ui_patch["status"] = (
                             f"⚔ Бой • Раунд {combat_state.round_no} • Ход: {current_turn_label(combat_state)}"
                         )
@@ -3797,6 +3800,9 @@ async def _auto_round_task(session_id: str, expected_action_id: str) -> None:
                 if combat_log_ui_patch is not None:
                     combat_state = get_combat(session_id)
                     if combat_state is not None and combat_state.active:
+                        if combat_log_ui_patch.get("reset") is True:
+                            combat_state.round_no = 1
+                            combat_state.turn_index = 0
                         combat_log_ui_patch["status"] = (
                             f"⚔ Бой • Раунд {combat_state.round_no} • Ход: {current_turn_label(combat_state)}"
                         )
