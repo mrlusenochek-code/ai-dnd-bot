@@ -18,7 +18,12 @@ class CombatTestRuntime:
     turn_order_labels: list[str]
     turn_index: int
     enemy: CombatTestEnemyState
+    player_name: str
+    player_hp_current: int
+    player_hp_max: int
+    player_ac: int
     attack_seq: int = 0
+    enemy_attack_seq: int = 0
 
 
 _TEST_COMBAT_BY_SESSION: dict[str, CombatTestRuntime] = {}
@@ -38,6 +43,10 @@ def start_test_combat(session_id: str) -> CombatTestRuntime:
             hp_max=18,
             ac=13,
         ),
+        player_name="Персонаж #1",
+        player_hp_current=20,
+        player_hp_max=20,
+        player_ac=14,
     )
     _TEST_COMBAT_BY_SESSION[session_id] = runtime
     return runtime
@@ -67,6 +76,14 @@ def apply_enemy_damage(session_id: str, damage: int) -> CombatTestRuntime | None
     if runtime is None or not runtime.active:
         return None
     runtime.enemy.hp_current = max(0, runtime.enemy.hp_current - max(0, int(damage)))
+    return runtime
+
+
+def apply_player_damage(session_id: str, damage: int) -> CombatTestRuntime | None:
+    runtime = get_test_combat(session_id)
+    if runtime is None or not runtime.active:
+        return None
+    runtime.player_hp_current = max(0, runtime.player_hp_current - max(0, int(damage)))
     return runtime
 
 
