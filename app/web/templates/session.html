@@ -67,8 +67,9 @@
     .combat-log-content{
       border-top:1px solid rgba(255,255,255,.1);
       padding:10px 12px;
-      max-height:130px;
+      min-height:90px;
       overflow:auto;
+      resize:vertical;
       color:#cfcfcf;
       font-size:13px;
       line-height:1.4;
@@ -130,9 +131,10 @@
 
     <h3 style="margin-top:18px;">Таймер</h3>
     <div id="timer" class="player">—</div>
+    <h3 style="margin-top:18px;">Боевой журнал</h3>
     <div class="combat-log" id="combatLog">
       <button id="combatLogToggle" class="combat-log-toggle" type="button" aria-expanded="false" aria-controls="combatLogContent">
-        <span>Боевой журнал</span>
+        <span>Показать / скрыть</span>
         <span id="combatLogIndicator" class="combat-log-indicator">▸</span>
       </button>
       <div id="combatLogContent" class="combat-log-content" hidden>
@@ -141,8 +143,6 @@
         <div class="combat-log-placeholder">Пример: Атака → бросок d20 → попадание/промах.</div>
       </div>
     </div>
-    <!-- Временный UI demo-helper; позже убрать или скрыть в dev-режиме. -->
-    <button type="button" class="combat-log-dev-btn" onclick="demoCombatLogScenario()">DEMO бой</button>
   </div>
 </div>
 
