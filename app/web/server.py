@@ -2808,16 +2808,12 @@ async def broadcast_state(session_id: str) -> None:
 async def send_state_to_ws(
     session_id: str,
     ws: WebSocket,
-    *,
-    combat_log_ui_patch: Optional[dict] = None,
 ) -> None:
     async with AsyncSessionLocal() as db:
         sess = await get_session(db, session_id)
         if not sess:
             return
         state = await build_state(db, sess)
-    if combat_log_ui_patch is not None:
-        state["combat_log_ui_patch"] = combat_log_ui_patch
     await ws.send_text(json.dumps(state, ensure_ascii=False))
 
 
@@ -4319,20 +4315,9 @@ async def ws_room(ws: WebSocket, session_id: str):
 
     await manager.connect(session_id, ws)
     logger.info("ws connected")
-    combat_log_ui_patch_pending = True
 
     try:
-        patch = None
-        if combat_log_ui_patch_pending:
-            patch = {
-                "open": True,
-                "status": "Бой не начат",
-                "lines": [
-                    {"text": "Сервер: канал боевого журнала подключён.", "muted": True}
-                ],
-            }
-            combat_log_ui_patch_pending = False
-        await send_state_to_ws(session_id, ws, combat_log_ui_patch=patch)
+        await send_state_to_ws(session_id, ws)
 
         while True:
             # Ждём входящее сообщение. State приходит через broadcast_state() по событиям,
