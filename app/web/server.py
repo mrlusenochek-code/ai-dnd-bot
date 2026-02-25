@@ -40,7 +40,10 @@ logger = logging.getLogger(__name__)
 CHAR_STAT_KEYS = ("str", "dex", "con", "int", "wis", "cha")
 CHAR_DEFAULT_STATS = {k: 50 for k in CHAR_STAT_KEYS}
 CHECK_LINE_RE = re.compile(r"^\s*@@CHECK\s+(\{.*\})\s*$", re.IGNORECASE)
-INV_MACHINE_LINE_RE = re.compile(r"^\s*@@(?P<cmd>INV_ADD|INV_REMOVE|INV_TRANSFER)\s*\((?P<args>.*)\)\s*$", re.IGNORECASE)
+INV_MACHINE_LINE_RE = re.compile(
+    r"^\s*(?:\(\s*)?@@(?P<cmd>INV_ADD|INV_REMOVE|INV_TRANSFER)\s*\((?P<args>.*)\)\s*(?:\))?\s*$",
+    re.IGNORECASE,
+)
 ZONE_SET_MACHINE_LINE_RE = re.compile(r"^\s*(?:\(\s*)?@@ZONE_SET\s*\((?P<args>.*?)\)\s*(?:\))?\s*$", re.IGNORECASE)
 TEXTUAL_CHECK_RE = re.compile(
     r"(?:проверка|check)\s*[:\-]?\s*([a-zA-Zа-яА-Я_]+)[^\n]{0,40}?\bdc\s*[:=]?\s*(\d+)",
@@ -1427,7 +1430,10 @@ def _extract_machine_commands(text: str) -> tuple[str, list[dict[str, Any]], lis
         combat_visible_text = str(text or "")
     for line in str(combat_visible_text or "").splitlines():
         lstripped = str(line).lstrip()
-        if lstripped.startswith("@@INV_"):
+        candidate_line = lstripped
+        while candidate_line.startswith("("):
+            candidate_line = candidate_line[1:].lstrip()
+        if candidate_line.startswith("@@INV_"):
             parsed = _parse_inventory_machine_line(line)
             if parsed:
                 inv_commands.append(parsed)
@@ -1440,6 +1446,9 @@ def _extract_machine_commands(text: str) -> tuple[str, list[dict[str, Any]], lis
                 zone_set_commands.append(parsed_zone)
             else:
                 logger.warning("invalid zone_set machine command", extra={"action": {"line": _trim_for_log(line, 260)}})
+            continue
+        if candidate_line.startswith("@@"):
+            logger.warning("unknown machine command", extra={"action": {"line": _trim_for_log(line, 260)}})
             continue
         out_lines.append(line)
     return "\n".join(out_lines).strip(), inv_commands, zone_set_commands
