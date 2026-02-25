@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from typing import Any, Optional
 
 from app.combat.machine_commands import extract_combat_machine_commands
@@ -11,6 +12,26 @@ from app.combat.state import (
     start_combat,
 )
 
+_FALLBACK_COMBAT_RE = re.compile(
+    r"\b(?:атак\w*|удар\w*|напал\w*|в\s+бой|дерус\w*|бь[юе]\w*|рубл\w*|стреля\w*|меч\w*|нож\w*)\b",
+    flags=re.IGNORECASE,
+)
+
+
+def _is_combat_fallback_text(text: str) -> bool:
+    return _FALLBACK_COMBAT_RE.search(text) is not None
+
+
+def _fallback_enemy_from_text(text: str) -> tuple[str, int, int]:
+    lowered = text.lower()
+    if "разбойник" in lowered:
+        return ("Разбойник", 18, 13)
+    if "орк" in lowered:
+        return ("Орк", 15, 13)
+    if "гоблин" in lowered:
+        return ("Гоблин", 12, 13)
+    return ("Противник", 10, 10)
+
 
 def apply_combat_machine_commands(session_id: str, text: str) -> Optional[dict[str, Any]]:
     try:
@@ -19,7 +40,30 @@ def apply_combat_machine_commands(session_id: str, text: str) -> Optional[dict[s
         return None
 
     if not parsed.had_any_commands:
-        return None
+        state = get_combat(session_id)
+        if state is not None and state.active:
+            return None
+        if not _is_combat_fallback_text(text):
+            return None
+
+        start_combat(session_id, reason="fallback")
+        enemy_name, hp, ac = _fallback_enemy_from_text(text)
+        add_enemy(session_id, name=enemy_name, hp=hp, ac=ac)
+        state = get_combat(session_id)
+        if state is None or not state.active:
+            return None
+
+        return {
+            "reset": True,
+            "open": True,
+            "lines": [
+                {
+                    "text": f"Противник добавлен: {enemy_name} (HP {hp}/{hp}, AC {ac})",
+                    "muted": True,
+                }
+            ],
+            "status": f"⚔ Бой • Раунд {state.round_no} • Ход: {current_turn_label(state)}",
+        }
 
     patch: dict[str, Any] = {}
     enemy_lines: list[dict[str, Any]] = []
