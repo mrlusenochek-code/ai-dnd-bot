@@ -19,9 +19,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm.attributes import flag_modified
 
 from app.ai.gm import generate_from_prompt, generate_lore
-from app.combat.log_ui import (
-    build_combat_log_ui_patch_from_text as _build_combat_log_ui_patch_from_text,
-)
+from app.combat.apply_machine import apply_combat_machine_commands
 from app.combat.machine_commands import extract_combat_machine_commands
 from app.combat.test_actions import handle_admin_combat_test_action
 from app.core.logging import configure_logging
@@ -3501,7 +3499,7 @@ async def _auto_gm_reply_task(session_id: str, expected_action_id: str) -> None:
                     return
 
                 gm_text = gm_text.strip()
-                combat_log_ui_patch = _build_combat_log_ui_patch_from_text(gm_text)
+                combat_log_ui_patch = apply_combat_machine_commands(session_id, gm_text)
                 gm_text_visible, inv_commands, zone_set_commands = _extract_machine_commands(gm_text)
                 await _apply_inventory_machine_commands(db, sess, inv_commands)
                 await _apply_zone_set_machine_commands(db, sess, zone_set_commands)
@@ -3744,7 +3742,7 @@ async def _auto_round_task(session_id: str, expected_action_id: str) -> None:
                     return
 
                 gm_text = gm_text.strip()
-                combat_log_ui_patch = _build_combat_log_ui_patch_from_text(gm_text)
+                combat_log_ui_patch = apply_combat_machine_commands(session_id, gm_text)
                 gm_text_visible, inv_commands, zone_set_commands = _extract_machine_commands(gm_text)
                 await _apply_inventory_machine_commands(db, sess, inv_commands)
                 await _apply_zone_set_machine_commands(db, sess, zone_set_commands)
