@@ -21,6 +21,8 @@ from sqlalchemy.orm.attributes import flag_modified
 from app.ai.gm import generate_from_prompt, generate_lore
 from app.combat.apply_machine import apply_combat_machine_commands
 from app.combat.machine_commands import extract_combat_machine_commands
+from app.combat.state import current_turn_label, get_combat
+from app.combat.sync_pcs import sync_pcs_from_chars
 from app.combat.test_actions import handle_admin_combat_test_action
 from app.core.logging import configure_logging
 from app.core.log_context import request_id_var, session_id_var, uid_var, ws_conn_id_var, client_id_var
@@ -3541,6 +3543,13 @@ async def _auto_gm_reply_task(session_id: str, expected_action_id: str) -> None:
 
                 gm_text = gm_text.strip()
                 combat_log_ui_patch = apply_combat_machine_commands(session_id, gm_text)
+                sync_pcs_from_chars(session_id, chars_by_uid)
+                if combat_log_ui_patch is not None:
+                    combat_state = get_combat(session_id)
+                    if combat_state is not None and combat_state.active:
+                        combat_log_ui_patch["status"] = (
+                            f"⚔ Бой • Раунд {combat_state.round_no} • Ход: {current_turn_label(combat_state)}"
+                        )
                 gm_text_visible, inv_commands, zone_set_commands = _extract_machine_commands(gm_text)
                 await _apply_inventory_machine_commands(db, sess, inv_commands)
                 await _apply_zone_set_machine_commands(db, sess, zone_set_commands)
@@ -3784,6 +3793,13 @@ async def _auto_round_task(session_id: str, expected_action_id: str) -> None:
 
                 gm_text = gm_text.strip()
                 combat_log_ui_patch = apply_combat_machine_commands(session_id, gm_text)
+                sync_pcs_from_chars(session_id, chars_by_uid)
+                if combat_log_ui_patch is not None:
+                    combat_state = get_combat(session_id)
+                    if combat_state is not None and combat_state.active:
+                        combat_log_ui_patch["status"] = (
+                            f"⚔ Бой • Раунд {combat_state.round_no} • Ход: {current_turn_label(combat_state)}"
+                        )
                 gm_text_visible, inv_commands, zone_set_commands = _extract_machine_commands(gm_text)
                 await _apply_inventory_machine_commands(db, sess, inv_commands)
                 await _apply_zone_set_machine_commands(db, sess, zone_set_commands)

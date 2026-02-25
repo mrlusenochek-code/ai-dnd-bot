@@ -110,6 +110,53 @@ def add_enemy(
     return state
 
 
+def upsert_pc(
+    session_id: str,
+    *,
+    pc_key: str,
+    name: str,
+    hp: int,
+    hp_max: int,
+    ac: int,
+    initiative: int = 0,
+) -> CombatState | None:
+    state = get_combat(session_id)
+    if state is None or not state.active:
+        return None
+
+    previous_key = state.order[state.turn_index] if state.order and 0 <= state.turn_index < len(state.order) else None
+
+    hp_max_norm = max(0, int(hp_max))
+    hp_norm = max(0, int(hp))
+    ac_norm = max(0, int(ac))
+    initiative_norm = int(initiative)
+
+    existing = state.combatants.get(pc_key)
+    if existing is not None:
+        existing.name = name
+        existing.hp_max = hp_max_norm
+        existing.ac = ac_norm
+        existing.initiative = initiative_norm
+        existing.side = "pc"
+        existing.hp_current = max(0, min(existing.hp_current, hp_max_norm))
+    else:
+        state.combatants[pc_key] = Combatant(
+            key=pc_key,
+            name=name,
+            side="pc",
+            hp_current=max(0, min(hp_norm, hp_max_norm)),
+            hp_max=hp_max_norm,
+            ac=ac_norm,
+            initiative=initiative_norm,
+        )
+
+    from app.combat.turns import build_initiative_order
+
+    state.order = build_initiative_order(state.combatants)
+    _normalize_turn_index(state, previous_key=previous_key)
+    return state
+
+
 def apply_damage(session_id: str, combatant_key: str, damage: int) -> CombatState | None:
     state = get_combat(session_id)
     if state is None or not state.active:
