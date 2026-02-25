@@ -19,10 +19,15 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm.attributes import flag_modified
 
 from app.ai.gm import generate_from_prompt, generate_lore
+from app.combat.log_ui import (
+    build_combat_log_ui_patch_from_text as _build_combat_log_ui_patch_from_text,
+    build_combat_test_attack_lines as _build_combat_test_attack_lines,
+    build_combat_test_patch_with_lines as _build_combat_test_patch_with_lines,
+    format_combat_test_status as _format_combat_test_status,
+)
 from app.combat.machine_commands import extract_combat_machine_commands
-from app.combat.resolution import AttackResolution, resolve_attack_roll
+from app.combat.resolution import resolve_attack_roll
 from app.combat.test_runtime import (
-    CombatTestRuntime,
     advance_turn as advance_test_turn,
     apply_enemy_damage,
     apply_player_damage,
@@ -1452,73 +1457,6 @@ def _extract_machine_commands(text: str) -> tuple[str, list[dict[str, Any]], lis
             continue
         out_lines.append(line)
     return "\n".join(out_lines).strip(), inv_commands, zone_set_commands
-
-
-def _build_combat_log_ui_patch_from_text(text: str) -> Optional[dict[str, Any]]:
-    try:
-        parsed = extract_combat_machine_commands(text)
-    except Exception:
-        return None
-    if parsed.combat_end is not None:
-        return {
-            "status": "Бой завершён",
-            "open": False,
-        }
-    if parsed.combat_start is not None:
-        return {
-            "reset": True,
-            "open": True,
-            "status": "⚔ Бой начался",
-        }
-    return None
-
-
-def _build_combat_test_patch_with_lines(
-    lines: list[dict[str, Any]],
-    *,
-    status: str = "⚔ Бой (тест)",
-    open_panel: bool = True,
-    reset: bool = False,
-) -> dict[str, Any]:
-    patch: dict[str, Any] = {
-        "open": open_panel,
-        "status": status,
-        "lines": lines,
-    }
-    if reset:
-        patch["reset"] = True
-    return patch
-
-
-def _build_combat_test_attack_lines(title: str, res: AttackResolution) -> list[dict[str, Any]]:
-    attack_line = f"Бросок атаки: d20({res.d20_roll}) + {res.attack_bonus} = {res.total_to_hit} vs AC {res.target_ac}"
-    if res.is_crit:
-        result_line = "Результат: критическое попадание"
-    elif res.is_hit:
-        result_line = "Результат: попадание"
-    else:
-        result_line = "Результат: промах"
-
-    if res.is_hit:
-        roll_damage = res.damage_roll * 2 if res.is_crit else res.damage_roll
-        damage_line = f"Урон: {roll_damage} + {res.damage_bonus} = {res.total_damage}"
-    else:
-        damage_line = "Урон: 0 (промах)"
-
-    return [
-        {"text": f"Тест-атака: {title}", "muted": True},
-        {"text": attack_line},
-        {"text": result_line},
-        {"text": damage_line},
-    ]
-
-
-def _format_combat_test_status(runtime: CombatTestRuntime | None) -> str:
-    if runtime is None:
-        return "Бой не начат"
-    if not runtime.active:
-        return "Бой завершён (тест)"
-    return f"⚔ Бой (тест) • Раунд {runtime.round_no} • Ход: {current_turn_label(runtime)}"
 
 
 def _find_inventory_item_index(inv: list[dict[str, Any]], name_or_id: str) -> Optional[int]:
