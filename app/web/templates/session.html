@@ -941,6 +941,52 @@ function appendCombatLogLine(text, opts = {}){
   content.scrollTop = content.scrollHeight;
 }
 
+// Позже будет вызываться при завершении боя/старте новой сцены.
+function resetCombatLogPanel(){
+  const content = document.getElementById("combatLogContent");
+  if(!content) return;
+
+  const lines = content.querySelectorAll(".combat-log-line");
+  lines.forEach((el) => el.remove());
+
+  const statusText = "Бой не начат";
+  const status = content.querySelector(".combat-log-status");
+  if(status){
+    status.textContent = statusText;
+  } else {
+    const nextStatus = document.createElement("div");
+    nextStatus.className = "combat-log-status";
+    nextStatus.textContent = statusText;
+    content.prepend(nextStatus);
+  }
+
+  const placeholderTexts = [
+    "Здесь будут отображаться броски кубиков и механика боя.",
+    "Пример: Атака → бросок d20 → попадание/промах.",
+  ];
+  const existingPlaceholderTexts = new Set(
+    Array.from(content.querySelectorAll(".combat-log-placeholder"))
+      .map((el) => el.textContent.trim())
+  );
+  let insertAfter = content.querySelector(".combat-log-status");
+  placeholderTexts.forEach((text) => {
+    if(existingPlaceholderTexts.has(text)) return;
+    const placeholder = document.createElement("div");
+    placeholder.className = "combat-log-placeholder";
+    placeholder.textContent = text;
+    if(insertAfter){
+      insertAfter.insertAdjacentElement("afterend", placeholder);
+      insertAfter = placeholder;
+    } else {
+      content.prepend(placeholder);
+      insertAfter = placeholder;
+    }
+  });
+
+  delete content.dataset.placeholderCleared;
+  content.scrollTop = 0;
+}
+
 function setCombatLogExpanded(next){
   const toggle = document.getElementById("combatLogToggle");
   const content = document.getElementById("combatLogContent");
