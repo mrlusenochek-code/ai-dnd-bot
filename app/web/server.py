@@ -4748,6 +4748,11 @@ async def ws_room(ws: WebSocket, session_id: str):
                         clear_test_combat(session_id)
                         status = "Бой завершён (тест)"
                         lines.append({"text": f"{runtime.enemy.name} повержен."})
+                    else:
+                        runtime = advance_test_turn(session_id)
+                        if runtime is not None:
+                            lines.append({"text": f"Ход автоматически передан: {current_turn_label(runtime)}", "muted": True})
+                            status = _format_combat_test_status(runtime)
 
                     await broadcast_state(
                         session_id,
