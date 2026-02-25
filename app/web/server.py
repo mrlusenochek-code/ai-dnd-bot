@@ -21,6 +21,15 @@ from sqlalchemy.orm.attributes import flag_modified
 from app.ai.gm import generate_from_prompt, generate_lore
 from app.combat.machine_commands import extract_combat_machine_commands
 from app.combat.resolution import AttackResolution, resolve_attack_roll
+from app.combat.test_runtime import (
+    CombatTestRuntime,
+    advance_turn as advance_test_turn,
+    apply_enemy_damage,
+    clear_test_combat,
+    current_turn_label,
+    get_test_combat,
+    start_test_combat,
+)
 from app.core.logging import configure_logging
 from app.core.log_context import request_id_var, session_id_var, uid_var, ws_conn_id_var, client_id_var
 from app.db.connection import AsyncSessionLocal
@@ -1501,6 +1510,14 @@ def _build_combat_test_attack_lines(title: str, res: AttackResolution) -> list[d
         {"text": result_line},
         {"text": damage_line},
     ]
+
+
+def _format_combat_test_status(runtime: CombatTestRuntime | None) -> str:
+    if runtime is None:
+        return "Бой не начат"
+    if not runtime.active:
+        return "Бой завершён (тест)"
+    return f"⚔ Бой (тест) • Раунд {runtime.round_no} • Ход: {current_turn_label(runtime)}"
 
 
 def _find_inventory_item_index(inv: list[dict[str, Any]], name_or_id: str) -> Optional[int]:
@@ -4607,10 +4624,20 @@ async def ws_room(ws: WebSocket, session_id: str):
                     if not await is_admin(db, sess, player):
                         await ws_error("Only admin can run combat UI test")
                         continue
+                    runtime = start_test_combat(session_id)
                     await broadcast_state(
                         session_id,
                         combat_log_ui_patch=_build_combat_test_patch_with_lines(
-                            [{"text": "Тест: админ запустил боевой режим.", "muted": True}],
+                            [
+                                {"text": "Тест: админ запустил боевой режим.", "muted": True},
+                                {
+                                    "text": (
+                                        f"Противник: {runtime.enemy.name} "
+                                        f"(HP {runtime.enemy.hp_current}/{runtime.enemy.hp_max}, AC {runtime.enemy.ac})."
+                                    )
+                                },
+                            ],
+                            status=_format_combat_test_status(runtime),
                             reset=True,
                         ),
                     )
@@ -4620,6 +4647,7 @@ async def ws_room(ws: WebSocket, session_id: str):
                     if not await is_admin(db, sess, player):
                         await ws_error("Only admin can run combat UI test")
                         continue
+                    clear_test_combat(session_id)
                     await broadcast_state(
                         session_id,
                         combat_log_ui_patch={
@@ -4629,6 +4657,104 @@ async def ws_room(ws: WebSocket, session_id: str):
                                 {"text": "Тест: админ завершил боевой режим.", "muted": True},
                             ],
                         },
+                    )
+                    continue
+
+                if action == "admin_combat_test_turn_next":
+                    if not await is_admin(db, sess, player):
+                        await ws_error("Only admin can run combat UI test")
+                        continue
+                    runtime = get_test_combat(session_id)
+                    if runtime is None or not runtime.active:
+                        await ws_error("Test combat is not active")
+                        continue
+                    runtime = advance_test_turn(session_id)
+                    if runtime is None:
+                        await ws_error("Test combat is not active")
+                        continue
+                    await broadcast_state(
+                        session_id,
+                        combat_log_ui_patch=_build_combat_test_patch_with_lines(
+                            [{"text": f"Ход передан: {current_turn_label(runtime)}", "muted": True}],
+                            status=_format_combat_test_status(runtime),
+                            open_panel=True,
+                        ),
+                    )
+                    continue
+
+                if action == "admin_combat_test_attack_enemy":
+                    if not await is_admin(db, sess, player):
+                        await ws_error("Only admin can run combat UI test")
+                        continue
+                    runtime = get_test_combat(session_id)
+                    if runtime is None or not runtime.active:
+                        await ws_error("Test combat is not active")
+                        continue
+                    turn_label = current_turn_label(runtime)
+                    if turn_label != "Персонаж #1":
+                        await broadcast_state(
+                            session_id,
+                            combat_log_ui_patch=_build_combat_test_patch_with_lines(
+                                [{"text": f"Сейчас не ход игрока: {turn_label}"}],
+                                status=_format_combat_test_status(runtime),
+                                open_panel=True,
+                            ),
+                        )
+                        continue
+
+                    scenarios = [
+                        {"d20_roll": 14, "attack_bonus": 3, "damage_roll": 5, "damage_bonus": 2},
+                        {"d20_roll": 7, "attack_bonus": 3, "damage_roll": 5, "damage_bonus": 2},
+                        {"d20_roll": 20, "attack_bonus": 3, "damage_roll": 6, "damage_bonus": 2},
+                        {"d20_roll": 1, "attack_bonus": 9, "damage_roll": 12, "damage_bonus": 5},
+                    ]
+                    scenario = scenarios[runtime.attack_seq % len(scenarios)]
+                    runtime.attack_seq += 1
+                    resolution = resolve_attack_roll(target_ac=runtime.enemy.ac, **scenario)
+                    if resolution.is_hit:
+                        runtime = apply_enemy_damage(session_id, resolution.total_damage)
+                        if runtime is None:
+                            await ws_error("Test combat is not active")
+                            continue
+
+                    attack_line = (
+                        f"Бросок атаки: d20({resolution.d20_roll}) + "
+                        f"{resolution.attack_bonus} = {resolution.total_to_hit} vs AC {resolution.target_ac}"
+                    )
+                    if resolution.is_crit:
+                        result_line = "Результат: критическое попадание"
+                    elif resolution.is_hit:
+                        result_line = "Результат: попадание"
+                    else:
+                        result_line = "Результат: промах"
+                    if resolution.is_hit:
+                        roll_damage = resolution.damage_roll * 2 if resolution.is_crit else resolution.damage_roll
+                        damage_line = f"Урон: {roll_damage} + {resolution.damage_bonus} = {resolution.total_damage}"
+                    else:
+                        damage_line = "Урон: 0 (промах)"
+
+                    lines = [
+                        {"text": f"Атака по врагу: {runtime.enemy.name}", "muted": True},
+                        {"text": attack_line},
+                        {"text": result_line},
+                        {"text": damage_line},
+                        {"text": f"{runtime.enemy.name}: HP {runtime.enemy.hp_current}/{runtime.enemy.hp_max}"},
+                    ]
+
+                    status = _format_combat_test_status(runtime)
+                    open_panel = True
+                    if runtime.enemy.hp_current <= 0:
+                        clear_test_combat(session_id)
+                        status = "Бой завершён (тест)"
+                        lines.append({"text": f"{runtime.enemy.name} повержен."})
+
+                    await broadcast_state(
+                        session_id,
+                        combat_log_ui_patch=_build_combat_test_patch_with_lines(
+                            lines,
+                            status=status,
+                            open_panel=open_panel,
+                        ),
                     )
                     continue
 
