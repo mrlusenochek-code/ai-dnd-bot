@@ -68,6 +68,42 @@ def handle_live_combat_action(
             None,
         )
 
+    if action == "combat_dodge":
+        state = get_combat(session_id)
+        if state is None or not state.active:
+            return None, "Combat is not active"
+        if not state.order:
+            end_combat(session_id)
+            return (
+                {
+                    "status": "Бой завершён",
+                    "open": False,
+                    "lines": [{"text": "Бой завершён: целей не осталось.", "muted": True}],
+                },
+                None,
+            )
+
+        attacker_key = state.order[state.turn_index]
+        attacker = state.combatants.get(attacker_key)
+        if attacker is None:
+            return None, "Combat state is inconsistent"
+
+        attacker.dodge_active = True
+        lines: list[dict[str, Any]] = [{"text": f"Уклонение: {attacker.name} (до следующего хода)", "muted": True}]
+
+        state = advance_turn(session_id)
+        if state is None:
+            return None, "Combat is not active"
+        lines.append({"text": f"Ход автоматически передан: {current_turn_label(state)}", "muted": True})
+        return (
+            {
+                "status": _combat_status(state),
+                "open": True,
+                "lines": lines,
+            },
+            None,
+        )
+
     if action == "combat_attack":
         state = get_combat(session_id)
         if state is None or not state.active:
@@ -100,9 +136,17 @@ def handle_live_combat_action(
                 None,
             )
 
+        d20_roll = random.randint(1, 20)
+        attack_roll_repr = f"d20({d20_roll})"
+        if target.dodge_active:
+            d20_roll_dis_1 = random.randint(1, 20)
+            d20_roll_dis_2 = random.randint(1, 20)
+            d20_roll = min(d20_roll_dis_1, d20_roll_dis_2)
+            attack_roll_repr = f"d20({d20_roll_dis_1},{d20_roll_dis_2}) -> {d20_roll}"
+
         resolution = resolve_attack_roll(
             target_ac=target.ac,
-            d20_roll=random.randint(1, 20),
+            d20_roll=d20_roll,
             attack_bonus=3,
             damage_roll=random.randint(1, 6),
             damage_bonus=2,
@@ -114,8 +158,8 @@ def handle_live_combat_action(
             target = state.combatants.get(target.key, target)
 
         attack_line = (
-            f"Бросок атаки: d20({resolution.d20_roll}) + "
-            f"{resolution.attack_bonus} = {resolution.total_to_hit} vs AC {resolution.target_ac}"
+            f"Бросок атаки: {attack_roll_repr} + {resolution.attack_bonus} = "
+            f"{resolution.total_to_hit} vs AC {resolution.target_ac}"
         )
         if resolution.is_crit:
             result_line = "Результат: критическое попадание"

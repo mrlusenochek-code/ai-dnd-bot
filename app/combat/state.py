@@ -14,6 +14,7 @@ class Combatant:
     hp_max: int
     ac: int
     initiative: int
+    dodge_active: bool = False
 
 
 @dataclass

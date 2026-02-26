@@ -28,4 +28,9 @@ def advance_turn_in_state(state: CombatState) -> CombatState:
     if state.turn_index == 0:
         state.round_no += 1
 
+    current_key = state.order[state.turn_index]
+    current_combatant = state.combatants.get(current_key)
+    if current_combatant is not None:
+        current_combatant.dodge_active = False
+
     return state
