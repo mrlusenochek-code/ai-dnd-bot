@@ -4752,6 +4752,7 @@ async def ws_room(ws: WebSocket, session_id: str):
                     "combat_dodge",
                     "combat_dash",
                     "combat_disengage",
+                    "combat_use_object",
                     "combat_help",
                 }:
                     if not await is_admin(db, sess, player):

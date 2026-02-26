@@ -36,5 +36,6 @@ def advance_turn_in_state(state: CombatState) -> CombatState:
         current_combatant.dodge_active = False
         current_combatant.dash_active = False
         current_combatant.disengage_active = False
+        current_combatant.use_object_active = False
 
     return state
