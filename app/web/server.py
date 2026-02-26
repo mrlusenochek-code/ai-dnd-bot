@@ -299,6 +299,17 @@ GM_META_BANNED_PHRASES = (
     "чтобы продолжить историю",
     "дальнейшее развитие сюжета",
 )
+_COMBAT_LOCK_PROMPT = (
+    "COMBAT MODE (жестко, обязательно):\n"
+    "Бой активен прямо сейчас. Ты - боевой рассказчик.\n"
+    "Запрещено менять сцену/локацию/время и уводить сюжет после боя.\n"
+    "Запрещено завершать бой словами (победа/поражение/перемирие/бой окончен) и запрещено выдавать @@COMBAT_END.\n"
+    "Запрещено выдавать @@COMBAT_START повторно.\n"
+    "Запрещено просить броски/цифры/AC/урон и любые @@CHECK / @@CHECK_RESULT.\n"
+    "Без @@COMBAT_* и без @@CHECK* в ответе.\n"
+    "Ответ короткий: несколько предложений боя по текущему моменту.\n"
+    "Обязательно завершай последней строкой: Что делаете дальше?"
+)
 SKILL_TO_ABILITY: dict[str, str] = {
     "acrobatics": "dex",
     "animal_handling": "wis",
@@ -1065,6 +1076,40 @@ def _extract_last_context_line_from_prompt(draft_prompt: str) -> str:
             if ":" in line and line.split(":", 1)[1].strip():
                 return line
     return lines[-1] if lines else ""
+
+
+def _prepend_combat_lock(prompt: str, combat_active: bool) -> str:
+    if not combat_active:
+        return str(prompt or "")
+    base = str(prompt or "").strip()
+    if not base:
+        return _COMBAT_LOCK_PROMPT
+    return f"{_COMBAT_LOCK_PROMPT}\n\n{base}"
+
+
+def _looks_like_combat_drift(text: str) -> bool:
+    txt = str(text or "").strip()
+    if not txt:
+        return False
+    lowered = txt.lower().replace("ё", "е")
+    if any(token in lowered for token in ("@@check", "@@check_result", "@@combat_start", "@@combat_end")):
+        return True
+    drift_patterns = [
+        r"\bбой\s+окончен\b",
+        r"\bбой\s+законч\w*",
+        r"\bпобед\w*",
+        r"\bпоражен\w*",
+        r"\bперемири\w*",
+        r"\bпосле\s+боя\b",
+        r"\bна\s+рынок\b",
+        r"\bв\s+таверн\w*\b",
+        r"\bв\s+магазин\b",
+        r"\bв\s+лавк\w*\b",
+        r"\bвы\s+уходите\b",
+        r"\bвы\s+покидаете\b",
+        r"\bпокидаете\s+(?:локаци\w*|место|поле\s+боя)\b",
+    ]
+    return any(re.search(pattern, lowered, flags=re.IGNORECASE) for pattern in drift_patterns)
 
 
 def _checks_from_human_text(draft_text: str, default_actor_uid: Optional[int]) -> list[dict[str, Any]]:
@@ -3093,15 +3138,19 @@ def _build_finalize_prompt(draft_text: str, check_results: list[dict[str, Any]])
 async def _run_gm_two_pass(
     db: AsyncSession,
     sess: Session,
+    session_id: str,
     *,
     draft_prompt: str,
     default_actor_uid: Optional[int],
     previous_gm_text: str = "",
 ) -> tuple[str, dict[str, Any], dict[str, Any], list[dict[str, Any]], list[dict[str, Any]]]:
     uid_map, chars_by_uid, skill_mods_by_char = await _load_actor_context(db, sess)
+    combat_state = get_combat(session_id)
+    combat_active = bool(combat_state and combat_state.active)
+    draft_prompt_for_model = _prepend_combat_lock(draft_prompt, combat_active)
 
     draft_resp = await generate_from_prompt(
-        prompt=draft_prompt,
+        prompt=draft_prompt_for_model,
         timeout_seconds=GM_OLLAMA_TIMEOUT_SECONDS,
         num_predict=GM_DRAFT_NUM_PREDICT,
     )
@@ -3113,9 +3162,10 @@ async def _run_gm_two_pass(
     cleaned_human_check = False
     fallback_autogen_check = False
     fallback_coherence_reprompt = False
-    mandatory_cat = _mandatory_check_category(draft_text_raw)
+    combat_lock_reprompt = False
+    mandatory_cat = None if combat_active else _mandatory_check_category(draft_text_raw)
     ctx_line = _extract_last_context_line_from_prompt(draft_prompt)
-    if mandatory_cat is None and ctx_line:
+    if not combat_active and mandatory_cat is None and ctx_line:
         mandatory_cat = _mandatory_check_category(ctx_line)
     if not checks and mandatory_cat:
         forced_reprompt = True
@@ -3276,7 +3326,7 @@ async def _run_gm_two_pass(
     if xp_changed:
         await db.commit()
 
-    final_prompt = _build_finalize_prompt(draft_text, check_results)
+    final_prompt = _prepend_combat_lock(_build_finalize_prompt(draft_text, check_results), combat_active)
     final_resp = await generate_from_prompt(
         prompt=final_prompt,
         timeout_seconds=GM_OLLAMA_TIMEOUT_SECONDS,
@@ -3441,6 +3491,36 @@ async def _run_gm_two_pass(
                 if repaired:
                     final_text = repaired
 
+    if combat_active and _looks_like_combat_drift(final_text):
+        combat_lock_reprompt = True
+        combat_repair_prompt = (
+            f"{_COMBAT_LOCK_PROMPT}\n\n"
+            "Перепиши ответ строго в COMBAT MODE.\n"
+            "Не добавляй @@CHECK, @@CHECK_RESULT и любые @@COMBAT_* команды.\n"
+            "Не завершай бой и не уводи сцену в другую локацию.\n"
+            "Не проси цифры/AC/урон/броски.\n"
+            "Сделай коротко: несколько предложений.\n"
+            "Последняя строка строго: Что делаете дальше?\n\n"
+            f"Контекст последнего действия:\n{ctx_line or '(нет)'}\n\n"
+            f"Текущий ответ:\n{final_text}"
+        )
+        combat_repair_resp = await generate_from_prompt(
+            prompt=combat_repair_prompt,
+            timeout_seconds=GM_OLLAMA_TIMEOUT_SECONDS,
+            num_predict=GM_FINAL_NUM_PREDICT,
+        )
+        repaired = str(combat_repair_resp.get("text") or "").strip()
+        repaired = _strip_machine_lines(repaired)
+        repaired = re.sub(r"(?im)^\s*@@COMBAT_[A-Z_]+.*$", "", repaired)
+        repaired = _sanitize_gm_output(repaired)
+        if repaired:
+            final_text = repaired
+    if combat_active:
+        final_text = re.sub(r"(?im)^\s*@@COMBAT_[A-Z_]+.*$", "", str(final_text or "")).strip()
+        final_text = _sanitize_gm_output(final_text)
+        if _looks_like_combat_drift(final_text):
+            final_text = "Схватка продолжается в том же месте, противники давят без передышки.\nЧто делаете дальше?"
+
     logger.info(
         "gm two-pass completed",
         extra={
@@ -3454,6 +3534,7 @@ async def _run_gm_two_pass(
                 "fallback_cleanup_human_check_text": cleaned_human_check,
                 "fallback_autogen_check": bool(fallback_autogen_check),
                 "fallback_coherence_reprompt": bool(fallback_coherence_reprompt),
+                "fallback_combat_lock_reprompt": bool(combat_lock_reprompt),
                 "llm_draft_finish_reason": draft_resp.get("finish_reason"),
                 "llm_draft_usage": draft_resp.get("usage"),
                 "llm_final_finish_reason": final_resp.get("finish_reason"),
@@ -3532,6 +3613,7 @@ async def _auto_gm_reply_task(session_id: str, expected_action_id: str) -> None:
                 gm_text, _draft_meta, _final_meta, _checks, _check_results = await _run_gm_two_pass(
                     db,
                     sess,
+                    session_id=session_id,
                     draft_prompt=draft_prompt,
                     default_actor_uid=cur_uid,
                     previous_gm_text=previous_gm_text,
@@ -3785,6 +3867,7 @@ async def _auto_round_task(session_id: str, expected_action_id: str) -> None:
                 gm_text, _draft_meta, _final_meta, _checks, _check_results = await _run_gm_two_pass(
                     db,
                     sess,
+                    session_id=session_id,
                     draft_prompt=draft_prompt,
                     default_actor_uid=None,
                     previous_gm_text=previous_gm_text,
