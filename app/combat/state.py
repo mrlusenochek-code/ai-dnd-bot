@@ -92,6 +92,8 @@ def add_enemy(
 
     key = enemy_id if enemy_id else _next_enemy_key(state.combatants)
     previous_key = state.order[state.turn_index] if state.order and 0 <= state.turn_index < len(state.order) else None
+    if state.round_no == 1 and state.turn_index == 0:
+        previous_key = None
 
     hp_max = max(0, int(hp))
     state.combatants[key] = Combatant(
@@ -126,6 +128,8 @@ def upsert_pc(
         return None
 
     previous_key = state.order[state.turn_index] if state.order and 0 <= state.turn_index < len(state.order) else None
+    if state.round_no == 1 and state.turn_index == 0:
+        previous_key = None
 
     hp_max_norm = max(0, int(hp_max))
     hp_norm = max(0, int(hp))
