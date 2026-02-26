@@ -3423,7 +3423,7 @@ async def _run_gm_two_pass(
         final_text = "Сцена продолжается: опишите следующее действие."
 
     action_text = (ctx_line.split(":", 1)[1] if (ctx_line and ":" in ctx_line) else (ctx_line or "")).strip()
-    if action_text and final_text:
+    if (not combat_active) and action_text and final_text:
         stopwords = {
             "когда",
             "потом",
