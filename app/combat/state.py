@@ -16,6 +16,7 @@ class Combatant:
     initiative: int
     dodge_active: bool = False
     dash_active: bool = False
+    disengage_active: bool = False
     help_attack_advantage: bool = False
 
 
