@@ -5116,8 +5116,26 @@ async def ws_room(ws: WebSocket, session_id: str):
                     if not await is_admin(db, sess, player):
                         await ws_error("Only admin can run live combat")
                         continue
+                    bootstrap_zone = "arena"
+                    bootstrap_enemies = [
+                        {"id": "band1", "name": "Разбойник", "hp": 18, "ac": 13, "init_mod": 2, "threat": 2},
+                    ]
+                    settings_set(
+                        sess,
+                        "combat_live_bootstrap",
+                        {
+                            "zone": bootstrap_zone,
+                            "enemies": bootstrap_enemies,
+                        },
+                    )
+                    if sess.is_paused:
+                        sess.is_paused = False
+                        _clear_paused_remaining(sess)
+                        if sess.current_player_id and not sess.turn_started_at:
+                            sess.turn_started_at = utcnow()
+                    await db.commit()
                     gm_text = (
-                        '@@COMBAT_START(zone="arena", cause="admin")\n'
+                        f'@@COMBAT_START(zone="{bootstrap_zone}", cause="admin")\n'
                         '@@COMBAT_ENEMY_ADD(id=band1, name="Разбойник", hp=18, ac=13, init_mod=2, threat=2)'
                     )
                     combat_patch = apply_combat_machine_commands(session_id, gm_text)
@@ -5196,6 +5214,37 @@ async def ws_room(ws: WebSocket, session_id: str):
                     continue
 
                 combat_state = get_combat(session_id)
+                if combat_state is None:
+                    bootstrap = settings_get(sess, "combat_live_bootstrap", None)
+                    if isinstance(bootstrap, dict):
+                        zone_raw = str(bootstrap.get("zone") or "arena").strip() or "arena"
+                        zone = zone_raw.replace('"', '\\"')
+                        enemies = bootstrap.get("enemies")
+                        if isinstance(enemies, list):
+                            lines = [f'@@COMBAT_START(zone="{zone}", cause="bootstrap")']
+                            for enemy in enemies:
+                                if not isinstance(enemy, dict):
+                                    continue
+                                enemy_id = str(enemy.get("id") or "").strip()
+                                enemy_name = str(enemy.get("name") or "").strip()
+                                if not enemy_id or not enemy_name:
+                                    continue
+                                enemy_id_escaped = enemy_id.replace('"', '\\"')
+                                enemy_name_escaped = enemy_name.replace('"', '\\"')
+                                hp = max(1, as_int(enemy.get("hp"), 1))
+                                ac = max(1, as_int(enemy.get("ac"), 10))
+                                init_mod = as_int(enemy.get("init_mod"), 0)
+                                threat = max(0, as_int(enemy.get("threat"), 1))
+                                lines.append(
+                                    f'@@COMBAT_ENEMY_ADD(id={enemy_id_escaped}, name="{enemy_name_escaped}", '
+                                    f"hp={hp}, ac={ac}, init_mod={init_mod}, threat={threat})"
+                                )
+                            if len(lines) > 1:
+                                gm_text = "\n".join(lines)
+                                apply_combat_machine_commands(session_id, gm_text)
+                                uid_map, chars_by_uid, _ = await _load_actor_context(db, sess)
+                                sync_pcs_from_chars(session_id, chars_by_uid)
+                                combat_state = get_combat(session_id)
                 combat_active = bool(combat_state and combat_state.active)
                 combat_action = _detect_chat_combat_action(text) if combat_active else None
 
@@ -5709,7 +5758,7 @@ async def ws_room(ws: WebSocket, session_id: str):
                     actor_label = await _event_actor_label(db, sess, player)
                     pid = str(player.id)
                     current_zone = _get_pc_positions(sess).get(pid, "стартовая локация")
-                    new_zone_preview = infer_zone_from_action(text, current_zone) if combat_action else current_zone
+                    new_zone_preview = current_zone
                     payload = {
                         "type": "player_action",
                         "actor_uid": _player_uid(player),
@@ -5745,9 +5794,6 @@ async def ws_room(ws: WebSocket, session_id: str):
                             await broadcast_state(session_id)
                             continue
 
-                        _set_pc_zone(sess, player.id, new_zone_preview)
-                        await db.commit()
-
                         all_patches: list[dict[str, Any]] = []
                         outcome_summary: list[str] = []
                         combat_patch, combat_err = handle_live_combat_action(combat_action, session_id)
@@ -5776,9 +5822,17 @@ async def ws_room(ws: WebSocket, session_id: str):
                                 all_patches.append(enemy_patch)
                                 outcome_summary.extend(_combat_outcome_summary_from_patch("combat_attack", enemy_patch))
 
+                        state_after_actions = get_combat(session_id)
+                        if state_after_actions is None:
+                            settings = sess.settings if isinstance(sess.settings, dict) else None
+                            if settings and "combat_live_bootstrap" in settings:
+                                settings.pop("combat_live_bootstrap", None)
+                                flag_modified(sess, "settings")
+                                await db.commit()
+
                         merged_patch = _merge_combat_patches(all_patches) if all_patches else None
                         await broadcast_state(session_id, combat_log_ui_patch=merged_patch)
-                        state_for_prompt = get_combat(session_id)
+                        state_for_prompt = state_after_actions
                         story = settings_get(sess, "story", {}) or {}
                         if not isinstance(story, dict):
                             story = {}
