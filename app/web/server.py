@@ -3152,11 +3152,12 @@ async def build_state(db: AsyncSession, sess: Session) -> dict:
     q2 = await db.execute(
         select(Event)
         .where(Event.session_id == sess.id)
-        .order_by(Event.created_at.asc())
+        .order_by(Event.created_at.desc())
         .limit(250)
     )
 
-    events = q2.scalars().all()
+    events_desc = q2.scalars().all()
+    events = list(reversed(events_desc))
 
     remaining = None
     if sess.turn_started_at and not sess.is_paused and sess.current_player_id:
