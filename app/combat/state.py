@@ -15,6 +15,7 @@ class Combatant:
     ac: int
     initiative: int
     dodge_active: bool = False
+    help_attack_advantage: bool = False
 
 
 @dataclass

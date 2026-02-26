@@ -104,6 +104,44 @@ def handle_live_combat_action(
             None,
         )
 
+    if action == "combat_help":
+        state = get_combat(session_id)
+        if state is None or not state.active:
+            return None, "Combat is not active"
+        if not state.order:
+            end_combat(session_id)
+            return (
+                {
+                    "status": "Бой завершён",
+                    "open": False,
+                    "lines": [{"text": "Бой завершён: целей не осталось.", "muted": True}],
+                },
+                None,
+            )
+
+        attacker_key = state.order[state.turn_index]
+        attacker = state.combatants.get(attacker_key)
+        if attacker is None:
+            return None, "Combat state is inconsistent"
+
+        attacker.help_attack_advantage = True
+        lines: list[dict[str, Any]] = [
+            {"text": f"Помощь: {attacker.name} (следующая атака с преимуществом)", "muted": True}
+        ]
+
+        state = advance_turn(session_id)
+        if state is None:
+            return None, "Combat is not active"
+        lines.append({"text": f"Ход автоматически передан: {current_turn_label(state)}", "muted": True})
+        return (
+            {
+                "status": _combat_status(state),
+                "open": True,
+                "lines": lines,
+            },
+            None,
+        )
+
     if action == "combat_attack":
         state = get_combat(session_id)
         if state is None or not state.active:
@@ -136,13 +174,23 @@ def handle_live_combat_action(
                 None,
             )
 
-        d20_roll = random.randint(1, 20)
-        attack_roll_repr = f"d20({d20_roll})"
-        if target.dodge_active:
+        has_disadvantage = target.dodge_active
+        has_advantage = attacker.help_attack_advantage
+        d20_roll: int
+        attack_roll_repr: str
+        if has_advantage and not has_disadvantage:
+            d20_roll_adv_1 = random.randint(1, 20)
+            d20_roll_adv_2 = random.randint(1, 20)
+            d20_roll = max(d20_roll_adv_1, d20_roll_adv_2)
+            attack_roll_repr = f"d20({d20_roll_adv_1},{d20_roll_adv_2}) -> {d20_roll}"
+        elif has_disadvantage and not has_advantage:
             d20_roll_dis_1 = random.randint(1, 20)
             d20_roll_dis_2 = random.randint(1, 20)
             d20_roll = min(d20_roll_dis_1, d20_roll_dis_2)
             attack_roll_repr = f"d20({d20_roll_dis_1},{d20_roll_dis_2}) -> {d20_roll}"
+        else:
+            d20_roll = random.randint(1, 20)
+            attack_roll_repr = f"d20({d20_roll})"
 
         resolution = resolve_attack_roll(
             target_ac=target.ac,
@@ -151,6 +199,7 @@ def handle_live_combat_action(
             damage_roll=random.randint(1, 6),
             damage_bonus=2,
         )
+        attacker.help_attack_advantage = False
         if resolution.is_hit:
             state = apply_damage(session_id, target.key, resolution.total_damage)
             if state is None:

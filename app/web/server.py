@@ -4743,7 +4743,7 @@ async def ws_room(ws: WebSocket, session_id: str):
                     )
                     continue
 
-                if action in {"combat_attack", "combat_end_turn", "combat_dodge"}:
+                if action in {"combat_attack", "combat_end_turn", "combat_dodge", "combat_help"}:
                     if not await is_admin(db, sess, player):
                         await ws_error("Only admin can use combat actions")
                         continue
