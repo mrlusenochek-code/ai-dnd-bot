@@ -4722,6 +4722,9 @@ async def ws_room(ws: WebSocket, session_id: str):
                         }
                     combat_state = get_combat(session_id)
                     if combat_state is not None and combat_state.active:
+                        if combat_patch.get("reset") is True:
+                            combat_state.round_no = 1
+                            combat_state.turn_index = 0
                         combat_patch["status"] = (
                             f"⚔ Бой • Раунд {combat_state.round_no} • Ход: {current_turn_label(combat_state)}"
                         )
