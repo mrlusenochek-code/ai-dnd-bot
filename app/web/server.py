@@ -20,6 +20,7 @@ from sqlalchemy.orm.attributes import flag_modified
 
 from app.ai.gm import generate_from_prompt, generate_lore
 from app.combat.apply_machine import apply_combat_machine_commands
+from app.combat.live_actions import handle_live_combat_action
 from app.combat.machine_commands import extract_combat_machine_commands
 from app.combat.state import current_turn_label, get_combat
 from app.combat.sync_pcs import sync_pcs_from_chars
@@ -4616,6 +4617,18 @@ async def ws_room(ws: WebSocket, session_id: str):
                         await ws_error(combat_err)
                         continue
                     if combat_patch is not None:
+                        await broadcast_state(session_id, combat_log_ui_patch=combat_patch)
+                        continue
+
+                if action in {"combat_attack", "combat_end_turn"}:
+                    if not await is_admin(db, sess, player):
+                        await ws_error("Only admin can use combat actions")
+                        continue
+                    combat_patch, combat_err = handle_live_combat_action(action, session_id)
+                    if combat_err:
+                        await ws_error(combat_err)
+                        continue
+                    if combat_patch:
                         await broadcast_state(session_id, combat_log_ui_patch=combat_patch)
                         continue
 
