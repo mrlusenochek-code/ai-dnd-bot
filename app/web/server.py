@@ -22,7 +22,7 @@ from app.ai.gm import generate_from_prompt, generate_lore
 from app.combat.apply_machine import apply_combat_machine_commands
 from app.combat.live_actions import handle_live_combat_action
 from app.combat.machine_commands import extract_combat_machine_commands
-from app.combat.state import current_turn_label, get_combat
+from app.combat.state import current_turn_label, end_combat, get_combat
 from app.combat.sync_pcs import sync_pcs_from_chars
 from app.combat.test_actions import handle_admin_combat_test_action
 from app.core.logging import configure_logging
@@ -4619,6 +4619,46 @@ async def ws_room(ws: WebSocket, session_id: str):
                     if combat_patch is not None:
                         await broadcast_state(session_id, combat_log_ui_patch=combat_patch)
                         continue
+
+                if action == "admin_combat_live_start":
+                    if not await is_admin(db, sess, player):
+                        await ws_error("Only admin can run live combat")
+                        continue
+                    gm_text = (
+                        '@@COMBAT_START(zone="arena", cause="admin")\n'
+                        '@@COMBAT_ENEMY_ADD(id=band1, name="Разбойник", hp=18, ac=13, init_mod=2, threat=2)'
+                    )
+                    combat_patch = apply_combat_machine_commands(session_id, gm_text)
+                    uid_map, chars_by_uid, _ = await _load_actor_context(db, sess)
+                    sync_pcs_from_chars(session_id, chars_by_uid)
+                    if combat_patch is None:
+                        combat_patch = {
+                            "reset": True,
+                            "open": True,
+                            "lines": [{"text": "Live бой запущен админом.", "muted": True}],
+                        }
+                    combat_state = get_combat(session_id)
+                    if combat_state is not None and combat_state.active:
+                        combat_patch["status"] = (
+                            f"⚔ Бой • Раунд {combat_state.round_no} • Ход: {current_turn_label(combat_state)}"
+                        )
+                    await broadcast_state(session_id, combat_log_ui_patch=combat_patch)
+                    continue
+
+                if action == "admin_combat_live_end":
+                    if not await is_admin(db, sess, player):
+                        await ws_error("Only admin can end live combat")
+                        continue
+                    end_combat(session_id)
+                    await broadcast_state(
+                        session_id,
+                        combat_log_ui_patch={
+                            "status": "Бой завершён",
+                            "open": False,
+                            "lines": [{"text": "Live бой завершён админом.", "muted": True}],
+                        },
+                    )
+                    continue
 
                 if action in {"combat_attack", "combat_end_turn"}:
                     if not await is_admin(db, sess, player):
