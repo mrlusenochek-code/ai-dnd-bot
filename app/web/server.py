@@ -5729,6 +5729,7 @@ async def ws_room(ws: WebSocket, session_id: str):
                         actor_player_id=player.id,
                         result_json=payload,
                     )
+                    await db.commit()
                     await broadcast_state(session_id)
 
                     if combat_action:
@@ -5775,6 +5776,7 @@ async def ws_room(ws: WebSocket, session_id: str):
                                 outcome_summary.extend(_combat_outcome_summary_from_patch("combat_attack", enemy_patch))
 
                         merged_patch = _merge_combat_patches(all_patches) if all_patches else None
+                        await broadcast_state(session_id, combat_log_ui_patch=merged_patch)
                         state_for_prompt = get_combat(session_id)
                         story = settings_get(sess, "story", {}) or {}
                         if not isinstance(story, dict):
@@ -5799,7 +5801,7 @@ async def ws_room(ws: WebSocket, session_id: str):
                                 "combat_summary": outcome_summary,
                             },
                         )
-                        await broadcast_state(session_id, combat_log_ui_patch=merged_patch)
+                        await broadcast_state(session_id)
                         continue
 
                     already_sent = await _combat_clarify_already_sent(db, sess, msg_request_id)
