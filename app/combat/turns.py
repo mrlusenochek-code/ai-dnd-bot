@@ -34,5 +34,6 @@ def advance_turn_in_state(state: CombatState) -> CombatState:
     current_combatant = state.combatants.get(current_key)
     if current_combatant is not None:
         current_combatant.dodge_active = False
+        current_combatant.dash_active = False
 
     return state

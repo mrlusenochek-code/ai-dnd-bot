@@ -104,6 +104,42 @@ def handle_live_combat_action(
             None,
         )
 
+    if action == "combat_dash":
+        state = get_combat(session_id)
+        if state is None or not state.active:
+            return None, "Combat is not active"
+        if not state.order:
+            end_combat(session_id)
+            return (
+                {
+                    "status": "Бой завершён",
+                    "open": False,
+                    "lines": [{"text": "Бой завершён: целей не осталось.", "muted": True}],
+                },
+                None,
+            )
+
+        attacker_key = state.order[state.turn_index]
+        attacker = state.combatants.get(attacker_key)
+        if attacker is None:
+            return None, "Combat state is inconsistent"
+
+        attacker.dash_active = True
+        lines: list[dict[str, Any]] = [{"text": f"Рывок: {attacker.name} (до следующего хода)", "muted": True}]
+
+        state = advance_turn(session_id)
+        if state is None:
+            return None, "Combat is not active"
+        lines.append({"text": f"Ход автоматически передан: {current_turn_label(state)}", "muted": True})
+        return (
+            {
+                "status": _combat_status(state),
+                "open": True,
+                "lines": lines,
+            },
+            None,
+        )
+
     if action == "combat_help":
         state = get_combat(session_id)
         if state is None or not state.active:
