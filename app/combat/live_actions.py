@@ -142,6 +142,10 @@ def handle_live_combat_action(
         side_pc_alive = _is_side_alive(state, "pc")
         side_enemy_alive = _is_side_alive(state, "enemy")
         if not side_pc_alive or not side_enemy_alive:
+            if not side_enemy_alive:
+                lines.append({"text": "Победа: противники повержены.", "muted": True})
+            if not side_pc_alive:
+                lines.append({"text": "Поражение: все герои выбыли.", "muted": True})
             end_combat(session_id)
             return (
                 {
@@ -155,6 +159,7 @@ def handle_live_combat_action(
         state = advance_turn(session_id)
         if state is None:
             return None, "Combat is not active"
+        lines.append({"text": f"Ход автоматически передан: {current_turn_label(state)}", "muted": True})
         return (
             {
                 "status": _combat_status(state),
