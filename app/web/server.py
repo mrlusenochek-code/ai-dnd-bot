@@ -65,6 +65,19 @@ COMBAT_NARRATION_BANNED_RE = re.compile(
     r"\b(?:урон|ac|hp|d20|проверка|бросок|dc)\b",
     flags=re.IGNORECASE,
 )
+COMBAT_DRIFT_MARKERS = (
+    "старик",
+    "стражник",
+    "стражники",
+    "стена",
+    "толпа",
+    "рынок",
+    "таверна",
+    "лес",
+    "лавка",
+    "магазин",
+)
+COMBAT_CLARIFY_TEXT = "🧙 GM: Сейчас бой. Уточни: атака/уклон/помощь/рывок/отход/предмет/конец хода.\nЧто делаете дальше?"
 COMBAT_MECHANICS_EVENT_RE = re.compile(
     r"(?:@@|🎲|Бросок атаки|Результат:|Урон:|:\s*HP\s+\d+/\d+|vs AC|Раунд\s+\d+|Ход автоматически передан)",
     flags=re.IGNORECASE,
@@ -1130,7 +1143,9 @@ def _looks_like_combat_drift(text: str) -> bool:
         r"\bвы\s+покидаете\b",
         r"\bпокидаете\s+(?:локаци\w*|место|поле\s+боя)\b",
     ]
-    return any(re.search(pattern, lowered, flags=re.IGNORECASE) for pattern in drift_patterns)
+    if any(re.search(pattern, lowered, flags=re.IGNORECASE) for pattern in drift_patterns):
+        return True
+    return any(marker in lowered for marker in COMBAT_DRIFT_MARKERS)
 
 
 def _checks_from_human_text(draft_text: str, default_actor_uid: Optional[int]) -> list[dict[str, Any]]:
@@ -2225,17 +2240,40 @@ async def _recent_narrative_events_for_combat_prompt(
     return out[-max(1, int(limit)) :]
 
 
+async def _combat_clarify_already_sent(
+    db: AsyncSession,
+    sess: Session,
+    request_id: Optional[str],
+) -> bool:
+    rid = str(request_id or "").strip()
+    if not rid:
+        return False
+    q_events = await db.execute(
+        select(Event)
+        .where(Event.session_id == sess.id)
+        .order_by(Event.created_at.desc())
+        .limit(25)
+    )
+    for ev in q_events.scalars().all():
+        payload = ev.result_json if isinstance(ev.result_json, dict) else {}
+        if str(payload.get("type") or "") != "combat_chat_gm_reply":
+            continue
+        if payload.get("combat_action") is not None:
+            continue
+        if str(payload.get("request_id") or "").strip() != rid:
+            continue
+        if COMBAT_CLARIFY_TEXT in str(ev.message_text or ""):
+            return True
+    return False
+
+
 def _build_combat_narration_prompt(
     campaign_title: str,
-    lore_or_setting: str,
-    recent_events: list[str],
     outcome_summary: list[str],
     current_turn: str,
     participants_block: str,
 ) -> str:
     title = (campaign_title or "Campaign").strip() or "Campaign"
-    lore = _de_numberize_text(lore_or_setting).strip()
-    events_block = "\n".join(f"- {x}" for x in recent_events[-10:]) or "- (контекст пуст)"
     outcomes = [str(x).strip() for x in outcome_summary if str(x).strip()]
     outcomes_block = "\n".join(f"- {x}" for x in outcomes) if outcomes else "- схватка продолжается в том же темпе"
     return (
@@ -2255,9 +2293,8 @@ def _build_combat_narration_prompt(
         f"Кампания: {title}\n"
         f"Текущий ход: {current_turn or '-'}\n"
         f"Участники боя:\n{participants_block or '- PC: (нет)\\n- ENEMY: (нет)'}\n"
-        f"Лор/сеттинг:\n{lore or '(нет данных)'}\n\n"
-        f"Последние события без механики:\n{events_block}\n\n"
-        f"Сводка исходов без цифр:\n{outcomes_block}\n"
+        f"Сводка исходов без цифр:\n{outcomes_block}\n\n"
+        "ВАЖНО: Нарратив обязан явно отразить действие игрока из сводки исходов."
     )
 
 
@@ -2266,6 +2303,7 @@ def _sanitize_combat_narration(text: str) -> str:
     txt = re.sub(r"(?im)^\s*@@[A-Z_]+.*$", "", txt).strip()
     txt = re.sub(r"(?im)^\s*(?:\*|-)\s+.*$", "", txt)
     txt = re.sub(r"(?im)^\s*\d+\)\s+.*$", "", txt)
+    txt = re.sub(r"(?im)^\s*\d+\.\s+.*$", "", txt)
     txt = re.sub(r"[«\"“][^\"»”\n]{0,240}[»\"”]", "", txt)
     txt = COMBAT_NARRATION_BANNED_RE.sub("", txt)
     txt = re.sub(r"\d+", "", txt)
@@ -2284,6 +2322,56 @@ def _sanitize_combat_narration(text: str) -> str:
     return txt.strip()
 
 
+def _combat_safe_fallback(player_action: str, outcome_summary: list[str]) -> str:
+    summary_line = ""
+    for item in outcome_summary:
+        candidate = _de_numberize_text(item)
+        if candidate:
+            summary_line = candidate.rstrip(".!?") + "."
+            break
+    if not summary_line:
+        summary_line = "Схватка продолжается в тесном контакте."
+
+    if player_action == "combat_attack":
+        action_line = "Вы проводите атаку в гуще боя, и исход удара сразу меняет темп схватки."
+    else:
+        action_line = "Ваш боевой манёвр сразу влияет на ход столкновения."
+
+    return (
+        f"{action_line}\n"
+        f"{summary_line}\n"
+        "Противники отвечают мгновенно, и бой не даёт передышки.\n"
+        "Что делаете дальше?"
+    )
+
+
+def _combat_narration_mentions_action(text: str, action: str) -> bool:
+    lowered = str(text or "").lower().replace("ё", "е")
+    if action == "combat_attack":
+        return bool(re.search(r"(атак|удар|попад|промах|крит)", lowered))
+    if action == "combat_dodge":
+        return bool(re.search(r"(уклон|уворот|защит)", lowered))
+    if action == "combat_help":
+        return bool(re.search(r"(помо|поддерж|прикр)", lowered))
+    if action == "combat_dash":
+        return bool(re.search(r"(рывок|рван|спринт|бросок)", lowered))
+    if action == "combat_disengage":
+        return bool(re.search(r"(отход|отступ|разрыв дистанц)", lowered))
+    if action == "combat_use_object":
+        return bool(re.search(r"(предмет|флакон|зелье|устройств)", lowered))
+    if action == "combat_end_turn":
+        return bool(re.search(r"(переда(ет|ете) ход|инициатив)", lowered))
+    return True
+
+
+def _combat_participant_line(actor: Any) -> str:
+    name = str(getattr(actor, "name", "") or getattr(actor, "key", "") or "боец").strip()
+    hp_cur = int(getattr(actor, "hp_current", 0) or 0)
+    hp_max = int(getattr(actor, "hp_max", 1) or 1)
+    state = _hp_state_label(hp_cur, hp_max)
+    return f"{name} ({state})"
+
+
 def _combat_participants_block(state: Any) -> str:
     combatants = getattr(state, "combatants", {}) if state is not None else {}
     if not isinstance(combatants, dict) or not combatants:
@@ -2295,7 +2383,7 @@ def _combat_participants_block(state: Any) -> str:
         actor = combatants.get(key)
         if actor is None:
             continue
-        label = str(getattr(actor, "name", "") or key).strip() or key
+        label = _combat_participant_line(actor)
         side = str(getattr(actor, "side", "")).lower()
         if side == "pc":
             pcs.append(label)
@@ -2304,7 +2392,7 @@ def _combat_participants_block(state: Any) -> str:
 
     if not pcs or not enemies:
         for key, actor in combatants.items():
-            label = str(getattr(actor, "name", "") or key).strip() or str(key)
+            label = _combat_participant_line(actor)
             side = str(getattr(actor, "side", "")).lower()
             if side == "pc" and label not in pcs:
                 pcs.append(label)
@@ -2318,16 +2406,13 @@ def _combat_participants_block(state: Any) -> str:
 
 async def _generate_combat_narration(
     campaign_title: str,
-    lore_or_setting: str,
-    recent_events: list[str],
     outcome_summary: list[str],
+    player_action: str,
     current_turn: str,
     participants_block: str,
 ) -> str:
     prompt = _build_combat_narration_prompt(
         campaign_title=campaign_title,
-        lore_or_setting=lore_or_setting,
-        recent_events=recent_events,
         outcome_summary=outcome_summary,
         current_turn=current_turn,
         participants_block=participants_block,
@@ -2338,8 +2423,17 @@ async def _generate_combat_narration(
         num_predict=max(240, GM_FINAL_NUM_PREDICT // 3),
     )
     text = _sanitize_combat_narration(str(resp.get("text") or "").strip())
-    if _looks_like_refusal(text):
-        return "Схватка продолжается: сталь звенит, враги давят, но у вас ещё есть шанс.\nЧто делаете дальше?"
+    if (
+        _looks_like_refusal(text)
+        or not text
+        or _looks_like_combat_drift(text)
+        or any(marker in text.lower().replace("ё", "е") for marker in COMBAT_DRIFT_MARKERS)
+    ):
+        return _combat_safe_fallback(player_action, outcome_summary)
+    if not _combat_narration_mentions_action(text, player_action):
+        repaired = _sanitize_combat_narration(f"{_combat_safe_fallback(player_action, outcome_summary)}\n{text}")
+        if repaired:
+            return repaired
     return text
 
 
@@ -5611,6 +5705,32 @@ async def ws_room(ws: WebSocket, session_id: str):
                     continue
 
                 if combat_active:
+                    actor_label = await _event_actor_label(db, sess, player)
+                    pid = str(player.id)
+                    current_zone = _get_pc_positions(sess).get(pid, "стартовая локация")
+                    new_zone_preview = infer_zone_from_action(text, current_zone) if combat_action else current_zone
+                    payload = {
+                        "type": "player_action",
+                        "actor_uid": _player_uid(player),
+                        "actor_player_id": str(player.id),
+                        "join_order": int(sp.join_order or 0),
+                        "raw_text": text,
+                        "mode": "free_turns" if _is_free_turns(sess) else "turns",
+                        "phase": _get_phase(sess),
+                        "zone_before": current_zone,
+                        "zone_after": new_zone_preview,
+                        "turn_index": int(sess.turn_index or 0),
+                        "combat_chat_action": combat_action,
+                    }
+                    await add_event(
+                        db,
+                        sess,
+                        f"{actor_label}: {text}",
+                        actor_player_id=player.id,
+                        result_json=payload,
+                    )
+                    await broadcast_state(session_id)
+
                     if combat_action:
                         player_uid = _player_uid(player)
                         player_key = f"pc_{player_uid}" if player_uid is not None else ""
@@ -5623,32 +5743,8 @@ async def ws_room(ws: WebSocket, session_id: str):
                             await broadcast_state(session_id)
                             continue
 
-                        actor_label = await _event_actor_label(db, sess, player)
-                        pid = str(player.id)
-                        phase = _get_phase(sess)
-                        current_zone = _get_pc_positions(sess).get(pid, "стартовая локация")
-                        new_zone = infer_zone_from_action(text, current_zone)
-                        _set_pc_zone(sess, player.id, new_zone)
-                        payload = {
-                            "type": "player_action",
-                            "actor_uid": _player_uid(player),
-                            "actor_player_id": str(player.id),
-                            "join_order": int(sp.join_order or 0),
-                            "raw_text": text,
-                            "mode": "free_turns" if _is_free_turns(sess) else "turns",
-                            "phase": phase,
-                            "zone_before": current_zone,
-                            "zone_after": new_zone,
-                            "turn_index": int(sess.turn_index or 0),
-                            "combat_chat_action": combat_action,
-                        }
-                        await add_event(
-                            db,
-                            sess,
-                            f"{actor_label}: {text}",
-                            actor_player_id=player.id,
-                            result_json=payload,
-                        )
+                        _set_pc_zone(sess, player.id, new_zone_preview)
+                        await db.commit()
 
                         all_patches: list[dict[str, Any]] = []
                         outcome_summary: list[str] = []
@@ -5684,17 +5780,12 @@ async def ws_room(ws: WebSocket, session_id: str):
                         if not isinstance(story, dict):
                             story = {}
                         campaign_title = str(story.get("story_title") or "").strip() or str(sess.title or "Campaign").strip() or "Campaign"
-                        lore_text = str(settings_get(sess, "lore_text", "") or "").strip()
-                        story_setting = str(story.get("story_setting") or "").strip()
-                        lore_or_setting = lore_text or story_setting
-                        recent_events = await _recent_narrative_events_for_combat_prompt(db, sess, limit=10)
                         turn_label = current_turn_label(state_for_prompt) if state_for_prompt else "-"
                         participants_block = _combat_participants_block(state_for_prompt)
                         gm_text = await _generate_combat_narration(
                             campaign_title=campaign_title,
-                            lore_or_setting=lore_or_setting,
-                            recent_events=recent_events,
                             outcome_summary=outcome_summary,
+                            player_action=combat_action,
                             current_turn=turn_label,
                             participants_block=participants_block,
                         )
@@ -5708,22 +5799,23 @@ async def ws_room(ws: WebSocket, session_id: str):
                                 "combat_summary": outcome_summary,
                             },
                         )
-                        await db.commit()
                         await broadcast_state(session_id, combat_log_ui_patch=merged_patch)
                         continue
 
-                    await add_system_event(
-                        db,
-                        sess,
-                        "🧙 GM: Сейчас бой. Уточни: атака/уклон/помощь/рывок/отход/предмет/конец хода.\nЧто делаете дальше?",
-                        result_json={
-                            "type": "combat_chat_gm_reply",
-                            "combat_action": None,
-                            "combat_summary": ["Схватка продолжается в текущем темпе."],
-                        },
-                    )
-                    await db.commit()
-                    await broadcast_state(session_id)
+                    already_sent = await _combat_clarify_already_sent(db, sess, msg_request_id)
+                    if not already_sent:
+                        await add_system_event(
+                            db,
+                            sess,
+                            COMBAT_CLARIFY_TEXT,
+                            result_json={
+                                "type": "combat_chat_gm_reply",
+                                "combat_action": None,
+                                "combat_summary": ["Схватка продолжается в текущем темпе."],
+                                "request_id": str(msg_request_id or ""),
+                            },
+                        )
+                        await broadcast_state(session_id)
                     continue
 
                 # DICE (must be started, not paused, your turn) — does NOT end turn
