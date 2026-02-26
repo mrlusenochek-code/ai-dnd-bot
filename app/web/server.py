@@ -319,6 +319,10 @@ GM_META_BANNED_PHRASES = (
 _COMBAT_LOCK_PROMPT = (
     "COMBAT MODE (жестко, обязательно):\n"
     "Бой активен прямо сейчас. Ты - боевой рассказчик.\n"
+    "Бой активен. Описывай ТОЛЬКО бой. Нельзя упоминать старика/стражников/стену/толпу/леса, если их нет среди участников боя.\n"
+    "Запрещены списки/варианты/звёздочки/маркированные пункты.\n"
+    "Запрещено цитировать игрока и писать реплики игрока.\n"
+    "Нельзя переноситься в другие сцены/локации/время.\n"
     "Запрещено менять сцену/локацию/время и уводить сюжет после боя.\n"
     "Запрещено завершать бой словами (победа/поражение/перемирие/бой окончен) и запрещено выдавать @@COMBAT_END.\n"
     "Запрещено выдавать @@COMBAT_START повторно.\n"
@@ -2095,13 +2099,19 @@ def _combat_outcome_summary_from_patch(
     action: str,
     combat_patch: Optional[dict[str, Any]],
 ) -> list[str]:
+    combat_line_re = re.compile(
+        r"(?:^Атака:|^Результат:|^Урон:|:\s*HP\s*\d+/\d+|Ход автоматически передан|повержен|промах|попадание|крит)",
+        flags=re.IGNORECASE,
+    )
     patch = combat_patch if isinstance(combat_patch, dict) else {}
     lines: list[str] = []
     for item in patch.get("lines", []):
         if isinstance(item, dict):
             txt = str(item.get("text") or "").strip()
-            if txt:
+            if txt and combat_line_re.search(txt):
                 lines.append(txt)
+    if not lines:
+        return ["Схватка продолжается в напряжённом темпе."]
 
     if action == "combat_attack":
         actor = "боец"
@@ -2191,6 +2201,12 @@ async def _recent_narrative_events_for_combat_prompt(
     rows = q_events.scalars().all()
     out: list[str] = []
     for ev in reversed(rows):
+        payload = ev.result_json if isinstance(ev.result_json, dict) else {}
+        ev_type = str(payload.get("type") or "").strip().lower()
+        is_combat_chat = ev_type == "combat_chat_gm_reply"
+        is_combat_action = ev_type == "player_action" and bool(payload.get("combat_chat_action"))
+        if not (is_combat_chat or is_combat_action):
+            continue
         raw = str(ev.message_text or "").strip()
         if not raw:
             continue
@@ -2204,6 +2220,8 @@ async def _recent_narrative_events_for_combat_prompt(
         if not candidate:
             continue
         out.append(candidate)
+    if not out:
+        out.append("Схватка продолжается: стороны держат строй и ищут уязвимость.")
     return out[-max(1, int(limit)) :]
 
 
@@ -2212,12 +2230,22 @@ def _build_combat_narration_prompt(
     lore_or_setting: str,
     recent_events: list[str],
     outcome_summary: list[str],
+    current_turn: str,
+    participants_block: str,
 ) -> str:
     title = (campaign_title or "Campaign").strip() or "Campaign"
     lore = _de_numberize_text(lore_or_setting).strip()
     events_block = "\n".join(f"- {x}" for x in recent_events[-10:]) or "- (контекст пуст)"
-    outcomes_block = "\n".join(f"- {x}" for x in outcome_summary if str(x).strip()) or "- схватка продолжается"
+    outcomes = [str(x).strip() for x in outcome_summary if str(x).strip()]
+    outcomes_block = "\n".join(f"- {x}" for x in outcomes) if outcomes else "- схватка продолжается в том же темпе"
     return (
+        "COMBAT LOCK (строго):\n"
+        "Бой активен. Описывай ТОЛЬКО бой.\n"
+        "Нельзя упоминать старика/стражников/стену/толпу/леса, если их нет среди участников боя.\n"
+        "Запрещены списки/варианты/звёздочки/маркированные пункты.\n"
+        "Запрещено цитировать игрока и писать реплики игрока.\n"
+        "Нельзя переноситься в другие сцены/локации/время.\n"
+        "Всегда заканчивай: Что делаете дальше?\n\n"
         "Ты GM этой кампании. Пиши по-русски, сохрани стиль и жанр лора.\n"
         "Коротко: 3-7 предложений.\n"
         "Запреты: ни одной цифры, ни бросков, ни DC, ни значений характеристик.\n"
@@ -2225,6 +2253,8 @@ def _build_combat_narration_prompt(
         "Не раскрывай механику. Покажи только художественные последствия.\n"
         "Последняя строка строго: Что делаете дальше?\n\n"
         f"Кампания: {title}\n"
+        f"Текущий ход: {current_turn or '-'}\n"
+        f"Участники боя:\n{participants_block or '- PC: (нет)\\n- ENEMY: (нет)'}\n"
         f"Лор/сеттинг:\n{lore or '(нет данных)'}\n\n"
         f"Последние события без механики:\n{events_block}\n\n"
         f"Сводка исходов без цифр:\n{outcomes_block}\n"
@@ -2234,17 +2264,56 @@ def _build_combat_narration_prompt(
 def _sanitize_combat_narration(text: str) -> str:
     txt = _sanitize_gm_output(_strip_machine_lines(str(text or "").strip()))
     txt = re.sub(r"(?im)^\s*@@[A-Z_]+.*$", "", txt).strip()
+    txt = re.sub(r"(?im)^\s*(?:\*|-)\s+.*$", "", txt)
+    txt = re.sub(r"(?im)^\s*\d+\)\s+.*$", "", txt)
+    txt = re.sub(r"[«\"“][^\"»”\n]{0,240}[»\"”]", "", txt)
     txt = COMBAT_NARRATION_BANNED_RE.sub("", txt)
     txt = re.sub(r"\d+", "", txt)
     txt = re.sub(r"\s{2,}", " ", txt)
     txt = re.sub(r"[ \t]*\n[ \t]*", "\n", txt)
     txt = txt.strip(" \n\r\t-")
     if not txt:
-        txt = "Схватка рвётся вперёд без паузы, каждый миг может стать решающим."
+        txt = (
+            "Схватка не стихает, сталь и крики сливаются в единый гул.\n"
+            "Противники давят, но вы удерживаете темп и ищете окно для манёвра.\n"
+            "Инициатива всё ещё в ваших руках."
+        )
     if not re.search(r"что\s+делаете\s+дальше\??\s*$", txt, flags=re.IGNORECASE):
         txt = txt.rstrip(".!? \n") + "\nЧто делаете дальше?"
     txt = re.sub(r"(?im)^что\s+делаете\s+дальше\??\s*$", "Что делаете дальше?", txt)
     return txt.strip()
+
+
+def _combat_participants_block(state: Any) -> str:
+    combatants = getattr(state, "combatants", {}) if state is not None else {}
+    if not isinstance(combatants, dict) or not combatants:
+        return "- PC: (нет)\n- ENEMY: (нет)"
+
+    pcs: list[str] = []
+    enemies: list[str] = []
+    for key in getattr(state, "order", []) or []:
+        actor = combatants.get(key)
+        if actor is None:
+            continue
+        label = str(getattr(actor, "name", "") or key).strip() or key
+        side = str(getattr(actor, "side", "")).lower()
+        if side == "pc":
+            pcs.append(label)
+        elif side == "enemy":
+            enemies.append(label)
+
+    if not pcs or not enemies:
+        for key, actor in combatants.items():
+            label = str(getattr(actor, "name", "") or key).strip() or str(key)
+            side = str(getattr(actor, "side", "")).lower()
+            if side == "pc" and label not in pcs:
+                pcs.append(label)
+            elif side == "enemy" and label not in enemies:
+                enemies.append(label)
+
+    pcs_text = ", ".join(pcs) if pcs else "(нет)"
+    enemies_text = ", ".join(enemies) if enemies else "(нет)"
+    return f"- PC: {pcs_text}\n- ENEMY: {enemies_text}"
 
 
 async def _generate_combat_narration(
@@ -2252,12 +2321,16 @@ async def _generate_combat_narration(
     lore_or_setting: str,
     recent_events: list[str],
     outcome_summary: list[str],
+    current_turn: str,
+    participants_block: str,
 ) -> str:
     prompt = _build_combat_narration_prompt(
         campaign_title=campaign_title,
         lore_or_setting=lore_or_setting,
         recent_events=recent_events,
         outcome_summary=outcome_summary,
+        current_turn=current_turn,
+        participants_block=participants_block,
     )
     resp = await generate_from_prompt(
         prompt=prompt,
@@ -5027,11 +5100,15 @@ async def ws_room(ws: WebSocket, session_id: str):
                     await broadcast_state(session_id)
                     continue
 
+                combat_state = get_combat(session_id)
+                combat_active = bool(combat_state and combat_state.active)
+                combat_action = _detect_chat_combat_action(text) if combat_active else None
+
                 phase_now = _get_phase(sess)
                 if phase_now == "lore_pending":
                     await ws_error("Ждём вступительную историю...")
                     continue
-                if phase_now == "gm_pending":
+                if phase_now == "gm_pending" and not combat_active:
                     await ws_error("Ждём ответа мастера...")
                     continue
 
@@ -5533,102 +5610,120 @@ async def ws_room(ws: WebSocket, session_id: str):
                     await ws_error("Unknown init command")
                     continue
 
-                combat_state = get_combat(session_id)
-                combat_action = _detect_chat_combat_action(text) if (combat_state and combat_state.active) else None
-                if combat_action:
-                    player_uid = _player_uid(player)
-                    player_key = f"pc_{player_uid}" if player_uid is not None else ""
-                    turn_key: Optional[str] = None
-                    if combat_state and combat_state.order and 0 <= combat_state.turn_index < len(combat_state.order):
-                        turn_key = combat_state.order[combat_state.turn_index]
-                    if not turn_key or turn_key != player_key:
-                        current_name = current_turn_label(combat_state) if combat_state else "другой участник"
-                        await add_system_event(db, sess, f"Сейчас ходит {current_name}. Дождись своего хода.")
-                        await broadcast_state(session_id)
+                if combat_active:
+                    if combat_action:
+                        player_uid = _player_uid(player)
+                        player_key = f"pc_{player_uid}" if player_uid is not None else ""
+                        turn_key: Optional[str] = None
+                        if combat_state and combat_state.order and 0 <= combat_state.turn_index < len(combat_state.order):
+                            turn_key = combat_state.order[combat_state.turn_index]
+                        if not turn_key or turn_key != player_key:
+                            current_name = current_turn_label(combat_state) if combat_state else "другой участник"
+                            await add_system_event(db, sess, f"Сейчас ходит {current_name}. Дождись своего хода.")
+                            await broadcast_state(session_id)
+                            continue
+
+                        actor_label = await _event_actor_label(db, sess, player)
+                        pid = str(player.id)
+                        phase = _get_phase(sess)
+                        current_zone = _get_pc_positions(sess).get(pid, "стартовая локация")
+                        new_zone = infer_zone_from_action(text, current_zone)
+                        _set_pc_zone(sess, player.id, new_zone)
+                        payload = {
+                            "type": "player_action",
+                            "actor_uid": _player_uid(player),
+                            "actor_player_id": str(player.id),
+                            "join_order": int(sp.join_order or 0),
+                            "raw_text": text,
+                            "mode": "free_turns" if _is_free_turns(sess) else "turns",
+                            "phase": phase,
+                            "zone_before": current_zone,
+                            "zone_after": new_zone,
+                            "turn_index": int(sess.turn_index or 0),
+                            "combat_chat_action": combat_action,
+                        }
+                        await add_event(
+                            db,
+                            sess,
+                            f"{actor_label}: {text}",
+                            actor_player_id=player.id,
+                            result_json=payload,
+                        )
+
+                        all_patches: list[dict[str, Any]] = []
+                        outcome_summary: list[str] = []
+                        combat_patch, combat_err = handle_live_combat_action(combat_action, session_id)
+                        if combat_err:
+                            await ws_error(combat_err)
+                            continue
+                        if combat_patch:
+                            all_patches.append(combat_patch)
+                            outcome_summary.extend(_combat_outcome_summary_from_patch(combat_action, combat_patch))
+
+                        while True:
+                            state_now = get_combat(session_id)
+                            if not state_now or not state_now.active or not state_now.order:
+                                break
+                            if state_now.turn_index < 0 or state_now.turn_index >= len(state_now.order):
+                                break
+                            turn_key_now = state_now.order[state_now.turn_index]
+                            turn_actor = state_now.combatants.get(turn_key_now)
+                            if not turn_actor or turn_actor.side != "enemy":
+                                break
+                            enemy_patch, enemy_err = handle_live_combat_action("combat_attack", session_id)
+                            if enemy_err:
+                                logger.warning("enemy auto combat action failed", extra={"action": {"error": enemy_err}})
+                                break
+                            if enemy_patch:
+                                all_patches.append(enemy_patch)
+                                outcome_summary.extend(_combat_outcome_summary_from_patch("combat_attack", enemy_patch))
+
+                        merged_patch = _merge_combat_patches(all_patches) if all_patches else None
+                        state_for_prompt = get_combat(session_id)
+                        story = settings_get(sess, "story", {}) or {}
+                        if not isinstance(story, dict):
+                            story = {}
+                        campaign_title = str(story.get("story_title") or "").strip() or str(sess.title or "Campaign").strip() or "Campaign"
+                        lore_text = str(settings_get(sess, "lore_text", "") or "").strip()
+                        story_setting = str(story.get("story_setting") or "").strip()
+                        lore_or_setting = lore_text or story_setting
+                        recent_events = await _recent_narrative_events_for_combat_prompt(db, sess, limit=10)
+                        turn_label = current_turn_label(state_for_prompt) if state_for_prompt else "-"
+                        participants_block = _combat_participants_block(state_for_prompt)
+                        gm_text = await _generate_combat_narration(
+                            campaign_title=campaign_title,
+                            lore_or_setting=lore_or_setting,
+                            recent_events=recent_events,
+                            outcome_summary=outcome_summary,
+                            current_turn=turn_label,
+                            participants_block=participants_block,
+                        )
+                        await add_system_event(
+                            db,
+                            sess,
+                            f"🧙 GM: {gm_text}",
+                            result_json={
+                                "type": "combat_chat_gm_reply",
+                                "combat_action": combat_action,
+                                "combat_summary": outcome_summary,
+                            },
+                        )
+                        await db.commit()
+                        await broadcast_state(session_id, combat_log_ui_patch=merged_patch)
                         continue
 
-                    actor_label = await _event_actor_label(db, sess, player)
-                    pid = str(player.id)
-                    phase = _get_phase(sess)
-                    current_zone = _get_pc_positions(sess).get(pid, "стартовая локация")
-                    new_zone = infer_zone_from_action(text, current_zone)
-                    _set_pc_zone(sess, player.id, new_zone)
-                    payload = {
-                        "type": "player_action",
-                        "actor_uid": _player_uid(player),
-                        "actor_player_id": str(player.id),
-                        "join_order": int(sp.join_order or 0),
-                        "raw_text": text,
-                        "mode": "free_turns" if _is_free_turns(sess) else "turns",
-                        "phase": phase,
-                        "zone_before": current_zone,
-                        "zone_after": new_zone,
-                        "turn_index": int(sess.turn_index or 0),
-                        "combat_chat_action": combat_action,
-                    }
-                    await add_event(
-                        db,
-                        sess,
-                        f"{actor_label}: {text}",
-                        actor_player_id=player.id,
-                        result_json=payload,
-                    )
-
-                    all_patches: list[dict[str, Any]] = []
-                    outcome_summary: list[str] = []
-                    combat_patch, combat_err = handle_live_combat_action(combat_action, session_id)
-                    if combat_err:
-                        await ws_error(combat_err)
-                        continue
-                    if combat_patch:
-                        all_patches.append(combat_patch)
-                        outcome_summary.extend(_combat_outcome_summary_from_patch(combat_action, combat_patch))
-
-                    while True:
-                        state_now = get_combat(session_id)
-                        if not state_now or not state_now.active or not state_now.order:
-                            break
-                        if state_now.turn_index < 0 or state_now.turn_index >= len(state_now.order):
-                            break
-                        turn_key_now = state_now.order[state_now.turn_index]
-                        turn_actor = state_now.combatants.get(turn_key_now)
-                        if not turn_actor or turn_actor.side != "enemy":
-                            break
-                        enemy_patch, enemy_err = handle_live_combat_action("combat_attack", session_id)
-                        if enemy_err:
-                            logger.warning("enemy auto combat action failed", extra={"action": {"error": enemy_err}})
-                            break
-                        if enemy_patch:
-                            all_patches.append(enemy_patch)
-                            outcome_summary.extend(_combat_outcome_summary_from_patch("combat_attack", enemy_patch))
-
-                    merged_patch = _merge_combat_patches(all_patches) if all_patches else None
-                    story = settings_get(sess, "story", {}) or {}
-                    if not isinstance(story, dict):
-                        story = {}
-                    campaign_title = str(story.get("story_title") or "").strip() or str(sess.title or "Campaign").strip() or "Campaign"
-                    lore_text = str(settings_get(sess, "lore_text", "") or "").strip()
-                    story_setting = str(story.get("story_setting") or "").strip()
-                    lore_or_setting = lore_text or story_setting
-                    recent_events = await _recent_narrative_events_for_combat_prompt(db, sess, limit=10)
-                    gm_text = await _generate_combat_narration(
-                        campaign_title=campaign_title,
-                        lore_or_setting=lore_or_setting,
-                        recent_events=recent_events,
-                        outcome_summary=outcome_summary,
-                    )
                     await add_system_event(
                         db,
                         sess,
-                        f"🧙 GM: {gm_text}",
+                        "🧙 GM: Сейчас бой. Уточни: атака/уклон/помощь/рывок/отход/предмет/конец хода.\nЧто делаете дальше?",
                         result_json={
                             "type": "combat_chat_gm_reply",
-                            "combat_action": combat_action,
-                            "combat_summary": outcome_summary,
+                            "combat_action": None,
+                            "combat_summary": ["Схватка продолжается в текущем темпе."],
                         },
                     )
                     await db.commit()
-                    await broadcast_state(session_id, combat_log_ui_patch=merged_patch)
+                    await broadcast_state(session_id)
                     continue
 
                 # DICE (must be started, not paused, your turn) — does NOT end turn
