@@ -4,11 +4,13 @@ from app.combat.state import CombatState, Combatant
 
 
 def build_initiative_order(combatants: dict[str, Combatant]) -> list[str]:
-    """Build stable initiative order: higher initiative first, then name/key."""
+    """Build stable initiative order: initiative desc, pc before enemy, then name/key."""
+    side_priority = {"pc": 0, "enemy": 1}
     return sorted(
         combatants.keys(),
         key=lambda key: (
             -combatants[key].initiative,
+            side_priority.get(combatants[key].side, 99),
             combatants[key].name.casefold(),
             key,
         ),
