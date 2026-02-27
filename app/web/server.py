@@ -53,13 +53,16 @@ TEXTUAL_CHECK_RE = re.compile(
     re.IGNORECASE,
 )
 CHAT_COMBAT_ACTION_PATTERNS: list[tuple[str, re.Pattern[str]]] = [
-    ("combat_attack", re.compile(r"(атак|удар|бью|рубл|колю|стреля|выстрел|режу)", re.IGNORECASE)),
-    ("combat_dodge", re.compile(r"(уклон|уворач|в защиту|защищаюсь|додж)", re.IGNORECASE)),
-    ("combat_help", re.compile(r"(помога|помочь|помогу|отвлекаю|прикрываю)", re.IGNORECASE)),
-    ("combat_dash", re.compile(r"(рывок|спринт|бегу|мчусь|ускоряюсь)", re.IGNORECASE)),
-    ("combat_disengage", re.compile(r"(отхож|отступ|отступаю|вырываюсь|дисенгейдж)", re.IGNORECASE)),
-    ("combat_use_object", re.compile(r"(использую|применяю|активирую|пью|выпиваю|нажимаю|достаю)", re.IGNORECASE)),
-    ("combat_end_turn", re.compile(r"(конец хода|заканчиваю ход|передаю ход)", re.IGNORECASE)),
+    (
+        "combat_attack",
+        re.compile(r"(атак|напад|удар|бью|рубл|колю|выпад|тыч|пыр|замах|метаю|швыряю|стреля|выстрел|стрел|лук|арбалет|режу)", re.IGNORECASE),
+    ),
+    ("combat_dodge", re.compile(r"(уклон|уворач|уворот|в защиту|защищаюсь|оборон|в оборону|блок|щит|стойк|додж)", re.IGNORECASE)),
+    ("combat_help", re.compile(r"(помога|помочь|помогу|поддерж|страх|отвлек|координ|даю преимущество|открываю окно|прикрываю)", re.IGNORECASE)),
+    ("combat_dash", re.compile(r"(рывок|спринт|бегу|мчусь|ускоряюсь|ринул|бросаюсь вперед|стремглав|сокращаю дистанц)", re.IGNORECASE)),
+    ("combat_disengage", re.compile(r"(отхож|отход|отступ|отступаю|вырываюсь|разрыв дистанц|разрыва[юл]|разорва[лю]|выхожу из боя|отпрыг|отскоч|дисенгейдж)", re.IGNORECASE)),
+    ("combat_use_object", re.compile(r"(использую|применяю|активирую|включаю|поджигаю|зажигаю|пью|выпиваю|нажимаю|достаю|зелье|флакон|свиток|факел|рычаг|кнопк)", re.IGNORECASE)),
+    ("combat_end_turn", re.compile(r"(конец хода|заканчиваю ход|передаю ход|пас|пропускаю ход|жду|ничего не делаю)", re.IGNORECASE)),
 ]
 COMBAT_NARRATION_BANNED_RE = re.compile(
     r"\b(?:урон|ac|hp|d20|проверка|бросок|dc)\b",
@@ -2348,19 +2351,19 @@ def _combat_safe_fallback(player_action: str, outcome_summary: list[str]) -> str
 def _combat_narration_mentions_action(text: str, action: str) -> bool:
     lowered = str(text or "").lower().replace("ё", "е")
     if action == "combat_attack":
-        return bool(re.search(r"(атак|удар|попад|промах|крит)", lowered))
+        return bool(re.search(r"(атак|напад|удар|выпад|тыч|пыр|замах|мета|швыр|стрел|лук|арбалет|попад|промах|крит)", lowered))
     if action == "combat_dodge":
-        return bool(re.search(r"(уклон|уворот|защит)", lowered))
+        return bool(re.search(r"(уклон|уворот|уворач|защит|оборон|блок|щит|стойк)", lowered))
     if action == "combat_help":
-        return bool(re.search(r"(помо|поддерж|прикр)", lowered))
+        return bool(re.search(r"(помо|поддерж|страх|отвлек|координ|преимуще|открываю окно|прикр)", lowered))
     if action == "combat_dash":
-        return bool(re.search(r"(рывок|рван|спринт|бросок)", lowered))
+        return bool(re.search(r"(рывок|рван|спринт|бросок|ринул|стремглав|сокращаю дистанц)", lowered))
     if action == "combat_disengage":
-        return bool(re.search(r"(отход|отступ|разрыв дистанц)", lowered))
+        return bool(re.search(r"(отход|отступ|разрыв дистанц|разрыва|разорва|выхожу из боя|отпрыг|отскоч)", lowered))
     if action == "combat_use_object":
-        return bool(re.search(r"(предмет|флакон|зелье|устройств)", lowered))
+        return bool(re.search(r"(предмет|флакон|зелье|свиток|факел|рычаг|кнопк|устройств|активир|включа|поджига|зажига)", lowered))
     if action == "combat_end_turn":
-        return bool(re.search(r"(переда(ет|ете) ход|инициатив)", lowered))
+        return bool(re.search(r"(переда(ет|ете) ход|инициатив|пас|пропускаю ход|жду|ничего не делаю)", lowered))
     return True
 
 
@@ -5859,8 +5862,29 @@ async def ws_room(ws: WebSocket, session_id: str):
                         await broadcast_state(session_id)
                         continue
 
+                    player_uid = _player_uid(player)
+                    player_key = f"pc_{player_uid}" if player_uid is not None else ""
+                    state_now = get_combat(session_id)
+                    turn_key_now = ""
+                    if state_now and state_now.order and 0 <= state_now.turn_index < len(state_now.order):
+                        turn_key_now = state_now.order[state_now.turn_index]
+                    if not turn_key_now or turn_key_now != player_key:
+                        current_name = current_turn_label(state_now) if state_now else "другой участник"
+                        await add_system_event(db, sess, f"Сейчас ходит {current_name}. Дождись своего хода.")
+                        await broadcast_state(session_id)
+                        continue
+
                     already_sent = await _combat_clarify_already_sent(db, sess, msg_request_id)
-                    if not already_sent:
+                    settings = sess.settings if isinstance(sess.settings, dict) else {}
+                    if not isinstance(sess.settings, dict):
+                        sess.settings = settings
+                    marker_player_key = player_key or f"player_{player.id}"
+                    marker = f"{turn_key_now}:{marker_player_key}"
+                    previous_marker = str(settings.get("combat_clarify_marker") or "")
+                    if marker != previous_marker and not already_sent:
+                        settings["combat_clarify_marker"] = marker
+                        flag_modified(sess, "settings")
+                        await db.commit()
                         await add_system_event(
                             db,
                             sess,
