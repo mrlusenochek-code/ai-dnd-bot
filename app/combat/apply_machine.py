@@ -41,11 +41,15 @@ def apply_combat_machine_commands(session_id: str, text: str) -> Optional[dict[s
     existing = get_combat(session_id)
     already_active = bool(existing and existing.active)
     allowed_start_causes = {"admin", "bootstrap"}
-    has_allowed_start = (
+    allowed_start = (
         parsed.combat_start is not None and parsed.combat_start.cause in allowed_start_causes
     )
+    allowed_enemy_add = bool(parsed.combat_enemy_add) and allowed_start
+    allowed_end = parsed.combat_end is not None
+    allowed_random = bool(parsed.random_events)
+    effective_has_any = allowed_start or allowed_enemy_add or allowed_end or allowed_random
 
-    if not parsed.had_any_commands:
+    if not effective_has_any:
         if already_active:
             return None
         if not _is_combat_fallback_text(text):
@@ -73,14 +77,11 @@ def apply_combat_machine_commands(session_id: str, text: str) -> Optional[dict[s
     patch: dict[str, Any] = {}
     enemy_lines: list[dict[str, Any]] = []
 
-    if parsed.combat_start is not None:
-        if not (already_active and not has_allowed_start):
-            start_combat(session_id, reason=parsed.combat_start.cause)
-            patch.update({"reset": True, "open": True, "status": "⚔ Бой начался"})
+    if allowed_start and parsed.combat_start is not None:
+        start_combat(session_id, reason=parsed.combat_start.cause)
+        patch.update({"reset": True, "open": True, "status": "⚔ Бой начался"})
 
-    enemy_add_commands = parsed.combat_enemy_add
-    if already_active and not has_allowed_start:
-        enemy_add_commands = []
+    enemy_add_commands = parsed.combat_enemy_add if allowed_enemy_add else []
 
     if enemy_add_commands:
         state_before_add = get_combat(session_id)
