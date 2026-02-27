@@ -2182,13 +2182,96 @@ def _detect_chat_combat_action(text: str) -> Optional[str]:
 
 def _enforce_ty_singular_fixes(text: str) -> str:
     txt = str(text or "")
+
+    placeholders: list[str] = []
+
+    def _mask_quoted(m: re.Match[str]) -> str:
+        placeholders.append(m.group(0))
+        return f"__QUOTE_PLACEHOLDER_{len(placeholders) - 1}__"
+
+    txt = re.sub(r"«[^»]*»|\"(?:[^\"\\]|\\.)*\"", _mask_quoted, txt)
+
+    def _case_first(src: str, replacement: str) -> str:
+        if not src:
+            return replacement
+        if src[0].isupper():
+            return replacement[:1].upper() + replacement[1:]
+        return replacement
+
+    def _replace_case_aware(pattern: str, replacement: str) -> None:
+        nonlocal txt
+
+        def _repl(m: re.Match[str]) -> str:
+            return _case_first(m.group(0), replacement)
+
+        txt = re.sub(pattern, _repl, txt, flags=re.IGNORECASE)
+
+    phrase_replacements = [
+        (r"\bс\s+вами\b", "с тобой"),
+        (r"\bу\s+вас\b", "у тебя"),
+        (r"\bк\s+вам\b", "к тебе"),
+    ]
+    for pattern, replacement in phrase_replacements:
+        _replace_case_aware(pattern, replacement)
+
+    verb_replacements = [
+        (r"\bвы\s+видите\b", "ты видишь"),
+        (r"\bвы\s+замечаете\b", "ты замечаешь"),
+        (r"\bвы\s+слышите\b", "ты слышишь"),
+        (r"\bвы\s+чувствуете\b", "ты чувствуешь"),
+        (r"\bвы\s+понимаете\b", "ты понимаешь"),
+        (r"\bвы\s+можете\b", "ты можешь"),
+        (r"\bвы\s+начинаете\b", "ты начинаешь"),
+        (r"\bвы\s+пытаетесь\b", "ты пытаешься"),
+        (r"\bвы\s+смотрите\b", "ты смотришь"),
+        (r"\bвы\s+решаете\b", "ты решаешь"),
+    ]
+    for pattern, replacement in verb_replacements:
+        _replace_case_aware(pattern, replacement)
+
+    def _fix_ty_verb(m: re.Match[str]) -> str:
+        pronoun = m.group(1)
+        verb = m.group(2)
+        verb_l = verb.lower()
+        if verb_l.endswith("ёте"):
+            fixed = verb[:-3] + "ёшь"
+        elif verb_l.endswith("ете"):
+            fixed = verb[:-3] + "ешь"
+        elif verb_l.endswith("ите"):
+            fixed = verb[:-3] + "ишь"
+        else:
+            return m.group(0)
+        fixed = _case_first(verb, fixed)
+        return f"{_case_first(pronoun, 'ты')} {fixed}"
+
+    txt = re.sub(r"\b(вы)\s+([А-Яа-яЁё]+)(?=[\s,.;:!?)]|$)", _fix_ty_verb, txt, flags=re.IGNORECASE)
     txt = re.sub(r"\bВы\s+(?=\w+(?:ешь|ишь)\b)", "Ты ", txt)
+
+    word_replacements = [
+        (r"\bвами\b", "тобой"),
+        (r"\bваша\b", "твоя"),
+        (r"\bваше\b", "твоё"),
+        (r"\bваши\b", "твои"),
+        (r"\bваш\b", "твой"),
+        (r"\bвас\b", "тебя"),
+        (r"\bвам\b", "тебе"),
+        (r"\bвы\b", "ты"),
+    ]
+    for pattern, replacement in word_replacements:
+        _replace_case_aware(pattern, replacement)
 
     def _fix_nanoshite(m: re.Match[str]) -> str:
         token = m.group(0)
         return "Наносишь" if token[:1].isupper() else "наносишь"
 
     txt = re.sub(r"наношите", _fix_nanoshite, txt, flags=re.IGNORECASE)
+    txt = re.sub(r"замечаете", lambda m: _case_first(m.group(0), "замечаешь"), txt, flags=re.IGNORECASE)
+
+    def _unmask_quotes(m: re.Match[str]) -> str:
+        idx = int(m.group(1))
+        return placeholders[idx]
+
+    txt = re.sub(r"__QUOTE_PLACEHOLDER_(\d+)__", _unmask_quotes, txt)
     return txt
 
 
