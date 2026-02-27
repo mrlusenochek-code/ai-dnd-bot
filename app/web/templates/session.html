@@ -985,16 +985,27 @@ function applyCombatLogUiPatch(patch){
   }
 
   if(typeof patch.status === "string"){
-    appendCombatLogLine(patch.status, { kind: "status" });
+    clearCombatLogPlaceholdersOnce();
+    setCombatLogStatus(patch.status);
   }
 
   if(Array.isArray(patch.lines)){
     for(const item of patch.lines){
       if(typeof item === "string"){
+        if(item.startsWith("⚔") || /^⚔\s*Бой/.test(item)){
+          clearCombatLogPlaceholdersOnce();
+          setCombatLogStatus(item);
+          continue;
+        }
         appendCombatLogLine(item);
         continue;
       }
       if(!item || typeof item !== "object") continue;
+      if(item.kind === "status"){
+        clearCombatLogPlaceholdersOnce();
+        setCombatLogStatus(item.text);
+        continue;
+      }
       if(typeof item.text !== "string") continue;
       appendCombatLogLine(item.text, { muted: item.muted === true, kind: item.kind });
     }
