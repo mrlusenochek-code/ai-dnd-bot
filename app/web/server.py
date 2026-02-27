@@ -5427,6 +5427,24 @@ async def ws_room(ws: WebSocket, session_id: str):
                     )
                     continue
 
+                if action == "combat_log_clear":
+                    if not await is_admin(db, sess, player):
+                        await ws_error("Only admin can clear combat log")
+                        continue
+                    state = get_combat(session_id)
+                    lines = [{"text": "Журнал очищен.", "muted": True}]
+                    if state is not None and state.active:
+                        lines.append(
+                            {
+                                "text": f"⚔ Бой • Раунд {state.round_no} • Ход: {current_turn_label(state)}",
+                                "muted": True,
+                                "kind": "status",
+                            }
+                        )
+                    patch = {"reset": True, "open": True, "lines": lines}
+                    await broadcast_state(session_id, combat_log_ui_patch=patch)
+                    continue
+
                 if action in {
                     "combat_attack",
                     "combat_end_turn",

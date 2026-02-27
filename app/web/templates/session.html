@@ -48,8 +48,13 @@
     .char-list{margin:0; padding-left:20px;}
     .char-list li{margin:4px 0;}
     .combat-log{margin-top:10px; border:1px solid #333; border-radius:10px; background:#121212;}
+    .combat-log-head{
+      display:flex;
+      align-items:center;
+      gap:8px;
+    }
     .combat-log-toggle{
-      width:100%;
+      flex:1;
       display:flex;
       justify-content:space-between;
       align-items:center;
@@ -63,6 +68,12 @@
       text-align:left;
     }
     .combat-log-toggle:hover{background:rgba(255,255,255,.04);}
+    .combat-log-clear{
+      font-size:12px;
+      padding:6px 10px;
+      border-radius:10px;
+      opacity:.9;
+    }
     .combat-log-indicator{opacity:.9;}
     .combat-log-content{
       border-top:1px solid rgba(255,255,255,.1);
@@ -134,10 +145,13 @@
     <div id="timer" class="player">—</div>
     <h3 style="margin-top:18px;">Боевой журнал</h3>
     <div class="combat-log" id="combatLog">
-      <button id="combatLogToggle" class="combat-log-toggle" type="button" aria-expanded="false" aria-controls="combatLogContent">
-        <span>Показать / скрыть</span>
-        <span id="combatLogIndicator" class="combat-log-indicator">▸</span>
-      </button>
+      <div class="combat-log-head">
+        <button id="combatLogToggle" class="combat-log-toggle" type="button" aria-expanded="false" aria-controls="combatLogContent">
+          <span>Показать / скрыть</span>
+          <span id="combatLogIndicator" class="combat-log-indicator">▸</span>
+        </button>
+        <button id="combatLogClear" type="button" class="combat-log-clear" onclick="wsAction('combat_log_clear')">Очистить</button>
+      </div>
       <div id="combatLogContent" class="combat-log-content" hidden>
         <div class="combat-log-status">Бой не начат</div>
         <div class="combat-log-placeholder">Здесь будут отображаться броски кубиков и механика боя.</div>
