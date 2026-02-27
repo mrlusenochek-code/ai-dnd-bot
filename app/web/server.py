@@ -5778,13 +5778,13 @@ async def ws_room(ws: WebSocket, session_id: str):
                                         combat_state=combat_state,
                                     )
                                     combat_patch = _append_combat_patch_lines(combat_patch, preamble_lines)
-                                    combat_patch = _maybe_apply_opening_combat_action(
-                                        session_id=session_id,
-                                        combat_action=combat_action,
-                                        player_uid=_player_uid(player),
-                                        player_id=player.id,
-                                        combat_patch=combat_patch,
+                                    if not isinstance(combat_patch, dict):
+                                        combat_patch = {}
+                                    combat_patch["open"] = True
+                                    combat_patch["status"] = (
+                                        f"⚔ Бой • Раунд {combat_state.round_no} • Ход: {current_turn_label(combat_state)}"
                                     )
+                                    await broadcast_state(session_id, combat_log_ui_patch=combat_patch)
                 combat_active = bool(combat_state and combat_state.active)
 
                 phase_now = _get_phase(sess)
