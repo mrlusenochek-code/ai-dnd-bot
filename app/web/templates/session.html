@@ -971,6 +971,7 @@ function appendCombatLogLine(text, opts = {}){
 
 function applyCombatLogUiPatch(patch){
   if(!patch || typeof patch !== "object") return;
+  let pendingStatus = (typeof patch.status === "string") ? patch.status : null;
 
   if(typeof patch.open === "boolean"){
     if(patch.open){
@@ -984,17 +985,13 @@ function applyCombatLogUiPatch(patch){
     resetCombatLogPanel();
   }
 
-  if(typeof patch.status === "string"){
-    clearCombatLogPlaceholdersOnce();
-    setCombatLogStatus(patch.status);
-  }
-
   if(Array.isArray(patch.lines)){
     for(const item of patch.lines){
       if(typeof item === "string"){
         if(item.startsWith("⚔") || /^⚔\s*Бой/.test(item)){
-          clearCombatLogPlaceholdersOnce();
-          setCombatLogStatus(item);
+          if(pendingStatus == null){
+            pendingStatus = item;
+          }
           continue;
         }
         appendCombatLogLine(item);
@@ -1002,13 +999,19 @@ function applyCombatLogUiPatch(patch){
       }
       if(!item || typeof item !== "object") continue;
       if(item.kind === "status"){
-        clearCombatLogPlaceholdersOnce();
-        setCombatLogStatus(item.text);
+        if(pendingStatus == null){
+          pendingStatus = item.text;
+        }
         continue;
       }
       if(typeof item.text !== "string") continue;
       appendCombatLogLine(item.text, { muted: item.muted === true, kind: item.kind });
     }
+  }
+
+  if(pendingStatus != null){
+    clearCombatLogPlaceholdersOnce();
+    setCombatLogStatus(pendingStatus);
   }
 }
 

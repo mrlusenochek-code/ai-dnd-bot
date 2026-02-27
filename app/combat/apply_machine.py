@@ -100,9 +100,14 @@ def apply_combat_machine_commands(session_id: str, text: str) -> Optional[dict[s
                 ac=ac,
                 enemy_id=enemy_cmd.enemy_id,
             )
+            threat_text = (
+                f", угроза {enemy_cmd.threat}"
+                if enemy_cmd.threat is not None
+                else ""
+            )
             enemy_lines.append(
                 {
-                    "text": f"Противник добавлен: {enemy_cmd.name} (HP {hp}/{hp}, AC {ac})",
+                    "text": f"Противник добавлен: {enemy_cmd.name} (HP {hp}/{hp}, AC {ac}{threat_text})",
                     "muted": True,
                 }
             )

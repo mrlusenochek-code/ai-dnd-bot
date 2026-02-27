@@ -2452,6 +2452,82 @@ def _merge_combat_patches(patches: list[dict[str, Any]]) -> dict[str, Any]:
     return out
 
 
+def _append_combat_patch_lines(
+    combat_patch: Optional[dict[str, Any]],
+    lines_to_add: list[dict[str, Any]],
+) -> dict[str, Any]:
+    patch = combat_patch if isinstance(combat_patch, dict) else {}
+    lines = patch.get("lines")
+    if not isinstance(lines, list):
+        lines = []
+        patch["lines"] = lines
+    for line in lines_to_add:
+        text = str(line.get("text") or "").strip() if isinstance(line, dict) else ""
+        if not text:
+            continue
+        lines.append(line)
+    return patch
+
+
+def _build_combat_start_preamble_lines(
+    *,
+    player: Optional[Player],
+    chars_by_uid: dict[int, Character],
+    combat_state: Any,
+) -> list[dict[str, Any]]:
+    if combat_state is None or not getattr(combat_state, "active", False):
+        return []
+
+    player_uid = _player_uid(player)
+    player_name = str(getattr(player, "display_name", "") or "").strip() or "Игрок"
+    level = 1
+    class_kit = "Adventurer"
+    stats = dict(CHAR_DEFAULT_STATS)
+    hp_cur = 0
+    hp_max = 1
+    ac = 10
+
+    if player_uid is not None:
+        character = chars_by_uid.get(player_uid)
+        if character is not None:
+            char_name = str(character.name or "").strip()
+            if char_name:
+                player_name = char_name
+            level = max(1, as_int(character.level, 1))
+            class_kit = str(character.class_kit or "").strip() or "Adventurer"
+            stats = _normalized_stats(character.stats)
+            hp_max = max(1, as_int(character.hp_max, hp_max))
+            hp_cur = _clamp(as_int(character.hp, hp_cur), 0, hp_max)
+
+        combatants = getattr(combat_state, "combatants", {})
+        if isinstance(combatants, dict):
+            pc_key = f"pc_{player_uid}"
+            player_combatant = combatants.get(pc_key)
+            if player_combatant is not None:
+                hp_max = max(1, as_int(getattr(player_combatant, "hp_max", hp_max), hp_max))
+                hp_cur = _clamp(as_int(getattr(player_combatant, "hp_current", hp_cur), hp_cur), 0, hp_max)
+                ac = max(0, as_int(getattr(player_combatant, "ac", ac), ac))
+
+    enemy_name = "противником"
+    combatants = getattr(combat_state, "combatants", {})
+    if isinstance(combatants, dict):
+        for combatant in combatants.values():
+            if getattr(combatant, "side", "") != "enemy":
+                continue
+            candidate = str(getattr(combatant, "name", "") or "").strip()
+            if candidate:
+                enemy_name = candidate
+            break
+
+    player_line = (
+        f"Игрок: {player_name} (ур. {level}, класс {class_kit}) "
+        f"HP {hp_cur}/{hp_max}, AC {ac}, STR {stats['str']} DEX {stats['dex']} "
+        f"CON {stats['con']} INT {stats['int']} WIS {stats['wis']} CHA {stats['cha']}"
+    )
+    start_line = f'Началось сражение "{player_name}" с "{enemy_name}".'
+    return [{"text": player_line}, {"text": start_line}]
+
+
 def _maybe_apply_opening_combat_action(
     *,
     session_id: str,
@@ -5533,6 +5609,8 @@ async def ws_room(ws: WebSocket, session_id: str):
                     if not await is_admin(db, sess, player):
                         await ws_error("Only admin can run live combat")
                         continue
+                    before_state = get_combat(session_id)
+                    before_active = bool(before_state and before_state.active)
                     bootstrap_zone = "arena"
                     bootstrap_enemies = [
                         {"id": "band1", "name": "Разбойник", "hp": 18, "ac": 13, "init_mod": 2, "threat": 2},
@@ -5565,6 +5643,14 @@ async def ws_room(ws: WebSocket, session_id: str):
                             "lines": [{"text": "Live бой запущен админом.", "muted": True}],
                         }
                     combat_state = get_combat(session_id)
+                    after_active = bool(combat_state and combat_state.active)
+                    if (not before_active) and after_active:
+                        preamble_lines = _build_combat_start_preamble_lines(
+                            player=player,
+                            chars_by_uid=chars_by_uid,
+                            combat_state=combat_state,
+                        )
+                        combat_patch = _append_combat_patch_lines(combat_patch, preamble_lines)
                     if combat_state is not None and combat_state.active:
                         if combat_patch.get("reset") is True:
                             combat_state.round_no = 1
@@ -5686,7 +5772,13 @@ async def ws_room(ws: WebSocket, session_id: str):
                                 combat_state = get_combat(session_id)
                                 after_active = bool(combat_state and combat_state.active)
                                 if (not before_active) and after_active:
-                                    _maybe_apply_opening_combat_action(
+                                    preamble_lines = _build_combat_start_preamble_lines(
+                                        player=player,
+                                        chars_by_uid=chars_by_uid,
+                                        combat_state=combat_state,
+                                    )
+                                    combat_patch = _append_combat_patch_lines(combat_patch, preamble_lines)
+                                    combat_patch = _maybe_apply_opening_combat_action(
                                         session_id=session_id,
                                         combat_action=combat_action,
                                         player_uid=_player_uid(player),
