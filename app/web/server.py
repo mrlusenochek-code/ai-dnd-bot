@@ -4302,7 +4302,9 @@ async def _auto_gm_reply_task(session_id: str, expected_action_id: str) -> None:
                 if nxt:
                     sess.current_player_id = nxt.player_id
                     sess.turn_started_at = utcnow()
-                    await add_system_event(db, sess, f"Следующий ход: игрок #{nxt.join_order}.")
+                    combat_active = bool(get_combat(session_id) and get_combat(session_id).active)
+                    if not combat_active:
+                        await add_system_event(db, sess, f"Следующий ход: игрок #{nxt.join_order}.")
                 _set_phase(sess, "turns")
                 _clear_current_action_id(sess)
                 await db.commit()
@@ -4596,7 +4598,9 @@ async def _auto_round_task(session_id: str, expected_action_id: str) -> None:
                     _clear_paused_remaining(sess)
                     await db.commit()
                     if first:
-                        await add_system_event(db, sess, f"Следующий ход: игрок #{first.join_order}.")
+                        combat_active = bool(get_combat(session_id) and get_combat(session_id).active)
+                        if not combat_active:
+                            await add_system_event(db, sess, f"Следующий ход: игрок #{first.join_order}.")
                     await db.commit()
 
         await broadcast_state(session_id, combat_log_ui_patch=combat_log_ui_patch)
