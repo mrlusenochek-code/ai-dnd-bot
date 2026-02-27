@@ -38,10 +38,15 @@ def apply_combat_machine_commands(session_id: str, text: str) -> Optional[dict[s
         parsed = extract_combat_machine_commands(text)
     except Exception:
         return None
+    existing = get_combat(session_id)
+    already_active = bool(existing and existing.active)
+    allowed_start_causes = {"admin", "bootstrap"}
+    has_allowed_start = (
+        parsed.combat_start is not None and parsed.combat_start.cause in allowed_start_causes
+    )
 
     if not parsed.had_any_commands:
-        state = get_combat(session_id)
-        if state is not None and state.active:
+        if already_active:
             return None
         if not _is_combat_fallback_text(text):
             return None
@@ -69,17 +74,22 @@ def apply_combat_machine_commands(session_id: str, text: str) -> Optional[dict[s
     enemy_lines: list[dict[str, Any]] = []
 
     if parsed.combat_start is not None:
-        start_combat(session_id, reason=parsed.combat_start.cause)
-        patch.update({"reset": True, "open": True, "status": "⚔ Бой начался"})
+        if not (already_active and not has_allowed_start):
+            start_combat(session_id, reason=parsed.combat_start.cause)
+            patch.update({"reset": True, "open": True, "status": "⚔ Бой начался"})
 
-    if parsed.combat_enemy_add:
+    enemy_add_commands = parsed.combat_enemy_add
+    if already_active and not has_allowed_start:
+        enemy_add_commands = []
+
+    if enemy_add_commands:
         state_before_add = get_combat(session_id)
         if state_before_add is None or not state_before_add.active:
             start_combat(session_id, reason="autostart")
             patch.setdefault("reset", True)
             patch["open"] = True
 
-        for enemy_cmd in parsed.combat_enemy_add:
+        for enemy_cmd in enemy_add_commands:
             hp = enemy_cmd.hp if enemy_cmd.hp is not None else 10
             ac = enemy_cmd.ac if enemy_cmd.ac is not None else 10
             add_enemy(
