@@ -252,6 +252,79 @@ def handle_live_combat_action(
             None,
         )
 
+    if action == "combat_escape":
+        state = get_combat(session_id)
+        if state is None or not state.active:
+            return None, "Combat is not active"
+        if not state.order:
+            end_combat(session_id)
+            return (
+                {
+                    "status": "Бой завершён",
+                    "open": False,
+                    "lines": [{"text": "Бой завершён: целей не осталось.", "muted": True}],
+                },
+                None,
+            )
+
+        attacker_key = state.order[state.turn_index]
+        attacker = state.combatants.get(attacker_key)
+        if attacker is None:
+            return None, "Combat state is inconsistent"
+
+        roll = random.randint(1, 20)
+        dc = 13
+        success = roll >= dc
+        lines: list[dict[str, Any]] = [
+            {"text": f"Побег: {attacker.name} пытается выйти из боя", "muted": True},
+            {"text": f"Бросок побега: d20({roll}) vs DC {dc}", "muted": True},
+        ]
+
+        if success:
+            lines.append({"text": "Результат: побег успешен", "muted": True})
+            end_combat(session_id)
+            return (
+                {
+                    "status": "Бой завершён",
+                    "open": False,
+                    "lines": lines,
+                },
+                None,
+            )
+
+        lines.append({"text": "Результат: побег не удался", "muted": True})
+        if advance_turn(session_id) is None:
+            return None, "Combat is not active"
+
+        enemy_patch, enemy_err = handle_live_combat_action("combat_attack", session_id)
+        if isinstance(enemy_patch, dict):
+            enemy_lines = enemy_patch.get("lines")
+            if isinstance(enemy_lines, list):
+                lines.extend(enemy_lines)
+            return (
+                {
+                    "status": enemy_patch.get("status"),
+                    "open": enemy_patch.get("open"),
+                    "lines": lines,
+                },
+                None,
+            )
+
+        if enemy_err:
+            state_now = get_combat(session_id)
+            status = _combat_status(state_now) if state_now is not None and state_now.active and state_now.order else "Бой завершён"
+            lines.append({"text": "Реакция врага: ошибка", "muted": True})
+            return (
+                {
+                    "status": status,
+                    "open": bool(state_now is not None and state_now.active),
+                    "lines": lines,
+                },
+                None,
+            )
+
+        return None, "Combat state is inconsistent"
+
     if action == "combat_attack":
         state = get_combat(session_id)
         if state is None or not state.active:
