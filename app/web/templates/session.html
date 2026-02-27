@@ -78,6 +78,7 @@
     .combat-log-placeholder{opacity:.75; margin:4px 0;}
     .combat-log-line{margin:4px 0; color:#d8d8d8; word-break:break-word;}
     .combat-log-line-muted{opacity:.7;}
+    .combat-log-line-status{font-weight:600; opacity:.95;}
     .combat-log-dev-btn{
       margin-top:6px;
       padding:3px 8px;
@@ -929,14 +930,15 @@ function setCombatLogStatus(text){
 function appendCombatLogLine(text, opts = {}){
   const content = document.getElementById("combatLogContent");
   if(!content) return;
-  if(!(opts && opts.muted === true)){
-    clearCombatLogPlaceholdersOnce();
-  }
+  clearCombatLogPlaceholdersOnce();
 
   const line = document.createElement("div");
   line.className = "combat-log-line";
   if(opts && opts.muted === true){
     line.classList.add("combat-log-line-muted");
+  }
+  if(opts && opts.kind === "status"){
+    line.classList.add("combat-log-line-status");
   }
   line.textContent = String(text ?? "");
   content.appendChild(line);
@@ -969,7 +971,7 @@ function applyCombatLogUiPatch(patch){
   }
 
   if(typeof patch.status === "string"){
-    setCombatLogStatus(patch.status);
+    appendCombatLogLine(patch.status, { kind: "status" });
   }
 
   if(Array.isArray(patch.lines)){
