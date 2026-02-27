@@ -2255,13 +2255,34 @@ def _maybe_apply_opening_combat_action(
         state.round_no = max(1, int(state.round_no or 0))
 
     opening_patch, _opening_err = handle_live_combat_action(combat_action, session_id)
+    merge_items: list[dict[str, Any]] = []
+    if isinstance(combat_patch, dict):
+        merge_items.append(combat_patch)
     if isinstance(opening_patch, dict):
-        merge_items: list[dict[str, Any]] = []
-        if isinstance(combat_patch, dict):
-            merge_items.append(combat_patch)
         merge_items.append(opening_patch)
-        return _merge_combat_patches(merge_items)
-    return combat_patch
+
+        max_enemy_steps = 3
+        enemy_steps = 0
+        while enemy_steps < max_enemy_steps:
+            state_now = get_combat(session_id)
+            if state_now is None or not state_now.active or not state_now.order:
+                break
+            if state_now.turn_index < 0 or state_now.turn_index >= len(state_now.order):
+                break
+            turn_key_now = state_now.order[state_now.turn_index]
+            turn_actor = state_now.combatants.get(turn_key_now)
+            if not turn_actor or turn_actor.side != "enemy":
+                break
+
+            enemy_patch, enemy_err = handle_live_combat_action("combat_attack", session_id)
+            if enemy_err:
+                logger.warning("enemy auto combat action failed", extra={"action": {"error": enemy_err}})
+                break
+            if isinstance(enemy_patch, dict):
+                merge_items.append(enemy_patch)
+            enemy_steps += 1
+
+    return _merge_combat_patches(merge_items) if merge_items else combat_patch
 
 
 async def _recent_narrative_events_for_combat_prompt(
