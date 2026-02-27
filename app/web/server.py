@@ -1224,6 +1224,22 @@ def _put_character_meta_into_stats(stats_raw: Any, *, gender: str, race: str, de
     return stats
 
 
+def _gender_to_pronouns(g: str) -> str:
+    normalized = str(g or "").strip().lower().replace("ё", "е")
+    if normalized.startswith("м") or normalized in {"m", "male"}:
+        return "он/его/ему"
+    if normalized.startswith("ж") or normalized in {"f", "female"}:
+        return "она/ее/ей"
+    return ""
+
+
+def _gender_pronoun_rule_line(g: str) -> str:
+    pronouns = _gender_to_pronouns(g)
+    if not pronouns:
+        return "pronouns=unknown (пиши во 2 лице: ты/вы, избегай он/она)"
+    return f"pronouns={pronouns} (строго, не путай)"
+
+
 def _slugify_inventory_id(raw: Any, fallback_name: str, index: int) -> str:
     src = str(raw or fallback_name or "").strip().lower()
     src = re.sub(r"[^a-z0-9]+", "-", src)
@@ -2275,6 +2291,9 @@ def _build_combat_narration_prompt(
     outcome_summary: list[str],
     current_turn: str,
     participants_block: str,
+    actor_name: str,
+    actor_gender: str,
+    actor_pronouns: str,
 ) -> str:
     title = (campaign_title or "Campaign").strip() or "Campaign"
     outcomes = [str(x).strip() for x in outcome_summary if str(x).strip()]
@@ -2292,9 +2311,11 @@ def _build_combat_narration_prompt(
         "Запреты: ни одной цифры, ни бросков, ни DC, ни значений характеристик.\n"
         "Запрещены слова: 'урон', 'AC', 'HP', 'd20', 'проверка'.\n"
         "Не раскрывай механику. Покажи только художественные последствия.\n"
+        "Описывай действия игрока во 2 лице (ты/вы). Если всё-таки используешь 3 лицо — строго по местоимениям выше.\n"
         "Последняя строка строго: Что делаете дальше?\n\n"
         f"Кампания: {title}\n"
         f"Текущий ход: {current_turn or '-'}\n"
+        f"Персонаж игрока: {actor_name or '-'}; Пол: {actor_gender or '-'}; Местоимения: {actor_pronouns or 'unknown'}.\n"
         f"Участники боя:\n{participants_block or '- PC: (нет)\\n- ENEMY: (нет)'}\n"
         f"Сводка исходов без цифр:\n{outcomes_block}\n\n"
         "ВАЖНО: Нарратив обязан явно отразить действие игрока из сводки исходов."
@@ -2413,12 +2434,18 @@ async def _generate_combat_narration(
     player_action: str,
     current_turn: str,
     participants_block: str,
+    actor_name: str,
+    actor_gender: str,
+    actor_pronouns: str,
 ) -> str:
     prompt = _build_combat_narration_prompt(
         campaign_title=campaign_title,
         outcome_summary=outcome_summary,
         current_turn=current_turn,
         participants_block=participants_block,
+        actor_name=actor_name,
+        actor_gender=actor_gender,
+        actor_pronouns=actor_pronouns,
     )
     resp = await generate_from_prompt(
         prompt=prompt,
@@ -2602,6 +2629,7 @@ def _build_actor_list_for_prompt(uid_map: dict[int, tuple[SessionPlayer, Player]
             f"character={ch_name}",
             f"class={ch_class or '-'}",
             f"gender={meta['gender'] or '-'}",
+            _gender_pronoun_rule_line(meta["gender"]),
             f"race={meta['race'] or '-'}",
         ]
         if meta["description"]:
@@ -3320,6 +3348,8 @@ def _build_turn_draft_prompt(
         "Нельзя писать, что персонаж игрока решил/выбрал/думает/понимает/чувствует/задумывается.\n"
         "Нельзя писать реплики персонажа игрока в кавычках и конструкции вида '— говорит <персонаж игрока>'.\n"
         "Пиши результат во 2 лице ('ты/вы') или нейтрально, без мыслей и решений за игрока.\n"
+        "PRONOUNS RULE: для игроков в блоке 'Игроки' указано pronouns=... — обязателен. Не делай вывод по имени.\n"
+        "Если pronouns=unknown — пиши во 2 лице (ты/вы) и избегай он/она.\n"
         "Не добавляй 'Варианты действий:' и не перечисляй варианты списком/нумерацией.\n"
         "Заверши ответ только строкой 'Что делаете дальше?' и сразу остановись.\n"
         "Строго только русский язык: не вставляй английские фразы.\n"
@@ -3416,6 +3446,8 @@ def _build_round_draft_prompt(
         "Нельзя писать, что персонаж игрока решил/выбрал/думает/понимает/чувствует/задумывается.\n"
         "Нельзя писать реплики персонажа игрока в кавычках и конструкции вида '— говорит <персонаж игрока>'.\n"
         "Пиши результат во 2 лице ('ты/вы') или нейтрально, без мыслей и решений за игрока.\n"
+        "PRONOUNS RULE: для игроков в блоке 'Игроки' указано pronouns=... — обязателен. Не делай вывод по имени.\n"
+        "Если pronouns=unknown — пиши во 2 лице (ты/вы) и избегай он/она.\n"
         "Не добавляй 'Варианты действий:' и не перечисляй варианты списком/нумерацией.\n"
         "Заверши ответ только строкой 'Что делаете дальше?' и сразу остановись.\n"
         "Строго только русский язык: не вставляй английские фразы.\n"
@@ -5842,12 +5874,20 @@ async def ws_room(ws: WebSocket, session_id: str):
                         campaign_title = str(story.get("story_title") or "").strip() or str(sess.title or "Campaign").strip() or "Campaign"
                         turn_label = current_turn_label(state_for_prompt) if state_for_prompt else "-"
                         participants_block = _combat_participants_block(state_for_prompt)
+                        ch = await get_character(db, sess.id, player.id)
+                        meta = _character_meta_from_stats(ch.stats) if ch else {"gender": "", "race": "", "description": ""}
+                        actor_gender = meta["gender"]
+                        actor_pronouns = _gender_to_pronouns(actor_gender) or "unknown"
+                        actor_name = str(ch.name).strip() if ch and str(ch.name or "").strip() else actor_label
                         gm_text = await _generate_combat_narration(
                             campaign_title=campaign_title,
                             outcome_summary=outcome_summary,
                             player_action=combat_action,
                             current_turn=turn_label,
                             participants_block=participants_block,
+                            actor_name=actor_name,
+                            actor_gender=actor_gender,
+                            actor_pronouns=actor_pronouns,
                         )
                         await add_system_event(
                             db,
