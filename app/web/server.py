@@ -646,10 +646,11 @@ def _get_combat_log_history(sess: Session) -> dict:
     st = _ensure_settings(sess)
     raw = st.get(COMBAT_LOG_HISTORY_KEY)
     if not isinstance(raw, dict):
-        return {"open": True, "lines": []}
+        return {"open": True, "lines": [], "status": None}
 
     lines_raw = raw.get("lines")
     lines: list[dict[str, Any]] = []
+    status: Optional[str] = raw.get("status") if isinstance(raw.get("status"), str) else None
     if isinstance(lines_raw, list):
         for item in lines_raw:
             if isinstance(item, str):
@@ -663,12 +664,15 @@ def _get_combat_log_history(sess: Session) -> dict:
             line: dict[str, Any] = {"text": text, "muted": bool(item.get("muted"))}
             kind = item.get("kind")
             if isinstance(kind, str):
+                if kind == "status":
+                    status = text
+                    continue
                 line["kind"] = kind
             lines.append(line)
 
     if len(lines) > MAX_COMBAT_LOG_LINES:
         lines = lines[-MAX_COMBAT_LOG_LINES:]
-    return {"open": bool(raw.get("open", True)), "lines": lines}
+    return {"open": bool(raw.get("open", True)), "lines": lines, "status": status}
 
 
 def _persist_combat_log_patch(sess: Session, patch: dict[str, Any]) -> None:
@@ -683,7 +687,7 @@ def _persist_combat_log_patch(sess: Session, patch: dict[str, Any]) -> None:
 
     status = patch.get("status")
     if isinstance(status, str):
-        history["lines"].append({"text": status, "muted": False, "kind": "status"})
+        history["status"] = status
 
     patch_lines = patch.get("lines")
     if isinstance(patch_lines, list):
@@ -699,6 +703,9 @@ def _persist_combat_log_patch(sess: Session, patch: dict[str, Any]) -> None:
             line: dict[str, Any] = {"text": text, "muted": bool(item.get("muted"))}
             kind = item.get("kind")
             if isinstance(kind, str):
+                if kind == "status":
+                    history["status"] = text
+                    continue
                 line["kind"] = kind
             history["lines"].append(line)
 
@@ -717,9 +724,15 @@ def _combat_log_snapshot_patch(sess: Session) -> Optional[dict[str, Any]]:
     if not isinstance(history, dict):
         return None
     lines = history.get("lines")
-    if not isinstance(lines, list) or not lines:
+    if not isinstance(lines, list):
         return None
-    return {"reset": True, "open": bool(history.get("open", True)), "lines": lines}
+    status = history.get("status")
+    if not lines and not isinstance(status, str):
+        return None
+    patch: dict[str, Any] = {"reset": True, "open": bool(history.get("open", True)), "lines": lines}
+    if isinstance(status, str):
+        patch["status"] = status
+    return patch
 
 
 def _persist_combat_state(sess: Session, session_id: str) -> bool:
