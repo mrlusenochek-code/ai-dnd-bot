@@ -22,7 +22,7 @@ from app.ai.gm import generate_from_prompt, generate_lore
 from app.combat.apply_machine import apply_combat_machine_commands
 from app.combat.live_actions import handle_live_combat_action
 from app.combat.machine_commands import extract_combat_machine_commands
-from app.combat.state import current_turn_label, end_combat, get_combat
+from app.combat.state import current_turn_label, end_combat, get_combat, restore_combat_state, snapshot_combat_state
 from app.combat.sync_pcs import sync_pcs_from_chars
 from app.combat.test_actions import handle_admin_combat_test_action
 from app.core.logging import configure_logging
@@ -40,6 +40,7 @@ GM_OLLAMA_TIMEOUT_SECONDS = max(1.0, float(os.getenv("GM_OLLAMA_TIMEOUT_SECONDS"
 GM_DRAFT_NUM_PREDICT = max(200, int(os.getenv("GM_DRAFT_NUM_PREDICT", "1000")))
 GM_FINAL_NUM_PREDICT = max(400, int(os.getenv("GM_FINAL_NUM_PREDICT", "1600")))
 COMBAT_LOG_HISTORY_KEY = "combat_log_history"
+COMBAT_STATE_KEY = "combat_state_v1"
 MAX_COMBAT_LOG_LINES = 200
 logger = logging.getLogger(__name__)
 CHAR_STAT_KEYS = ("str", "dex", "con", "int", "wis", "cha")
@@ -719,6 +720,34 @@ def _combat_log_snapshot_patch(sess: Session) -> Optional[dict[str, Any]]:
     if not isinstance(lines, list) or not lines:
         return None
     return {"reset": True, "open": bool(history.get("open", True)), "lines": lines}
+
+
+def _persist_combat_state(sess: Session, session_id: str) -> bool:
+    snapshot = snapshot_combat_state(session_id)
+    st = _ensure_settings(sess)
+
+    if snapshot is None:
+        if COMBAT_STATE_KEY in st:
+            st.pop(COMBAT_STATE_KEY, None)
+            flag_modified(sess, "settings")
+            return True
+        return False
+
+    if st.get(COMBAT_STATE_KEY) != snapshot:
+        st[COMBAT_STATE_KEY] = snapshot
+        flag_modified(sess, "settings")
+        return True
+    return False
+
+
+def _maybe_restore_combat_state(sess: Session, session_id: str) -> None:
+    if get_combat(session_id) is not None:
+        return
+
+    payload = settings_get(sess, COMBAT_STATE_KEY, None)
+    if not isinstance(payload, dict):
+        return
+    restore_combat_state(session_id, payload)
 
 
 def as_int(s: Any, default: int = 0) -> int:
@@ -3566,8 +3595,12 @@ async def broadcast_state(
         sess = await get_session(db, session_id)
         if not sess:
             return
+        changed = False
         if combat_log_ui_patch is not None:
             _persist_combat_log_patch(sess, combat_log_ui_patch)
+            changed = True
+        changed = _persist_combat_state(sess, session_id) or changed
+        if changed:
             await db.commit()
         state = await build_state(db, sess)
     if combat_log_ui_patch is not None:
@@ -3584,6 +3617,7 @@ async def send_state_to_ws(
         sess = await get_session(db, session_id)
         if not sess:
             return
+        _maybe_restore_combat_state(sess, session_id)
         state = await build_state(db, sess)
         if combat_log_ui_patch is None:
             snapshot = _combat_log_snapshot_patch(sess)
@@ -5274,6 +5308,7 @@ async def ws_room(ws: WebSocket, session_id: str):
                 if not sess:
                     await ws_error("Session not found", request_id=msg_request_id)
                     continue
+                _maybe_restore_combat_state(sess, session_id)
 
                 # don't overwrite name here; join sets it
                 player = await get_or_create_player_web(db, uid, "")
