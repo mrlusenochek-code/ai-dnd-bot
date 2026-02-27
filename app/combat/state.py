@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import Literal
+from typing import Any, Literal
 
 
 @dataclass
@@ -198,3 +198,148 @@ def advance_turn(session_id: str) -> CombatState | None:
     from app.combat.turns import advance_turn_in_state
 
     return advance_turn_in_state(state)
+
+
+def combatant_to_dict(c: Combatant) -> dict[str, Any]:
+    return {
+        "key": c.key,
+        "name": c.name,
+        "side": c.side,
+        "hp_current": max(0, int(c.hp_current)),
+        "hp_max": max(0, int(c.hp_max)),
+        "ac": max(0, int(c.ac)),
+        "initiative": int(c.initiative),
+        "dodge_active": bool(c.dodge_active),
+        "dash_active": bool(c.dash_active),
+        "disengage_active": bool(c.disengage_active),
+        "use_object_active": bool(c.use_object_active),
+        "help_attack_advantage": bool(c.help_attack_advantage),
+    }
+
+
+def combat_state_to_dict(state: CombatState) -> dict[str, Any]:
+    return {
+        "v": 1,
+        "active": bool(state.active),
+        "round_no": max(1, int(state.round_no)),
+        "turn_index": int(state.turn_index),
+        "order": [key for key in state.order if key in state.combatants],
+        "combatants": {key: combatant_to_dict(c) for key, c in state.combatants.items()},
+        "started_at_iso": state.started_at_iso if isinstance(state.started_at_iso, str) else None,
+    }
+
+
+def snapshot_combat_state(session_id: str) -> dict[str, Any] | None:
+    state = get_combat(session_id)
+    if state is None or not state.active:
+        return None
+    return combat_state_to_dict(state)
+
+
+def combatant_from_dict(raw: Any) -> Combatant | None:
+    if not isinstance(raw, dict):
+        return None
+
+    key = raw.get("key")
+    name = raw.get("name")
+    side = raw.get("side")
+    hp_current = raw.get("hp_current")
+    hp_max = raw.get("hp_max")
+    ac = raw.get("ac")
+    initiative = raw.get("initiative")
+
+    if not isinstance(key, str) or not key:
+        return None
+    if not isinstance(name, str):
+        return None
+    if side not in ("pc", "enemy"):
+        return None
+    if not isinstance(hp_current, int) or not isinstance(hp_max, int):
+        return None
+    if not isinstance(ac, int) or not isinstance(initiative, int):
+        return None
+
+    hp_max_norm = max(0, hp_max)
+    hp_current_norm = max(0, min(hp_current, hp_max_norm))
+
+    return Combatant(
+        key=key,
+        name=name,
+        side=side,
+        hp_current=hp_current_norm,
+        hp_max=hp_max_norm,
+        ac=max(0, ac),
+        initiative=initiative,
+        dodge_active=bool(raw.get("dodge_active", False)),
+        dash_active=bool(raw.get("dash_active", False)),
+        disengage_active=bool(raw.get("disengage_active", False)),
+        use_object_active=bool(raw.get("use_object_active", False)),
+        help_attack_advantage=bool(raw.get("help_attack_advantage", False)),
+    )
+
+
+def combat_state_from_dict(raw: Any) -> CombatState | None:
+    if not isinstance(raw, dict):
+        return None
+
+    active = raw.get("active")
+    round_no = raw.get("round_no")
+    turn_index = raw.get("turn_index")
+    combatants_raw = raw.get("combatants")
+    order_raw = raw.get("order")
+    started_at_iso = raw.get("started_at_iso")
+
+    if not isinstance(active, bool):
+        return None
+    if not isinstance(round_no, int) or not isinstance(turn_index, int):
+        return None
+    if not isinstance(combatants_raw, dict):
+        return None
+
+    combatants: dict[str, Combatant] = {}
+    for key, item in combatants_raw.items():
+        if not isinstance(key, str):
+            return None
+        combatant = combatant_from_dict(item)
+        if combatant is None:
+            return None
+        if combatant.key != key:
+            combatant.key = key
+        combatants[key] = combatant
+
+    from app.combat.turns import build_initiative_order
+
+    order_valid = isinstance(order_raw, list) and all(isinstance(item, str) for item in order_raw)
+    if order_valid:
+        order_clean: list[str] = []
+        seen: set[str] = set()
+        for key in order_raw:
+            if key in combatants and key not in seen:
+                order_clean.append(key)
+                seen.add(key)
+        if len(order_clean) != len(combatants):
+            # Broken order payload: rebuild from initiative so all combatants are present.
+            order_clean = build_initiative_order(combatants)
+    else:
+        order_clean = build_initiative_order(combatants)
+
+    state = CombatState(
+        active=active,
+        round_no=max(1, round_no),
+        turn_index=turn_index,
+        order=order_clean,
+        combatants=combatants,
+        started_at_iso=started_at_iso if isinstance(started_at_iso, str) else None,
+    )
+    _normalize_turn_index(state)
+    return state
+
+
+def restore_combat_state(session_id: str, payload: Any) -> CombatState | None:
+    state = combat_state_from_dict(payload)
+    if state is None or not state.active:
+        end_combat(session_id)
+        return None
+
+    _COMBAT_BY_SESSION[session_id] = state
+    return state
