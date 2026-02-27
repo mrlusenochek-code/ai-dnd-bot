@@ -57,7 +57,10 @@ TEXTUAL_CHECK_RE = re.compile(
 CHAT_COMBAT_ACTION_PATTERNS: list[tuple[str, re.Pattern[str]]] = [
     (
         "combat_attack",
-        re.compile(r"(атак|напад|удар|бью|рубл|колю|выпад|тыч|пыр|замах|метаю|швыряю|стреля|выстрел|стрел|лук|арбалет|режу)", re.IGNORECASE),
+        re.compile(
+            r"(атак|напад|удар|бью|рубл|колю|выпад|тыч|пыр|замах|метаю|швыряю|стреля|выстрел|стрел|лук|арбалет|режу|вступаю\s+в\s+бой|вступить\s+в\s+бой|вхожу\s+в\s+бой|войти\s+в\s+бой|врываюсь\s+в\s+бой)",
+            re.IGNORECASE,
+        ),
     ),
     ("combat_dodge", re.compile(r"(уклон|уворач|уворот|в защиту|защищаюсь|оборон|в оборону|блок|щит|стойк|додж)", re.IGNORECASE)),
     ("combat_help", re.compile(r"(помога|помочь|помогу|поддерж|страх|отвлек|координ|даю преимущество|открываю окно|прикрываю)", re.IGNORECASE)),
@@ -2338,10 +2341,23 @@ def _maybe_apply_opening_combat_action(
         state.turn_index = state.order.index(player_key)
         state.round_no = max(1, int(state.round_no or 0))
 
-    opening_patch, _opening_err = handle_live_combat_action(combat_action, session_id)
     merge_items: list[dict[str, Any]] = []
     if isinstance(combat_patch, dict):
         merge_items.append(combat_patch)
+    merge_items.append(
+        {
+            "open": True,
+            "lines": [
+                {
+                    "text": f"⚔ Бой • Раунд {state.round_no} • Ход: {current_turn_label(state)}",
+                    "muted": True,
+                    "kind": "status",
+                }
+            ],
+        }
+    )
+
+    opening_patch, _opening_err = handle_live_combat_action(combat_action, session_id)
     if isinstance(opening_patch, dict):
         merge_items.append(opening_patch)
 
