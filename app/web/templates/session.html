@@ -982,7 +982,7 @@ function applyCombatLogUiPatch(patch){
       }
       if(!item || typeof item !== "object") continue;
       if(typeof item.text !== "string") continue;
-      appendCombatLogLine(item.text, { muted: item.muted === true });
+      appendCombatLogLine(item.text, { muted: item.muted === true, kind: item.kind });
     }
   }
 }

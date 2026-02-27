@@ -39,6 +39,8 @@ GM_CONTEXT_EVENTS = max(1, int(os.getenv("GM_CONTEXT_EVENTS", "20")))
 GM_OLLAMA_TIMEOUT_SECONDS = max(1.0, float(os.getenv("GM_OLLAMA_TIMEOUT_SECONDS", "30")))
 GM_DRAFT_NUM_PREDICT = max(200, int(os.getenv("GM_DRAFT_NUM_PREDICT", "1000")))
 GM_FINAL_NUM_PREDICT = max(400, int(os.getenv("GM_FINAL_NUM_PREDICT", "1600")))
+COMBAT_LOG_HISTORY_KEY = "combat_log_history"
+MAX_COMBAT_LOG_LINES = 200
 logger = logging.getLogger(__name__)
 CHAR_STAT_KEYS = ("str", "dex", "con", "int", "wis", "cha")
 CHAR_DEFAULT_STATS = {k: 50 for k in CHAR_STAT_KEYS}
@@ -626,6 +628,86 @@ def settings_set(sess: Session, key: str, value: Any) -> None:
     st = _ensure_settings(sess)
     st[key] = value
     flag_modified(sess, "settings")
+
+
+def _get_combat_log_history(sess: Session) -> dict:
+    st = _ensure_settings(sess)
+    raw = st.get(COMBAT_LOG_HISTORY_KEY)
+    if not isinstance(raw, dict):
+        return {"open": True, "lines": []}
+
+    lines_raw = raw.get("lines")
+    lines: list[dict[str, Any]] = []
+    if isinstance(lines_raw, list):
+        for item in lines_raw:
+            if isinstance(item, str):
+                lines.append({"text": item, "muted": False})
+                continue
+            if not isinstance(item, dict):
+                continue
+            text = item.get("text")
+            if not isinstance(text, str):
+                continue
+            line: dict[str, Any] = {"text": text, "muted": bool(item.get("muted"))}
+            kind = item.get("kind")
+            if isinstance(kind, str):
+                line["kind"] = kind
+            lines.append(line)
+
+    if len(lines) > MAX_COMBAT_LOG_LINES:
+        lines = lines[-MAX_COMBAT_LOG_LINES:]
+    return {"open": bool(raw.get("open", True)), "lines": lines}
+
+
+def _persist_combat_log_patch(sess: Session, patch: dict[str, Any]) -> None:
+    history = _get_combat_log_history(sess)
+
+    if patch.get("reset") is True:
+        history["lines"] = []
+
+    open_value = patch.get("open")
+    if isinstance(open_value, bool):
+        history["open"] = open_value
+
+    status = patch.get("status")
+    if isinstance(status, str):
+        history["lines"].append({"text": status, "muted": False, "kind": "status"})
+
+    patch_lines = patch.get("lines")
+    if isinstance(patch_lines, list):
+        for item in patch_lines:
+            if isinstance(item, str):
+                history["lines"].append({"text": item, "muted": False})
+                continue
+            if not isinstance(item, dict):
+                continue
+            text = item.get("text")
+            if not isinstance(text, str):
+                continue
+            line: dict[str, Any] = {"text": text, "muted": bool(item.get("muted"))}
+            kind = item.get("kind")
+            if isinstance(kind, str):
+                line["kind"] = kind
+            history["lines"].append(line)
+
+    lines = history.get("lines")
+    if isinstance(lines, list) and len(lines) > MAX_COMBAT_LOG_LINES:
+        history["lines"] = lines[-MAX_COMBAT_LOG_LINES:]
+
+    st = _ensure_settings(sess)
+    st[COMBAT_LOG_HISTORY_KEY] = history
+    flag_modified(sess, "settings")
+
+
+def _combat_log_snapshot_patch(sess: Session) -> Optional[dict[str, Any]]:
+    st = _ensure_settings(sess)
+    history = st.get(COMBAT_LOG_HISTORY_KEY)
+    if not isinstance(history, dict):
+        return None
+    lines = history.get("lines")
+    if not isinstance(lines, list) or not lines:
+        return None
+    return {"reset": True, "open": bool(history.get("open", True)), "lines": lines}
 
 
 def as_int(s: Any, default: int = 0) -> int:
@@ -3369,6 +3451,9 @@ async def broadcast_state(
         sess = await get_session(db, session_id)
         if not sess:
             return
+        if combat_log_ui_patch is not None:
+            _persist_combat_log_patch(sess, combat_log_ui_patch)
+            await db.commit()
         state = await build_state(db, sess)
     if combat_log_ui_patch is not None:
         state["combat_log_ui_patch"] = combat_log_ui_patch
@@ -3385,8 +3470,12 @@ async def send_state_to_ws(
         if not sess:
             return
         state = await build_state(db, sess)
-    if combat_log_ui_patch is not None:
-        state["combat_log_ui_patch"] = combat_log_ui_patch
+        if combat_log_ui_patch is None:
+            snapshot = _combat_log_snapshot_patch(sess)
+            if snapshot:
+                state["combat_log_ui_patch"] = snapshot
+        else:
+            state["combat_log_ui_patch"] = combat_log_ui_patch
     await ws.send_text(json.dumps(state, ensure_ascii=False))
 
 
