@@ -2054,7 +2054,7 @@ def _sanitize_gm_output(text: str) -> str:
     prompt_only = re.sub(r"\s+", " ", txt).strip()
     if prompt_only in ("", "Что делаете дальше?"):
         return "Сцена продолжается.\nЧто делаете дальше?"
-    return txt
+    return _enforce_ty_singular_fixes(txt)
 
 
 async def _event_actor_label(db: AsyncSession, sess: Session, player: Player) -> str:
@@ -2092,6 +2092,18 @@ def _detect_chat_combat_action(text: str) -> Optional[str]:
         if pattern.search(txt):
             return action
     return None
+
+
+def _enforce_ty_singular_fixes(text: str) -> str:
+    txt = str(text or "")
+    txt = re.sub(r"\bВы\s+(?=\w+(?:ешь|ишь)\b)", "Ты ", txt)
+
+    def _fix_nanoshite(m: re.Match[str]) -> str:
+        token = m.group(0)
+        return "Наносишь" if token[:1].isupper() else "наносишь"
+
+    txt = re.sub(r"наношите", _fix_nanoshite, txt, flags=re.IGNORECASE)
+    return txt
 
 
 def _hp_state_label(hp_current: int, hp_max: int) -> str:
@@ -2221,6 +2233,37 @@ def _merge_combat_patches(patches: list[dict[str, Any]]) -> dict[str, Any]:
     return out
 
 
+def _maybe_apply_opening_combat_action(
+    *,
+    session_id: str,
+    combat_action: Optional[str],
+    player_uid: Optional[int],
+    player_id: uuid.UUID,
+    combat_patch: Optional[dict[str, Any]],
+) -> Optional[dict[str, Any]]:
+    _ = player_id
+    if combat_action is None:
+        return combat_patch
+
+    state = get_combat(session_id)
+    if state is None or not state.active:
+        return combat_patch
+
+    player_key = f"pc_{player_uid}" if player_uid is not None else ""
+    if player_key and player_key in state.order:
+        state.turn_index = state.order.index(player_key)
+        state.round_no = max(1, int(state.round_no or 0))
+
+    opening_patch, _opening_err = handle_live_combat_action(combat_action, session_id)
+    if isinstance(opening_patch, dict):
+        merge_items: list[dict[str, Any]] = []
+        if isinstance(combat_patch, dict):
+            merge_items.append(combat_patch)
+        merge_items.append(opening_patch)
+        return _merge_combat_patches(merge_items)
+    return combat_patch
+
+
 async def _recent_narrative_events_for_combat_prompt(
     db: AsyncSession,
     sess: Session,
@@ -2311,7 +2354,8 @@ def _build_combat_narration_prompt(
         "Запреты: ни одной цифры, ни бросков, ни DC, ни значений характеристик.\n"
         "Запрещены слова: 'урон', 'AC', 'HP', 'd20', 'проверка'.\n"
         "Не раскрывай механику. Покажи только художественные последствия.\n"
-        "Описывай действия игрока во 2 лице (ты/вы). Если всё-таки используешь 3 лицо — строго по местоимениям выше.\n"
+        "Пиши строго на 'ты' (2 лицо ед. числа). Запрещено 'вы'.\n"
+        "Если всё-таки используешь 3 лицо — строго по местоимениям выше.\n"
         "Последняя строка строго: Что делаете дальше?\n\n"
         f"Кампания: {title}\n"
         f"Текущий ход: {current_turn or '-'}\n"
@@ -2334,11 +2378,12 @@ def _sanitize_combat_narration(text: str) -> str:
     txt = re.sub(r"\s{2,}", " ", txt)
     txt = re.sub(r"[ \t]*\n[ \t]*", "\n", txt)
     txt = txt.strip(" \n\r\t-")
+    txt = _enforce_ty_singular_fixes(txt)
     if not txt:
         txt = (
             "Схватка не стихает, сталь и крики сливаются в единый гул.\n"
-            "Противники давят, но вы удерживаете темп и ищете окно для манёвра.\n"
-            "Инициатива всё ещё в ваших руках."
+            "Противники давят, но ты удерживаешь темп и ищешь окно для манёвра.\n"
+            "Инициатива всё ещё в твоих руках."
         )
     if not re.search(r"что\s+делаете\s+дальше\??\s*$", txt, flags=re.IGNORECASE):
         txt = txt.rstrip(".!? \n") + "\nЧто делаете дальше?"
@@ -2357,9 +2402,9 @@ def _combat_safe_fallback(player_action: str, outcome_summary: list[str]) -> str
         summary_line = "Схватка продолжается в тесном контакте."
 
     if player_action == "combat_attack":
-        action_line = "Вы проводите атаку в гуще боя, и исход удара сразу меняет темп схватки."
+        action_line = "Ты проводишь атаку в гуще боя, и исход удара сразу меняет темп схватки."
     else:
-        action_line = "Ваш боевой манёвр сразу влияет на ход столкновения."
+        action_line = "Твой боевой манёвр сразу влияет на ход столкновения."
 
     return (
         f"{action_line}\n"
@@ -3347,9 +3392,9 @@ def _build_turn_draft_prompt(
         "Если в одном сообщении игрок дал два связанных действия — обработай оба.\n"
         "Нельзя писать, что персонаж игрока решил/выбрал/думает/понимает/чувствует/задумывается.\n"
         "Нельзя писать реплики персонажа игрока в кавычках и конструкции вида '— говорит <персонаж игрока>'.\n"
-        "Пиши результат во 2 лице ('ты/вы') или нейтрально, без мыслей и решений за игрока.\n"
+        "Пиши строго во 2 лице ЕД. числа: 'ты'. Запрещено обращение на 'вы'. Следи за согласованием окончаний.\n"
         "PRONOUNS RULE: для игроков в блоке 'Игроки' указано pronouns=... — обязателен. Не делай вывод по имени.\n"
-        "Если pronouns=unknown — пиши во 2 лице (ты/вы) и избегай он/она.\n"
+        "Если pronouns=unknown — пиши во 2 лице ('ты') и избегай он/она.\n"
         "Не добавляй 'Варианты действий:' и не перечисляй варианты списком/нумерацией.\n"
         "Заверши ответ только строкой 'Что делаете дальше?' и сразу остановись.\n"
         "Строго только русский язык: не вставляй английские фразы.\n"
@@ -3445,9 +3490,9 @@ def _build_round_draft_prompt(
         "Если в одном сообщении игрок дал два связанных действия — обработай оба.\n"
         "Нельзя писать, что персонаж игрока решил/выбрал/думает/понимает/чувствует/задумывается.\n"
         "Нельзя писать реплики персонажа игрока в кавычках и конструкции вида '— говорит <персонаж игрока>'.\n"
-        "Пиши результат во 2 лице ('ты/вы') или нейтрально, без мыслей и решений за игрока.\n"
+        "Пиши строго во 2 лице ЕД. числа: 'ты'. Запрещено обращение на 'вы'. Следи за согласованием окончаний.\n"
         "PRONOUNS RULE: для игроков в блоке 'Игроки' указано pronouns=... — обязателен. Не делай вывод по имени.\n"
-        "Если pronouns=unknown — пиши во 2 лице (ты/вы) и избегай он/она.\n"
+        "Если pronouns=unknown — пиши во 2 лице ('ты') и избегай он/она.\n"
         "Не добавляй 'Варианты действий:' и не перечисляй варианты списком/нумерацией.\n"
         "Заверши ответ только строкой 'Что делаете дальше?' и сразу остановись.\n"
         "Строго только русский язык: не вставляй английские фразы.\n"
@@ -4020,6 +4065,31 @@ async def _auto_gm_reply_task(session_id: str, expected_action_id: str) -> None:
                     .limit(GM_CONTEXT_EVENTS)
                 )
                 events_desc = q_events.scalars().all()
+                opening_combat_action: Optional[str] = None
+                opening_player_uid: Optional[int] = None
+                opening_player_id: Optional[uuid.UUID] = sess.current_player_id if isinstance(sess.current_player_id, uuid.UUID) else None
+                for ev in events_desc:
+                    payload_raw = ev.result_json if isinstance(ev.result_json, dict) else {}
+                    if str(payload_raw.get("type") or "").strip().lower() != "player_action":
+                        continue
+                    raw_text = str(payload_raw.get("raw_text") or "").strip()
+                    detected = _detect_chat_combat_action(raw_text)
+                    if detected is None:
+                        continue
+                    opening_combat_action = detected
+                    actor_uid_raw = payload_raw.get("actor_uid")
+                    if actor_uid_raw is not None:
+                        try:
+                            opening_player_uid = int(actor_uid_raw)
+                        except Exception:
+                            pass
+                    actor_player_id_raw = str(payload_raw.get("actor_player_id") or "").strip()
+                    if actor_player_id_raw:
+                        try:
+                            opening_player_id = uuid.UUID(actor_player_id_raw)
+                        except Exception:
+                            pass
+                    break
                 context_events: list[str] = []
                 for ev in reversed(events_desc):
                     msg = str(ev.message_text or "").strip()
@@ -4047,6 +4117,8 @@ async def _auto_gm_reply_task(session_id: str, expected_action_id: str) -> None:
                     q_cur_player = await db.execute(select(Player).where(Player.id == sess.current_player_id))
                     cur_player = q_cur_player.scalar_one_or_none()
                     cur_uid = _player_uid(cur_player)
+                if opening_player_uid is None:
+                    opening_player_uid = cur_uid
                 draft_prompt = _build_turn_draft_prompt(
                     session_title=story_title,
                     context_events=context_events,
@@ -4069,8 +4141,20 @@ async def _auto_gm_reply_task(session_id: str, expected_action_id: str) -> None:
                     return
 
                 gm_text = gm_text.strip()
+                before_state = get_combat(session_id)
+                before_active = bool(before_state and before_state.active)
                 combat_log_ui_patch = apply_combat_machine_commands(session_id, gm_text)
                 sync_pcs_from_chars(session_id, chars_by_uid)
+                after_state = get_combat(session_id)
+                after_active = bool(after_state and after_state.active)
+                if (not before_active) and after_active and opening_player_id is not None:
+                    combat_log_ui_patch = _maybe_apply_opening_combat_action(
+                        session_id=session_id,
+                        combat_action=opening_combat_action,
+                        player_uid=opening_player_uid,
+                        player_id=opening_player_id,
+                        combat_patch=combat_log_ui_patch,
+                    )
                 if combat_log_ui_patch is not None:
                     combat_state = get_combat(session_id)
                     if combat_state is not None and combat_state.active:
@@ -4263,6 +4347,9 @@ async def _auto_round_task(session_id: str, expected_action_id: str) -> None:
 
                 player_actions: list[str] = []
                 chars_by_player_id: dict[uuid.UUID, Character] = {}
+                opening_combat_action: Optional[str] = None
+                opening_player_uid: Optional[int] = None
+                opening_player_id: Optional[uuid.UUID] = None
                 if sps:
                     q_chars = await db.execute(
                         select(Character).where(
@@ -4283,6 +4370,12 @@ async def _auto_round_task(session_id: str, expected_action_id: str) -> None:
                         else (pl.display_name if pl else f"Игрок #{sp.join_order}")
                     )
                     player_actions.append(f"{pname} (#{sp.join_order}): {action_text}")
+                    if opening_combat_action is None:
+                        detected = _detect_chat_combat_action(action_text)
+                        if detected is not None:
+                            opening_combat_action = detected
+                            opening_player_uid = _player_uid(pl)
+                            opening_player_id = sp.player_id
 
                 q_events = await db.execute(
                     select(Event)
@@ -4323,8 +4416,20 @@ async def _auto_round_task(session_id: str, expected_action_id: str) -> None:
                     return
 
                 gm_text = gm_text.strip()
+                before_state = get_combat(session_id)
+                before_active = bool(before_state and before_state.active)
                 combat_log_ui_patch = apply_combat_machine_commands(session_id, gm_text)
                 sync_pcs_from_chars(session_id, chars_by_uid)
+                after_state = get_combat(session_id)
+                after_active = bool(after_state and after_state.active)
+                if (not before_active) and after_active and opening_player_id is not None:
+                    combat_log_ui_patch = _maybe_apply_opening_combat_action(
+                        session_id=session_id,
+                        combat_action=opening_combat_action,
+                        player_uid=opening_player_uid,
+                        player_id=opening_player_id,
+                        combat_patch=combat_log_ui_patch,
+                    )
                 if combat_log_ui_patch is not None:
                     combat_state = get_combat(session_id)
                     if combat_state is not None and combat_state.active:
@@ -5248,6 +5353,7 @@ async def ws_room(ws: WebSocket, session_id: str):
                     await broadcast_state(session_id)
                     continue
 
+                combat_action = _detect_chat_combat_action(text)
                 combat_state = get_combat(session_id)
                 if combat_state is None:
                     bootstrap = settings_get(sess, "combat_live_bootstrap", None)
@@ -5276,12 +5382,22 @@ async def ws_room(ws: WebSocket, session_id: str):
                                 )
                             if len(lines) > 1:
                                 gm_text = "\n".join(lines)
-                                apply_combat_machine_commands(session_id, gm_text)
+                                before_state = get_combat(session_id)
+                                before_active = bool(before_state and before_state.active)
+                                combat_patch = apply_combat_machine_commands(session_id, gm_text)
                                 uid_map, chars_by_uid, _ = await _load_actor_context(db, sess)
                                 sync_pcs_from_chars(session_id, chars_by_uid)
                                 combat_state = get_combat(session_id)
+                                after_active = bool(combat_state and combat_state.active)
+                                if (not before_active) and after_active:
+                                    _maybe_apply_opening_combat_action(
+                                        session_id=session_id,
+                                        combat_action=combat_action,
+                                        player_uid=_player_uid(player),
+                                        player_id=player.id,
+                                        combat_patch=combat_patch,
+                                    )
                 combat_active = bool(combat_state and combat_state.active)
-                combat_action = _detect_chat_combat_action(text) if combat_active else None
 
                 phase_now = _get_phase(sess)
                 if phase_now == "lore_pending":
@@ -6048,6 +6164,7 @@ async def ws_room(ws: WebSocket, session_id: str):
                         "zone_before": current_zone,
                         "zone_after": new_zone,
                         "turn_index": int(sess.turn_index or 0),
+                        "combat_chat_action": combat_action,
                     }
                     await add_event(
                         db,
@@ -6098,6 +6215,7 @@ async def ws_room(ws: WebSocket, session_id: str):
                     "zone_before": current_zone,
                     "zone_after": new_zone,
                     "turn_index": int(sess.turn_index or 0),
+                    "combat_chat_action": combat_action,
                 }
                 await add_event(
                     db,
