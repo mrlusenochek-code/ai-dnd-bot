@@ -3686,8 +3686,17 @@ async def broadcast_state(
             return
         changed = False
         if combat_log_ui_patch is not None:
+            # Keep combat status in sync with the current combat state so it doesn't "stick"
+            # in settings (e.g. status stays on Round 1 while state is already Round 2).
+            if isinstance(combat_log_ui_patch, dict) and "status" not in combat_log_ui_patch:
+                cs = get_combat(session_id)
+                if cs is not None and cs.active and combat_log_ui_patch.get("open", True):
+                    combat_log_ui_patch = dict(combat_log_ui_patch)  # shallow copy
+                    combat_log_ui_patch["status"] = f"⚔ Бой • Раунд {cs.round_no} • Ход: {current_turn_label(cs)}"
+
             _persist_combat_log_patch(sess, combat_log_ui_patch)
             changed = True
+
         changed = _persist_combat_state(sess, session_id) or changed
         if changed:
             await db.commit()
@@ -5611,6 +5620,12 @@ async def ws_room(ws: WebSocket, session_id: str):
                         continue
                     before_state = get_combat(session_id)
                     before_active = bool(before_state and before_state.active)
+                    # If a previous combat is still active (often due to persisted restore),
+                    # hard-reset it so @@COMBAT_START is not ignored and we always start from round 1.
+                    if before_active:
+                        end_combat(session_id)
+                        before_state = None
+                        before_active = False
                     bootstrap_zone = "arena"
                     bootstrap_enemies = [
                         {"id": "band1", "name": "Разбойник", "hp": 18, "ac": 13, "init_mod": 2, "threat": 2},
