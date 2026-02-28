@@ -97,15 +97,43 @@ COMBAT_DRIFT_MARKERS = (
     "магазин",
 )
 START_INTENT_SANITARY_MARKERS = (
-    "шпага",
-    "меч",
-    "кинжал",
-    "дубин",
-    "артефакт",
     "шлем",
     "латы",
     "броня",
+    "доспех",
+    "кольчуг",
+    "панцир",
+    "щит",
+    "плащ",
+    "перчат",
+    "сапог",
+    "наруч",
+    "понож",
+    "шлем",
+    "латн",
+    "дублет",
+    "каск",
+    "шпаг",
+    "меч",
+    "сабл",
+    "рапир",
+    "кинжал",
+    "нож",
+    "дубин",
+    "топор",
+    "секир",
+    "булав",
+    "молот",
+    "копь",
+    "пик",
+    "арбалет",
+    "лук",
+    "стрел",
+    "болт",
+    "пращ",
     "пистолет",
+    "мушкет",
+    "руж",
     "патрон",
     "парень",
     "человек",
@@ -114,9 +142,54 @@ START_INTENT_SANITARY_MARKERS = (
     "трактир",
     "таверн",
 )
+COMBAT_FORBIDDEN_GEAR_MARKERS = (
+    "брон",
+    "доспех",
+    "кольчуг",
+    "панцир",
+    "лат",
+    "шлем",
+    "каск",
+    "щит",
+    "плащ",
+    "перчат",
+    "сапог",
+    "наруч",
+    "понож",
+    "пояс",
+    "шпаг",
+    "меч",
+    "сабл",
+    "рапир",
+    "кинжал",
+    "нож",
+    "дубин",
+    "топор",
+    "секир",
+    "булав",
+    "молот",
+    "копь",
+    "пик",
+    "алебард",
+    "посох",
+    "арбалет",
+    "лук",
+    "стрел",
+    "болт",
+    "дротик",
+    "пращ",
+    "пистолет",
+    "мушкет",
+    "руж",
+)
 START_INTENT_FALLBACK_TEXT = (
-    "Взгляд противника цепляется за тебя, расстояние тает — схватка вспыхивает в ту же секунду.\n"
-    "Что делаете дальше?"
+    "Ты входишь в дистанцию быстро и без паузы, и противник сразу принимает бой. "
+    "Воздух сжимается до коротких рывков и резких смен темпа, где любое движение решает следующий миг. "
+    "Ты давишь вперёд и не даёшь схватке расползтись по сторонам. "
+    "Противник отвечает жёстко и пытается перехватить инициативу в том же ритме. "
+    "Шаги, дыхание и удары сливаются в один плотный момент, где нельзя терять концентрацию. "
+    "Ты держишь линию столкновения и ищешь окно для следующего точного действия. "
+    "Схватка уже в полном разгаре, и преимущество достанется тому, кто ошибётся последним. Что делаете дальше?"
 )
 COMBAT_CLARIFY_TEXT = "🧙 GM: Сейчас бой. Уточни: атака/уклон/помощь/рывок/отход/побег/предмет/конец хода.\nЧто делаете дальше?"
 COMBAT_MECHANICS_EVENT_RE = re.compile(
@@ -1321,6 +1394,75 @@ def _has_start_intent_sanitary_markers(text: str) -> bool:
     return any(marker in lowered for marker in START_INTENT_SANITARY_MARKERS)
 
 
+def _combat_text_mentions_forbidden_gear(text: str, *, action_text: str, facts_block: str) -> bool:
+    lowered_text = str(text or "").lower().replace("ё", "е")
+    if not lowered_text:
+        return False
+    allowed_source = (
+        f"{str(action_text or '').lower().replace('ё', 'е')}\n{str(facts_block or '').lower().replace('ё', 'е')}"
+    )
+    for marker in COMBAT_FORBIDDEN_GEAR_MARKERS:
+        pattern = rf"\b{re.escape(marker)}\w*"
+        if re.search(pattern, lowered_text, flags=re.IGNORECASE) and not re.search(
+            pattern,
+            allowed_source,
+            flags=re.IGNORECASE,
+        ):
+            return True
+    return False
+
+
+def _combat_zone_environment_hint(zone: str) -> str:
+    z = str(zone or "").strip().lower().replace("ё", "е")
+    if not z:
+        return "место рядом с тобой"
+    mapping: list[tuple[tuple[str, ...], str]] = [
+        (("улиц", "переул", "тракт"), "узкий проход рядом с тобой"),
+        (("двор",), "тесный двор рядом с тобой"),
+        (("таверн", "трактир"), "душное помещение рядом с тобой"),
+        (("лес", "роща", "чащ"), "густой лес рядом с тобой"),
+        (("подзем", "катакомб", "склеп"), "сырое подземелье рядом с тобой"),
+        (("коридор",), "длинный коридор рядом с тобой"),
+        (("камер", "темниц"), "узкая камера рядом с тобой"),
+        (("порт", "причал", "док"), "шумный порт рядом с тобой"),
+        (("рынок", "базар"), "людное место рядом с тобой"),
+        (("арен",), "открытая площадка рядом с тобой"),
+    ]
+    for keys, value in mapping:
+        if any(key in z for key in keys):
+            return value
+    return "место рядом с тобой"
+
+
+def _combat_enemy_trait_hint(enemy_name: str, zone: str) -> str:
+    traits = (
+        "резкий",
+        "давит темпом",
+        "держит дистанцию",
+        "ловит ошибки",
+        "идет напролом",
+    )
+    seed = str(enemy_name or "").strip() or str(zone or "").strip() or "враг"
+    idx = sum(ord(ch) for ch in seed) % len(traits)
+    return traits[idx]
+
+
+def _rough_sentence_count(text: str) -> int:
+    parts = re.split(r"[.!?]+", str(text or ""))
+    return sum(1 for p in parts if re.search(r"[А-Яа-яA-Za-z0-9]", p))
+
+
+def _start_intent_text_needs_repair(text: str) -> bool:
+    txt = str(text or "").strip()
+    if not txt:
+        return True
+    if txt.lower().startswith("сцена продолжается."):
+        return True
+    if len(txt) < 260:
+        return True
+    return _rough_sentence_count(txt) < 6
+
+
 def _checks_from_human_text(draft_text: str, default_actor_uid: Optional[int]) -> list[dict[str, Any]]:
     out: list[dict[str, Any]] = []
     for m in TEXTUAL_CHECK_RE.finditer(draft_text or ""):
@@ -1958,12 +2100,17 @@ async def _build_combat_scene_facts_for_llm(
     player: Player,
     *,
     enemy_name: str,
-    max_lines: int = 6,
+    max_lines: int = 10,
 ) -> str:
     ch = await get_character(db, sess.id, player.id)
     zone = _get_pc_positions(sess).get(str(player.id), "стартовая локация")
     meta = _character_meta_from_stats(ch.stats) if ch else {"gender": "", "race": "", "description": ""}
-    inv_line = _inventory_prompt_line(ch.stats, max_len=170) if ch else ""
+    inv_line = _inventory_prompt_line(ch.stats, max_len=120) if ch else ""
+    inv_summary = str(inv_line or "").strip()
+    if inv_summary.lower().startswith("inventory:"):
+        inv_summary = inv_summary.split(":", 1)[1].strip()
+    if not inv_summary:
+        inv_summary = "без уточнений"
 
     q_events = await db.execute(
         select(Event)
@@ -2006,18 +2153,20 @@ async def _build_combat_scene_facts_for_llm(
         scene_lines.append(_short_text(denum or candidate, 220))
 
     tail = scene_lines[-max(1, min(6, int(max_lines))):]
-    facts_lines: list[str] = [
-        f"- zone: {_short_text(zone, 90)}",
-        f"- enemy: {_short_text(enemy_name or 'противник', 60)}",
-    ]
-    appearance = _short_text(str(meta.get("description") or "").strip(), 220)
+    facts_lines: list[str] = []
+    facts_lines.append(f"- Зона игрока: {_short_text(zone, 90)}")
+    facts_lines.append(f"- Окружение: {_combat_zone_environment_hint(zone)}.")
+    facts_lines.append(f"- Инвентарь: {_short_text(inv_summary, 100)}.")
+    appearance = _short_text(str(meta.get("description") or "").strip(), 130)
     if appearance:
-        facts_lines.append(f"- appearance: {appearance}")
-    if inv_line:
-        facts_lines.append(f"- {inv_line}")
+        facts_lines.append(f"- Персонаж: {appearance}")
+    facts_lines.append(
+        f"- Враг: {_short_text(enemy_name or 'противник', 60)}, {_combat_enemy_trait_hint(enemy_name, zone)}."
+    )
     if tail:
-        facts_lines.append(f"- recent_scene: {' / '.join(tail)}")
-    return "\n".join(facts_lines)
+        facts_lines.append(f"- Недавняя сцена: {_short_text(' / '.join(tail), 240)}")
+    limit = max(1, int(max_lines))
+    return "\n".join(facts_lines[:limit])
 
 
 def _short_text(text: str, limit: int) -> str:
@@ -6041,14 +6190,14 @@ async def ws_room(ws: WebSocket, session_id: str):
                         sess,
                         player,
                         enemy_name=enemy_name,
-                        max_lines=6,
+                        max_lines=10,
                     )
                     prompt = (
                         f"{_COMBAT_LOCK_PROMPT}\n\n"
                         "ЗАПРЕЩЕНО ДОБАВЛЯТЬ НОВЫЕ СУЩНОСТИ:\n"
                         "- никаких новых NPC (никаких 'человек', 'парень', 'толпа', 'стражник' и т.п.)\n"
                         "- никаких новых предметов/оружия/именованных артефактов\n"
-                        "- можно упоминать предметы только если они есть в inventory facts; иначе не упоминай\n"
+                        "- можно упоминать оружие/предметы только если они есть в фактах сцены или в действии игрока\n"
                         "Разрешено только:\n"
                         "- ты\n"
                         f"- {enemy_name}\n"
@@ -6060,6 +6209,7 @@ async def ws_room(ws: WebSocket, session_id: str):
                         "- 8-12 предложений, ровно 1 абзац.\n"
                         "- Динамично, но без деталей инвентаря.\n"
                         "- Пиши во 2 лице: 'ты'.\n"
+                        "- Нельзя упоминать броню/экипировку/оружие, если этого нет в фактах или в действии игрока.\n"
                         "- Последняя строка строго: Что делаете дальше?\n\n"
                         f"Факты сцены (не выдумывать сверх этого):\n{facts_block}\n\n"
                         f"Контекст: Ты вступаешь в бой с {enemy_name}. "
@@ -6073,12 +6223,22 @@ async def ws_room(ws: WebSocket, session_id: str):
                     gm_text = _sanitize_gm_output(_strip_machine_lines(str(resp.get("text") or "").strip()))
                     gm_text = re.sub(r"(?im)^\s*@@COMBAT_[A-Z_]+.*$", "", gm_text).strip()
 
-                    if _has_start_intent_sanitary_markers(gm_text):
+                    has_mechanics = bool(
+                        re.search(r"(?:\d|\bd20\b|\bhp\b|\bac\b|урон|бросок|раунд|ход)", gm_text, flags=re.IGNORECASE)
+                    )
+                    has_forbidden_gear = _combat_text_mentions_forbidden_gear(
+                        gm_text,
+                        action_text=text,
+                        facts_block=facts_block,
+                    )
+                    has_markers = _has_start_intent_sanitary_markers(gm_text)
+                    needs_repair = _start_intent_text_needs_repair(gm_text)
+                    if has_markers or has_forbidden_gear or needs_repair:
                         reprompt = (
                             f"{prompt}\n"
-                            f"Факты сцены (не выдумывать сверх этого):\n{facts_block}\n"
-                            "Перепиши, убрав все упоминания предметов/оружия/третьих лиц. "
-                            f"Оставь только ты и {enemy_name}. Никаких новых сущностей.\n"
+                            "Перепиши расширенно на 8–12 предложений, 1 абзац. "
+                            "Запрещено: броня/экипировка/оружие, если этого нет в фактах или в действии игрока. "
+                            "Никаких новых сущностей. Только здесь-и-сейчас.\n"
                             f"Черновик для переписывания:\n{gm_text}\n"
                         )
                         repair_resp = await generate_from_prompt(
@@ -6088,13 +6248,24 @@ async def ws_room(ws: WebSocket, session_id: str):
                         )
                         gm_text = _sanitize_gm_output(_strip_machine_lines(str(repair_resp.get("text") or "").strip()))
                         gm_text = re.sub(r"(?im)^\s*@@COMBAT_[A-Z_]+.*$", "", gm_text).strip()
-                        if _has_start_intent_sanitary_markers(gm_text):
-                            gm_text = START_INTENT_FALLBACK_TEXT
-
-                    has_mechanics = bool(
-                        re.search(r"(?:\d|\bd20\b|\bhp\b|\bac\b|урон|бросок|раунд|ход)", gm_text, flags=re.IGNORECASE)
-                    )
-                    if not gm_text or has_mechanics or _looks_like_combat_drift(gm_text):
+                        has_mechanics = bool(
+                            re.search(r"(?:\d|\bd20\b|\bhp\b|\bac\b|урон|бросок|раунд|ход)", gm_text, flags=re.IGNORECASE)
+                        )
+                        has_markers = _has_start_intent_sanitary_markers(gm_text)
+                        has_forbidden_gear = _combat_text_mentions_forbidden_gear(
+                            gm_text,
+                            action_text=text,
+                            facts_block=facts_block,
+                        )
+                        needs_repair = _start_intent_text_needs_repair(gm_text)
+                    if (
+                        not gm_text
+                        or has_mechanics
+                        or _looks_like_combat_drift(gm_text)
+                        or has_markers
+                        or has_forbidden_gear
+                        or needs_repair
+                    ):
                         gm_text = START_INTENT_FALLBACK_TEXT
 
                     await add_system_event(db, sess, f"🧙 GM: {gm_text}")
