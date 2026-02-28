@@ -6467,11 +6467,9 @@ async def ws_room(ws: WebSocket, session_id: str):
 
                         state_after_actions = get_combat(session_id)
                         if state_after_actions is None:
-                            settings = sess.settings if isinstance(sess.settings, dict) else None
-                            if settings and "combat_live_bootstrap" in settings:
-                                settings.pop("combat_live_bootstrap", None)
-                                flag_modified(sess, "settings")
-                                await db.commit()
+                            # Keep combat_live_bootstrap in settings until explicit reset
+                            # (admin_combat_live_end or a dedicated reset command).
+                            pass
 
                         merged_patch = _merge_combat_patches(all_patches) if all_patches else None
                         await broadcast_state(session_id, combat_log_ui_patch=merged_patch)
