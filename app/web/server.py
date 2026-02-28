@@ -5887,6 +5887,90 @@ async def ws_room(ws: WebSocket, session_id: str):
                                     )
                                     await broadcast_state(session_id, combat_log_ui_patch=combat_patch)
                 combat_active = bool(combat_state and combat_state.active)
+                start_intent = ("войти в бой" in lower) or lower.startswith("бой с") or ("начать бой" in lower)
+
+                if start_intent and combat_active:
+                    await ws_error("Бой уже идёт.")
+                    continue
+
+                if start_intent and not combat_active:
+                    actor_label = await _event_actor_label(db, sess, player)
+                    await add_event(
+                        db,
+                        sess,
+                        f"{actor_label}: {text}",
+                        actor_player_id=player.id,
+                        result_json={
+                            "type": "player_action",
+                            "raw_text": text,
+                            "combat_chat_action": "start",
+                        },
+                    )
+                    await db.commit()
+
+                    enemy_name = "Разбойник" if "разбойник" in lower else ""
+                    if not enemy_name:
+                        enemy_match = re.search(r"бой с\s+([^\n,.;:!?]+)", lower, flags=re.IGNORECASE)
+                        if enemy_match:
+                            enemy_raw = enemy_match.group(1).strip(" \"'`")
+                            if enemy_raw:
+                                enemy_name = enemy_raw[:40].strip()
+                    if not enemy_name:
+                        enemy_name = "Разбойник"
+                    enemy_name = enemy_name[0].upper() + enemy_name[1:] if enemy_name else "Разбойник"
+
+                    enemy_name_escaped = enemy_name.replace('"', '\\"')
+                    gm_text = (
+                        '@@COMBAT_START(zone="arena", cause="bootstrap")\n'
+                        f'@@COMBAT_ENEMY_ADD(id=band1, name="{enemy_name_escaped}", hp=18, ac=13, init_mod=2, threat=2)'
+                    )
+                    combat_patch = apply_combat_machine_commands(session_id, gm_text)
+                    _uid_map, chars_by_uid, _ = await _load_actor_context(db, sess)
+                    sync_pcs_from_chars(session_id, chars_by_uid)
+                    combat_state = get_combat(session_id)
+                    if combat_patch is None:
+                        combat_patch = {}
+
+                    combat_patch["reset"] = True
+                    combat_patch["open"] = True
+                    if combat_state and combat_state.active:
+                        combat_patch["status"] = (
+                            f"⚔ Бой • Раунд {combat_state.round_no} • Ход: {current_turn_label(combat_state)}"
+                        )
+                    await broadcast_state(session_id, combat_log_ui_patch=combat_patch)
+
+                    ch = await get_character(db, sess.id, player.id)
+                    player_name = (ch.name if ch and ch.name else player.display_name)
+                    prompt = (
+                        f"{_COMBAT_LOCK_PROMPT}\n\n"
+                        "Сейчас идёт бой. Напиши КРАСИВОЕ вступление к схватке здесь и сейчас.\n"
+                        "Правила (строго):\n"
+                        "- Только бой здесь и сейчас.\n"
+                        "- НЕЛЬЗЯ: числа, кубики, HP, AC, урон, раунды, ходы, формулы.\n"
+                        "- НЕЛЬЗЯ добавлять новых NPC или посторонних участников.\n"
+                        "- 8-12 предложений, 1-2 абзаца.\n"
+                        "- Пиши во 2 лице: 'ты'.\n"
+                        "- Заверши строкой: Что делаете дальше?\n\n"
+                        f"Контекст: Ты вступаешь в бой с {enemy_name}. "
+                        f"Имя героя (для ориентира): {player_name}\n"
+                    )
+                    resp = await generate_from_prompt(
+                        prompt=prompt,
+                        timeout_seconds=GM_OLLAMA_TIMEOUT_SECONDS,
+                        num_predict=GM_FINAL_NUM_PREDICT,
+                    )
+                    gm_text = _sanitize_gm_output(_strip_machine_lines(str(resp.get("text") or "").strip()))
+                    gm_text = re.sub(r"(?im)^\s*@@COMBAT_[A-Z_]+.*$", "", gm_text).strip()
+                    has_mechanics = bool(
+                        re.search(r"(?:\d|\bd20\b|\bhp\b|\bac\b|урон|бросок|раунд|ход)", gm_text, flags=re.IGNORECASE)
+                    )
+                    if not gm_text or has_mechanics or _looks_like_combat_drift(gm_text):
+                        gm_text = "Схватка вспыхивает мгновенно, противник давит без передышки.\nЧто делаете дальше?"
+
+                    await add_system_event(db, sess, f"🧙 GM: {gm_text}")
+                    await db.commit()
+                    await broadcast_state(session_id)
+                    continue
 
                 phase_now = _get_phase(sess)
                 if phase_now == "lore_pending":
