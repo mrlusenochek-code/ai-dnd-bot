@@ -23,7 +23,6 @@ from app.combat.apply_machine import apply_combat_machine_commands
 from app.combat.live_actions import handle_live_combat_action
 from app.combat.log_ui import normalize_combat_log_ui_patch
 from app.combat.machine_commands import extract_combat_machine_commands
-from app.combat.narration import build_combat_narration_from_patch
 from app.combat.state import current_turn_label, end_combat, get_combat, restore_combat_state, snapshot_combat_state
 from app.combat.sync_pcs import sync_pcs_from_chars
 from app.combat.test_actions import handle_admin_combat_test_action
@@ -5941,13 +5940,6 @@ async def ws_room(ws: WebSocket, session_id: str):
 
                         merged_patch = _merge_combat_patches(all_patches) if all_patches else None
                         await broadcast_state(session_id, combat_log_ui_patch=merged_patch)
-                        ch = await get_character(db, sess.id, player.id)
-                        player_name = (ch.name if ch and ch.name else player.display_name)
-                        narration = build_combat_narration_from_patch(merged_patch, player_name=player_name)
-                        if narration:
-                            await add_system_event(db, sess, f"🧙 GM: {narration}")
-                            await db.commit()
-                            await broadcast_state(session_id)
                         continue
                     else:
                         await ws_error(
