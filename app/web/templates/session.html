@@ -85,7 +85,7 @@
       font-size:13px;
       line-height:1.4;
     }
-    .combat-log-status{font-weight:600; color:#eaeaea; margin-bottom:6px;}
+    .combat-log-status{font-weight:600; color:#eaeaea; margin-bottom:6px; display:none;}
     .combat-log-placeholder{opacity:.75; margin:4px 0;}
     .combat-log-line{margin:4px 0; color:#d8d8d8; word-break:break-word;}
     .combat-log-line-muted{opacity:.7;}
@@ -969,6 +969,14 @@ function appendCombatLogLine(text, opts = {}){
   content.scrollTop = content.scrollHeight;
 }
 
+let lastCombatStatusText = null;
+let lastCombatRoundNo = null;
+
+function parseCombatRoundNo(statusText){
+  const m = String(statusText || "").match(/Раунд\s+(\d+)/);
+  return m ? parseInt(m[1], 10) : null;
+}
+
 function applyCombatLogUiPatch(patch){
   if(!patch || typeof patch !== "object") return;
   let pendingStatus = (typeof patch.status === "string") ? patch.status : null;
@@ -983,6 +991,8 @@ function applyCombatLogUiPatch(patch){
 
   if(patch.reset === true){
     resetCombatLogPanel();
+    lastCombatStatusText = null;
+    lastCombatRoundNo = null;
   }
 
   if(Array.isArray(patch.lines)){
@@ -1011,7 +1021,18 @@ function applyCombatLogUiPatch(patch){
 
   if(pendingStatus != null){
     clearCombatLogPlaceholdersOnce();
-    setCombatLogStatus(pendingStatus);
+    const statusText = String(pendingStatus ?? "");
+    if(statusText && statusText !== lastCombatStatusText){
+      const nextRound = parseCombatRoundNo(statusText);
+      if(lastCombatRoundNo != null && nextRound != null && nextRound !== lastCombatRoundNo){
+        appendCombatLogLine("====================", { muted: true });
+      }
+      appendCombatLogLine(statusText, { kind: "status" });
+      lastCombatStatusText = statusText;
+      if(nextRound != null){
+        lastCombatRoundNo = nextRound;
+      }
+    }
   }
 }
 
