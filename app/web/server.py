@@ -666,8 +666,9 @@ def _get_combat_log_history(sess: Session) -> dict:
             if isinstance(kind, str):
                 if kind == "status":
                     status = text
-                    continue
-                line["kind"] = kind
+                    line["kind"] = "status"
+                else:
+                    line["kind"] = kind
             lines.append(line)
 
     if len(lines) > MAX_COMBAT_LOG_LINES:
@@ -708,8 +709,9 @@ def _persist_combat_log_patch(sess: Session, patch: dict[str, Any]) -> None:
             if isinstance(kind, str):
                 if kind == "status":
                     history["status"] = text
-                    continue
-                line["kind"] = kind
+                    line["kind"] = "status"
+                else:
+                    line["kind"] = kind
             history["lines"].append(line)
 
     lines = history.get("lines")
@@ -3696,6 +3698,43 @@ async def broadcast_state(
                 if cs is not None and cs.active and combat_log_ui_patch.get("open", True):
                     combat_log_ui_patch = dict(combat_log_ui_patch)  # shallow copy
                     combat_log_ui_patch["status"] = f"⚔ Бой • Раунд {cs.round_no} • Ход: {current_turn_label(cs)}"
+
+            if isinstance(combat_log_ui_patch, dict):
+                status_text = combat_log_ui_patch.get("status")
+                if isinstance(status_text, str):
+                    if not isinstance(combat_log_ui_patch.get("lines"), list):
+                        combat_log_ui_patch = dict(combat_log_ui_patch)
+                        combat_log_ui_patch["lines"] = []
+                    patch_lines = combat_log_ui_patch.get("lines")
+                    if isinstance(patch_lines, list):
+                        history_raw = _ensure_settings(sess).get(COMBAT_LOG_HISTORY_KEY)
+                        prev_status = history_raw.get("status") if isinstance(history_raw, dict) else None
+
+                        prev_round_match = re.search(r"Раунд\s+(\d+)", prev_status) if isinstance(prev_status, str) else None
+                        next_round_match = re.search(r"Раунд\s+(\d+)", status_text)
+                        prev_round = int(prev_round_match.group(1)) if prev_round_match else None
+                        next_round = int(next_round_match.group(1)) if next_round_match else None
+
+                        if prev_round is not None and next_round is not None and prev_round != next_round:
+                            if not (
+                                patch_lines
+                                and isinstance(patch_lines[-1], dict)
+                                and patch_lines[-1].get("text") == "===================="
+                                and patch_lines[-1].get("muted") is True
+                            ):
+                                patch_lines.append({"text": "====================", "muted": True})
+
+                        has_same_status_line = False
+                        for item in patch_lines:
+                            if (
+                                isinstance(item, dict)
+                                and item.get("kind") == "status"
+                                and item.get("text") == status_text
+                            ):
+                                has_same_status_line = True
+                                break
+                        if not has_same_status_line:
+                            patch_lines.append({"text": status_text, "kind": "status"})
 
             _persist_combat_log_patch(sess, combat_log_ui_patch)
             changed = True
