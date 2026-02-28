@@ -134,6 +134,8 @@ START_INTENT_SANITARY_MARKERS = (
     "пистолет",
     "мушкет",
     "руж",
+    "пул",
+    "пуля",
     "патрон",
     "парень",
     "человек",
@@ -178,6 +180,8 @@ COMBAT_FORBIDDEN_GEAR_MARKERS = (
     "болт",
     "дротик",
     "пращ",
+    "пул",
+    "пуля",
     "пистолет",
     "мушкет",
     "руж",
@@ -6174,6 +6178,28 @@ async def ws_room(ws: WebSocket, session_id: str):
                     combat_state = get_combat(session_id)
                     if combat_patch is None:
                         combat_patch = {}
+                    if combat_state and combat_state.active:
+                        preamble_lines = _build_combat_start_preamble_lines(
+                            player=player,
+                            chars_by_uid=chars_by_uid,
+                            combat_state=combat_state,
+                        )
+                        patch_lines = combat_patch.get("lines")
+                        already = False
+                        if isinstance(patch_lines, list):
+                            for it in patch_lines:
+                                t = None
+                                if isinstance(it, dict):
+                                    t = it.get("text")
+                                elif isinstance(it, str):
+                                    t = it
+                                if isinstance(t, str) and (
+                                    t.startswith("Бой начался между") or t.startswith("Добавлен в бой:")
+                                ):
+                                    already = True
+                                    break
+                        if preamble_lines and not already:
+                            combat_patch = _append_combat_patch_lines(combat_patch, preamble_lines, prepend=True)
 
                     combat_patch["reset"] = True
                     combat_patch["open"] = True

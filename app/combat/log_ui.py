@@ -42,6 +42,8 @@ def normalize_combat_log_ui_patch(
     if not isinstance(patch, dict):
         return patch
 
+    is_reset = patch.get("reset") is True
+
     patch_lines_raw = patch.get("lines")
     if isinstance(patch_lines_raw, list):
         def _line_text(item: Any) -> str:
@@ -85,14 +87,14 @@ def normalize_combat_log_ui_patch(
             patch["lines"] = []
         patch_lines = patch.get("lines")
         if isinstance(patch_lines, list):
-            prev_status = prev_history.get("status") if isinstance(prev_history, dict) else None
+            prev_status = None if is_reset else (prev_history.get("status") if isinstance(prev_history, dict) else None)
 
             prev_round_match = re.search(r"Раунд\s+(\d+)", prev_status) if isinstance(prev_status, str) else None
             next_round_match = re.search(r"Раунд\s+(\d+)", status_text)
             prev_round = int(prev_round_match.group(1)) if prev_round_match else None
             next_round = int(next_round_match.group(1)) if next_round_match else None
 
-            if prev_round is not None and next_round is not None and prev_round != next_round:
+            if (not is_reset) and prev_round is not None and next_round is not None and prev_round != next_round:
                 if not (
                     patch_lines
                     and isinstance(patch_lines[-1], dict)
