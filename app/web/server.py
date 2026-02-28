@@ -1393,6 +1393,50 @@ def _looks_like_combat_drift(text: str) -> bool:
     return any(marker in lowered for marker in COMBAT_DRIFT_MARKERS)
 
 
+def _combat_narration_fact_coverage(text: str, facts: list[str]) -> int:
+    low = str(text or "").lower().replace("ё", "е")
+    if not low or not facts:
+        return 0
+    key_tokens = (
+        "попадает",
+        "промахивается",
+        "ранен",
+        "сильно",
+        "едва",
+        "вырывается",
+        "срывается",
+        "помогает",
+        "отступает",
+        "ускоряется",
+        "защиту",
+    )
+    coverage = 0
+    for fact in facts:
+        fact_low = str(fact or "").lower().replace("ё", "е")
+        fact_tokens = re.findall(r"[а-яёa-z0-9]{3,}", fact_low)
+        if not fact_tokens:
+            continue
+        anchor_name = fact_tokens[0]
+        key = ""
+        for token in key_tokens:
+            if re.search(rf"\b{re.escape(token)}\b", fact_low, flags=re.IGNORECASE):
+                key = token
+                break
+        has_name_and_key = bool(
+            key
+            and re.search(rf"\b{re.escape(anchor_name)}\b", low, flags=re.IGNORECASE)
+            and re.search(rf"\b{re.escape(key)}\b", low, flags=re.IGNORECASE)
+        )
+        matched_tokens = sum(
+            1
+            for token in set(fact_tokens)
+            if re.search(rf"\b{re.escape(token)}\b", low, flags=re.IGNORECASE)
+        )
+        if has_name_and_key or matched_tokens >= 2:
+            coverage += 1
+    return coverage
+
+
 def _has_start_intent_sanitary_markers(text: str) -> bool:
     lowered = str(text or "").lower().replace("ё", "е")
     return any(marker in lowered for marker in START_INTENT_SANITARY_MARKERS)
@@ -6431,13 +6475,21 @@ async def ws_room(ws: WebSocket, session_id: str):
                                 action_text=player_raw_action,
                                 facts_block=scene_facts_block,
                             )
-                            if text and (has_mechanics or _looks_like_combat_drift(text) or has_forbidden_gear):
+                            coverage = _combat_narration_fact_coverage(text, facts)
+                            has_low_fact_coverage = coverage < required_fact_count
+                            if text and (
+                                has_mechanics
+                                or _looks_like_combat_drift(text)
+                                or has_forbidden_gear
+                                or has_low_fact_coverage
+                            ):
                                 reprompt = (
                                     f"{_COMBAT_LOCK_PROMPT}\n\n"
                                     "Перепиши строго без механики и без чисел. "
                                     "Никаких бросков, HP, AC, урона, формул или раундов. "
                                     "Никакого ухода сцены из текущего боя. "
                                     f"Обязательно встроить в повествование (не списком) минимум {required_fact_count} разных пункта из блока 'Факты (без чисел)'. "
+                                    f"Твой текст обязан отразить {required_fact_count} факта(ов) из блока фактов; сейчас отражено: {coverage}. "
                                     "Обязательно использовать минимум 1 деталь окружения из блока 'Факты сцены' (зона/окружение). "
                                     "Если в фактах есть состояние цели ('почти не ранен'/'ранен'/'сильно ранен'/'едва держится' или аналог), обязательно явно отрази это в описании. "
                                     "Соблюдай связку: действие игрока -> реакция врага -> исход -> текущее состояние/давление (без чисел). "
