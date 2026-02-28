@@ -1952,6 +1952,74 @@ def _inventory_prompt_line(stats_raw: Any, max_len: int = 150) -> str:
     return _short_text("inventory: " + "; ".join(parts), max(120, min(160, max_len)))
 
 
+async def _build_combat_scene_facts_for_llm(
+    db: AsyncSession,
+    sess: Session,
+    player: Player,
+    *,
+    enemy_name: str,
+    max_lines: int = 6,
+) -> str:
+    ch = await get_character(db, sess.id, player.id)
+    zone = _get_pc_positions(sess).get(str(player.id), "стартовая локация")
+    meta = _character_meta_from_stats(ch.stats) if ch else {"gender": "", "race": "", "description": ""}
+    inv_line = _inventory_prompt_line(ch.stats, max_len=170) if ch else ""
+
+    q_events = await db.execute(
+        select(Event)
+        .where(Event.session_id == sess.id)
+        .order_by(Event.created_at.desc())
+        .limit(20)
+    )
+    rows = list(reversed(q_events.scalars().all()))
+
+    mechanics_re = re.compile(r"(⚔|\bd20\b|\bHP\b|\bAC\b|Бросок|Урон|Раунд|Ход)", flags=re.IGNORECASE)
+    scene_lines: list[str] = []
+    for ev in rows:
+        raw = str(ev.message_text or "").strip()
+        if not raw:
+            continue
+
+        gm_body = _extract_gm_message_body(raw)
+        candidate = ""
+        if gm_body:
+            candidate = gm_body
+        else:
+            if raw.startswith("[SYSTEM]"):
+                continue
+            if raw.startswith("[OOC]"):
+                continue
+            if re.match(r"^[^:\n\[\]]{1,80}:\s+\S", raw):
+                candidate = raw
+
+        candidate = str(candidate or "").strip()
+        if not candidate:
+            continue
+        if candidate.lower().startswith("мастер обрабатывает"):
+            continue
+        if "Следующий ход" in candidate:
+            continue
+        if mechanics_re.search(candidate) or COMBAT_MECHANICS_EVENT_RE.search(candidate):
+            continue
+
+        denum = _de_numberize_text(candidate)
+        scene_lines.append(_short_text(denum or candidate, 220))
+
+    tail = scene_lines[-max(1, min(6, int(max_lines))):]
+    facts_lines: list[str] = [
+        f"- zone: {_short_text(zone, 90)}",
+        f"- enemy: {_short_text(enemy_name or 'противник', 60)}",
+    ]
+    appearance = _short_text(str(meta.get("description") or "").strip(), 220)
+    if appearance:
+        facts_lines.append(f"- appearance: {appearance}")
+    if inv_line:
+        facts_lines.append(f"- {inv_line}")
+    if tail:
+        facts_lines.append(f"- recent_scene: {' / '.join(tail)}")
+    return "\n".join(facts_lines)
+
+
 def _short_text(text: str, limit: int) -> str:
     txt = str(text or "").strip()
     if len(txt) <= limit:
@@ -5968,12 +6036,19 @@ async def ws_room(ws: WebSocket, session_id: str):
 
                     ch = await get_character(db, sess.id, player.id)
                     player_name = (ch.name if ch and ch.name else player.display_name)
+                    facts_block = await _build_combat_scene_facts_for_llm(
+                        db,
+                        sess,
+                        player,
+                        enemy_name=enemy_name,
+                        max_lines=6,
+                    )
                     prompt = (
                         f"{_COMBAT_LOCK_PROMPT}\n\n"
                         "ЗАПРЕЩЕНО ДОБАВЛЯТЬ НОВЫЕ СУЩНОСТИ:\n"
                         "- никаких новых NPC (никаких 'человек', 'парень', 'толпа', 'стражник' и т.п.)\n"
                         "- никаких новых предметов/оружия/именованных артефактов\n"
-                        "- никаких конкретных названий оружия/брони, если они не были названы игроком\n"
+                        "- можно упоминать предметы только если они есть в inventory facts; иначе не упоминай\n"
                         "Разрешено только:\n"
                         "- ты\n"
                         f"- {enemy_name}\n"
@@ -5982,10 +6057,11 @@ async def ws_room(ws: WebSocket, session_id: str):
                         "Правила (строго):\n"
                         "- Только бой здесь и сейчас.\n"
                         "- НЕЛЬЗЯ: числа, кубики, HP, AC, урон, раунды, ходы, формулы.\n"
-                        "- 6-10 предложений, ровно 1 абзац.\n"
+                        "- 8-12 предложений, ровно 1 абзац.\n"
                         "- Динамично, но без деталей инвентаря.\n"
                         "- Пиши во 2 лице: 'ты'.\n"
                         "- Последняя строка строго: Что делаете дальше?\n\n"
+                        f"Факты сцены (не выдумывать сверх этого):\n{facts_block}\n\n"
                         f"Контекст: Ты вступаешь в бой с {enemy_name}. "
                         f"Имя героя (для ориентира): {player_name}\n"
                     )
@@ -6000,6 +6076,7 @@ async def ws_room(ws: WebSocket, session_id: str):
                     if _has_start_intent_sanitary_markers(gm_text):
                         reprompt = (
                             f"{prompt}\n"
+                            f"Факты сцены (не выдумывать сверх этого):\n{facts_block}\n"
                             "Перепиши, убрав все упоминания предметов/оружия/третьих лиц. "
                             f"Оставь только ты и {enemy_name}. Никаких новых сущностей.\n"
                             f"Черновик для переписывания:\n{gm_text}\n"
@@ -6098,6 +6175,23 @@ async def ws_room(ws: WebSocket, session_id: str):
                             ch = await get_character(db, sess.id, player.id)
                             player_name = (ch.name if ch and ch.name else player.display_name)
                             ended = any("бой заверш" in f.lower() or "победа" in f.lower() for f in facts)
+                            enemy_name_for_facts = "противник"
+                            state_for_facts = get_combat(session_id)
+                            if state_for_facts and isinstance(state_for_facts.combatants, dict):
+                                for actor in state_for_facts.combatants.values():
+                                    if str(getattr(actor, "side", "")).lower() != "enemy":
+                                        continue
+                                    actor_name = str(getattr(actor, "name", "") or "").strip()
+                                    if actor_name:
+                                        enemy_name_for_facts = actor_name
+                                        break
+                            scene_facts_block = await _build_combat_scene_facts_for_llm(
+                                db,
+                                sess,
+                                player,
+                                enemy_name=enemy_name_for_facts,
+                                max_lines=6,
+                            )
                             prompt = (
                                 f"{_COMBAT_LOCK_PROMPT}\n\n"
                                 "Сейчас идёт бой. Напиши КРАСИВОЕ подробное описание этого обмена ударами по фактам ниже.\n"
@@ -6105,10 +6199,12 @@ async def ws_room(ws: WebSocket, session_id: str):
                                 "- НЕЛЬЗЯ: числа, кубики, броски, урон, HP, AC, раунды, 'ход', формулы.\n"
                                 "- НЕЛЬЗЯ уводить сцену в другую локацию, мирные сцены, расследование, разговоры с третьими лицами.\n"
                                 "- Описывай ТОЛЬКО бой здесь и сейчас.\n"
+                                "- Предметы можно упоминать только если они есть в inventory facts.\n"
                                 "- Пиши во 2 лице: 'ты'. Реплики персонажа игрока НЕ писать.\n"
                                 "- Должно быть видно и твоё действие, и ответ врага (если он есть в фактах).\n"
                                 "- 10–14 предложений, 1–2 абзаца, кинематографично.\n"
                                 + ("- Заверши кратко финалом схватки без вопроса.\n" if ended else "- Заверши строкой: Что делаете дальше?\n")
+                                + f"\nФакты сцены (не выдумывать сверх этого):\n{scene_facts_block}\n"
                                 + "\nФакты (без чисел):\n- " + "\n- ".join(facts) + "\n"
                                 f"\nИмя героя (для ориентира): {player_name}\n"
                             )
@@ -6127,7 +6223,12 @@ async def ws_room(ws: WebSocket, session_id: str):
                                     f"{_COMBAT_LOCK_PROMPT}\n\n"
                                     "Перепиши строго без механики и без чисел. "
                                     "Никаких бросков, HP, AC, урона, формул или раундов. "
-                                    "Никакого ухода сцены из текущего боя.\n\n"
+                                    "Никакого ухода сцены из текущего боя. "
+                                    "Предметы можно упоминать только если они есть в inventory facts.\n\n"
+                                    f"Факты сцены (не выдумывать сверх этого):\n{scene_facts_block}\n\n"
+                                    "Факты (без чисел):\n- "
+                                    + "\n- ".join(facts)
+                                    + "\n\n"
                                     "Текущий текст:\n"
                                     f"{text}"
                                 )
