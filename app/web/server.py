@@ -5713,13 +5713,31 @@ async def ws_room(ws: WebSocket, session_id: str):
                         }
                     combat_state = get_combat(session_id)
                     after_active = bool(combat_state and combat_state.active)
-                    if (not before_active) and after_active:
+                    if after_active and combat_state is not None and combat_state.active:
                         preamble_lines = _build_combat_start_preamble_lines(
                             player=player,
                             chars_by_uid=chars_by_uid,
                             combat_state=combat_state,
                         )
-                        combat_patch = _append_combat_patch_lines(combat_patch, preamble_lines, prepend=True)
+                        if not isinstance(combat_patch, dict):
+                            combat_patch = {}
+                        patch_lines = combat_patch.get("lines")
+                        already = False
+                        if isinstance(patch_lines, list):
+                            for it in patch_lines:
+                                t = None
+                                if isinstance(it, dict):
+                                    t = it.get("text")
+                                elif isinstance(it, str):
+                                    t = it
+                                if isinstance(t, str) and (
+                                    t.startswith("Бой начался между") or t.startswith("Добавлен в бой:")
+                                ):
+                                    already = True
+                                    break
+                        if preamble_lines and not already:
+                            combat_patch = _append_combat_patch_lines(combat_patch, preamble_lines, prepend=True)
+                        combat_patch["reset"] = True
                     if combat_state is not None and combat_state.active:
                         if combat_patch.get("reset") is True:
                             combat_state.round_no = 1
@@ -5840,15 +5858,31 @@ async def ws_room(ws: WebSocket, session_id: str):
                                 sync_pcs_from_chars(session_id, chars_by_uid)
                                 combat_state = get_combat(session_id)
                                 after_active = bool(combat_state and combat_state.active)
-                                if (not before_active) and after_active:
+                                if after_active and combat_state is not None and combat_state.active:
                                     preamble_lines = _build_combat_start_preamble_lines(
                                         player=player,
                                         chars_by_uid=chars_by_uid,
                                         combat_state=combat_state,
                                     )
-                                    combat_patch = _append_combat_patch_lines(combat_patch, preamble_lines, prepend=True)
                                     if not isinstance(combat_patch, dict):
                                         combat_patch = {}
+                                    patch_lines = combat_patch.get("lines")
+                                    already = False
+                                    if isinstance(patch_lines, list):
+                                        for it in patch_lines:
+                                            t = None
+                                            if isinstance(it, dict):
+                                                t = it.get("text")
+                                            elif isinstance(it, str):
+                                                t = it
+                                            if isinstance(t, str) and (
+                                                t.startswith("Бой начался между") or t.startswith("Добавлен в бой:")
+                                            ):
+                                                already = True
+                                                break
+                                    if preamble_lines and not already:
+                                        combat_patch = _append_combat_patch_lines(combat_patch, preamble_lines, prepend=True)
+                                    combat_patch["reset"] = True
                                     combat_patch["open"] = True
                                     combat_patch["status"] = (
                                         f"⚔ Бой • Раунд {combat_state.round_no} • Ход: {current_turn_label(combat_state)}"
