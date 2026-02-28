@@ -684,6 +684,7 @@ def _persist_combat_log_patch(sess: Session, patch: dict[str, Any]) -> None:
 
     if patch.get("reset") is True:
         history["lines"] = []
+        history["status"] = None
 
     open_value = patch.get("open")
     if isinstance(open_value, bool):
