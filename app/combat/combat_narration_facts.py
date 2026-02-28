@@ -147,9 +147,6 @@ def extract_combat_narration_facts(patch: dict[str, Any] | None) -> list[str]:
                 pending_attack = None
             continue
 
-        if "повержен" in low:
-            add_priority("Противник повержен.")
-            continue
         if low.startswith("победа"):
             add_priority("Победа — бой окончен.")
             continue
@@ -158,6 +155,9 @@ def extract_combat_narration_facts(patch: dict[str, Any] | None) -> list[str]:
             continue
         if low.startswith("бой заверш"):
             add_priority("Бой завершён.")
+            continue
+        if "повержен" in low:
+            add_priority("Противник повержен.")
             continue
 
     if pending_attack:
