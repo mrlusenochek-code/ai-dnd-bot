@@ -5820,6 +5820,7 @@ async def ws_room(ws: WebSocket, session_id: str):
                     continue
 
                 combat_action = _detect_chat_combat_action(text)
+                _maybe_restore_combat_state(sess, session_id)
                 combat_state = get_combat(session_id)
                 if combat_state is None:
                     bootstrap = settings_get(sess, "combat_live_bootstrap", None)
@@ -5903,6 +5904,20 @@ async def ws_room(ws: WebSocket, session_id: str):
                     elif (lower.startswith("gm ") or lower.startswith("gm:")) and is_admin_user:
                         pass
                     elif combat_action:
+                        actor_label = await _event_actor_label(db, sess, player)
+                        await add_event(
+                            db,
+                            sess,
+                            f"{actor_label}: {text}",
+                            actor_player_id=player.id,
+                            result_json={
+                                "type": "player_action",
+                                "raw_text": text,
+                                "combat_chat_action": combat_action,
+                            },
+                        )
+                        await db.commit()
+
                         player_uid = _player_uid(player)
                         player_key = f"pc_{player_uid}" if player_uid is not None else ""
                         turn_key: Optional[str] = None
