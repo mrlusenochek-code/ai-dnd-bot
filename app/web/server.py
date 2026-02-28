@@ -2460,17 +2460,24 @@ def _merge_combat_patches(patches: list[dict[str, Any]]) -> dict[str, Any]:
 def _append_combat_patch_lines(
     combat_patch: Optional[dict[str, Any]],
     lines_to_add: list[dict[str, Any]],
+    *,
+    prepend: bool = False,
 ) -> dict[str, Any]:
     patch = combat_patch if isinstance(combat_patch, dict) else {}
     lines = patch.get("lines")
     if not isinstance(lines, list):
         lines = []
         patch["lines"] = lines
+    prepared_lines: list[dict[str, Any]] = []
     for line in lines_to_add:
         text = str(line.get("text") or "").strip() if isinstance(line, dict) else ""
         if not text:
             continue
-        lines.append(line)
+        prepared_lines.append(line)
+    if prepend:
+        patch["lines"] = prepared_lines + lines
+    else:
+        lines.extend(prepared_lines)
     return patch
 
 
@@ -2524,13 +2531,14 @@ def _build_combat_start_preamble_lines(
                 enemy_name = candidate
             break
 
+    battle_line = f'Бой начался между "{player_name}" и "{enemy_name}".'
     player_line = (
-        f"Игрок: {player_name} (ур. {level}, класс {class_kit}) "
-        f"HP {hp_cur}/{hp_max}, AC {ac}, STR {stats['str']} DEX {stats['dex']} "
-        f"CON {stats['con']} INT {stats['int']} WIS {stats['wis']} CHA {stats['cha']}"
+        f"Добавлен в бой: {player_name} (ур. {level}, класс {class_kit}) "
+        f"HP {hp_cur}/{hp_max}, AC {ac}, "
+        f"СИЛ {stats['str']} ЛОВ {stats['dex']} ТЕЛ {stats['con']} "
+        f"ИНТ {stats['int']} МДР {stats['wis']} ХАР {stats['cha']}"
     )
-    start_line = f'Началось сражение "{player_name}" с "{enemy_name}".'
-    return [{"text": player_line}, {"text": start_line}]
+    return [{"text": battle_line}, {"text": player_line}]
 
 
 def _maybe_apply_opening_combat_action(
@@ -5711,7 +5719,7 @@ async def ws_room(ws: WebSocket, session_id: str):
                             chars_by_uid=chars_by_uid,
                             combat_state=combat_state,
                         )
-                        combat_patch = _append_combat_patch_lines(combat_patch, preamble_lines)
+                        combat_patch = _append_combat_patch_lines(combat_patch, preamble_lines, prepend=True)
                     if combat_state is not None and combat_state.active:
                         if combat_patch.get("reset") is True:
                             combat_state.round_no = 1
@@ -5838,7 +5846,7 @@ async def ws_room(ws: WebSocket, session_id: str):
                                         chars_by_uid=chars_by_uid,
                                         combat_state=combat_state,
                                     )
-                                    combat_patch = _append_combat_patch_lines(combat_patch, preamble_lines)
+                                    combat_patch = _append_combat_patch_lines(combat_patch, preamble_lines, prepend=True)
                                     if not isinstance(combat_patch, dict):
                                         combat_patch = {}
                                     combat_patch["open"] = True
