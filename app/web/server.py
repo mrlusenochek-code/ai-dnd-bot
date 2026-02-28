@@ -6343,6 +6343,7 @@ async def ws_room(ws: WebSocket, session_id: str):
                         await broadcast_state(session_id, combat_log_ui_patch=merged_patch)
                         facts = extract_combat_narration_facts(merged_patch)
                         if facts:
+                            player_raw_action = str(text or "").strip()
                             ch = await get_character(db, sess.id, player.id)
                             player_name = (ch.name if ch and ch.name else player.display_name)
                             ended = any("бой заверш" in f.lower() or "победа" in f.lower() for f in facts)
@@ -6361,8 +6362,10 @@ async def ws_room(ws: WebSocket, session_id: str):
                                 sess,
                                 player,
                                 enemy_name=enemy_name_for_facts,
-                                max_lines=6,
+                                max_lines=10,
                             )
+                            if not str(scene_facts_block or "").strip():
+                                scene_facts_block = "- Зона игрока: место рядом с тобой\n- Окружение: место рядом с тобой."
                             prompt = (
                                 f"{_COMBAT_LOCK_PROMPT}\n\n"
                                 "Сейчас идёт бой. Напиши КРАСИВОЕ подробное описание этого обмена ударами по фактам ниже.\n"
@@ -6371,11 +6374,13 @@ async def ws_room(ws: WebSocket, session_id: str):
                                 "- НЕЛЬЗЯ уводить сцену в другую локацию, мирные сцены, расследование, разговоры с третьими лицами.\n"
                                 "- Описывай ТОЛЬКО бой здесь и сейчас.\n"
                                 "- Предметы можно упоминать только если они есть в inventory facts.\n"
+                                "- Нельзя упоминать броню/экипировку/оружие, если этого нет в фактах сцены или в действии игрока.\n"
                                 "- Пиши во 2 лице: 'ты'. Реплики персонажа игрока НЕ писать.\n"
                                 "- Должно быть видно и твоё действие, и ответ врага (если он есть в фактах).\n"
                                 "- 10–14 предложений, 1–2 абзаца, кинематографично.\n"
                                 + ("- Заверши кратко финалом схватки без вопроса.\n" if ended else "- Заверши строкой: Что делаете дальше?\n")
                                 + f"\nФакты сцены (не выдумывать сверх этого):\n{scene_facts_block}\n"
+                                + f"\nПоследнее действие игрока: {_short_text(player_raw_action, 180)}\n"
                                 + "\nФакты (без чисел):\n- " + "\n- ".join(facts) + "\n"
                                 f"\nИмя героя (для ориентира): {player_name}\n"
                             )
@@ -6389,14 +6394,20 @@ async def ws_room(ws: WebSocket, session_id: str):
                             has_mechanics = bool(
                                 re.search(r"(?:\d|\bd20\b|\bhp\b|\bac\b|урон|бросок)", text, flags=re.IGNORECASE)
                             )
-                            if text and (has_mechanics or _looks_like_combat_drift(text)):
+                            has_forbidden_gear = _combat_text_mentions_forbidden_gear(
+                                text,
+                                action_text=player_raw_action,
+                                facts_block=scene_facts_block,
+                            )
+                            if text and (has_mechanics or _looks_like_combat_drift(text) or has_forbidden_gear):
                                 reprompt = (
                                     f"{_COMBAT_LOCK_PROMPT}\n\n"
                                     "Перепиши строго без механики и без чисел. "
                                     "Никаких бросков, HP, AC, урона, формул или раундов. "
                                     "Никакого ухода сцены из текущего боя. "
-                                    "Предметы можно упоминать только если они есть в inventory facts.\n\n"
+                                    "Нельзя упоминать броню/экипировку/оружие, если этого нет в фактах сцены или в действии игрока.\n\n"
                                     f"Факты сцены (не выдумывать сверх этого):\n{scene_facts_block}\n\n"
+                                    f"Последнее действие игрока: {_short_text(player_raw_action, 180)}\n\n"
                                     "Факты (без чисел):\n- "
                                     + "\n- ".join(facts)
                                     + "\n\n"
@@ -6413,10 +6424,23 @@ async def ws_room(ws: WebSocket, session_id: str):
                                 has_mechanics = bool(
                                     re.search(r"(?:\d|\bd20\b|\bhp\b|\bac\b|урон|бросок)", text, flags=re.IGNORECASE)
                                 )
-                                if not text or has_mechanics or _looks_like_combat_drift(text):
-                                    text = "Схватка продолжается в том же месте, противники давят без передышки."
+                                has_forbidden_gear = _combat_text_mentions_forbidden_gear(
+                                    text,
+                                    action_text=player_raw_action,
+                                    facts_block=scene_facts_block,
+                                )
+                                if not text or has_mechanics or _looks_like_combat_drift(text) or has_forbidden_gear:
+                                    text = (
+                                        "Схватка вспыхивает снова: ты давишь на противника, он отвечает резким выпадом."
+                                    )
                                     if not ended:
                                         text += " Что делаете дальше?"
+                            if ended:
+                                text = re.sub(r"(?:\s*[\r\n]+)?\s*Что\s+делаете\s+дальше\??\s*$", "", text, flags=re.IGNORECASE).strip()
+                                if not text:
+                                    text = "Схватка обрывается в последний резкий обмен, и бой затихает в этом же месте."
+                            elif text and not re.search(r"Что\s+делаете\s+дальше\??\s*$", text, flags=re.IGNORECASE):
+                                text = text.rstrip(".!? \n") + "\nЧто делаете дальше?"
                             if text:
                                 await add_system_event(
                                     db,
