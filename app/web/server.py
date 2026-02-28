@@ -3723,6 +3723,10 @@ async def send_state_to_ws(
         if combat_log_ui_patch is None:
             snapshot = _combat_log_snapshot_patch(sess)
             if snapshot:
+                cs = get_combat(session_id)
+                if cs is not None and cs.active and snapshot.get("open", True):
+                    snapshot = dict(snapshot)  # safety copy
+                    snapshot["status"] = f"⚔ Бой • Раунд {cs.round_no} • Ход: {current_turn_label(cs)}"
                 state["combat_log_ui_patch"] = snapshot
         else:
             state["combat_log_ui_patch"] = combat_log_ui_patch
