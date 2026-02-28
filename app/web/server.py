@@ -22,6 +22,7 @@ from app.ai.gm import generate_from_prompt, generate_lore
 from app.combat.apply_machine import apply_combat_machine_commands
 from app.combat.live_actions import handle_live_combat_action
 from app.combat.log_ui import normalize_combat_log_ui_patch
+from app.combat.combat_narration_facts import extract_combat_narration_facts
 from app.combat.machine_commands import extract_combat_machine_commands
 from app.combat.state import current_turn_label, end_combat, get_combat, restore_combat_state, snapshot_combat_state
 from app.combat.sync_pcs import sync_pcs_from_chars
@@ -5940,6 +5941,67 @@ async def ws_room(ws: WebSocket, session_id: str):
 
                         merged_patch = _merge_combat_patches(all_patches) if all_patches else None
                         await broadcast_state(session_id, combat_log_ui_patch=merged_patch)
+                        facts = extract_combat_narration_facts(merged_patch)
+                        if facts:
+                            ch = await get_character(db, sess.id, player.id)
+                            player_name = (ch.name if ch and ch.name else player.display_name)
+                            ended = any("бой заверш" in f.lower() or "победа" in f.lower() for f in facts)
+                            prompt = (
+                                f"{_COMBAT_LOCK_PROMPT}\n\n"
+                                "Сейчас идёт бой. Напиши КРАСИВОЕ подробное описание этого обмена ударами по фактам ниже.\n"
+                                "Правила (строго):\n"
+                                "- НЕЛЬЗЯ: числа, кубики, броски, урон, HP, AC, раунды, 'ход', формулы.\n"
+                                "- НЕЛЬЗЯ уводить сцену в другую локацию, мирные сцены, расследование, разговоры с третьими лицами.\n"
+                                "- Описывай ТОЛЬКО бой здесь и сейчас.\n"
+                                "- Пиши во 2 лице: 'ты'. Реплики персонажа игрока НЕ писать.\n"
+                                "- Должно быть видно и твоё действие, и ответ врага (если он есть в фактах).\n"
+                                "- 10–14 предложений, 1–2 абзаца, кинематографично.\n"
+                                + ("- Заверши кратко финалом схватки без вопроса.\n" if ended else "- Заверши строкой: Что делаете дальше?\n")
+                                + "\nФакты (без чисел):\n- " + "\n- ".join(facts) + "\n"
+                                f"\nИмя героя (для ориентира): {player_name}\n"
+                            )
+                            resp = await generate_from_prompt(
+                                prompt=prompt,
+                                timeout_seconds=GM_OLLAMA_TIMEOUT_SECONDS,
+                                num_predict=GM_FINAL_NUM_PREDICT,
+                            )
+                            text = _sanitize_gm_output(_strip_machine_lines(str(resp.get("text") or "").strip()))
+                            text = re.sub(r"(?im)^\s*@@COMBAT_[A-Z_]+.*$", "", text).strip()
+                            has_mechanics = bool(
+                                re.search(r"(?:\d|\bd20\b|\bhp\b|\bac\b|урон|бросок)", text, flags=re.IGNORECASE)
+                            )
+                            if text and (has_mechanics or _looks_like_combat_drift(text)):
+                                reprompt = (
+                                    f"{_COMBAT_LOCK_PROMPT}\n\n"
+                                    "Перепиши строго без механики и без чисел. "
+                                    "Никаких бросков, HP, AC, урона, формул или раундов. "
+                                    "Никакого ухода сцены из текущего боя.\n\n"
+                                    "Текущий текст:\n"
+                                    f"{text}"
+                                )
+                                reprompt_resp = await generate_from_prompt(
+                                    prompt=reprompt,
+                                    timeout_seconds=GM_OLLAMA_TIMEOUT_SECONDS,
+                                    num_predict=GM_FINAL_NUM_PREDICT,
+                                )
+                                text = _sanitize_gm_output(_strip_machine_lines(str(reprompt_resp.get("text") or "").strip()))
+                                text = re.sub(r"(?im)^\s*@@COMBAT_[A-Z_]+.*$", "", text).strip()
+                                has_mechanics = bool(
+                                    re.search(r"(?:\d|\bd20\b|\bhp\b|\bac\b|урон|бросок)", text, flags=re.IGNORECASE)
+                                )
+                                if not text or has_mechanics or _looks_like_combat_drift(text):
+                                    text = "Схватка продолжается в том же месте, противники давят без передышки."
+                                    if not ended:
+                                        text += " Что делаете дальше?"
+                            if text:
+                                await add_system_event(
+                                    db,
+                                    sess,
+                                    f"🧙 GM: {text}",
+                                    result_json={"type": "combat_narration", "facts": facts},
+                                )
+                                await db.commit()
+                                await broadcast_state(session_id)
                         continue
                     else:
                         await ws_error(
