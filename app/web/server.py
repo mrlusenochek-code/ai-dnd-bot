@@ -21,6 +21,7 @@ from sqlalchemy.orm.attributes import flag_modified
 from app.ai.gm import generate_from_prompt, generate_lore
 from app.combat.apply_machine import apply_combat_machine_commands
 from app.combat.live_actions import handle_live_combat_action
+from app.combat.log_ui import normalize_combat_log_ui_patch
 from app.combat.machine_commands import extract_combat_machine_commands
 from app.combat.state import current_turn_label, end_combat, get_combat, restore_combat_state, snapshot_combat_state
 from app.combat.sync_pcs import sync_pcs_from_chars
@@ -3700,51 +3701,14 @@ async def broadcast_state(
             return
         changed = False
         if combat_log_ui_patch is not None:
-            # Keep combat status in sync with the current combat state so it doesn't "stick"
-            # in settings (e.g. status stays on Round 1 while state is already Round 2).
-            if isinstance(combat_log_ui_patch, dict) and "status" not in combat_log_ui_patch:
-                cs = get_combat(session_id)
-                if cs is not None and cs.active and combat_log_ui_patch.get("open", True):
-                    combat_log_ui_patch = dict(combat_log_ui_patch)  # shallow copy
-                    combat_log_ui_patch["status"] = f"⚔ Бой • Раунд {cs.round_no} • Ход: {current_turn_label(cs)}"
-
-            if isinstance(combat_log_ui_patch, dict):
-                status_text = combat_log_ui_patch.get("status")
-                if isinstance(status_text, str):
-                    if not isinstance(combat_log_ui_patch.get("lines"), list):
-                        combat_log_ui_patch = dict(combat_log_ui_patch)
-                        combat_log_ui_patch["lines"] = []
-                    patch_lines = combat_log_ui_patch.get("lines")
-                    if isinstance(patch_lines, list):
-                        history_raw = _ensure_settings(sess).get(COMBAT_LOG_HISTORY_KEY)
-                        prev_status = history_raw.get("status") if isinstance(history_raw, dict) else None
-
-                        prev_round_match = re.search(r"Раунд\s+(\d+)", prev_status) if isinstance(prev_status, str) else None
-                        next_round_match = re.search(r"Раунд\s+(\d+)", status_text)
-                        prev_round = int(prev_round_match.group(1)) if prev_round_match else None
-                        next_round = int(next_round_match.group(1)) if next_round_match else None
-
-                        if prev_round is not None and next_round is not None and prev_round != next_round:
-                            if not (
-                                patch_lines
-                                and isinstance(patch_lines[-1], dict)
-                                and patch_lines[-1].get("text") == "===================="
-                                and patch_lines[-1].get("muted") is True
-                            ):
-                                patch_lines.append({"text": "====================", "muted": True})
-
-                        has_same_status_line = False
-                        for item in patch_lines:
-                            if (
-                                isinstance(item, dict)
-                                and item.get("kind") == "status"
-                                and item.get("text") == status_text
-                            ):
-                                has_same_status_line = True
-                                break
-                        if not has_same_status_line:
-                            patch_lines.append({"text": status_text, "kind": "status"})
-
+            history_raw = _ensure_settings(sess).get(COMBAT_LOG_HISTORY_KEY)
+            prev_history = history_raw if isinstance(history_raw, dict) else None
+            cs = get_combat(session_id)
+            combat_log_ui_patch = normalize_combat_log_ui_patch(
+                combat_log_ui_patch,
+                prev_history=prev_history,
+                combat_state=cs,
+            )
             _persist_combat_log_patch(sess, combat_log_ui_patch)
             changed = True
 
