@@ -676,6 +676,9 @@ def _get_combat_log_history(sess: Session) -> dict:
 
 
 def _persist_combat_log_patch(sess: Session, patch: dict[str, Any]) -> None:
+    if not isinstance(patch, dict):
+        return
+
     history = _get_combat_log_history(sess)
 
     if patch.get("reset") is True:
@@ -685,9 +688,9 @@ def _persist_combat_log_patch(sess: Session, patch: dict[str, Any]) -> None:
     if isinstance(open_value, bool):
         history["open"] = open_value
 
-    status = patch.get("status")
-    if isinstance(status, str):
-        history["status"] = status
+    status_text = patch.get("status")
+    if isinstance(status_text, str):
+        history["status"] = status_text
 
     patch_lines = patch.get("lines")
     if isinstance(patch_lines, list):
