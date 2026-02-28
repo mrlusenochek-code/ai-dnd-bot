@@ -37,9 +37,41 @@ def normalize_combat_log_ui_patch(
     *,
     prev_history: dict[str, Any] | None,
     combat_state: Any | None,
+    actor_context: dict[str, Any] | None = None,
 ) -> dict[str, Any] | None:
     if not isinstance(patch, dict):
         return patch
+
+    patch_lines_raw = patch.get("lines")
+    if isinstance(patch_lines_raw, list):
+        def _line_text(item: Any) -> str:
+            if isinstance(item, dict):
+                return str(item.get("text") or "").strip()
+            if isinstance(item, str):
+                return item.strip()
+            return ""
+
+        has_enemy_added_line = any(_line_text(item).startswith("Противник добавлен:") for item in patch_lines_raw)
+        prev_lines_raw = prev_history.get("lines") if isinstance(prev_history, dict) else None
+        prev_lines: list[Any] = prev_lines_raw if isinstance(prev_lines_raw, list) else []
+        prev_texts = [_line_text(item) for item in prev_lines if _line_text(item)]
+        prev_history_is_empty_or_cleared = (
+            not prev_texts
+            or (len(prev_texts) == 1 and prev_texts[0] == "Журнал очищен.")
+        )
+        has_preamble_already = any(
+            _line_text(item).startswith("Бой начался между") or _line_text(item).startswith("Добавлен в бой:")
+            for item in patch_lines_raw
+        )
+
+        if has_enemy_added_line and prev_history_is_empty_or_cleared and not has_preamble_already:
+            preamble_lines = _build_start_preamble_lines(
+                actor_context=actor_context,
+                combat_state=combat_state,
+            )
+            if preamble_lines:
+                patch = dict(patch)
+                patch["lines"] = preamble_lines + patch_lines_raw
 
     if "status" not in patch:
         if combat_state is not None and combat_state.active and patch.get("open", True):
@@ -82,6 +114,105 @@ def normalize_combat_log_ui_patch(
                 patch_lines.append({"text": status_text, "kind": "status"})
 
     return patch
+
+
+def _build_start_preamble_lines(
+    *,
+    actor_context: dict[str, Any] | None,
+    combat_state: Any | None,
+) -> list[dict[str, Any]]:
+    if combat_state is None or not getattr(combat_state, "active", False):
+        return []
+
+    actor_context = actor_context if isinstance(actor_context, dict) else {}
+    player_uid = actor_context.get("uid")
+    if not isinstance(player_uid, int):
+        player_uid = actor_context.get("player_uid")
+    if not isinstance(player_uid, int):
+        player_uid = None
+
+    player_name = str(actor_context.get("player_name") or "").strip() or "Игрок"
+    level = 1
+    class_kit = "Adventurer"
+    stats = {"str": 50, "dex": 50, "con": 50, "int": 50, "wis": 50, "cha": 50}
+    hp_cur = 0
+    hp_max = 1
+    ac = 10
+
+    character = actor_context.get("character")
+    if character is None and isinstance(player_uid, int):
+        chars_by_uid = actor_context.get("chars_by_uid")
+        if isinstance(chars_by_uid, dict):
+            character = chars_by_uid.get(player_uid)
+
+    if character is not None:
+        char_name = str(getattr(character, "name", "") or "").strip()
+        if char_name:
+            player_name = char_name
+        level = max(1, _as_int(getattr(character, "level", 1), 1))
+        class_kit = str(getattr(character, "class_kit", "") or "").strip() or "Adventurer"
+        stats = _normalized_stats(getattr(character, "stats", {}))
+        hp_max = max(1, _as_int(getattr(character, "hp_max", hp_max), hp_max))
+        hp_cur = _clamp(_as_int(getattr(character, "hp", hp_cur), hp_cur), 0, hp_max)
+
+    combatants = getattr(combat_state, "combatants", {})
+    if isinstance(combatants, dict) and isinstance(player_uid, int):
+        player_combatant = combatants.get(f"pc_{player_uid}")
+        if player_combatant is not None:
+            hp_max = max(1, _as_int(getattr(player_combatant, "hp_max", hp_max), hp_max))
+            hp_cur = _clamp(_as_int(getattr(player_combatant, "hp_current", hp_cur), hp_cur), 0, hp_max)
+            ac = max(0, _as_int(getattr(player_combatant, "ac", ac), ac))
+
+    enemy_name = "противником"
+    if isinstance(combatants, dict):
+        for combatant in combatants.values():
+            if getattr(combatant, "side", "") != "enemy":
+                continue
+            candidate = str(getattr(combatant, "name", "") or "").strip()
+            if candidate:
+                enemy_name = candidate
+            break
+
+    battle_line = f'Бой начался между "{player_name}" и "{enemy_name}".'
+    player_line = (
+        f"Добавлен в бой: {player_name} (ур. {level}, класс {class_kit}) "
+        f"HP {hp_cur}/{hp_max}, AC {ac}, "
+        f"СИЛ {stats['str']} ЛОВ {stats['dex']} ТЕЛ {stats['con']} "
+        f"ИНТ {stats['int']} МДР {stats['wis']} ХАР {stats['cha']}"
+    )
+    return [{"text": battle_line}, {"text": player_line}]
+
+
+def _as_int(value: Any, default: int = 0) -> int:
+    if isinstance(value, bool):
+        return int(value)
+    if isinstance(value, int):
+        return value
+    if isinstance(value, float):
+        return int(value)
+    if isinstance(value, str):
+        s = value.strip()
+        if not s:
+            return default
+        if s.isdigit() or (s[0] in "+-" and s[1:].isdigit()):
+            try:
+                return int(s)
+            except Exception:
+                return default
+    return default
+
+
+def _clamp(val: int, lo: int, hi: int) -> int:
+    return max(lo, min(hi, val))
+
+
+def _normalized_stats(raw: Any) -> dict[str, int]:
+    out = {"str": 50, "dex": 50, "con": 50, "int": 50, "wis": 50, "cha": 50}
+    if not isinstance(raw, dict):
+        return out
+    for k in out:
+        out[k] = _clamp(_as_int(raw.get(k), out[k]), 1, 100)
+    return out
 
 
 def build_combat_test_patch_with_lines(
