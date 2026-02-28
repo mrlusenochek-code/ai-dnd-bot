@@ -5894,6 +5894,60 @@ async def ws_room(ws: WebSocket, session_id: str):
                     await ws_error("Ждём ответа мастера...")
                     continue
 
+                # Combat Lock: during active combat only combat actions are allowed.
+                if combat_active:
+                    is_admin_user = await is_admin(db, sess, player)
+                    if lower.startswith("ooc ") or cmdline.startswith("//"):
+                        pass
+                    elif (lower.startswith("gm ") or lower.startswith("gm:")) and is_admin_user:
+                        pass
+                    elif combat_action:
+                        player_uid = _player_uid(player)
+                        player_key = f"pc_{player_uid}" if player_uid is not None else ""
+                        turn_key: Optional[str] = None
+                        if combat_state and combat_state.order and 0 <= combat_state.turn_index < len(combat_state.order):
+                            turn_key = combat_state.order[combat_state.turn_index]
+                        if not turn_key or turn_key != player_key:
+                            current_name = current_turn_label(combat_state) if combat_state else "другой участник"
+                            await add_system_event(db, sess, f"Сейчас ходит {current_name}. Дождись своего хода.")
+                            await broadcast_state(session_id)
+                            continue
+
+                        all_patches: list[dict[str, Any]] = []
+                        combat_patch, combat_err = handle_live_combat_action(combat_action, session_id)
+                        if combat_err:
+                            await ws_error(combat_err, request_id=msg_request_id)
+                            continue
+                        if combat_patch:
+                            all_patches.append(combat_patch)
+
+                        while True:
+                            state_now = get_combat(session_id)
+                            if not state_now or not state_now.active or not state_now.order:
+                                break
+                            if state_now.turn_index < 0 or state_now.turn_index >= len(state_now.order):
+                                break
+                            turn_key_now = state_now.order[state_now.turn_index]
+                            turn_actor = state_now.combatants.get(turn_key_now)
+                            if not turn_actor or turn_actor.side != "enemy":
+                                break
+                            enemy_patch, enemy_err = handle_live_combat_action("combat_attack", session_id)
+                            if enemy_err:
+                                logger.warning("enemy auto combat action failed", extra={"action": {"error": enemy_err}})
+                                break
+                            if enemy_patch:
+                                all_patches.append(enemy_patch)
+
+                        merged_patch = _merge_combat_patches(all_patches) if all_patches else None
+                        await broadcast_state(session_id, combat_log_ui_patch=merged_patch)
+                        continue
+                    else:
+                        await ws_error(
+                            "Combat Lock: в бою доступны только боевые команды (атака/конец хода/уклон/рывок/отход/помощь/побег) или OOC.",
+                            request_id=msg_request_id,
+                        )
+                        continue
+
                 # OOC (any time, no turn)
                 if lower.startswith("ooc ") or cmdline.startswith("//"):
                     msg = cmdline[4:].strip() if lower.startswith("ooc ") else cmdline[2:].strip()
