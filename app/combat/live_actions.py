@@ -47,9 +47,61 @@ def _combat_status(state: Any) -> str:
     return f"⚔ Бой • Раунд {state.round_no} • Ход: {current_turn_label(state)}"
 
 
+def _auto_skip_dead_turns(session_id: str, state: Any) -> dict[str, Any] | None:
+    if not state.order:
+        return None
+
+    lines: list[dict[str, Any]] = []
+    max_iterations = len(state.order) + 1
+    skips_done = 0
+    while skips_done < max_iterations:
+        if not state.order:
+            break
+
+        current_key = state.order[state.turn_index]
+        current = state.combatants.get(current_key)
+        if current is None or current.hp_current > 0:
+            break
+
+        lines.append({"text": f"Ход пропущен: {current.name} (0 HP).", "muted": True})
+        skips_done += 1
+        state = advance_turn(session_id)
+        if state is None:
+            return None
+
+    if not lines:
+        return None
+
+    side_pc_alive = _is_side_alive(state, "pc")
+    side_enemy_alive = _is_side_alive(state, "enemy")
+    if not side_pc_alive or not side_enemy_alive:
+        if not side_enemy_alive:
+            lines.append({"text": "Победа: противники повержены.", "muted": True})
+        if not side_pc_alive:
+            lines.append({"text": "Поражение: все герои выбыли.", "muted": True})
+        end_combat(session_id)
+        return {
+            "status": "Бой завершён",
+            "open": False,
+            "lines": lines,
+        }
+
+    return {
+        "status": _combat_status(state),
+        "open": True,
+        "lines": lines,
+    }
+
+
 def handle_live_combat_action(
     action: str, session_id: str
 ) -> tuple[Optional[dict[str, Any]], Optional[str]]:
+    state = get_combat(session_id)
+    if state is not None and state.active:
+        auto_skip_patch = _auto_skip_dead_turns(session_id, state)
+        if auto_skip_patch is not None:
+            return auto_skip_patch, None
+
     if action == "combat_end_turn":
         state = get_combat(session_id)
         if state is None or not state.active:
