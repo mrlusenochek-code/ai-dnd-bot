@@ -48,33 +48,89 @@ def _combat_status(state: Any) -> str:
     return f"⚔ Бой • Раунд {state.round_no} • Ход: {current_turn_label(state)}"
 
 
-def _auto_skip_dead_turns(session_id: str, state: Any) -> dict[str, Any] | None:
+def _clamp_death_counter(value: int) -> int:
+    return max(0, min(int(value), 3))
+
+
+def _auto_resolve_zero_hp_turns(session_id: str, state: Any) -> dict[str, Any] | None:
     if not state.order:
         return None
 
     lines: list[dict[str, Any]] = []
     max_iterations = len(state.order) + 1
-    skips_done = 0
-    while skips_done < max_iterations:
+    iterations_done = 0
+    while iterations_done < max_iterations:
         if not state.order:
             break
 
         current_key = state.order[state.turn_index]
         current = state.combatants.get(current_key)
-        if current is None or current.hp_current > 0:
+        if current is None:
+            iterations_done += 1
+            state = advance_turn(session_id)
+            if state is None:
+                return None
+            continue
+
+        if current.hp_current > 0 and not current.is_dead:
             break
 
-        lines.append({"text": f"Ход пропущен: {current.name} (0 HP).", "muted": True})
-        skips_done += 1
-        state = advance_turn(session_id)
-        if state is None:
-            return None
+        if current.side == "enemy" and current.hp_current <= 0:
+            lines.append({"text": f"Ход пропущен: {current.name} (повержен).", "muted": True})
+            iterations_done += 1
+            state = advance_turn(session_id)
+            if state is None:
+                return None
+            continue
+
+        if current.side == "pc" and current.hp_current <= 0:
+            if current.is_dead:
+                lines.append({"text": f"Ход пропущен: {current.name} (мёртв).", "muted": True})
+            elif current.is_stable:
+                lines.append({"text": f"Ход пропущен: {current.name} (без сознания, стабилен).", "muted": True})
+            else:
+                roll = random.randint(1, 20)
+                lines.append({"text": f"Спасбросок смерти: d20({roll})"})
+                if roll == 20:
+                    current.hp_current = 1
+                    current.is_stable = False
+                    current.death_successes = 0
+                    current.death_failures = 0
+                    lines.append({"text": "Результат: 20 — ты приходишь в себя (1 HP)."})
+                elif roll == 1:
+                    current.death_failures = _clamp_death_counter(current.death_failures + 2)
+                    lines.append({"text": "Результат: 1 — два провала."})
+                elif roll >= 10:
+                    current.death_successes = _clamp_death_counter(current.death_successes + 1)
+                    lines.append({"text": "Результат: успех."})
+                else:
+                    current.death_failures = _clamp_death_counter(current.death_failures + 1)
+                    lines.append({"text": "Результат: провал."})
+
+                if roll != 20:
+                    current.death_successes = _clamp_death_counter(current.death_successes)
+                    current.death_failures = _clamp_death_counter(current.death_failures)
+                    if current.death_failures >= 3:
+                        current.is_dead = True
+                        current.is_stable = False
+                        lines.append({"text": f"Смерть: {current.name} погибает."})
+                    elif current.death_successes >= 3:
+                        current.is_stable = True
+                        lines.append({"text": f"Стабилизация: {current.name} стабилен (без сознания)."})
+
+            iterations_done += 1
+            state = advance_turn(session_id)
+            if state is None:
+                return None
+            continue
+
+        break
 
     if not lines:
         return None
 
-    side_pc_alive = _is_side_alive(state, "pc")
-    side_enemy_alive = _is_side_alive(state, "enemy")
+    side_pc_alive = any(c.side == "pc" and c.hp_current > 0 and not c.is_dead for c in state.combatants.values())
+    side_enemy_alive = any(c.side == "enemy" and c.hp_current > 0 for c in state.combatants.values())
     if not side_pc_alive or not side_enemy_alive:
         if not side_enemy_alive:
             lines.append({"text": "Победа: противники повержены.", "muted": True})
@@ -99,7 +155,7 @@ def handle_live_combat_action(
 ) -> tuple[Optional[dict[str, Any]], Optional[str]]:
     state = get_combat(session_id)
     if state is not None and state.active:
-        auto_skip_patch = _auto_skip_dead_turns(session_id, state)
+        auto_skip_patch = _auto_resolve_zero_hp_turns(session_id, state)
         if auto_skip_patch is not None:
             return auto_skip_patch, None
 
@@ -447,11 +503,29 @@ def handle_live_combat_action(
             damage_bonus=profile.damage_bonus,
         )
         attacker.help_attack_advantage = False
+        extra_outcome_lines: list[dict[str, Any]] = []
         if resolution.is_hit:
+            pre_hp = target.hp_current
             state = apply_damage(session_id, target.key, resolution.total_damage)
             if state is None:
                 return None, "Combat is not active"
             target = state.combatants.get(target.key, target)
+            if target.side == "pc":
+                if pre_hp > 0 and target.hp_current == 0:
+                    leftover = resolution.total_damage - pre_hp
+                    if leftover >= target.hp_max:
+                        target.is_dead = True
+                        target.is_stable = False
+                        extra_outcome_lines.append({"text": f"Мгновенная смерть: {target.name} погибает."})
+                elif pre_hp == 0 and not target.is_dead:
+                    fail_step = 2 if resolution.is_crit else 1
+                    target.death_failures = _clamp_death_counter(target.death_failures + fail_step)
+                    if target.death_failures >= 3:
+                        target.is_dead = True
+                        target.is_stable = False
+                        extra_outcome_lines.append({"text": f"Смерть: {target.name} погибает."})
+                    else:
+                        extra_outcome_lines.append({"text": "Смертельный урон при 0 HP: провал спасброска смерти."})
 
         attack_line = (
             f"Бросок атаки: {attack_roll_repr} + {resolution.attack_bonus} = "
@@ -477,6 +551,7 @@ def handle_live_combat_action(
             {"text": damage_line},
             {"text": f"{target.name}: HP {target.hp_current}/{target.hp_max}"},
         ]
+        lines.extend(extra_outcome_lines)
         if target.hp_current <= 0:
             lines.append({"text": f"{target.name} повержен."})
 

@@ -22,6 +22,10 @@ class Combatant:
     disengage_active: bool = False
     use_object_active: bool = False
     help_attack_advantage: bool = False
+    is_dead: bool = False
+    is_stable: bool = False
+    death_successes: int = 0
+    death_failures: int = 0
     stats: dict[str, int] | None = None
     inventory: list[dict[str, Any]] | None = None
     equip: dict[str, str] | None = None
@@ -268,6 +272,10 @@ def combatant_to_dict(c: Combatant) -> dict[str, Any]:
         "disengage_active": bool(c.disengage_active),
         "use_object_active": bool(c.use_object_active),
         "help_attack_advantage": bool(c.help_attack_advantage),
+        "is_dead": bool(c.is_dead),
+        "is_stable": bool(c.is_stable),
+        "death_successes": max(0, min(int(c.death_successes), 3)),
+        "death_failures": max(0, min(int(c.death_failures), 3)),
     }
     stats = _sanitize_stats_payload(c.stats)
     if stats is not None:
@@ -311,6 +319,10 @@ def combatant_from_dict(raw: Any) -> Combatant | None:
     hp_max = raw.get("hp_max")
     ac = raw.get("ac")
     initiative = raw.get("initiative")
+    is_dead = raw.get("is_dead", False)
+    is_stable = raw.get("is_stable", False)
+    death_successes = raw.get("death_successes", 0)
+    death_failures = raw.get("death_failures", 0)
 
     if not isinstance(key, str) or not key:
         return None
@@ -322,9 +334,13 @@ def combatant_from_dict(raw: Any) -> Combatant | None:
         return None
     if not isinstance(ac, int) or not isinstance(initiative, int):
         return None
+    if not isinstance(death_successes, int) or not isinstance(death_failures, int):
+        return None
 
     hp_max_norm = max(0, hp_max)
     hp_current_norm = max(0, min(hp_current, hp_max_norm))
+    death_successes_norm = max(0, min(death_successes, 3))
+    death_failures_norm = max(0, min(death_failures, 3))
 
     return Combatant(
         key=key,
@@ -339,6 +355,10 @@ def combatant_from_dict(raw: Any) -> Combatant | None:
         disengage_active=bool(raw.get("disengage_active", False)),
         use_object_active=bool(raw.get("use_object_active", False)),
         help_attack_advantage=bool(raw.get("help_attack_advantage", False)),
+        is_dead=bool(is_dead),
+        is_stable=bool(is_stable),
+        death_successes=death_successes_norm,
+        death_failures=death_failures_norm,
         stats=_sanitize_stats_payload(raw.get("stats")),
         inventory=_sanitize_inventory_payload(raw.get("inventory")),
         equip=_sanitize_equip_payload(raw.get("equip")),

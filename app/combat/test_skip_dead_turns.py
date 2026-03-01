@@ -27,6 +27,9 @@ class SkipDeadTurnsTests(unittest.TestCase):
             initiative=10,
         )
         add_enemy(session_id, name="Гоблин", hp=8, ac=11)
+        state = get_combat(session_id)
+        assert state is not None
+        state.combatants["pc_dead"].is_dead = True
 
         try:
             patch, err = handle_live_combat_action("combat_end_turn", session_id)
@@ -37,7 +40,7 @@ class SkipDeadTurnsTests(unittest.TestCase):
             lines = patch.get("lines")
             self.assertIsInstance(lines, list)
             line_texts = [line.get("text") for line in lines if isinstance(line, dict)]
-            self.assertIn("Ход пропущен: Павший (0 HP).", line_texts)
+            self.assertIn("Ход пропущен: Павший (мёртв).", line_texts)
 
             state = get_combat(session_id)
             self.assertIsNotNone(state)

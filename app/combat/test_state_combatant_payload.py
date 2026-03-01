@@ -40,6 +40,10 @@ class CombatantPayloadSerializationTests(unittest.TestCase):
             state = get_combat(session_id)
             self.assertIsNotNone(state)
             assert state is not None
+            state.combatants["pc_1"].is_dead = True
+            state.combatants["pc_1"].is_stable = True
+            state.combatants["pc_1"].death_successes = 9
+            state.combatants["pc_1"].death_failures = -3
 
             payload = combat_state_to_dict(state)
             restored = combat_state_from_dict(payload)
@@ -61,6 +65,10 @@ class CombatantPayloadSerializationTests(unittest.TestCase):
             assert combatant.inventory is not None
             self.assertEqual(combatant.inventory[0].get("id"), "rope_50ft")
             self.assertNotIn("bad", combatant.inventory[0])
+            self.assertTrue(combatant.is_dead)
+            self.assertTrue(combatant.is_stable)
+            self.assertEqual(combatant.death_successes, 3)
+            self.assertEqual(combatant.death_failures, 0)
         finally:
             end_combat(session_id)
 
