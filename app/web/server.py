@@ -33,7 +33,7 @@ from app.db.connection import AsyncSessionLocal
 from app.db.models import Session, Player, SessionPlayer, Character, Skill, Event
 from app.rules.equipment_slots import EquipmentSlot, EQUIPMENT_SLOT_ORDER, slot_label_ru
 from app.rules.item_catalog import ITEMS
-from app.rules.items import is_equipable, can_equip_to_slot
+from app.rules.items import ItemDef, is_equipable, can_equip_to_slot
 
 
 TURN_TIMEOUT_SECONDS = int(os.getenv("TURN_TIMEOUT_SECONDS", "300"))
@@ -1836,6 +1836,45 @@ def _equip_state_line(ch: Optional[Character]) -> str:
     return "; ".join(parts) if parts else "ничего"
 
 
+def _item_def_for_inventory_entry(entry: dict[str, Any]) -> ItemDef | None:
+    item_def_key = str(entry.get("def") or "").strip()
+    if item_def_key and item_def_key in ITEMS:
+        return ITEMS[item_def_key]
+    entry_name_cf = str(entry.get("name") or "").strip().casefold()
+    if not entry_name_cf:
+        return None
+    for cand in ITEMS.values():
+        if cand.name_ru.casefold() == entry_name_cf:
+            return cand
+    return None
+
+
+def _equipped_wear_groups(inv: list[dict[str, Any]], equip_map: dict[str, str]) -> dict[str, str]:
+    by_id: dict[str, dict[str, Any]] = {}
+    for entry in inv:
+        if not isinstance(entry, dict):
+            continue
+        entry_id = str(entry.get("id") or "").strip().lower()
+        if not entry_id:
+            continue
+        by_id[entry_id] = entry
+    out: dict[str, str] = {}
+    for equipped_item_id in equip_map.values():
+        item_id = str(equipped_item_id or "").strip().lower()
+        if not item_id:
+            continue
+        entry = by_id.get(item_id)
+        if not entry:
+            continue
+        item_def = _item_def_for_inventory_entry(entry)
+        wear_group = str(((item_def.equip.wear_group if item_def and item_def.equip else None) or "")).strip().lower()
+        if wear_group in ("", "weapon", "ring"):
+            continue
+        if wear_group not in out:
+            out[wear_group] = item_id
+    return out
+
+
 def _split_machine_args(args_raw: str) -> list[str]:
     parts: list[str] = []
     cur: list[str] = []
@@ -2262,17 +2301,7 @@ async def _apply_inventory_machine_commands(db: AsyncSession, sess: Session, com
             if not item_id:
                 item_id = _slugify_inventory_id("", str(item_entry.get("name") or ""), idx + 1)
 
-            item_def = None
-            item_def_key = str(item_entry.get("def") or "").strip()
-            if item_def_key and item_def_key in ITEMS:
-                item_def = ITEMS[item_def_key]
-            else:
-                entry_name_cf = str(item_entry.get("name") or "").strip().casefold()
-                if entry_name_cf:
-                    for cand in ITEMS.values():
-                        if cand.name_ru.casefold() == entry_name_cf:
-                            item_def = cand
-                            break
+            item_def = _item_def_for_inventory_entry(item_entry)
             if not item_def:
                 logger.warning("EQUIP item definition not found", extra={"action": {"uid": uid, "name": cmd.get("name"), "slot": slot.value}})
                 continue
@@ -2287,6 +2316,25 @@ async def _apply_inventory_machine_commands(db: AsyncSession, sess: Session, com
                 continue
 
             equip_map = _character_equip_from_stats(ch.stats)
+            wear_group = str(((item_def.equip.wear_group if item_def.equip else None) or "")).strip().lower()
+            if wear_group and wear_group not in ("weapon", "ring"):
+                groups = _equipped_wear_groups(inv, equip_map)
+                existing_item_id = str(groups.get(wear_group) or "").strip().lower()
+                if existing_item_id and existing_item_id != item_id:
+                    logger.warning(
+                        "EQUIP blocked by wear_group exclusivity",
+                        extra={
+                            "action": {
+                                "uid": uid,
+                                "name": cmd.get("name"),
+                                "slot": slot.value,
+                                "item_id": item_id,
+                                "wear_group": wear_group,
+                                "existing_item_id": existing_item_id,
+                            }
+                        },
+                    )
+                    continue
             if item_def.equip and item_def.equip.two_handed and slot in (EquipmentSlot.main_hand, EquipmentSlot.off_hand):
                 other_slot = EquipmentSlot.off_hand if slot == EquipmentSlot.main_hand else EquipmentSlot.main_hand
                 other_item_id = str(equip_map.get(other_slot.value) or "").strip().lower()
@@ -2305,17 +2353,7 @@ async def _apply_inventory_machine_commands(db: AsyncSession, sess: Session, com
                         main_idx = _find_inventory_item_index(inv, main_item_id)
                         if main_idx is not None:
                             main_entry = inv[main_idx]
-                            main_def = None
-                            main_def_key = str(main_entry.get("def") or "").strip()
-                            if main_def_key and main_def_key in ITEMS:
-                                main_def = ITEMS[main_def_key]
-                            else:
-                                main_name_cf = str(main_entry.get("name") or "").strip().casefold()
-                                if main_name_cf:
-                                    for cand in ITEMS.values():
-                                        if cand.name_ru.casefold() == main_name_cf:
-                                            main_def = cand
-                                            break
+                            main_def = _item_def_for_inventory_entry(main_entry)
                             if main_def and main_def.equip and main_def.equip.two_handed:
                                 logger.warning(
                                     "EQUIP shield blocked by two_handed in main_hand",
