@@ -4471,6 +4471,92 @@ def _apply_defeat_outcome_to_settings(sess: Session, started_at: str) -> dict[st
     return payload
 
 
+def _revive_characters_to_1hp(chars: list[Any]) -> bool:
+    changed = False
+    for ch in chars:
+        hp = as_int(getattr(ch, "hp", 0), 0)
+        if hp <= 0:
+            setattr(ch, "hp", 1)
+            if hasattr(ch, "is_alive"):
+                setattr(ch, "is_alive", True)
+            changed = True
+    return changed
+
+
+def _compute_robbed_removals(inv: list[dict[str, Any]], max_take: int = 2) -> list[str]:
+    if not isinstance(inv, list):
+        return []
+    candidates: list[tuple[str, str]] = []
+    for entry in inv:
+        if not isinstance(entry, dict):
+            continue
+        def_key = str(entry.get("def") or "").strip()
+        item_def = ITEMS.get(def_key) if def_key else None
+        if item_def is not None and item_def.kind == "quest":
+            continue
+        entry_id = str(entry.get("id") or "").strip().lower()
+        entry_name = str(entry.get("name") or "").strip()
+        if not entry_id and not entry_name:
+            continue
+        sort_key = entry_id or entry_name.lower()
+        remove_name = entry_id or entry_name
+        candidates.append((sort_key, remove_name))
+    candidates.sort(key=lambda x: x[0])
+    take = max(0, as_int(max_take, 2))
+    return [remove_name for _sort_key, remove_name in candidates[:take]]
+
+
+async def _apply_defeat_effects_once(
+    db: AsyncSession,
+    sess: Session,
+) -> bool:
+    outcome_payload = settings_get(sess, "combat_defeat_outcome", None)
+    if not isinstance(outcome_payload, dict):
+        return False
+
+    started_at = str(outcome_payload.get("started_at_iso") or "").strip()
+    key = str(outcome_payload.get("key") or "").strip()
+    if not started_at or not key:
+        return False
+
+    if settings_get(sess, "combat_defeat_effects_applied_for", "") == started_at:
+        return False
+
+    _uid_map, chars_by_uid, _skill_mods_by_char = await _load_actor_context(db, sess)
+    all_chars = list(chars_by_uid.values())
+    _revive_characters_to_1hp(all_chars)
+
+    if key == "enemies_withdraw":
+        settings_set(sess, "combat_defeat_effects_applied_for", started_at)
+        await add_system_event(db, sess, "☠ Поражение: враги отступили. Вы приходите в себя (1 HP).")
+        return True
+
+    if key == "robbed":
+        if not chars_by_uid:
+            return False
+        victim_uid = sorted(chars_by_uid.keys())[0]
+        victim = chars_by_uid.get(victim_uid)
+        if victim is None:
+            return False
+
+        inv = _character_inventory_from_stats(victim.stats)
+        to_remove = _compute_robbed_removals(inv, max_take=2)
+        removed_names: list[str] = []
+        for remove_name in to_remove:
+            changed, _qty, removed_item = _inv_remove_on_character(victim, name=remove_name, qty=1)
+            if not changed:
+                continue
+            removed_name = str((removed_item or {}).get("name") or remove_name).strip() or remove_name
+            removed_names.append(removed_name)
+
+        settings_set(sess, "combat_defeat_effects_applied_for", started_at)
+        removed_text = ", ".join(removed_names) if removed_names else "ничего"
+        await add_system_event(db, sess, f"☠ Поражение: вас ограбили. Потеряно: {removed_text}.")
+        return True
+
+    return False
+
+
 async def _grant_defeat_outcome_once(
     db: AsyncSession,
     sess: Session,
@@ -4620,6 +4706,9 @@ async def broadcast_state(
                 changed = True
             defeat_outcome_granted = await _grant_defeat_outcome_once(db, sess, combat_log_ui_patch)
             if defeat_outcome_granted:
+                changed = True
+            defeat_effects_applied = await _apply_defeat_effects_once(db, sess)
+            if defeat_effects_applied:
                 changed = True
 
         changed = _persist_combat_state(sess, session_id) or changed
