@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 import random
 from typing import Any, Optional
 
@@ -12,6 +13,7 @@ from app.combat.state import (
     get_combat,
 )
 from app.rules.derived_stats import compute_attack_profile, parse_dice
+from app.rules.item_catalog import ITEMS
 
 
 def _is_alive(hp_current: int) -> bool:
@@ -75,6 +77,18 @@ def _combat_status(state: Any) -> str:
 
 def _clamp_death_counter(value: int) -> int:
     return max(0, min(int(value), 3))
+
+
+def parse_heal_dice(expr: str) -> tuple[int, int, int] | None:
+    match = re.fullmatch(r"\s*(\d+)[dD](\d+)(?:\+(\d+))?\s*", expr)
+    if match is None:
+        return None
+    n = int(match.group(1))
+    sides = int(match.group(2))
+    bonus = int(match.group(3)) if match.group(3) is not None else 0
+    if n <= 0 or sides <= 0:
+        return None
+    return n, sides, bonus
 
 
 def _auto_resolve_zero_hp_turns(session_id: str, state: Any) -> dict[str, Any] | None:
@@ -179,7 +193,7 @@ def handle_live_combat_action(
     action: str, session_id: str
 ) -> tuple[Optional[dict[str, Any]], Optional[str]]:
     state = get_combat(session_id)
-    if state is not None and state.active:
+    if state is not None and state.active and action != "combat_use_object":
         auto_skip_patch = _auto_resolve_zero_hp_turns(session_id, state)
         if auto_skip_patch is not None:
             return auto_skip_patch, None
@@ -330,9 +344,93 @@ def handle_live_combat_action(
         if attacker is None:
             return None, "Combat state is inconsistent"
 
-        attacker.use_object_active = True
-        lines: list[dict[str, Any]] = [
-            {"text": f"Предмет: {attacker.name} использует объект (до следующего хода)", "muted": True}
+        if attacker.side != "pc":
+            lines: list[dict[str, Any]] = [
+                {"text": "Использовать предмет: недоступно для противника.", "muted": True}
+            ]
+            state = advance_turn(session_id)
+            if state is None:
+                return None, "Combat is not active"
+            lines.append({"text": f"Ход автоматически передан: {current_turn_label(state)}", "muted": True})
+            return (
+                {
+                    "status": _combat_status(state),
+                    "open": True,
+                    "lines": lines,
+                },
+                None,
+            )
+
+        inventory = attacker.inventory if isinstance(attacker.inventory, list) else []
+        consumable_idx: int | None = None
+        consumable_entry: dict[str, Any] | None = None
+        consumable_def = None
+        for idx, entry in enumerate(inventory):
+            if not isinstance(entry, dict):
+                continue
+            def_key = entry.get("def")
+            if not isinstance(def_key, str):
+                continue
+            item_def = ITEMS.get(def_key)
+            if item_def is None:
+                continue
+            consume = item_def.consume
+            if consume is None:
+                continue
+            has_healing = bool(consume.heal_dice) or int(consume.heal_flat) > 0
+            if not has_healing:
+                continue
+            qty_raw = entry.get("qty", 0)
+            qty = qty_raw if isinstance(qty_raw, int) else 0
+            if qty < 1:
+                continue
+            consumable_idx = idx
+            consumable_entry = entry
+            consumable_def = item_def
+            break
+
+        if consumable_idx is None or consumable_entry is None or consumable_def is None:
+            lines = [{"text": "Использовать предмет: нет подходящего предмета лечения.", "muted": True}]
+            state = advance_turn(session_id)
+            if state is None:
+                return None, "Combat is not active"
+            lines.append({"text": f"Ход автоматически передан: {current_turn_label(state)}", "muted": True})
+            return (
+                {
+                    "status": _combat_status(state),
+                    "open": True,
+                    "lines": lines,
+                },
+                None,
+            )
+
+        qty_now = int(consumable_entry.get("qty", 0)) - 1
+        if qty_now <= 0:
+            inventory.pop(consumable_idx)
+        else:
+            consumable_entry["qty"] = qty_now
+
+        consume = consumable_def.consume
+        assert consume is not None
+        heal_from_dice = 0
+        parsed_heal = parse_heal_dice(consume.heal_dice) if isinstance(consume.heal_dice, str) else None
+        if parsed_heal is not None:
+            n, sides, bonus = parsed_heal
+            heal_from_dice = sum(random.randint(1, sides) for _ in range(n)) + bonus
+        heal_amount = max(0, heal_from_dice + int(consume.heal_flat))
+
+        pre_hp = attacker.hp_current
+        attacker.hp_current = min(attacker.hp_max, max(0, attacker.hp_current) + heal_amount)
+        if pre_hp <= 0 and attacker.hp_current > 0 and not attacker.is_dead:
+            attacker.is_stable = False
+            attacker.death_successes = 0
+            attacker.death_failures = 0
+
+        heal_repr = consume.heal_dice or str(consume.heal_flat)
+        lines = [
+            {"text": f"Предмет: {consumable_def.name_ru} (лечение {heal_repr})", "muted": True},
+            {"text": f"Лечение: {heal_amount} HP"},
+            {"text": f"{attacker.name}: HP {attacker.hp_current}/{attacker.hp_max}"},
         ]
 
         state = advance_turn(session_id)
