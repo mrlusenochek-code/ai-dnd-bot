@@ -31,6 +31,7 @@ from app.core.logging import configure_logging
 from app.core.log_context import request_id_var, session_id_var, uid_var, ws_conn_id_var, client_id_var
 from app.db.connection import AsyncSessionLocal
 from app.db.models import Session, Player, SessionPlayer, Character, Skill, Event
+from app.rules.derived_stats import compute_ac
 from app.rules.equipment_slots import EquipmentSlot, EQUIPMENT_SLOT_ORDER, slot_label_ru
 from app.rules.item_catalog import ITEMS
 from app.rules.items import ItemDef, is_equipable, can_equip_to_slot
@@ -3113,6 +3114,9 @@ def _build_combat_start_preamble_lines(
             level = max(1, as_int(character.level, 1))
             class_kit = str(character.class_kit or "").strip() or "Adventurer"
             stats = _normalized_stats(character.stats)
+            equip_map = _character_equip_from_stats(character.stats)
+            inv = _character_inventory_from_stats(character.stats)
+            ac = compute_ac(stats=character.stats, inventory=inv, equip_map=equip_map)
             hp_max = max(1, as_int(character.hp_max, hp_max))
             hp_cur = _clamp(as_int(character.hp, hp_cur), 0, hp_max)
 
