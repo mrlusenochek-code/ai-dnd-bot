@@ -4,6 +4,9 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any, Literal
 
+_STAT_KEYS = ("str", "dex", "con", "int", "wis", "cha")
+_INVENTORY_KEYS = {"id", "name", "qty", "def", "tags", "notes"}
+
 
 @dataclass
 class Combatant:
@@ -19,6 +22,9 @@ class Combatant:
     disengage_active: bool = False
     use_object_active: bool = False
     help_attack_advantage: bool = False
+    stats: dict[str, int] | None = None
+    inventory: list[dict[str, Any]] | None = None
+    equip: dict[str, str] | None = None
 
 
 @dataclass
@@ -58,6 +64,42 @@ def _next_enemy_key(combatants: dict[str, Combatant]) -> str:
         if candidate not in combatants:
             return candidate
         idx += 1
+
+
+def _sanitize_stats_payload(value: Any) -> dict[str, int] | None:
+    if not isinstance(value, dict):
+        return None
+
+    out: dict[str, int] = {}
+    for key in _STAT_KEYS:
+        raw = value.get(key)
+        if isinstance(raw, int):
+            out[key] = raw
+    return out
+
+
+def _sanitize_inventory_payload(value: Any) -> list[dict[str, Any]] | None:
+    if not isinstance(value, list):
+        return None
+
+    out: list[dict[str, Any]] = []
+    for item in value[:60]:
+        if not isinstance(item, dict):
+            continue
+        cleaned = {k: v for k, v in item.items() if isinstance(k, str) and k in _INVENTORY_KEYS}
+        out.append(cleaned)
+    return out
+
+
+def _sanitize_equip_payload(value: Any) -> dict[str, str] | None:
+    if not isinstance(value, dict):
+        return None
+
+    out: dict[str, str] = {}
+    for k, v in value.items():
+        if isinstance(k, str) and isinstance(v, str):
+            out[k] = v
+    return out
 
 
 def start_combat(session_id: str, *, reason: str | None = None) -> CombatState:
@@ -126,6 +168,9 @@ def upsert_pc(
     hp_max: int,
     ac: int,
     initiative: int = 0,
+    stats: dict[str, int] | None = None,
+    inventory: list[dict[str, Any]] | None = None,
+    equip: dict[str, str] | None = None,
 ) -> CombatState | None:
     state = get_combat(session_id)
     if state is None or not state.active:
@@ -139,6 +184,9 @@ def upsert_pc(
     hp_norm = max(0, int(hp))
     ac_norm = max(0, int(ac))
     initiative_norm = int(initiative)
+    stats_norm = _sanitize_stats_payload(stats)
+    inventory_norm = _sanitize_inventory_payload(inventory)
+    equip_norm = _sanitize_equip_payload(equip)
 
     existing = state.combatants.get(pc_key)
     if existing is not None:
@@ -148,6 +196,9 @@ def upsert_pc(
         existing.initiative = initiative_norm
         existing.side = "pc"
         existing.hp_current = max(0, min(existing.hp_current, hp_max_norm))
+        existing.stats = stats_norm
+        existing.inventory = inventory_norm
+        existing.equip = equip_norm
     else:
         state.combatants[pc_key] = Combatant(
             key=pc_key,
@@ -157,6 +208,9 @@ def upsert_pc(
             hp_max=hp_max_norm,
             ac=ac_norm,
             initiative=initiative_norm,
+            stats=stats_norm,
+            inventory=inventory_norm,
+            equip=equip_norm,
         )
 
     from app.combat.turns import build_initiative_order
@@ -201,7 +255,7 @@ def advance_turn(session_id: str) -> CombatState | None:
 
 
 def combatant_to_dict(c: Combatant) -> dict[str, Any]:
-    return {
+    payload: dict[str, Any] = {
         "key": c.key,
         "name": c.name,
         "side": c.side,
@@ -215,6 +269,16 @@ def combatant_to_dict(c: Combatant) -> dict[str, Any]:
         "use_object_active": bool(c.use_object_active),
         "help_attack_advantage": bool(c.help_attack_advantage),
     }
+    stats = _sanitize_stats_payload(c.stats)
+    if stats is not None:
+        payload["stats"] = stats
+    inventory = _sanitize_inventory_payload(c.inventory)
+    if inventory is not None:
+        payload["inventory"] = inventory
+    equip = _sanitize_equip_payload(c.equip)
+    if equip is not None:
+        payload["equip"] = equip
+    return payload
 
 
 def combat_state_to_dict(state: CombatState) -> dict[str, Any]:
@@ -275,6 +339,9 @@ def combatant_from_dict(raw: Any) -> Combatant | None:
         disengage_active=bool(raw.get("disengage_active", False)),
         use_object_active=bool(raw.get("use_object_active", False)),
         help_attack_advantage=bool(raw.get("help_attack_advantage", False)),
+        stats=_sanitize_stats_payload(raw.get("stats")),
+        inventory=_sanitize_inventory_payload(raw.get("inventory")),
+        equip=_sanitize_equip_payload(raw.get("equip")),
     )
 
 

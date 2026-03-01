@@ -29,13 +29,23 @@ def sync_pcs_from_chars(session_id: str, chars_by_uid: dict[int, Any]) -> None:
 
         stats = getattr(ch, "stats", {})
         dex_default = 50
+        stats_payload: dict[str, int] | None = None
+        inventory_payload: list[dict[str, Any]] | None = None
+        equip_payload: dict[str, str] | None = None
         if isinstance(stats, dict):
-            inventory = stats.get("_inv", [])
-            if not isinstance(inventory, list):
-                inventory = []
-            equip_map = stats.get("_equip", {})
-            if not isinstance(equip_map, dict):
-                equip_map = {}
+            inventory_raw = stats.get("_inv", [])
+            inventory = inventory_raw if isinstance(inventory_raw, list) else []
+            inventory_payload = inventory if isinstance(inventory_raw, list) else None
+            equip_raw = stats.get("_equip", {})
+            equip_map = equip_raw if isinstance(equip_raw, dict) else {}
+            equip_payload = equip_raw if isinstance(equip_raw, dict) else None
+
+            stats_payload = {}
+            for key in ("str", "dex", "con", "int", "wis", "cha"):
+                value = stats.get(key)
+                if isinstance(value, int):
+                    stats_payload[key] = value
+
             ac = compute_ac(stats=stats, inventory=inventory, equip_map=equip_map)
         else:
             dex = dex_default
@@ -49,4 +59,7 @@ def sync_pcs_from_chars(session_id: str, chars_by_uid: dict[int, Any]) -> None:
             hp_max=hp_max,
             ac=ac,
             initiative=0,
+            stats=stats_payload,
+            inventory=inventory_payload,
+            equip=equip_payload,
         )
