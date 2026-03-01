@@ -144,3 +144,12 @@ def filter_enemies_by_env(envs: Iterable[str]) -> list[dict[str, Any]]:
                 seen.add(k)
                 out.append(e)
     return out
+
+
+def load_enemies_by_env(env: str) -> list[dict[str, Any]]:
+    if not isinstance(env, str):
+        return []
+    env_name = env.strip()
+    if not env_name:
+        return []
+    return filter_enemies_by_env([env_name])

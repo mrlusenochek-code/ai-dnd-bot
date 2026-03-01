@@ -33,6 +33,8 @@ from app.core.log_context import request_id_var, session_id_var, uid_var, ws_con
 from app.db.connection import AsyncSessionLocal
 from app.db.models import Session, Player, SessionPlayer, Character, Skill, Event
 from app.rules.derived_stats import compute_ac
+from app.rules.encounters import pick_encounter
+from app.rules.enemy_catalog_data import get_enemy
 from app.rules.defeat_outcomes import pick_defeat_outcome
 from app.rules.equipment_slots import EquipmentSlot, EQUIPMENT_SLOT_ORDER, slot_label_ru
 from app.rules.item_catalog import ITEMS
@@ -2917,6 +2919,80 @@ def _apply_world_move_from_text(sess, session_id: str, text: object) -> tuple[ob
         f"ДЕЙСТВИЕ ИГРОКА: {text}"
     )
     return gm_text, True
+
+
+async def _estimate_party_level(db: AsyncSession, sess: Session) -> int:
+    _uid_map, chars_by_uid, _skill_mods_by_char = await _load_actor_context(db, sess)
+    levels: list[int] = []
+    for ch in chars_by_uid.values():
+        lvl = 1
+        stats = getattr(ch, "stats", None)
+        if isinstance(stats, dict):
+            raw_level = stats.get("level")
+            if isinstance(raw_level, int):
+                lvl = max(1, int(raw_level))
+        levels.append(lvl)
+    if not levels:
+        return 1
+    avg = float(sum(levels)) / float(len(levels))
+    return max(1, int(round(avg)))
+
+
+async def _maybe_start_encounter_after_move(db: AsyncSession, sess: Session, session_id: str) -> tuple[Optional[dict[str, Any]], str]:
+    combat_state = get_combat(session_id)
+    if combat_state is not None and combat_state.active:
+        return None, ""
+
+    world = settings_get(sess, "world", {}) or {}
+    if not isinstance(world, dict):
+        return None, ""
+
+    env = str(world.get("env") or "").strip()
+    seed = str(world.get("seed") or "").strip()
+    x = world.get("x")
+    y = world.get("y")
+    if not env or not seed or not isinstance(x, int) or not isinstance(y, int):
+        return None, ""
+
+    party_level = await _estimate_party_level(db, sess)
+    enc = pick_encounter(seed=seed, x=x, y=y, env=env, party_level=party_level)
+    if enc is None:
+        return None, ""
+
+    enemy = get_enemy(enc.enemy_key)
+    if not isinstance(enemy, dict):
+        return None, "ВОЗМОЖНА ВСТРЕЧА."
+
+    enemy_name = str(enemy.get("name_ru") or enemy.get("key") or "Противник").strip() or "Противник"
+    enemy_id = str(enemy.get("key") or "enemy").strip() or "enemy"
+    hp = max(1, as_int(enemy.get("hp_avg"), 10))
+    ac = max(1, as_int(enemy.get("ac"), 10))
+    zone = env.replace('"', '\\"')
+    enemy_name_escaped = enemy_name.replace('"', '\\"')
+    enemy_id_escaped = enemy_id.replace('"', '\\"')
+    gm_machine = (
+        f'@@COMBAT_START(zone="{zone}", cause="bootstrap")\n'
+        f'@@COMBAT_ENEMY_ADD(id={enemy_id_escaped}, name="{enemy_name_escaped}", hp={hp}, ac={ac}, threat=1)'
+    )
+
+    patch = apply_combat_machine_commands(session_id, gm_machine)
+    if patch is None:
+        return None, f"ВОЗМОЖНА ВСТРЕЧА: {enemy_name}."
+
+    _uid_map, chars_by_uid, _ = await _load_actor_context(db, sess)
+    sync_pcs_from_chars(session_id, chars_by_uid)
+    patch = _append_combat_patch_lines(
+        patch,
+        [{"text": f"Стычка: {enemy_name}.", "muted": True}],
+        prepend=True,
+    )
+    state = get_combat(session_id)
+    if state is not None and state.active:
+        if patch.get("reset") is True:
+            state.round_no = 1
+            state.turn_index = 0
+        patch["status"] = f"⚔ Бой • Раунд {state.round_no} • Ход: {current_turn_label(state)}"
+    return patch, ""
 
 
 def _enforce_ty_singular_fixes(text: str) -> str:
@@ -8154,6 +8230,11 @@ async def ws_room(ws: WebSocket, session_id: str):
                 _set_pc_zone(sess, player.id, new_zone)
                 text_for_gm, _moved = _apply_world_move_from_text(sess, session_id, text)
                 gm_action_text = text_for_gm if isinstance(text_for_gm, str) else text
+                encounter_patch: Optional[dict[str, Any]] = None
+                if _moved:
+                    encounter_patch, encounter_note = await _maybe_start_encounter_after_move(db, sess, session_id)
+                    if encounter_note:
+                        gm_action_text = f"{gm_action_text}\n\n{encounter_note}"
                 payload = {
                     "type": "player_action",
                     "actor_uid": _player_uid(player),
@@ -8180,7 +8261,7 @@ async def ws_room(ws: WebSocket, session_id: str):
                 sess.turn_started_at = None
                 await db.commit()
                 await add_system_event(db, sess, "Мастер обрабатывает действие...")
-                await broadcast_state(session_id)
+                await broadcast_state(session_id, combat_log_ui_patch=encounter_patch)
                 asyncio.create_task(_auto_gm_reply_task(session_id, action_id))
                 continue
 
