@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from app.rules.equipment_slots import EquipmentSlot
-from app.rules.items import ArmorCategory, EquipSpec, ItemDef, ItemKind, WeaponStats
+from app.rules.items import ArmorCategory, ConsumeSpec, EquipSpec, ItemDef, ItemKind, WeaponStats
 
 
 ITEMS: dict[str, ItemDef] = {
@@ -142,6 +142,16 @@ ITEMS: dict[str, ItemDef] = {
         kind=ItemKind.consumable,
         stackable=True,
         max_stack=10,
+        consume=ConsumeSpec(heal_dice="2d4+2"),
+        description_ru="Восстанавливает немного здоровья.",
+    ),
+    "greater_healing_potion": ItemDef(
+        key="greater_healing_potion",
+        name_ru="Большое зелье лечения",
+        kind=ItemKind.consumable,
+        stackable=True,
+        max_stack=10,
+        consume=ConsumeSpec(heal_dice="4d4+4"),
         description_ru="Восстанавливает немного здоровья.",
     ),
     "quest_key": ItemDef(

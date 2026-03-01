@@ -61,6 +61,13 @@ class EquipSpec:
 
 
 @dataclass(frozen=True)
+class ConsumeSpec:
+    heal_dice: str | None = None
+    heal_flat: int = 0
+    notes: str | None = None
+
+
+@dataclass(frozen=True)
 class ItemDef:
     key: str
     name_ru: str
@@ -68,6 +75,7 @@ class ItemDef:
     stackable: bool = False
     max_stack: int = 1
     equip: EquipSpec | None = None
+    consume: ConsumeSpec | None = None
     description_ru: str | None = None
 
 
