@@ -38,6 +38,14 @@ from app.rules.equipment_slots import EquipmentSlot, EQUIPMENT_SLOT_ORDER, slot_
 from app.rules.item_catalog import ITEMS
 from app.rules.items import ItemDef, is_equipable, can_equip_to_slot
 from app.rules.loot_tables import roll_loot
+from app.rules.move_intents import parse_move_intent
+from app.rules.world_map import (
+    ENVIRONMENTS,
+    init_world_state,
+    move as world_move,
+    world_from_dict,
+    world_to_dict,
+)
 
 
 TURN_TIMEOUT_SECONDS = int(os.getenv("TURN_TIMEOUT_SECONDS", "300"))
@@ -2871,6 +2879,46 @@ def _detect_chat_combat_action(text: str) -> Optional[str]:
     return None
 
 
+def _apply_world_move_from_text(sess, session_id: str, text: object) -> tuple[object, bool]:
+    if not isinstance(text, str):
+        return text, False
+
+    intent = parse_move_intent(text)
+    if intent is None:
+        return text, False
+
+    combat_state = get_combat(session_id)
+    if combat_state is not None and bool(combat_state.active):
+        return text, False
+
+    st = _ensure_settings(sess)
+    ws = world_from_dict(st.get("world"))
+    if ws is None:
+        seed = int(zlib.adler32(str(session_id).encode("utf-8", errors="ignore")) & 0xFFFFFFFF)
+        ws = init_world_state(seed=seed)
+
+    ws, patch = world_move(ws, intent.dir)
+    env = str(patch.get("env") or "").strip()
+    if env not in ENVIRONMENTS:
+        env = ENVIRONMENTS[0]
+
+    world_payload = world_to_dict(ws)
+    world_payload["env"] = env
+    st["world"] = world_payload
+    try:
+        flag_modified(sess, "settings")
+    except Exception:
+        pass
+
+    gm_text = (
+        "ТРЕБОВАНИЕ: это перемещение по миру. Сначала дай 1-2 предложения с описанием местности и видимых деталей, "
+        "связанных с текущей клеткой; только после этого дай обычный ответ ГМа.\n"
+        f"ТЕКУЩАЯ МЕСТНОСТЬ: {env}; координаты x={ws.x}, y={ws.y}; направление={intent.dir}.\n\n"
+        f"ДЕЙСТВИЕ ИГРОКА: {text}"
+    )
+    return gm_text, True
+
+
 def _enforce_ty_singular_fixes(text: str) -> str:
     txt = str(text or "")
 
@@ -5529,7 +5577,12 @@ async def _auto_gm_reply_task(session_id: str, expected_action_id: str) -> None:
                     break
                 context_events: list[str] = []
                 for ev in reversed(events_desc):
+                    payload_raw = ev.result_json if isinstance(ev.result_json, dict) else {}
                     msg = str(ev.message_text or "").strip()
+                    if str(payload_raw.get("type") or "").strip().lower() == "player_action":
+                        raw_text = payload_raw.get("raw_text")
+                        if isinstance(raw_text, str) and raw_text.strip():
+                            msg = raw_text.strip()
                     if not msg:
                         continue
                     if msg.startswith("[SYSTEM] 📜 История:"):
@@ -8040,7 +8093,9 @@ async def ws_room(ws: WebSocket, session_id: str):
                         await ws_error("В этом раунде вы уже отправили действие.")
                         continue
 
-                    round_actions[pid] = text
+                    text_for_gm, _moved = _apply_world_move_from_text(sess, session_id, text)
+                    gm_action_text = text_for_gm if isinstance(text_for_gm, str) else text
+                    round_actions[pid] = gm_action_text
                     settings_set(sess, "round_actions", round_actions)
                     current_zone = _get_pc_positions(sess).get(pid, "стартовая локация")
                     new_zone = infer_zone_from_action(text, current_zone)
@@ -8051,7 +8106,7 @@ async def ws_room(ws: WebSocket, session_id: str):
                         "actor_uid": _player_uid(player),
                         "actor_player_id": str(player.id),
                         "join_order": int(sp.join_order or 0),
-                        "raw_text": text,
+                        "raw_text": gm_action_text,
                         "mode": "free_turns",
                         "phase": phase,
                         "zone_before": current_zone,
@@ -8097,12 +8152,14 @@ async def ws_room(ws: WebSocket, session_id: str):
                 current_zone = _get_pc_positions(sess).get(pid, "стартовая локация")
                 new_zone = infer_zone_from_action(text, current_zone)
                 _set_pc_zone(sess, player.id, new_zone)
+                text_for_gm, _moved = _apply_world_move_from_text(sess, session_id, text)
+                gm_action_text = text_for_gm if isinstance(text_for_gm, str) else text
                 payload = {
                     "type": "player_action",
                     "actor_uid": _player_uid(player),
                     "actor_player_id": str(player.id),
                     "join_order": int(sp.join_order or 0),
-                    "raw_text": text,
+                    "raw_text": gm_action_text,
                     "mode": "free_turns" if _is_free_turns(sess) else "turns",
                     "phase": phase,
                     "zone_before": current_zone,
