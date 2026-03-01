@@ -6537,9 +6537,17 @@ async def ws_room(ws: WebSocket, session_id: str):
                             )
                             coverage = _combat_narration_fact_coverage(text, facts)
                             has_low_fact_coverage = coverage < required_fact_count
+                            zone_low = (scene_facts_block or "").lower().replace("ё", "е")
+                            text_low = (text or "").lower().replace("ё", "е")
+                            drift = _looks_like_combat_drift(text)
+                            if drift:
+                                for stem in ("таверн", "рынок", "магазин", "лавк", "лес"):
+                                    if stem in zone_low and stem in text_low:
+                                        drift = False
+                                        break
                             if text and (
                                 has_mechanics
-                                or _looks_like_combat_drift(text)
+                                or drift
                                 or has_forbidden_gear
                                 or has_low_fact_coverage
                             ):
@@ -6578,7 +6586,15 @@ async def ws_room(ws: WebSocket, session_id: str):
                                     action_text=player_raw_action,
                                     facts_block=scene_facts_block,
                                 )
-                                if not text or has_mechanics or _looks_like_combat_drift(text) or has_forbidden_gear:
+                                zone_low = (scene_facts_block or "").lower().replace("ё", "е")
+                                text_low = (text or "").lower().replace("ё", "е")
+                                drift = _looks_like_combat_drift(text)
+                                if drift:
+                                    for stem in ("таверн", "рынок", "магазин", "лавк", "лес"):
+                                        if stem in zone_low and stem in text_low:
+                                            drift = False
+                                            break
+                                if not text or has_mechanics or drift or has_forbidden_gear:
                                     text = (
                                         "Схватка вспыхивает снова: ты давишь на противника, он отвечает резким выпадом."
                                     )
