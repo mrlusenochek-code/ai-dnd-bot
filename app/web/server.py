@@ -1397,6 +1397,66 @@ def _combat_narration_fact_coverage(text: str, facts: list[str]) -> int:
     low = str(text or "").lower().replace("ё", "е")
     if not low or not facts:
         return 0
+
+    key_tokens = (
+        "попадает",
+        "промахивается",
+        "ранен",
+        "сильно",
+        "едва",
+        "вырывается",
+        "срывается",
+        "помогает",
+        "отступает",
+        "ускоряется",
+        "защиту",
+    )
+
+    def _stem(token: str) -> str:
+        t = str(token or "").lower().replace("ё", "е").strip()
+        if len(t) >= 5:
+            return t[:5]
+        if len(t) >= 4:
+            return t[:4]
+        return t
+
+    def _has_token(token: str, *, haystack: str) -> bool:
+        st = _stem(token)
+        if not st:
+            return False
+        # Prefix match with word boundary: "попад*" matches "попадает/попадаешь/попаданием"
+        return re.search(rf"\b{re.escape(st)}\w*\b", haystack, flags=re.IGNORECASE) is not None
+
+    coverage = 0
+    for fact in facts:
+        fact_low = str(fact or "").lower().replace("ё", "е")
+        fact_tokens = re.findall(r"[а-яёa-z0-9]{3,}", fact_low)
+        if not fact_tokens:
+            continue
+
+        anchor_name = fact_tokens[0]
+
+        key = ""
+        for token in key_tokens:
+            if _has_token(token, haystack=fact_low):
+                key = token
+                break
+
+        has_name_and_key = bool(key and _has_token(anchor_name, haystack=low) and _has_token(key, haystack=low))
+
+        matched_tokens = sum(
+            1
+            for token in set(fact_tokens)
+            if _has_token(token, haystack=low)
+        )
+
+        if has_name_and_key or matched_tokens >= 2:
+            coverage += 1
+
+    return coverage
+    low = str(text or "").lower().replace("ё", "е")
+    if not low or not facts:
+        return 0
     key_tokens = (
         "попадает",
         "промахивается",
