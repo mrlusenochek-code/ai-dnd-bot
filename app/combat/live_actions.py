@@ -37,6 +37,31 @@ def _first_living_opponent(state: Any, attacker_side: str) -> Any | None:
     return None
 
 
+def _first_downed_ally(state: Any, actor: Any) -> Any | None:
+    for key in state.order:
+        combatant = state.combatants.get(key)
+        if combatant is None:
+            continue
+        if combatant.side != actor.side:
+            continue
+        if combatant.hp_current != 0:
+            continue
+        if combatant.is_dead or combatant.is_stable:
+            continue
+        return combatant
+
+    for combatant in state.combatants.values():
+        if combatant.side != actor.side:
+            continue
+        if combatant.hp_current != 0:
+            continue
+        if combatant.is_dead or combatant.is_stable:
+            continue
+        return combatant
+
+    return None
+
+
 def _is_side_alive(state: Any, side: str) -> bool:
     for combatant in state.combatants.values():
         if combatant.side == side and _is_alive(combatant.hp_current):
@@ -571,6 +596,60 @@ def handle_live_combat_action(
                 },
                 None,
             )
+
+        state = advance_turn(session_id)
+        if state is None:
+            return None, "Combat is not active"
+        lines.append({"text": f"Ход автоматически передан: {current_turn_label(state)}", "muted": True})
+        return (
+            {
+                "status": _combat_status(state),
+                "open": True,
+                "lines": lines,
+            },
+            None,
+        )
+
+    if action == "combat_stabilize":
+        state = get_combat(session_id)
+        if state is None or not state.active:
+            return None, "Combat is not active"
+        if not state.order:
+            return None, "Combat state is inconsistent"
+
+        actor_key = state.order[state.turn_index]
+        actor = state.combatants.get(actor_key)
+        if actor is None:
+            return None, "Combat state is inconsistent"
+
+        target = _first_downed_ally(state, actor)
+        if target is None:
+            return (
+                {
+                    "status": _combat_status(state),
+                    "open": True,
+                    "lines": [{"text": "Стабилизация: нет подходящей цели.", "muted": True}],
+                },
+                None,
+            )
+
+        roll = random.randint(1, 20)
+        wis = actor.stats.get("wis", 50) if isinstance(actor.stats, dict) else 50
+        wis_mod = int((wis - 50) // 20)
+        total = roll + wis_mod
+
+        lines: list[dict[str, Any]] = [
+            {"text": f"Стабилизация: {actor.name} пытается помочь {target.name}."},
+            {"text": f"Проверка Medicine: d20({roll}) + {wis_mod} = {total} vs DC 10"},
+        ]
+
+        if total >= 10:
+            target.is_stable = True
+            target.death_successes = 0
+            target.death_failures = 0
+            lines.append({"text": f"Результат: успех — {target.name} стабилен (без сознания)."})
+        else:
+            lines.append({"text": "Результат: провал — не удалось стабилизировать."})
 
         state = advance_turn(session_id)
         if state is None:
