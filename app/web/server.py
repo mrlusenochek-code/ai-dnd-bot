@@ -4483,6 +4483,22 @@ def _revive_characters_to_1hp(chars: list[Any]) -> bool:
     return changed
 
 
+def _apply_left_for_dead_character_state(chars_by_uid: dict[int, Any]) -> int | None:
+    if not chars_by_uid:
+        return None
+    leader_uid = min(chars_by_uid.keys())
+    for uid, ch in chars_by_uid.items():
+        hp = as_int(getattr(ch, "hp", 0), 0)
+        if uid == leader_uid:
+            if hp <= 0:
+                setattr(ch, "hp", 1)
+        elif hp <= 0:
+            setattr(ch, "hp", 0)
+        if hasattr(ch, "is_alive"):
+            setattr(ch, "is_alive", True)
+    return leader_uid
+
+
 def _compute_robbed_removals(inv: list[dict[str, Any]], max_take: int = 2) -> list[str]:
     if not isinstance(inv, list):
         return []
@@ -4522,16 +4538,17 @@ async def _apply_defeat_effects_once(
     if settings_get(sess, "combat_defeat_effects_applied_for", "") == started_at:
         return False
 
-    _uid_map, chars_by_uid, _skill_mods_by_char = await _load_actor_context(db, sess)
+    uid_map, chars_by_uid, _skill_mods_by_char = await _load_actor_context(db, sess)
     all_chars = list(chars_by_uid.values())
-    _revive_characters_to_1hp(all_chars)
 
     if key == "enemies_withdraw":
+        _revive_characters_to_1hp(all_chars)
         settings_set(sess, "combat_defeat_effects_applied_for", started_at)
         await add_system_event(db, sess, "☠ Поражение: враги отступили. Вы приходите в себя (1 HP).")
         return True
 
     if key == "robbed":
+        _revive_characters_to_1hp(all_chars)
         if not chars_by_uid:
             return False
         victim_uid = sorted(chars_by_uid.keys())[0]
@@ -4552,6 +4569,51 @@ async def _apply_defeat_effects_once(
         settings_set(sess, "combat_defeat_effects_applied_for", started_at)
         removed_text = ", ".join(removed_names) if removed_names else "ничего"
         await add_system_event(db, sess, f"☠ Поражение: вас ограбили. Потеряно: {removed_text}.")
+        return True
+
+    if key == "captured":
+        _revive_characters_to_1hp(all_chars)
+        for uid in sorted(uid_map.keys()):
+            sp, _pl = uid_map[uid]
+            _set_pc_zone(sess, sp.player_id, "prison_cell")
+        settings_set(sess, "combat_defeat_effects_applied_for", started_at)
+        await add_system_event(db, sess, "☠ Поражение: вас взяли в плен. Вы очнулись в камере (prison_cell).")
+        return True
+
+    if key == "rescued":
+        _revive_characters_to_1hp(all_chars)
+        for uid in sorted(uid_map.keys()):
+            sp, _pl = uid_map[uid]
+            _set_pc_zone(sess, sp.player_id, "safehouse")
+        for uid in sorted(chars_by_uid.keys()):
+            ch = chars_by_uid[uid]
+            _inv_add_on_character(
+                ch,
+                name=ITEMS["healing_potion"].name_ru,
+                qty=1,
+                item_def="healing_potion",
+                tags=["rescue"],
+                notes="defeat:rescued",
+            )
+        settings_set(sess, "combat_defeat_effects_applied_for", started_at)
+        await add_system_event(
+            db,
+            sess,
+            "☠ Поражение: вас спасли и доставили в убежище (safehouse). Получено: Зелье лечения x1 каждому.",
+        )
+        return True
+
+    if key == "left_for_dead":
+        _apply_left_for_dead_character_state(chars_by_uid)
+        for uid in sorted(uid_map.keys()):
+            sp, _pl = uid_map[uid]
+            _set_pc_zone(sess, sp.player_id, "wilderness_edge")
+        settings_set(sess, "combat_defeat_effects_applied_for", started_at)
+        await add_system_event(
+            db,
+            sess,
+            "☠ Поражение: вас бросили умирать. Вы приходите в себя на обочине (wilderness_edge).",
+        )
         return True
 
     return False
