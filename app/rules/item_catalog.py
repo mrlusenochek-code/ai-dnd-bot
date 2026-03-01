@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from app.rules.equipment_slots import EquipmentSlot
-from app.rules.items import ArmorCategory, EquipSpec, ItemDef, ItemKind
+from app.rules.items import ArmorCategory, EquipSpec, ItemDef, ItemKind, WeaponStats
 
 
 ITEMS: dict[str, ItemDef] = {
@@ -12,6 +12,7 @@ ITEMS: dict[str, ItemDef] = {
         kind=ItemKind.armor,
         equip=EquipSpec(
             allowed_slots=(EquipmentSlot.body,),
+            wear_group="armor",
             armor_category=ArmorCategory.light,
             base_ac=11,
         ),
@@ -23,8 +24,11 @@ ITEMS: dict[str, ItemDef] = {
         kind=ItemKind.armor,
         equip=EquipSpec(
             allowed_slots=(EquipmentSlot.body,),
+            wear_group="armor",
             armor_category=ArmorCategory.heavy,
             base_ac=16,
+            str_req=13,
+            stealth_disadvantage=True,
         ),
         description_ru="Тяжелая металлическая броня.",
     ),
@@ -34,6 +38,7 @@ ITEMS: dict[str, ItemDef] = {
         kind=ItemKind.shield,
         equip=EquipSpec(
             allowed_slots=(EquipmentSlot.off_hand,),
+            wear_group="shield",
             grants_ac_bonus=2,
         ),
         description_ru="Базовый щит для дополнительной защиты.",
@@ -44,6 +49,15 @@ ITEMS: dict[str, ItemDef] = {
         kind=ItemKind.weapon,
         equip=EquipSpec(
             allowed_slots=(EquipmentSlot.main_hand, EquipmentSlot.off_hand),
+            wear_group="weapon",
+            weapon=WeaponStats(
+                damage_dice="1d4",
+                damage_type="piercing",
+                properties=("finesse", "light", "thrown"),
+                range_normal=20,
+                range_long=60,
+                mastery="nick",
+            ),
         ),
         description_ru="Короткое легкое оружие ближнего боя.",
     ),
@@ -53,6 +67,14 @@ ITEMS: dict[str, ItemDef] = {
         kind=ItemKind.weapon,
         equip=EquipSpec(
             allowed_slots=(EquipmentSlot.main_hand, EquipmentSlot.off_hand),
+            wear_group="weapon",
+            weapon=WeaponStats(
+                damage_dice="1d8",
+                damage_type="slashing",
+                properties=("versatile",),
+                versatile_dice="1d10",
+                mastery="sap",
+            ),
         ),
         description_ru="Надежное одноручное оружие.",
     ),
@@ -62,7 +84,16 @@ ITEMS: dict[str, ItemDef] = {
         kind=ItemKind.weapon,
         equip=EquipSpec(
             allowed_slots=(EquipmentSlot.main_hand,),
+            wear_group="weapon",
             two_handed=True,
+            weapon=WeaponStats(
+                damage_dice="1d6",
+                damage_type="piercing",
+                properties=("ammunition", "two-handed"),
+                range_normal=80,
+                range_long=320,
+                mastery="vex",
+            ),
         ),
         description_ru="Легкое двуручное дальнобойное оружие.",
     ),

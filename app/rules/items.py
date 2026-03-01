@@ -33,12 +33,30 @@ class ArmorCategory(StrEnum):
 
 
 @dataclass(frozen=True)
+class WeaponStats:
+    damage_dice: str
+    damage_type: str
+    properties: tuple[str, ...] = ()
+    range_normal: int | None = None
+    range_long: int | None = None
+    versatile_dice: str | None = None
+    mastery: str | None = None
+
+
+@dataclass(frozen=True)
 class EquipSpec:
     allowed_slots: tuple[EquipmentSlot, ...]
     two_handed: bool = False
     armor_category: ArmorCategory | None = None
     base_ac: int | None = None
     grants_ac_bonus: int = 0
+    wear_group: str | None = None
+    paired: bool = False
+    requires_attunement: bool = False
+    weapon: WeaponStats | None = None
+    dex_cap: int | None = None
+    str_req: int | None = None
+    stealth_disadvantage: bool = False
     notes: str | None = None
 
 
