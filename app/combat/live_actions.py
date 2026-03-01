@@ -11,6 +11,7 @@ from app.combat.state import (
     end_combat,
     get_combat,
 )
+from app.rules.derived_stats import compute_attack_profile, parse_dice
 
 
 def _is_alive(hp_current: int) -> bool:
@@ -427,12 +428,23 @@ def handle_live_combat_action(
             d20_roll = random.randint(1, 20)
             attack_roll_repr = f"d20({d20_roll})"
 
+        stats = attacker.stats if isinstance(attacker.stats, dict) else {}
+        inventory = attacker.inventory if isinstance(attacker.inventory, list) else []
+        equip_map = attacker.equip if isinstance(attacker.equip, dict) else {}
+        profile = compute_attack_profile(stats=stats, inventory=inventory, equip_map=equip_map)
+        parsed = parse_dice(profile.damage_dice)
+        if parsed is None:
+            n, sides = 1, 6
+        else:
+            n, sides = parsed
+        damage_roll = sum(random.randint(1, sides) for _ in range(n))
+
         resolution = resolve_attack_roll(
             target_ac=target.ac,
             d20_roll=d20_roll,
-            attack_bonus=3,
-            damage_roll=random.randint(1, 6),
-            damage_bonus=2,
+            attack_bonus=profile.attack_bonus,
+            damage_roll=damage_roll,
+            damage_bonus=profile.damage_bonus,
         )
         attacker.help_attack_advantage = False
         if resolution.is_hit:
@@ -459,6 +471,7 @@ def handle_live_combat_action(
 
         lines: list[dict[str, Any]] = [
             {"text": f"Атака: {attacker.name} → {target.name}", "muted": True},
+            {"text": f"Оружие: {profile.damage_dice} {profile.damage_type}", "muted": True},
             {"text": attack_line},
             {"text": result_line},
             {"text": damage_line},
