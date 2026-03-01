@@ -193,6 +193,29 @@ def handle_live_combat_action(
     action: str, session_id: str
 ) -> tuple[Optional[dict[str, Any]], Optional[str]]:
     state = get_combat(session_id)
+    if state is not None and state.active and state.order:
+        current_key = state.order[state.turn_index]
+        current = state.combatants.get(current_key)
+        if (
+            current is not None
+            and current.side == "pc"
+            and current.hp_current <= 0
+            and not current.is_dead
+            and action not in {"combat_use_object", "combat_end_turn"}
+        ):
+            return (
+                {
+                    "status": _combat_status(state),
+                    "open": True,
+                    "lines": [
+                        {
+                            "text": "Действие недоступно: ты без сознания (0 HP).",
+                            "muted": True,
+                        }
+                    ],
+                },
+                None,
+            )
     if state is not None and state.active and action != "combat_use_object":
         auto_skip_patch = _auto_resolve_zero_hp_turns(session_id, state)
         if auto_skip_patch is not None:
