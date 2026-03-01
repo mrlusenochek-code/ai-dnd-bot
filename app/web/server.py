@@ -31,6 +31,9 @@ from app.core.logging import configure_logging
 from app.core.log_context import request_id_var, session_id_var, uid_var, ws_conn_id_var, client_id_var
 from app.db.connection import AsyncSessionLocal
 from app.db.models import Session, Player, SessionPlayer, Character, Skill, Event
+from app.rules.equipment_slots import EquipmentSlot, EQUIPMENT_SLOT_ORDER, slot_label_ru
+from app.rules.item_catalog import ITEMS
+from app.rules.items import is_equipable, can_equip_to_slot
 
 
 TURN_TIMEOUT_SECONDS = int(os.getenv("TURN_TIMEOUT_SECONDS", "300"))
@@ -49,7 +52,7 @@ CHAR_STAT_KEYS = ("str", "dex", "con", "int", "wis", "cha")
 CHAR_DEFAULT_STATS = {k: 50 for k in CHAR_STAT_KEYS}
 CHECK_LINE_RE = re.compile(r"^\s*@@CHECK\s+(\{.*\})\s*$", re.IGNORECASE)
 INV_MACHINE_LINE_RE = re.compile(
-    r"^\s*(?:\(\s*)?@@(?P<cmd>INV_ADD|INV_REMOVE|INV_TRANSFER)\s*\((?P<args>.*)\)\s*(?:\))?\s*$",
+    r"^\s*(?:\(\s*)?@@(?P<cmd>INV_ADD|INV_REMOVE|INV_TRANSFER|EQUIP|UNEQUIP)\s*\((?P<args>.*)\)\s*(?:\))?\s*$",
     re.IGNORECASE,
 )
 ZONE_SET_MACHINE_LINE_RE = re.compile(r"^\s*(?:\(\s*)?@@ZONE_SET\s*\((?P<args>.*?)\)\s*(?:\))?\s*$", re.IGNORECASE)
@@ -1767,6 +1770,72 @@ def _put_character_inventory_into_stats(stats_raw: Any, inventory: list[dict[str
     return stats
 
 
+def _character_equip_from_stats(stats_raw: Any) -> dict[str, str]:
+    if not isinstance(stats_raw, dict):
+        return {}
+    raw = stats_raw.get("_equip")
+    if not isinstance(raw, dict):
+        return {}
+    out: dict[str, str] = {}
+    for slot_raw, item_id_raw in raw.items():
+        slot_value = str(slot_raw or "").strip().lower()
+        item_id = str(item_id_raw or "").strip().lower()
+        if not slot_value or not item_id:
+            continue
+        try:
+            slot = EquipmentSlot(slot_value)
+        except Exception:
+            continue
+        out[slot.value] = item_id
+    return out
+
+
+def _put_character_equip_into_stats(stats_raw: Any, equip_map: dict[str, str]) -> dict[str, Any]:
+    stats = dict(stats_raw) if isinstance(stats_raw, dict) else {}
+    normalized: dict[str, str] = {}
+    if isinstance(equip_map, dict):
+        for slot_raw, item_id_raw in equip_map.items():
+            slot_value = str(slot_raw or "").strip().lower()
+            item_id = str(item_id_raw or "").strip().lower()
+            if not slot_value or not item_id:
+                continue
+            try:
+                slot = EquipmentSlot(slot_value)
+            except Exception:
+                continue
+            normalized[slot.value] = item_id
+    stats["_equip"] = normalized
+    return stats
+
+
+def _equip_state_line(ch: Optional[Character]) -> str:
+    if not ch:
+        return "ничего"
+    equip = _character_equip_from_stats(ch.stats)
+    if not equip:
+        return "ничего"
+    inv = _character_inventory_from_stats(ch.stats)
+    by_id: dict[str, dict[str, Any]] = {}
+    for entry in inv:
+        if not isinstance(entry, dict):
+            continue
+        entry_id = str(entry.get("id") or "").strip().lower()
+        if not entry_id:
+            continue
+        by_id[entry_id] = entry
+    parts: list[str] = []
+    for slot in EQUIPMENT_SLOT_ORDER:
+        item_id = str(equip.get(slot.value) or "").strip().lower()
+        if not item_id:
+            continue
+        item_entry = by_id.get(item_id)
+        item_name = str((item_entry or {}).get("name") or item_id).strip()
+        if not item_name:
+            continue
+        parts.append(f"{slot_label_ru(slot)}: {item_name}")
+    return "; ".join(parts) if parts else "ничего"
+
+
 def _split_machine_args(args_raw: str) -> list[str]:
     parts: list[str] = []
     cur: list[str] = []
@@ -1893,6 +1962,27 @@ def _parse_inventory_machine_line(line: str) -> Optional[dict[str, Any]]:
             "name": name[:80],
             "qty": _clamp(as_int(fields.get("qty"), 1), 1, 99),
         }
+    if cmd == "EQUIP":
+        uid = as_int(fields.get("uid"), 0)
+        name = str(fields.get("name") or "").strip()
+        slot_raw = str(fields.get("slot") or "").strip().lower()
+        if uid <= 0 or not name or not slot_raw:
+            return None
+        try:
+            slot = EquipmentSlot(slot_raw)
+        except Exception:
+            return None
+        return {"op": "equip", "uid": uid, "name": name[:80], "slot": slot.value}
+    if cmd == "UNEQUIP":
+        uid = as_int(fields.get("uid"), 0)
+        slot_raw = str(fields.get("slot") or "").strip().lower()
+        if uid <= 0 or not slot_raw:
+            return None
+        try:
+            slot = EquipmentSlot(slot_raw)
+        except Exception:
+            return None
+        return {"op": "unequip", "uid": uid, "slot": slot.value}
     return None
 
 
@@ -1956,7 +2046,7 @@ def _extract_machine_commands(text: str) -> tuple[str, list[dict[str, Any]], lis
         candidate_line = lstripped
         while candidate_line.startswith("("):
             candidate_line = candidate_line[1:].lstrip()
-        if candidate_line.startswith("@@INV_"):
+        if candidate_line.startswith("@@INV_") or candidate_line.startswith("@@EQUIP") or candidate_line.startswith("@@UNEQUIP"):
             parsed = _parse_inventory_machine_line(line)
             if parsed:
                 inv_commands.append(parsed)
@@ -2041,12 +2131,23 @@ def _inv_remove_on_character(ch: Character, *, name: str, qty: int) -> tuple[boo
     cur_qty = _clamp(as_int(item.get("qty"), 1), 1, 99)
     take = min(cur_qty, _clamp(as_int(qty, 1), 1, 99))
     next_qty = cur_qty - take
+    removed_item_id = str(item.get("id") or "").strip().lower()
     if next_qty <= 0:
         inv.pop(idx)
     else:
         item["qty"] = next_qty
         inv[idx] = item
-    ch.stats = _put_character_inventory_into_stats(ch.stats, inv)
+    stats_next = _put_character_inventory_into_stats(ch.stats, inv)
+    if next_qty <= 0 and removed_item_id:
+        equip_map = _character_equip_from_stats(stats_next)
+        equip_changed = False
+        for slot_key, equipped_item_id in list(equip_map.items()):
+            if str(equipped_item_id or "").strip().lower() == removed_item_id:
+                equip_map.pop(slot_key, None)
+                equip_changed = True
+        if equip_changed:
+            stats_next = _put_character_equip_into_stats(stats_next, equip_map)
+    ch.stats = stats_next
     removed_item = dict(item)
     removed_item["qty"] = take
     return True, take, removed_item
@@ -2138,6 +2239,116 @@ async def _apply_inventory_machine_commands(db: AsyncSession, sess: Session, com
             )
             continue
 
+        if op == "equip":
+            uid = as_int(cmd.get("uid"), 0)
+            slot_raw = str(cmd.get("slot") or "").strip().lower()
+            ch = chars_by_uid.get(uid)
+            if not ch:
+                logger.warning("EQUIP target not found", extra={"action": {"uid": uid, "name": cmd.get("name"), "slot": slot_raw}})
+                continue
+            try:
+                slot = EquipmentSlot(slot_raw)
+            except Exception:
+                logger.warning("EQUIP invalid slot", extra={"action": {"uid": uid, "name": cmd.get("name"), "slot": slot_raw}})
+                continue
+            inv_raw = _character_inventory_from_stats(ch.stats)
+            inv: list[dict[str, Any]] = [dict(x) for x in inv_raw if isinstance(x, dict)]
+            idx = _find_inventory_item_index(inv, str(cmd.get("name") or ""))
+            if idx is None:
+                logger.warning("EQUIP item not found", extra={"action": {"uid": uid, "name": cmd.get("name"), "slot": slot.value}})
+                continue
+            item_entry = inv[idx]
+            item_id = str(item_entry.get("id") or "").strip().lower()
+            if not item_id:
+                item_id = _slugify_inventory_id("", str(item_entry.get("name") or ""), idx + 1)
+
+            item_def = None
+            item_def_key = str(item_entry.get("def") or "").strip()
+            if item_def_key and item_def_key in ITEMS:
+                item_def = ITEMS[item_def_key]
+            else:
+                entry_name_cf = str(item_entry.get("name") or "").strip().casefold()
+                if entry_name_cf:
+                    for cand in ITEMS.values():
+                        if cand.name_ru.casefold() == entry_name_cf:
+                            item_def = cand
+                            break
+            if not item_def:
+                logger.warning("EQUIP item definition not found", extra={"action": {"uid": uid, "name": cmd.get("name"), "slot": slot.value}})
+                continue
+            if not is_equipable(item_def):
+                logger.warning("EQUIP item is not equipable", extra={"action": {"uid": uid, "name": cmd.get("name"), "slot": slot.value, "item_def": item_def.key}})
+                continue
+            if not can_equip_to_slot(item_def, slot):
+                logger.warning(
+                    "EQUIP blocked by slot rules",
+                    extra={"action": {"uid": uid, "name": cmd.get("name"), "slot": slot.value, "item_def": item_def.key, "allowed_slots": [s.value for s in item_def.equip.allowed_slots] if item_def.equip else []}},
+                )
+                continue
+
+            equip_map = _character_equip_from_stats(ch.stats)
+            if item_def.equip and item_def.equip.two_handed and slot in (EquipmentSlot.main_hand, EquipmentSlot.off_hand):
+                other_slot = EquipmentSlot.off_hand if slot == EquipmentSlot.main_hand else EquipmentSlot.main_hand
+                other_item_id = str(equip_map.get(other_slot.value) or "").strip().lower()
+                if other_item_id and other_item_id != item_id:
+                    logger.warning(
+                        "EQUIP two_handed blocked by occupied other hand",
+                        extra={"action": {"uid": uid, "name": cmd.get("name"), "slot": slot.value, "other_slot": other_slot.value, "other_item_id": other_item_id}},
+                    )
+                    continue
+                equip_map[slot.value] = item_id
+                equip_map[other_slot.value] = item_id
+            else:
+                if slot == EquipmentSlot.off_hand and str(item_def.kind) == "shield":
+                    main_item_id = str(equip_map.get(EquipmentSlot.main_hand.value) or "").strip().lower()
+                    if main_item_id:
+                        main_idx = _find_inventory_item_index(inv, main_item_id)
+                        if main_idx is not None:
+                            main_entry = inv[main_idx]
+                            main_def = None
+                            main_def_key = str(main_entry.get("def") or "").strip()
+                            if main_def_key and main_def_key in ITEMS:
+                                main_def = ITEMS[main_def_key]
+                            else:
+                                main_name_cf = str(main_entry.get("name") or "").strip().casefold()
+                                if main_name_cf:
+                                    for cand in ITEMS.values():
+                                        if cand.name_ru.casefold() == main_name_cf:
+                                            main_def = cand
+                                            break
+                            if main_def and main_def.equip and main_def.equip.two_handed:
+                                logger.warning(
+                                    "EQUIP shield blocked by two_handed in main_hand",
+                                    extra={"action": {"uid": uid, "name": cmd.get("name"), "slot": slot.value, "main_item_id": main_item_id, "main_item_def": main_def.key}},
+                                )
+                                continue
+                equip_map[slot.value] = item_id
+            ch.stats = _put_character_equip_into_stats(ch.stats, equip_map)
+            continue
+
+        if op == "unequip":
+            uid = as_int(cmd.get("uid"), 0)
+            slot_raw = str(cmd.get("slot") or "").strip().lower()
+            ch = chars_by_uid.get(uid)
+            if not ch:
+                logger.warning("UNEQUIP target not found", extra={"action": {"uid": uid, "slot": slot_raw}})
+                continue
+            try:
+                slot = EquipmentSlot(slot_raw)
+            except Exception:
+                logger.warning("UNEQUIP invalid slot", extra={"action": {"uid": uid, "slot": slot_raw}})
+                continue
+            equip_map = _character_equip_from_stats(ch.stats)
+            removed_item_id = str(equip_map.pop(slot.value, "") or "").strip().lower()
+            if not removed_item_id:
+                continue
+            if slot in (EquipmentSlot.main_hand, EquipmentSlot.off_hand):
+                other_slot = EquipmentSlot.off_hand if slot == EquipmentSlot.main_hand else EquipmentSlot.main_hand
+                if str(equip_map.get(other_slot.value) or "").strip().lower() == removed_item_id:
+                    equip_map.pop(other_slot.value, None)
+            ch.stats = _put_character_equip_into_stats(ch.stats, equip_map)
+            continue
+
 
 async def _apply_zone_set_machine_commands(db: AsyncSession, sess: Session, commands: list[dict[str, Any]]) -> None:
     if not commands:
@@ -2178,8 +2389,9 @@ def _format_state_text_for_player(sess: Session, player: Player, ch: Optional[Ch
     hp_sta = "HP/STA: —"
     if ch:
         hp_sta = f"HP {as_int(ch.hp, 0)}/{as_int(ch.hp_max, 0)} | STA {as_int(ch.sta, 0)}/{as_int(ch.sta_max, 0)}"
+    equip_line = _equip_state_line(ch)
     inv_line = _inventory_state_line(ch)
-    return f"Состояние: {char_name}\nЗона: {zone}\n{hp_sta}\nИнвентарь: {inv_line}"
+    return f"Состояние: {char_name}\nЗона: {zone}\n{hp_sta}\nОдето: {equip_line}\nИнвентарь: {inv_line}"
 
 
 def _inventory_prompt_line(stats_raw: Any, max_len: int = 150) -> str:
