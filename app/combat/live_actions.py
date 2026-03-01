@@ -91,6 +91,74 @@ def parse_heal_dice(expr: str) -> tuple[int, int, int] | None:
     return n, sides, bonus
 
 
+def _select_weakest_healing_consumable(actor: Any) -> tuple[int, dict[str, Any], Any] | None:
+    inventory = actor.inventory if isinstance(actor.inventory, list) else []
+    candidates: list[tuple[float, str, str, int, dict[str, Any], Any]] = []
+
+    for idx, entry in enumerate(inventory):
+        if not isinstance(entry, dict):
+            continue
+        def_key = entry.get("def")
+        if not isinstance(def_key, str):
+            continue
+        item_def = ITEMS.get(def_key)
+        if item_def is None:
+            continue
+        consume = item_def.consume
+        if consume is None:
+            continue
+        has_healing = bool(consume.heal_dice) or int(consume.heal_flat) > 0
+        if not has_healing:
+            continue
+        qty_raw = entry.get("qty", 0)
+        qty = qty_raw if isinstance(qty_raw, int) else 0
+        if qty < 1:
+            continue
+
+        expected_heal = float(int(consume.heal_flat))
+        parsed_heal = parse_heal_dice(consume.heal_dice) if isinstance(consume.heal_dice, str) else None
+        if parsed_heal is not None:
+            n, sides, bonus = parsed_heal
+            expected_heal += (n * (sides + 1) / 2) + bonus
+
+        item_id_raw = entry.get("id")
+        item_id = item_id_raw if isinstance(item_id_raw, str) else ""
+        candidates.append((expected_heal, def_key, item_id, idx, entry, item_def))
+
+    if not candidates:
+        return None
+
+    _, _, _, idx, entry, item_def = min(candidates, key=lambda value: (value[0], value[1], value[2]))
+    return idx, entry, item_def
+
+
+def _consume_healing_item(actor: Any, consumable_idx: int, consumable_entry: dict[str, Any], consumable_def: Any) -> int:
+    inventory = actor.inventory if isinstance(actor.inventory, list) else []
+    qty_now = int(consumable_entry.get("qty", 0)) - 1
+    if qty_now <= 0:
+        inventory.pop(consumable_idx)
+    else:
+        consumable_entry["qty"] = qty_now
+
+    consume = consumable_def.consume
+    assert consume is not None
+    heal_from_dice = 0
+    parsed_heal = parse_heal_dice(consume.heal_dice) if isinstance(consume.heal_dice, str) else None
+    if parsed_heal is not None:
+        n, sides, bonus = parsed_heal
+        heal_from_dice = sum(random.randint(1, sides) for _ in range(n)) + bonus
+
+    heal_amount = max(0, heal_from_dice + int(consume.heal_flat))
+    pre_hp = actor.hp_current
+    actor.hp_current = min(actor.hp_max, max(0, actor.hp_current) + heal_amount)
+    if pre_hp <= 0 and actor.hp_current > 0 and not actor.is_dead:
+        actor.is_stable = False
+        actor.death_successes = 0
+        actor.death_failures = 0
+
+    return heal_amount
+
+
 def _auto_resolve_zero_hp_turns(session_id: str, state: Any) -> dict[str, Any] | None:
     if not state.order:
         return None
@@ -128,39 +196,48 @@ def _auto_resolve_zero_hp_turns(session_id: str, state: Any) -> dict[str, Any] |
             elif current.is_stable:
                 lines.append({"text": f"Ход пропущен: {current.name} (без сознания, стабилен).", "muted": True})
             else:
-                roll = random.randint(1, 20)
-                lines.append({"text": f"Спасбросок смерти: d20({roll})"})
-                if roll == 20:
-                    current.hp_current = 1
-                    current.is_stable = False
-                    current.death_successes = 0
-                    current.death_failures = 0
-                    lines.append({"text": "Результат: 20 — ты приходишь в себя (1 HP)."})
-                elif roll == 1:
-                    current.death_failures = _clamp_death_counter(current.death_failures + 2)
-                    lines.append({"text": "Результат: 1 — два провала."})
-                elif roll >= 10:
-                    current.death_successes = _clamp_death_counter(current.death_successes + 1)
-                    lines.append({"text": "Результат: успех."})
+                consumable = _select_weakest_healing_consumable(current)
+                if consumable is not None:
+                    consumable_idx, consumable_entry, consumable_def = consumable
+                    heal_amount = _consume_healing_item(current, consumable_idx, consumable_entry, consumable_def)
+                    lines.append({"text": f"Авто-предмет: {consumable_def.name_ru} (подняться с 0 HP)", "muted": True})
+                    lines.append({"text": f"Лечение: {heal_amount} HP"})
+                    lines.append({"text": f"{current.name}: HP {current.hp_current}/{current.hp_max}"})
                 else:
-                    current.death_failures = _clamp_death_counter(current.death_failures + 1)
-                    lines.append({"text": "Результат: провал."})
-
-                if roll != 20:
-                    current.death_successes = _clamp_death_counter(current.death_successes)
-                    current.death_failures = _clamp_death_counter(current.death_failures)
-                    if current.death_failures >= 3:
-                        current.is_dead = True
+                    roll = random.randint(1, 20)
+                    lines.append({"text": f"Спасбросок смерти: d20({roll})"})
+                    if roll == 20:
+                        current.hp_current = 1
                         current.is_stable = False
-                        lines.append({"text": f"Смерть: {current.name} погибает."})
-                    elif current.death_successes >= 3:
-                        current.is_stable = True
-                        lines.append({"text": f"Стабилизация: {current.name} стабилен (без сознания)."})
+                        current.death_successes = 0
+                        current.death_failures = 0
+                        lines.append({"text": "Результат: 20 — ты приходишь в себя (1 HP)."})
+                    elif roll == 1:
+                        current.death_failures = _clamp_death_counter(current.death_failures + 2)
+                        lines.append({"text": "Результат: 1 — два провала."})
+                    elif roll >= 10:
+                        current.death_successes = _clamp_death_counter(current.death_successes + 1)
+                        lines.append({"text": "Результат: успех."})
+                    else:
+                        current.death_failures = _clamp_death_counter(current.death_failures + 1)
+                        lines.append({"text": "Результат: провал."})
+
+                    if roll != 20:
+                        current.death_successes = _clamp_death_counter(current.death_successes)
+                        current.death_failures = _clamp_death_counter(current.death_failures)
+                        if current.death_failures >= 3:
+                            current.is_dead = True
+                            current.is_stable = False
+                            lines.append({"text": f"Смерть: {current.name} погибает."})
+                        elif current.death_successes >= 3:
+                            current.is_stable = True
+                            lines.append({"text": f"Стабилизация: {current.name} стабилен (без сознания)."})
 
             iterations_done += 1
             state = advance_turn(session_id)
             if state is None:
                 return None
+            lines.append({"text": f"Ход автоматически передан: {current_turn_label(state)}", "muted": True})
             continue
 
         break
@@ -193,30 +270,7 @@ def handle_live_combat_action(
     action: str, session_id: str
 ) -> tuple[Optional[dict[str, Any]], Optional[str]]:
     state = get_combat(session_id)
-    if state is not None and state.active and state.order:
-        current_key = state.order[state.turn_index]
-        current = state.combatants.get(current_key)
-        if (
-            current is not None
-            and current.side == "pc"
-            and current.hp_current <= 0
-            and not current.is_dead
-            and action not in {"combat_use_object", "combat_end_turn"}
-        ):
-            return (
-                {
-                    "status": _combat_status(state),
-                    "open": True,
-                    "lines": [
-                        {
-                            "text": "Действие недоступно: ты без сознания (0 HP).",
-                            "muted": True,
-                        }
-                    ],
-                },
-                None,
-            )
-    if state is not None and state.active and action != "combat_use_object":
+    if state is not None and state.active:
         auto_skip_patch = _auto_resolve_zero_hp_turns(session_id, state)
         if auto_skip_patch is not None:
             return auto_skip_patch, None
@@ -384,33 +438,12 @@ def handle_live_combat_action(
                 None,
             )
 
-        inventory = attacker.inventory if isinstance(attacker.inventory, list) else []
+        consumable = _select_weakest_healing_consumable(attacker)
         consumable_idx: int | None = None
         consumable_entry: dict[str, Any] | None = None
         consumable_def = None
-        for idx, entry in enumerate(inventory):
-            if not isinstance(entry, dict):
-                continue
-            def_key = entry.get("def")
-            if not isinstance(def_key, str):
-                continue
-            item_def = ITEMS.get(def_key)
-            if item_def is None:
-                continue
-            consume = item_def.consume
-            if consume is None:
-                continue
-            has_healing = bool(consume.heal_dice) or int(consume.heal_flat) > 0
-            if not has_healing:
-                continue
-            qty_raw = entry.get("qty", 0)
-            qty = qty_raw if isinstance(qty_raw, int) else 0
-            if qty < 1:
-                continue
-            consumable_idx = idx
-            consumable_entry = entry
-            consumable_def = item_def
-            break
+        if consumable is not None:
+            consumable_idx, consumable_entry, consumable_def = consumable
 
         if consumable_idx is None or consumable_entry is None or consumable_def is None:
             lines = [{"text": "Использовать предмет: нет подходящего предмета лечения.", "muted": True}]
@@ -427,27 +460,9 @@ def handle_live_combat_action(
                 None,
             )
 
-        qty_now = int(consumable_entry.get("qty", 0)) - 1
-        if qty_now <= 0:
-            inventory.pop(consumable_idx)
-        else:
-            consumable_entry["qty"] = qty_now
-
         consume = consumable_def.consume
         assert consume is not None
-        heal_from_dice = 0
-        parsed_heal = parse_heal_dice(consume.heal_dice) if isinstance(consume.heal_dice, str) else None
-        if parsed_heal is not None:
-            n, sides, bonus = parsed_heal
-            heal_from_dice = sum(random.randint(1, sides) for _ in range(n)) + bonus
-        heal_amount = max(0, heal_from_dice + int(consume.heal_flat))
-
-        pre_hp = attacker.hp_current
-        attacker.hp_current = min(attacker.hp_max, max(0, attacker.hp_current) + heal_amount)
-        if pre_hp <= 0 and attacker.hp_current > 0 and not attacker.is_dead:
-            attacker.is_stable = False
-            attacker.death_successes = 0
-            attacker.death_failures = 0
+        heal_amount = _consume_healing_item(attacker, consumable_idx, consumable_entry, consumable_def)
 
         heal_repr = consume.heal_dice or str(consume.heal_flat)
         lines = [

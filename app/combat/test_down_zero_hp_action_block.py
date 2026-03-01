@@ -4,8 +4,8 @@ from app.combat.live_actions import handle_live_combat_action
 from app.combat.state import add_enemy, end_combat, get_combat, start_combat, upsert_pc
 
 
-def test_downed_pc_combat_attack_is_blocked() -> None:
-    session_id = "test_downed_pc_combat_attack_is_blocked"
+def test_downed_pc_combat_attack_triggers_auto_death_save(monkeypatch) -> None:
+    session_id = "test_downed_pc_combat_attack_triggers_auto_death_save"
     start_combat(session_id)
     upsert_pc(
         session_id,
@@ -25,15 +25,14 @@ def test_downed_pc_combat_attack_is_blocked() -> None:
     state.combatants["pc_1"].is_dead = False
     state.combatants["pc_1"].is_stable = False
 
+    monkeypatch.setattr("app.combat.live_actions.random.randint", lambda _a, _b: 10)
+
     try:
         patch, err = handle_live_combat_action("combat_attack", session_id)
         assert err is None
         assert patch is not None
         texts = [line.get("text") for line in patch["lines"] if isinstance(line, dict)]
-        assert any(
-            isinstance(text, str) and "Действие недоступно: ты без сознания (0 HP)." in text
-            for text in texts
-        )
+        assert any(isinstance(text, str) and "Спасбросок смерти" in text for text in texts)
     finally:
         end_combat(session_id)
 
