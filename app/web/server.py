@@ -1675,6 +1675,15 @@ def _slugify_inventory_id(raw: Any, fallback_name: str, index: int) -> str:
     return f"item-{max(1, index)}"
 
 
+def _normalize_inventory_def(raw_def: Any) -> Optional[str]:
+    value = str(raw_def or "").strip()[:60]
+    if not value:
+        return None
+    if not re.fullmatch(r"[a-z0-9_]+", value):
+        return None
+    return value
+
+
 def _normalize_inventory_item(raw_item: Any, index: int) -> Optional[dict[str, Any]]:
     if isinstance(raw_item, str):
         name = raw_item.strip()
@@ -1682,12 +1691,14 @@ def _normalize_inventory_item(raw_item: Any, index: int) -> Optional[dict[str, A
         item_id_raw = ""
         tags_raw = None
         notes_raw = ""
+        def_raw = None
     elif isinstance(raw_item, dict):
         name = str(raw_item.get("name") or "").strip()
         qty = _clamp(as_int(raw_item.get("qty"), 1), 1, 99)
         item_id_raw = str(raw_item.get("id") or "").strip()
         tags_raw = raw_item.get("tags")
         notes_raw = str(raw_item.get("notes") or "").strip()
+        def_raw = raw_item.get("def")
     else:
         return None
 
@@ -1714,6 +1725,10 @@ def _normalize_inventory_item(raw_item: Any, index: int) -> Optional[dict[str, A
     notes = str(notes_raw or "").strip()[:200]
     if notes:
         item["notes"] = notes
+
+    item_def = _normalize_inventory_def(def_raw)
+    if item_def:
+        item["def"] = item_def
 
     return item
 
@@ -2131,6 +2146,7 @@ def _inv_add_on_character(
     qty: int,
     tags: Optional[list[str]] = None,
     notes: Optional[str] = None,
+    item_def: str | None = None,
 ) -> bool:
     inv_raw = _character_inventory_from_stats(ch.stats)
     inv: list[dict[str, Any]] = [dict(x) for x in inv_raw if isinstance(x, dict)]
@@ -2149,10 +2165,22 @@ def _inv_add_on_character(
         if notes:
             item["notes"] = str(notes).strip()[:200]
             changed = True
+        if item_def is not None:
+            normalized_item_def = _normalize_inventory_def(item_def)
+            if normalized_item_def and str(item.get("def") or "") != normalized_item_def:
+                item["def"] = normalized_item_def
+                changed = True
         inv[idx] = item
     else:
         normalized = _normalize_inventory_item(
-            {"id": _slugify_inventory_id("", name, len(inv) + 1), "name": name, "qty": qty, "tags": tags, "notes": notes or ""},
+            {
+                "id": _slugify_inventory_id("", name, len(inv) + 1),
+                "name": name,
+                "qty": qty,
+                "tags": tags,
+                "notes": notes or "",
+                "def": item_def,
+            },
             len(inv) + 1,
         )
         if normalized:
@@ -4459,6 +4487,7 @@ async def _grant_combat_rewards_once(
                         leader_ch,
                         name=item.name_ru,
                         qty=qty,
+                        item_def=def_key,
                         tags=["loot"],
                         notes=f"combat:{enemy_id}",
                     )
