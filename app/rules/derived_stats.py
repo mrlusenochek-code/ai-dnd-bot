@@ -1,10 +1,21 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import Any
 
 from app.rules.equipment_slots import EquipmentSlot
 from app.rules.item_catalog import ITEMS
 from app.rules.items import ArmorCategory, ItemDef
+
+
+@dataclass(frozen=True)
+class AttackProfile:
+    attack_bonus: int
+    damage_dice: str
+    damage_bonus: int
+    damage_type: str
+    properties: tuple[str, ...] = ()
+    mastery: str | None = None
 
 
 def _safe_int(value: Any, default: int) -> int:
@@ -33,6 +44,81 @@ def _item_def_for_inventory_entry(entry: dict[str, Any]) -> ItemDef | None:
 
 def dex_mod_from_stat(dex: int) -> int:
     return int((dex - 50) // 20)
+
+
+def stat_mod_from_stat(stat: int) -> int:
+    return int((stat - 50) // 20)
+
+
+def parse_dice(dice: str) -> tuple[int, int] | None:
+    parts = str(dice or "").strip().lower().split("d")
+    if len(parts) != 2:
+        return None
+    if not parts[0].isdigit() or not parts[1].isdigit():
+        return None
+    n, m = int(parts[0]), int(parts[1])
+    if n <= 0 or m <= 0:
+        return None
+    return n, m
+
+
+def compute_attack_profile(*, stats: dict, inventory: list[dict], equip_map: dict[str, str]) -> AttackProfile:
+    str_stat = _safe_int(stats.get("str", 50), 50) if isinstance(stats, dict) else 50
+    dex_stat = _safe_int(stats.get("dex", 50), 50) if isinstance(stats, dict) else 50
+    str_mod = stat_mod_from_stat(str_stat)
+    dex_mod = dex_mod_from_stat(dex_stat)
+
+    by_id: dict[str, dict[str, Any]] = {}
+    for entry in inventory if isinstance(inventory, list) else []:
+        if not isinstance(entry, dict):
+            continue
+        entry_id = str(entry.get("id") or "").strip().lower()
+        if entry_id:
+            by_id[entry_id] = entry
+
+    chosen_slot: EquipmentSlot | None = None
+    chosen_entry: dict[str, Any] | None = None
+    for slot in (EquipmentSlot.main_hand, EquipmentSlot.ranged, EquipmentSlot.off_hand):
+        item_id = str(equip_map.get(slot.value) or "").strip().lower() if isinstance(equip_map, dict) else ""
+        if not item_id:
+            continue
+        entry = by_id.get(item_id)
+        if entry:
+            chosen_slot = slot
+            chosen_entry = entry
+            break
+
+    item_def = _item_def_for_inventory_entry(chosen_entry) if chosen_entry else None
+    weapon = item_def.equip.weapon if item_def and item_def.equip and item_def.equip.weapon else None
+
+    if weapon:
+        properties = tuple(weapon.properties or ())
+        properties_cf = {p.casefold() for p in properties}
+        if "ammunition" in properties_cf or chosen_slot == EquipmentSlot.ranged:
+            stat_mod = dex_mod
+        elif "finesse" in properties_cf:
+            stat_mod = max(str_mod, dex_mod)
+        else:
+            stat_mod = str_mod
+        attack_bonus = _clamp(3 + stat_mod, 0, 20)
+        damage_bonus = _clamp(2 + stat_mod, 0, 20)
+        return AttackProfile(
+            attack_bonus=attack_bonus,
+            damage_dice=weapon.damage_dice,
+            damage_bonus=damage_bonus,
+            damage_type=weapon.damage_type,
+            properties=properties,
+            mastery=weapon.mastery,
+        )
+
+    attack_bonus = _clamp(3 + str_mod, 0, 20)
+    damage_bonus = _clamp(2 + str_mod, 0, 20)
+    return AttackProfile(
+        attack_bonus=attack_bonus,
+        damage_dice="1d4",
+        damage_bonus=damage_bonus,
+        damage_type="bludgeoning",
+    )
 
 
 def compute_ac(*, stats: dict, inventory: list[dict], equip_map: dict[str, str]) -> int:
