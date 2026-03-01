@@ -64,6 +64,25 @@ def _first_downed_ally(state: Any, actor: Any) -> Any | None:
     return None
 
 
+def _first_healing_target_ally(state: Any, actor: Any) -> Any | None:
+    for prefer_exact_zero in (True, False):
+        for key in state.order:
+            combatant = state.combatants.get(key)
+            if combatant is None:
+                continue
+            if combatant.side != actor.side:
+                continue
+            if combatant.is_dead:
+                continue
+            if combatant.hp_current > 0:
+                continue
+            if prefer_exact_zero and combatant.hp_current != 0:
+                continue
+            return combatant
+
+    return None
+
+
 def _is_side_alive(state: Any, side: str) -> bool:
     for combatant in state.combatants.values():
         if combatant.side == side and _is_alive(combatant.hp_current):
@@ -469,6 +488,131 @@ def handle_live_combat_action(
             {"text": f"Предмет: {consumable_def.name_ru} (лечение {heal_repr})", "muted": True},
             {"text": f"Лечение: {heal_amount} HP"},
             {"text": f"{attacker.name}: HP {attacker.hp_current}/{attacker.hp_max}"},
+        ]
+
+        state = advance_turn(session_id)
+        if state is None:
+            return None, "Combat is not active"
+        lines.append({"text": f"Ход автоматически передан: {current_turn_label(state)}", "muted": True})
+        return (
+            {
+                "status": _combat_status(state),
+                "open": True,
+                "lines": lines,
+            },
+            None,
+        )
+
+    if action == "combat_use_object_on_ally":
+        state = get_combat(session_id)
+        if state is None or not state.active:
+            return None, "Combat is not active"
+        if not state.order:
+            end_combat(session_id)
+            return (
+                {
+                    "status": "Бой завершён",
+                    "open": False,
+                    "lines": [{"text": "Бой завершён: целей не осталось.", "muted": True}],
+                },
+                None,
+            )
+
+        actor_key = state.order[state.turn_index]
+        actor = state.combatants.get(actor_key)
+        if actor is None:
+            return None, "Combat state is inconsistent"
+
+        if actor.side != "pc":
+            lines = [{"text": "Использовать предмет: недоступно.", "muted": True}]
+            state = advance_turn(session_id)
+            if state is None:
+                return None, "Combat is not active"
+            lines.append({"text": f"Ход автоматически передан: {current_turn_label(state)}", "muted": True})
+            return (
+                {
+                    "status": _combat_status(state),
+                    "open": True,
+                    "lines": lines,
+                },
+                None,
+            )
+
+        if actor.hp_current <= 0 or actor.is_dead:
+            return (
+                {
+                    "status": _combat_status(state),
+                    "open": True,
+                    "lines": [{"text": "Действие недоступно: ты без сознания (0 HP).", "muted": True}],
+                },
+                None,
+            )
+
+        target = _first_healing_target_ally(state, actor)
+        if target is None:
+            lines = [{"text": "Использовать предмет: нет цели для лечения.", "muted": True}]
+            state = advance_turn(session_id)
+            if state is None:
+                return None, "Combat is not active"
+            lines.append({"text": f"Ход автоматически передан: {current_turn_label(state)}", "muted": True})
+            return (
+                {
+                    "status": _combat_status(state),
+                    "open": True,
+                    "lines": lines,
+                },
+                None,
+            )
+
+        consumable = _select_weakest_healing_consumable(actor)
+        consumable_idx: int | None = None
+        consumable_entry: dict[str, Any] | None = None
+        consumable_def = None
+        if consumable is not None:
+            consumable_idx, consumable_entry, consumable_def = consumable
+
+        if consumable_idx is None or consumable_entry is None or consumable_def is None:
+            lines = [{"text": "Использовать предмет: нет лечащего предмета.", "muted": True}]
+            state = advance_turn(session_id)
+            if state is None:
+                return None, "Combat is not active"
+            lines.append({"text": f"Ход автоматически передан: {current_turn_label(state)}", "muted": True})
+            return (
+                {
+                    "status": _combat_status(state),
+                    "open": True,
+                    "lines": lines,
+                },
+                None,
+            )
+
+        inventory = actor.inventory if isinstance(actor.inventory, list) else []
+        qty_now = int(consumable_entry.get("qty", 0)) - 1
+        if qty_now <= 0:
+            inventory.pop(consumable_idx)
+        else:
+            consumable_entry["qty"] = qty_now
+
+        consume = consumable_def.consume
+        assert consume is not None
+        heal_from_dice = 0
+        parsed_heal = parse_heal_dice(consume.heal_dice) if isinstance(consume.heal_dice, str) else None
+        if parsed_heal is not None:
+            n, sides, bonus = parsed_heal
+            heal_from_dice = sum(random.randint(1, sides) for _ in range(n)) + bonus
+
+        heal_amount = max(0, heal_from_dice + int(consume.heal_flat))
+        pre_hp = target.hp_current
+        target.hp_current = min(target.hp_max, max(0, target.hp_current) + heal_amount)
+        if pre_hp <= 0 and target.hp_current > 0 and not target.is_dead:
+            target.is_stable = False
+            target.death_successes = 0
+            target.death_failures = 0
+
+        lines = [
+            {"text": f"Предмет: {consumable_def.name_ru} → {target.name}", "muted": True},
+            {"text": f"Лечение: {heal_amount} HP"},
+            {"text": f"{target.name}: HP {target.hp_current}/{target.hp_max}"},
         ]
 
         state = advance_turn(session_id)
