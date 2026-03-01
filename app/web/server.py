@@ -33,6 +33,7 @@ from app.core.log_context import request_id_var, session_id_var, uid_var, ws_con
 from app.db.connection import AsyncSessionLocal
 from app.db.models import Session, Player, SessionPlayer, Character, Skill, Event
 from app.rules.derived_stats import compute_ac
+from app.rules.defeat_outcomes import pick_defeat_outcome
 from app.rules.equipment_slots import EquipmentSlot, EQUIPMENT_SLOT_ORDER, slot_label_ru
 from app.rules.item_catalog import ITEMS
 from app.rules.items import ItemDef, is_equipable, can_equip_to_slot
@@ -4349,6 +4350,27 @@ def _is_victory_patch(patch: dict[str, Any]) -> bool:
     return False
 
 
+def _is_defeat_patch(patch: dict[str, Any]) -> bool:
+    if not isinstance(patch, dict):
+        return False
+    if patch.get("status") != "Бой завершён":
+        return False
+    lines = patch.get("lines")
+    if not isinstance(lines, list):
+        return False
+    for raw_line in lines:
+        text: Optional[str] = None
+        if isinstance(raw_line, str):
+            text = raw_line
+        elif isinstance(raw_line, dict):
+            candidate = raw_line.get("text")
+            if isinstance(candidate, str):
+                text = candidate
+        if isinstance(text, str) and text.startswith("Поражение:"):
+            return True
+    return False
+
+
 def _combat_started_at_from_settings(sess: Session) -> str | None:
     payload = settings_get(sess, COMBAT_STATE_KEY, None)
     if not isinstance(payload, dict):
@@ -4433,6 +4455,44 @@ def _compute_rewards_from_combat_state_payload(payload: Any) -> tuple[list[int],
             loot_dict[def_key] = loot_dict.get(def_key, 0) + qty
 
     return pc_uids, leader_uid, xp_each, loot_dict
+
+
+def _apply_defeat_outcome_to_settings(sess: Session, started_at: str) -> dict[str, Any]:
+    outcome = pick_defeat_outcome(started_at_iso=started_at, rng=None)
+    payload = {
+        "started_at_iso": started_at,
+        "key": outcome.key,
+        "title_ru": outcome.title_ru,
+        "description_ru": outcome.description_ru,
+        "tags": list(outcome.tags),
+    }
+    settings_set(sess, "combat_defeat_outcome_for", started_at)
+    settings_set(sess, "combat_defeat_outcome", payload)
+    return payload
+
+
+async def _grant_defeat_outcome_once(
+    db: AsyncSession,
+    sess: Session,
+    patch: dict[str, Any],
+) -> bool:
+    if not _is_defeat_patch(patch):
+        return False
+
+    started_at = _combat_started_at_from_settings(sess)
+    if not started_at:
+        return False
+
+    if settings_get(sess, "combat_defeat_outcome_for", "") == started_at:
+        return False
+
+    outcome_payload = _apply_defeat_outcome_to_settings(sess, started_at)
+    await add_system_event(
+        db,
+        sess,
+        f"☠ Поражение. Исход: {outcome_payload['title_ru']}. {outcome_payload['description_ru']}",
+    )
+    return True
 
 
 async def _grant_combat_rewards_once(
@@ -4557,6 +4617,9 @@ async def broadcast_state(
             changed = True
             rewards_granted = await _grant_combat_rewards_once(db, sess, combat_log_ui_patch)
             if rewards_granted:
+                changed = True
+            defeat_outcome_granted = await _grant_defeat_outcome_once(db, sess, combat_log_ui_patch)
+            if defeat_outcome_granted:
                 changed = True
 
         changed = _persist_combat_state(sess, session_id) or changed
