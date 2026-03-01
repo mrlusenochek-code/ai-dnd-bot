@@ -5,6 +5,7 @@ import logging
 import os
 import random
 import re
+import zlib
 from datetime import datetime, timedelta, timezone
 import uuid
 from typing import Any, Optional
@@ -35,6 +36,7 @@ from app.rules.derived_stats import compute_ac
 from app.rules.equipment_slots import EquipmentSlot, EQUIPMENT_SLOT_ORDER, slot_label_ru
 from app.rules.item_catalog import ITEMS
 from app.rules.items import ItemDef, is_equipable, can_equip_to_slot
+from app.rules.loot_tables import roll_loot
 
 
 TURN_TIMEOUT_SECONDS = int(os.getenv("TURN_TIMEOUT_SECONDS", "300"))
@@ -4298,6 +4300,181 @@ async def build_state(db: AsyncSession, sess: Session) -> dict:
     }
 
 
+def _is_victory_patch(patch: dict[str, Any]) -> bool:
+    if not isinstance(patch, dict):
+        return False
+    if patch.get("status") != "Бой завершён":
+        return False
+    lines = patch.get("lines")
+    if not isinstance(lines, list):
+        return False
+    for raw_line in lines:
+        text: Optional[str] = None
+        if isinstance(raw_line, str):
+            text = raw_line
+        elif isinstance(raw_line, dict):
+            candidate = raw_line.get("text")
+            if isinstance(candidate, str):
+                text = candidate
+        if isinstance(text, str) and text.startswith("Победа:"):
+            return True
+    return False
+
+
+def _combat_started_at_from_settings(sess: Session) -> str | None:
+    payload = settings_get(sess, COMBAT_STATE_KEY, None)
+    if not isinstance(payload, dict):
+        return None
+    raw = payload.get("started_at_iso")
+    return raw if isinstance(raw, str) else None
+
+
+def _enemy_ids_from_combat_state_payload(payload: Any) -> list[str]:
+    if not isinstance(payload, dict):
+        return []
+    combatants = payload.get("combatants")
+    if not isinstance(combatants, dict):
+        return []
+    out: list[str] = []
+    for key, raw in combatants.items():
+        if not isinstance(key, str) or not isinstance(raw, dict):
+            continue
+        if raw.get("side") == "enemy":
+            out.append(key)
+    return out
+
+
+def _compute_rewards_from_combat_state_payload(payload: Any) -> tuple[list[int], int | None, int, dict[str, int]]:
+    if not isinstance(payload, dict):
+        return [], None, 0, {}
+
+    combatants = payload.get("combatants")
+    if not isinstance(combatants, dict):
+        return [], None, 0, {}
+
+    pc_uids: list[int] = []
+    seen_pc_uids: set[int] = set()
+    enemies: list[tuple[str, int]] = []
+
+    for key, raw in combatants.items():
+        if not isinstance(key, str):
+            continue
+        if key.startswith("pc_"):
+            uid_raw = key[3:]
+            if uid_raw.isdigit():
+                uid = int(uid_raw)
+                if uid not in seen_pc_uids:
+                    seen_pc_uids.add(uid)
+                    pc_uids.append(uid)
+        if isinstance(raw, dict) and raw.get("side") == "enemy":
+            enemies.append((key, max(0, as_int(raw.get("hp_max"), 0))))
+
+    leader_uid: int | None = None
+    order_raw = payload.get("order")
+    order = order_raw if isinstance(order_raw, list) else []
+    for key in order:
+        if not isinstance(key, str) or not key.startswith("pc_"):
+            continue
+        uid_raw = key[3:]
+        if uid_raw.isdigit():
+            uid = int(uid_raw)
+            if uid in seen_pc_uids:
+                leader_uid = uid
+                break
+    if leader_uid is None and pc_uids:
+        leader_uid = pc_uids[0]
+
+    xp_total_enemy_sum = sum(max(10, hp_max * 5) for _enemy_id, hp_max in enemies)
+    xp_each = xp_total_enemy_sum // max(1, len(pc_uids))
+
+    started_at = payload.get("started_at_iso")
+    started_at_str = started_at if isinstance(started_at, str) else ""
+    loot_dict: dict[str, int] = {}
+    for enemy_id, _hp_max in enemies:
+        rng = random.Random(zlib.adler32((started_at_str + ":" + enemy_id).encode("utf-8")))
+        drops = roll_loot(enemy_id, rng=rng)
+        for drop in drops:
+            if not isinstance(drop, dict):
+                continue
+            def_key = drop.get("def")
+            if not isinstance(def_key, str) or not def_key:
+                continue
+            qty = max(0, as_int(drop.get("qty"), 0))
+            if qty <= 0:
+                continue
+            loot_dict[def_key] = loot_dict.get(def_key, 0) + qty
+
+    return pc_uids, leader_uid, xp_each, loot_dict
+
+
+async def _grant_combat_rewards_once(
+    db: AsyncSession,
+    sess: Session,
+    patch: dict[str, Any],
+) -> bool:
+    if not _is_victory_patch(patch):
+        return False
+
+    started_at = _combat_started_at_from_settings(sess)
+    if not started_at:
+        return False
+
+    if settings_get(sess, "combat_rewards_granted_for", "") == started_at:
+        return False
+
+    payload = settings_get(sess, COMBAT_STATE_KEY, None)
+    if not isinstance(payload, dict):
+        return False
+
+    pc_uids, leader_uid, xp_each, loot_dict = _compute_rewards_from_combat_state_payload(payload)
+    _uid_map, chars_by_uid, _skill_mods_by_char = await _load_actor_context(db, sess)
+
+    for uid in pc_uids:
+        ch = chars_by_uid.get(uid)
+        if ch is None:
+            continue
+        ch.xp_total = max(0, as_int(ch.xp_total, 0)) + max(0, xp_each)
+        ch.level = _level_from_xp_total(ch.xp_total, as_int(ch.level, 1))
+
+    if leader_uid is not None:
+        leader_ch = chars_by_uid.get(leader_uid)
+        if leader_ch is not None:
+            for enemy_id in _enemy_ids_from_combat_state_payload(payload):
+                rng = random.Random(zlib.adler32((started_at + ":" + enemy_id).encode("utf-8")))
+                drops = roll_loot(enemy_id, rng=rng)
+                enemy_loot: dict[str, int] = {}
+                for drop in drops:
+                    if not isinstance(drop, dict):
+                        continue
+                    def_key = drop.get("def")
+                    if not isinstance(def_key, str) or not def_key:
+                        continue
+                    qty = max(0, as_int(drop.get("qty"), 0))
+                    if qty <= 0:
+                        continue
+                    enemy_loot[def_key] = enemy_loot.get(def_key, 0) + qty
+                for def_key, qty in enemy_loot.items():
+                    item = ITEMS[def_key]
+                    _inv_add_on_character(
+                        leader_ch,
+                        name=item.name_ru,
+                        qty=qty,
+                        tags=["loot"],
+                        notes=f"combat:{enemy_id}",
+                    )
+
+    settings_set(sess, "combat_rewards_granted_for", started_at)
+
+    loot_chunks: list[str] = []
+    for def_key, qty in sorted(loot_dict.items()):
+        item = ITEMS.get(def_key)
+        item_name = item.name_ru if item is not None else def_key
+        loot_chunks.append(f"{item_name} x{qty}")
+    loot_text = ", ".join(loot_chunks) if loot_chunks else "нет"
+    await add_system_event(db, sess, f"🏆 Победа! XP: +{xp_each} каждому. Лут: {loot_text} (лидеру)")
+    return True
+
+
 async def broadcast_state(
     session_id: str,
     combat_log_ui_patch: Optional[dict[str, Any]] = None,
@@ -4349,6 +4526,9 @@ async def broadcast_state(
             )
             _persist_combat_log_patch(sess, combat_log_ui_patch)
             changed = True
+            rewards_granted = await _grant_combat_rewards_once(db, sess, combat_log_ui_patch)
+            if rewards_granted:
+                changed = True
 
         changed = _persist_combat_state(sess, session_id) or changed
         if changed:
