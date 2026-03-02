@@ -43,3 +43,5 @@ cd ~/code/ai-dnd-bot
 ## База данных
 - Обычно используется Postgres из `.env` (`DATABASE_URL_ASYNC`).
 - Если переменная не задана, включится dev-fallback на SQLite: `sqlite+aiosqlite:///./dev.db`.
+- Фоновые watcher-задачи (`timer_watcher` и `inactive_watcher`) по умолчанию включены.
+- Чтобы отключить их для локальной разработки/отладки, установите `ENABLE_WATCHERS=0` в `.env`.
