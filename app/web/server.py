@@ -32,6 +32,7 @@ from app.core.logging import configure_logging
 from app.core.log_context import request_id_var, session_id_var, uid_var, ws_conn_id_var, client_id_var
 from app.db.connection import AsyncSessionLocal
 from app.db.models import Session, Player, SessionPlayer, Character, Skill, Event
+from app.gm import narration
 from app.rules.derived_stats import compute_ac
 from app.rules.encounters import pick_encounter
 from app.rules.enemy_catalog_data import get_enemy
@@ -40,14 +41,6 @@ from app.rules.equipment_slots import EquipmentSlot, EQUIPMENT_SLOT_ORDER, slot_
 from app.rules.item_catalog import ITEMS
 from app.rules.items import ItemDef, is_equipable, can_equip_to_slot
 from app.rules.loot_tables import roll_loot
-from app.rules.move_intents import parse_move_intent
-from app.rules.world_map import (
-    ENVIRONMENTS,
-    init_world_state,
-    move as world_move,
-    world_from_dict,
-    world_to_dict,
-)
 
 
 TURN_TIMEOUT_SECONDS = int(os.getenv("TURN_TIMEOUT_SECONDS", "300"))
@@ -2881,44 +2874,23 @@ def _detect_chat_combat_action(text: str) -> Optional[str]:
     return None
 
 
-def _apply_world_move_from_text(sess, session_id: str, text: object) -> tuple[object, bool]:
+def _apply_world_move_from_text(sess, session_id: str, text: object) -> tuple[str, bool]:
     if not isinstance(text, str):
-        return text, False
-
-    intent = parse_move_intent(text)
-    if intent is None:
-        return text, False
-
-    combat_state = get_combat(session_id)
-    if combat_state is not None and bool(combat_state.active):
-        return text, False
-
+        text = "" if text is None else str(text)
     st = _ensure_settings(sess)
-    ws = world_from_dict(st.get("world"))
-    if ws is None:
-        seed = int(zlib.adler32(str(session_id).encode("utf-8", errors="ignore")) & 0xFFFFFFFF)
-        ws = init_world_state(seed=seed)
-
-    ws, patch = world_move(ws, intent.dir)
-    env = str(patch.get("env") or "").strip()
-    if env not in ENVIRONMENTS:
-        env = ENVIRONMENTS[0]
-
-    world_payload = world_to_dict(ws)
-    world_payload["env"] = env
-    st["world"] = world_payload
+    combat_state = get_combat(session_id)
+    combat_active = bool(combat_state and combat_state.active)
+    moved_text, moved = narration.apply_world_move_to_player_text(
+        st,
+        session_id,
+        text,
+        combat_active=combat_active,
+    )
     try:
         flag_modified(sess, "settings")
     except Exception:
         pass
-
-    gm_text = (
-        "ТРЕБОВАНИЕ: это перемещение по миру. Сначала дай 1-2 предложения с описанием местности и видимых деталей, "
-        "связанных с текущей клеткой; только после этого дай обычный ответ ГМа.\n"
-        f"ТЕКУЩАЯ МЕСТНОСТЬ: {env}; координаты x={ws.x}, y={ws.y}; направление={intent.dir}.\n\n"
-        f"ДЕЙСТВИЕ ИГРОКА: {text}"
-    )
-    return gm_text, True
+    return moved_text, moved
 
 
 async def _estimate_party_level(db: AsyncSession, sess: Session) -> int:
@@ -5195,6 +5167,8 @@ async def _run_gm_two_pass(
     previous_gm_text: str = "",
 ) -> tuple[str, dict[str, Any], dict[str, Any], list[dict[str, Any]], list[dict[str, Any]]]:
     uid_map, chars_by_uid, skill_mods_by_char = await _load_actor_context(db, sess)
+    settings = _ensure_settings(sess)
+    location_fallback = narration.build_location_block(settings, session_id)
     combat_state = get_combat(session_id)
     combat_active = bool(combat_state and combat_state.active)
     draft_prompt_for_model = _prepend_combat_lock(draft_prompt, combat_active)
@@ -5469,8 +5443,9 @@ async def _run_gm_two_pass(
         if cleaned:
             final_text = cleaned
     final_text = _sanitize_gm_output(final_text)
+    final_text = narration.sanitize_gm_output(final_text, location_fallback=location_fallback)
     if not final_text:
-        final_text = "Сцена продолжается: опишите следующее действие."
+        final_text = narration.sanitize_gm_output("", location_fallback=location_fallback)
 
     action_text = (ctx_line.split(":", 1)[1] if (ctx_line and ":" in ctx_line) else (ctx_line or "")).strip()
     if (not combat_active) and action_text and final_text:
@@ -8170,7 +8145,12 @@ async def ws_room(ws: WebSocket, session_id: str):
                         continue
 
                     text_for_gm, _moved = _apply_world_move_from_text(sess, session_id, text)
-                    gm_action_text = text_for_gm if isinstance(text_for_gm, str) else text
+                    gm_action_text = narration.build_gm_input_text(
+                        _ensure_settings(sess),
+                        session_id,
+                        text_for_gm if isinstance(text_for_gm, str) else str(text),
+                        moved=_moved,
+                    )
                     round_actions[pid] = gm_action_text
                     settings_set(sess, "round_actions", round_actions)
                     current_zone = _get_pc_positions(sess).get(pid, "стартовая локация")
@@ -8229,7 +8209,12 @@ async def ws_room(ws: WebSocket, session_id: str):
                 new_zone = infer_zone_from_action(text, current_zone)
                 _set_pc_zone(sess, player.id, new_zone)
                 text_for_gm, _moved = _apply_world_move_from_text(sess, session_id, text)
-                gm_action_text = text_for_gm if isinstance(text_for_gm, str) else text
+                gm_action_text = narration.build_gm_input_text(
+                    _ensure_settings(sess),
+                    session_id,
+                    text_for_gm if isinstance(text_for_gm, str) else str(text),
+                    moved=_moved,
+                )
                 encounter_patch: Optional[dict[str, Any]] = None
                 if _moved:
                     encounter_patch, encounter_note = await _maybe_start_encounter_after_move(db, sess, session_id)

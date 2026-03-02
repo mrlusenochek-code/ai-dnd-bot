@@ -8,8 +8,7 @@ def test_apply_world_move_from_text_moves_and_prefixes():
     sess = SimpleNamespace(id="sess_test", settings={})
     text, moved = server._apply_world_move_from_text(sess, "sess_test", "иду вперед")
     assert moved is True
-    assert "ТЕКУЩАЯ МЕСТНОСТЬ" in text
-    assert "ТРЕБОВАНИЕ" in text
+    assert text == "иду вперед"
     assert isinstance(sess.settings.get("world"), dict)
     assert isinstance(sess.settings["world"].get("env"), str)
     assert sess.settings["world"]["env"]
