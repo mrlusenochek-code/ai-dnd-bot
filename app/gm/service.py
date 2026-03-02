@@ -9,6 +9,32 @@ from app.ai.gm import generate_from_prompt
 from app.db.models import Skill
 from app.gm import checks as gm_checks, contracts as gm_contracts, narration, sanitize as gm_sanitize
 
+ENTITY_TOKEN_RE = re.compile(r"\b(?:[А-ЯЁ][а-яё]{2,}|[A-Z][a-z]{2,})\b")
+ENTITY_SENTENCE_LEADING_SKIP = " \t\r\n\"'«»“”„-—–([{"
+ENTITY_GUARD_STOPWORDS = {
+    "Ты",
+    "Что",
+    "Мы",
+    "GM",
+    "Мастер",
+    "Валера",
+    "Игрок",
+    "Система",
+    "Сцена",
+    "Контекст",
+    "Ответ",
+    "Черновик",
+    "Анализ",
+    "Final",
+    "Response",
+}
+ENTITY_GUARD_ALLOWLIST = {
+    "Север",
+    "Юг",
+    "Запад",
+    "Восток",
+}
+
 
 def _common_prefix_len(a: str, b: str) -> int:
     limit = min(len(a), len(b))
@@ -53,6 +79,56 @@ def _default_as_int(value: Any, default: int = 0) -> int:
 
 def _default_clamp(n: int, low: int, high: int) -> int:
     return max(low, min(high, n))
+
+
+def _is_sentence_start_token(text: str, token_start: int) -> bool:
+    i = max(0, token_start) - 1
+    while i >= 0 and text[i] in ENTITY_SENTENCE_LEADING_SKIP:
+        i -= 1
+    if i < 0:
+        return True
+    return text[i] in ".!?"
+
+
+def _extract_capitalized_tokens(text: str) -> set[str]:
+    txt = str(text or "")
+    out: set[str] = set()
+    for m in ENTITY_TOKEN_RE.finditer(txt):
+        token = m.group(0)
+        if not token or token in ENTITY_GUARD_STOPWORDS:
+            continue
+        if _is_sentence_start_token(txt, m.start()):
+            continue
+        out.add(token)
+    return out
+
+
+def _is_entity_introduced(text: str, name: str) -> bool:
+    candidate = str(name or "").strip()
+    if not candidate:
+        return True
+    escaped = re.escape(candidate)
+    intro_patterns = (
+        rf"\bпо\s+имени\s+{escaped}\b",
+        rf"\b(?:его|её)\s+зовут\s+{escaped}\b",
+        rf"\b{escaped}\s*[—-]\s+",
+    )
+    return any(re.search(p, text, flags=re.IGNORECASE) for p in intro_patterns)
+
+
+def _build_entity_repair_prompt(*, final_text: str, unknown_entities: list[str], ctx_line: str) -> str:
+    names = ", ".join(unknown_entities) if unknown_entities else "(нет)"
+    return (
+        "Перепиши текст мастера.\n"
+        "НЕ добавляй новых имён/сущностей, которых нет в контексте.\n"
+        "Если имя необходимо — введи его одной фразой: кто это и почему он/она сейчас в сцене.\n"
+        "Не используй мета-комментарии.\n"
+        "Не приписывай игроку реплики или мысли.\n"
+        "Сохрани смысл действия и завершай строкой: Что делаете дальше?\n\n"
+        f"Проблемные имена: {names}\n"
+        f"Последняя строка контекста: {ctx_line or '(нет)'}\n\n"
+        f"Исходный текст:\n{final_text}"
+    )
 
 
 async def run_two_pass(
@@ -101,6 +177,8 @@ async def run_two_pass(
     fallback_autogen_check = False
     fallback_coherence_reprompt = False
     combat_lock_reprompt = False
+    entity_guard_reprompt = False
+    entity_guard_unknown: list[str] = []
     mandatory_cat = None if combat_active else gm_checks._mandatory_check_category(draft_text_raw)
     ctx_line = gm_checks._extract_last_context_line_from_prompt(draft_prompt)
     if not combat_active and mandatory_cat is None and ctx_line:
@@ -359,6 +437,29 @@ async def run_two_pass(
     final_text = narration.sanitize_gm_output(final_text, location_fallback=location_fallback)
     if not final_text:
         final_text = narration.sanitize_gm_output("", location_fallback=location_fallback)
+    else:
+        context_entities = _extract_capitalized_tokens(draft_prompt)
+        context_entities.update(_extract_capitalized_tokens(previous_gm_text))
+        output_entities = _extract_capitalized_tokens(final_text)
+        unknown_entities = sorted(output_entities - context_entities - ENTITY_GUARD_ALLOWLIST)
+        unresolved = [name for name in unknown_entities if not _is_entity_introduced(final_text, name)]
+        if unresolved:
+            entity_guard_reprompt = True
+            entity_guard_unknown = unresolved
+            entity_repair_prompt = _build_entity_repair_prompt(
+                final_text=final_text,
+                unknown_entities=unresolved,
+                ctx_line=ctx_line,
+            )
+            entity_repair_resp = await llm_generate(
+                prompt=entity_repair_prompt,
+                timeout_seconds=timeout_seconds,
+                num_predict=final_num_predict,
+            )
+            repaired = gm_sanitize.sanitize_gm_output(gm_sanitize._strip_machine_lines(str(entity_repair_resp.get("text") or "").strip()))
+            repaired = narration.sanitize_gm_output(repaired, location_fallback=location_fallback)
+            if repaired:
+                final_text = repaired
 
     action_text = (ctx_line.split(":", 1)[1] if (ctx_line and ":" in ctx_line) else (ctx_line or "")).strip()
     if (not combat_active) and action_text and final_text:
@@ -472,6 +573,8 @@ async def run_two_pass(
                     "fallback_autogen_check": bool(fallback_autogen_check),
                     "fallback_coherence_reprompt": bool(fallback_coherence_reprompt),
                     "fallback_combat_lock_reprompt": bool(combat_lock_reprompt),
+                    "fallback_entity_guard_reprompt": bool(entity_guard_reprompt),
+                    "fallback_entity_guard_unknown": entity_guard_unknown,
                     "llm_draft_finish_reason": draft_resp.get("finish_reason"),
                     "llm_draft_usage": draft_resp.get("usage"),
                     "llm_final_finish_reason": final_resp.get("finish_reason"),
