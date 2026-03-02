@@ -2092,6 +2092,29 @@ def _apply_world_move_from_text(sess, session_id: str, text: object) -> tuple[st
     return moved_text, moved
 
 
+async def _build_player_gm_action_text(
+    db: AsyncSession,
+    sess: Session,
+    session_id: str,
+    text: object,
+    *,
+    include_encounter_after_move: bool,
+) -> tuple[str, bool, Optional[dict[str, Any]]]:
+    text_for_gm, moved = _apply_world_move_from_text(sess, session_id, text)
+    gm_action_text = narration.build_gm_input_text(
+        _ensure_settings(sess),
+        session_id,
+        text_for_gm if isinstance(text_for_gm, str) else str(text),
+        moved=moved,
+    )
+    encounter_patch: Optional[dict[str, Any]] = None
+    if include_encounter_after_move and moved:
+        encounter_patch, encounter_note = await _maybe_start_encounter_after_move(db, sess, session_id)
+        if encounter_note:
+            gm_action_text = f"{gm_action_text}\n\n{encounter_note}"
+    return gm_action_text, moved, encounter_patch
+
+
 async def _estimate_party_level(db: AsyncSession, sess: Session) -> int:
     _uid_map, chars_by_uid, _skill_mods_by_char = await _load_actor_context(db, sess)
     levels: list[int] = []
@@ -6446,12 +6469,12 @@ async def ws_room(ws: WebSocket, session_id: str):
                         await ws_error("В этом раунде вы уже отправили действие.")
                         continue
 
-                    text_for_gm, _moved = _apply_world_move_from_text(sess, session_id, text)
-                    gm_action_text = narration.build_gm_input_text(
-                        _ensure_settings(sess),
+                    gm_action_text, _moved, _encounter_patch = await _build_player_gm_action_text(
+                        db,
+                        sess,
                         session_id,
-                        text_for_gm if isinstance(text_for_gm, str) else str(text),
-                        moved=_moved,
+                        text,
+                        include_encounter_after_move=False,
                     )
                     round_actions[pid] = gm_action_text
                     settings_set(sess, "round_actions", round_actions)
@@ -6510,18 +6533,13 @@ async def ws_room(ws: WebSocket, session_id: str):
                 current_zone = _get_pc_positions(sess).get(pid, "стартовая локация")
                 new_zone = infer_zone_from_action(text, current_zone)
                 _set_pc_zone(sess, player.id, new_zone)
-                text_for_gm, _moved = _apply_world_move_from_text(sess, session_id, text)
-                gm_action_text = narration.build_gm_input_text(
-                    _ensure_settings(sess),
+                gm_action_text, _moved, encounter_patch = await _build_player_gm_action_text(
+                    db,
+                    sess,
                     session_id,
-                    text_for_gm if isinstance(text_for_gm, str) else str(text),
-                    moved=_moved,
+                    text,
+                    include_encounter_after_move=True,
                 )
-                encounter_patch: Optional[dict[str, Any]] = None
-                if _moved:
-                    encounter_patch, encounter_note = await _maybe_start_encounter_after_move(db, sess, session_id)
-                    if encounter_note:
-                        gm_action_text = f"{gm_action_text}\n\n{encounter_note}"
                 payload = {
                     "type": "player_action",
                     "actor_uid": _player_uid(player),
