@@ -24,7 +24,6 @@ from app.combat.apply_machine import apply_combat_machine_commands
 from app.combat.live_actions import handle_live_combat_action
 from app.combat.log_ui import normalize_combat_log_ui_patch
 from app.combat.combat_narration_facts import extract_combat_narration_facts
-from app.combat.machine_commands import extract_combat_machine_commands
 from app.combat.state import current_turn_label, end_combat, get_combat, restore_combat_state, snapshot_combat_state
 from app.combat.sync_pcs import sync_pcs_from_chars
 from app.combat.test_actions import handle_admin_combat_test_action
@@ -49,10 +48,9 @@ from app.rules.item_catalog import ITEMS
 from app.rules.items import ItemDef, is_equipable, can_equip_to_slot
 from app.rules.loot_tables import roll_loot
 from app.web.dice import parse_dice, roll_dice
+from app.web.machine_extract import _trim_for_log, _extract_inventory_machine_commands, _extract_machine_commands
 from app.web.machine_lines import (
-    _parse_inventory_machine_line,
     _parse_machine_value,
-    _parse_zone_set_machine_line,
     _split_machine_args,
     _strip_machine_lines,
 )
@@ -60,7 +58,6 @@ from app.web.regexes import (
     CHAT_COMBAT_ACTION_PATTERNS,
     COMBAT_MECHANICS_EVENT_RE,
     ZONE_MOVE_RE,
-    ZONE_SET_MACHINE_LINE_RE,
 )
 
 
@@ -1139,13 +1136,6 @@ def _checks_from_human_text(draft_text: str, default_actor_uid: Optional[int]) -
     return gm_checks._checks_from_human_text(draft_text, default_actor_uid)
 
 
-def _trim_for_log(text: str, limit: int = 700) -> str:
-    txt = str(text or "").strip()
-    if len(txt) <= limit:
-        return txt
-    return txt[:limit] + "... [truncated]"
-
-
 def _character_meta_from_stats(stats_raw: Any) -> dict[str, str]:
     if not isinstance(stats_raw, dict):
         return {"gender": "", "race": "", "description": ""}
@@ -1410,65 +1400,6 @@ def _equipped_wear_groups(inv: list[dict[str, Any]], equip_map: dict[str, str]) 
         if wear_group not in out:
             out[wear_group] = item_id
     return out
-
-
-def _extract_inventory_machine_commands(text: str) -> tuple[str, list[dict[str, Any]]]:
-    out_lines: list[str] = []
-    commands: list[dict[str, Any]] = []
-    for line in str(text or "").splitlines():
-        if not str(line).lstrip().startswith("@@INV_"):
-            out_lines.append(line)
-            continue
-        parsed = _parse_inventory_machine_line(line)
-        if parsed:
-            commands.append(parsed)
-        else:
-            logger.warning("invalid inventory machine command", extra={"action": {"line": _trim_for_log(line, 260)}})
-    return "\n".join(out_lines).strip(), commands
-
-
-def _extract_machine_commands(text: str) -> tuple[str, list[dict[str, Any]], list[dict[str, Any]]]:
-    out_lines: list[str] = []
-    inv_commands: list[dict[str, Any]] = []
-    zone_set_commands: list[dict[str, Any]] = []
-    # На этом этапе боевые команды только скрываем из видимого текста; применение подключим позже.
-    try:
-        combat_parsed = extract_combat_machine_commands(text)
-        if combat_parsed.had_any_commands:
-            logger.debug(
-                "combat machine preview: start=%s enemies=%d end=%s random_events=%d",
-                combat_parsed.combat_start is not None,
-                len(combat_parsed.combat_enemy_add),
-                combat_parsed.combat_end is not None,
-                len(combat_parsed.random_events),
-            )
-        combat_visible_text = combat_parsed.visible_text
-    except Exception:
-        combat_visible_text = str(text or "")
-    for line in str(combat_visible_text or "").splitlines():
-        lstripped = str(line).lstrip()
-        candidate_line = lstripped
-        while candidate_line.startswith("("):
-            candidate_line = candidate_line[1:].lstrip()
-        if candidate_line.startswith("@@INV_") or candidate_line.startswith("@@EQUIP") or candidate_line.startswith("@@UNEQUIP"):
-            parsed = _parse_inventory_machine_line(line)
-            if parsed:
-                inv_commands.append(parsed)
-            else:
-                logger.warning("invalid inventory machine command", extra={"action": {"line": _trim_for_log(line, 260)}})
-            continue
-        if ZONE_SET_MACHINE_LINE_RE.match(lstripped):
-            parsed_zone = _parse_zone_set_machine_line(line)
-            if parsed_zone:
-                zone_set_commands.append(parsed_zone)
-            else:
-                logger.warning("invalid zone_set machine command", extra={"action": {"line": _trim_for_log(line, 260)}})
-            continue
-        if candidate_line.startswith("@@"):
-            logger.warning("unknown machine command", extra={"action": {"line": _trim_for_log(line, 260)}})
-            continue
-        out_lines.append(line)
-    return "\n".join(out_lines).strip(), inv_commands, zone_set_commands
 
 
 def _find_inventory_item_index(inv: list[dict[str, Any]], name_or_id: str) -> Optional[int]:
