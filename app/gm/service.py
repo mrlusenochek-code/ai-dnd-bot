@@ -34,6 +34,28 @@ ENTITY_GUARD_ALLOWLIST = {
     "Запад",
     "Восток",
 }
+BACKREF_TRIGGER_ANCHORS: list[tuple[re.Pattern[str], tuple[str, ...], str]] = [
+    (
+        re.compile(r"\bпосле\s+(?:его|её|этого)\s+предупрежден", re.IGNORECASE),
+        ("предупрежд", "опасност"),
+        "после его/её/этого предупреждения",
+    ),
+    (
+        re.compile(r"\bпредупрежден(?:ие|ия|ий)\b", re.IGNORECASE),
+        ("предупрежд", "опасност"),
+        "предупреждение",
+    ),
+    (
+        re.compile(r"\bкак\s+(?:ты|вы|мы|я)\s+(?:уже\s+)?(?:говорил|сказал|обсуждали)\b", re.IGNORECASE),
+        ("говор", "сказ", "обсужд"),
+        "как мы уже обсуждали/говорили",
+    ),
+    (
+        re.compile(r"\bранее\b|\bдо\s+этого\b|\bв\s+прошлый\s+раз\b", re.IGNORECASE),
+        ("ранее", "до этого", "прошлый"),
+        "ранее/до этого/в прошлый раз",
+    ),
+]
 
 
 def _common_prefix_len(a: str, b: str) -> int:
@@ -131,6 +153,33 @@ def _build_entity_repair_prompt(*, final_text: str, unknown_entities: list[str],
     )
 
 
+def _find_unsupported_backreferences(output_text: str, context_text: str) -> list[str]:
+    out_text = str(output_text or "")
+    ctx_text = str(context_text or "").lower()
+    hits: list[str] = []
+    for trigger_re, anchors, label in BACKREF_TRIGGER_ANCHORS:
+        if not trigger_re.search(out_text):
+            continue
+        if not any(anchor.lower() in ctx_text for anchor in anchors):
+            hits.append(label)
+    return sorted(set(hits))
+
+
+def _build_backref_repair_prompt(*, final_text: str, bad_refs: list[str], ctx_line: str) -> str:
+    refs = ", ".join(bad_refs) if bad_refs else "(нет)"
+    return (
+        "Перепиши текст мастера.\n"
+        "Не ссылайся на прошлые события/предупреждения/фразы вроде 'как мы обсуждали', если этого нет в контексте.\n"
+        "Описывай только наблюдаемое и то, что реально известно по контексту.\n"
+        "Без мета-комментариев.\n"
+        "Без реплик и мыслей за игрока.\n"
+        "Сохрани смысл сцены и заверши строкой: Что делаете дальше?\n\n"
+        f"Проблемные отсылки: {refs}\n"
+        f"Последняя строка контекста: {ctx_line or '(нет)'}\n\n"
+        f"Исходный текст:\n{final_text}"
+    )
+
+
 async def run_two_pass(
     db: Any,
     sess: Any,
@@ -179,6 +228,8 @@ async def run_two_pass(
     combat_lock_reprompt = False
     entity_guard_reprompt = False
     entity_guard_unknown: list[str] = []
+    backref_guard_reprompt = False
+    backref_guard_hits: list[str] = []
     mandatory_cat = None if combat_active else gm_checks._mandatory_check_category(draft_text_raw)
     ctx_line = gm_checks._extract_last_context_line_from_prompt(draft_prompt)
     if not combat_active and mandatory_cat is None and ctx_line:
@@ -438,6 +489,7 @@ async def run_two_pass(
     if not final_text:
         final_text = narration.sanitize_gm_output("", location_fallback=location_fallback)
     else:
+        context_text = f"{draft_prompt}\n{previous_gm_text}"
         context_entities = _extract_capitalized_tokens(draft_prompt)
         context_entities.update(_extract_capitalized_tokens(previous_gm_text))
         output_entities = _extract_capitalized_tokens(final_text)
@@ -457,6 +509,25 @@ async def run_two_pass(
                 num_predict=final_num_predict,
             )
             repaired = gm_sanitize.sanitize_gm_output(gm_sanitize._strip_machine_lines(str(entity_repair_resp.get("text") or "").strip()))
+            repaired = narration.sanitize_gm_output(repaired, location_fallback=location_fallback)
+            if repaired:
+                final_text = repaired
+
+        bad_refs = _find_unsupported_backreferences(final_text, context_text)
+        if bad_refs:
+            backref_guard_reprompt = True
+            backref_guard_hits = bad_refs
+            backref_repair_prompt = _build_backref_repair_prompt(
+                final_text=final_text,
+                bad_refs=bad_refs,
+                ctx_line=ctx_line,
+            )
+            backref_repair_resp = await llm_generate(
+                prompt=backref_repair_prompt,
+                timeout_seconds=timeout_seconds,
+                num_predict=final_num_predict,
+            )
+            repaired = gm_sanitize.sanitize_gm_output(gm_sanitize._strip_machine_lines(str(backref_repair_resp.get("text") or "").strip()))
             repaired = narration.sanitize_gm_output(repaired, location_fallback=location_fallback)
             if repaired:
                 final_text = repaired
@@ -575,6 +646,8 @@ async def run_two_pass(
                     "fallback_combat_lock_reprompt": bool(combat_lock_reprompt),
                     "fallback_entity_guard_reprompt": bool(entity_guard_reprompt),
                     "fallback_entity_guard_unknown": entity_guard_unknown,
+                    "fallback_backref_guard_reprompt": bool(backref_guard_reprompt),
+                    "fallback_backref_guard_hits": backref_guard_hits,
                     "llm_draft_finish_reason": draft_resp.get("finish_reason"),
                     "llm_draft_usage": draft_resp.get("usage"),
                     "llm_final_finish_reason": final_resp.get("finish_reason"),
