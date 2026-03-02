@@ -600,7 +600,23 @@ function openCharacterModal(){
   const nextLevelTotal = Number.isFinite(Number(levelProgress.next_level_total)) ? Number(levelProgress.next_level_total) : xpTotal;
   const toNextLevel = Number.isFinite(Number(levelProgress.to_next_level)) ? Number(levelProgress.to_next_level) : Math.max(0, nextLevelTotal - xpTotal);
   const skills = Array.isArray(ch.skills) ? ch.skills : [];
-  const skillsLines = skills.map((sk) => {
+  const skillsRows = skills.map((sk) => {
+  const key = String(sk && sk.key ? sk.key : "skill").trim();
+  const skillName = getSkillNameRu(key);
+  const rank = Number.isFinite(Number(sk && sk.rank)) ? Number(sk.rank) : 0;
+  const xp = Number.isFinite(Number(sk && sk.xp)) ? Number(sk.xp) : 0;
+  const xpToNext = Number.isFinite(Number(sk && sk.xp_to_next)) ? Number(sk.xp_to_next) : 0;
+  return { key, skillName, rank, xp, xpToNext };
+});
+
+// Важные — сверху: rank ↓, затем xp ↓, затем имя
+skillsRows.sort((a, b) => {
+  if (b.rank !== a.rank) return b.rank - a.rank;
+  if (b.xp !== a.xp) return b.xp - a.xp;
+  return String(a.skillName).localeCompare(String(b.skillName), "ru");
+});
+
+const skillsLines = skillsRows.map((r) => `${r.skillName}: ${r.rank} ур. — ${r.xp}/${r.xpToNext} XP`);
     const key = String(sk && sk.key ? sk.key : "skill").trim();
     const skillName = getSkillNameRu(key);
     const rank = Number.isFinite(Number(sk && sk.rank)) ? Number(sk.rank) : 0;
