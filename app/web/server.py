@@ -49,6 +49,7 @@ from app.rules.equipment_slots import EquipmentSlot, EQUIPMENT_SLOT_ORDER, slot_
 from app.rules.item_catalog import ITEMS
 from app.rules.items import ItemDef, is_equipable, can_equip_to_slot
 from app.rules.loot_tables import roll_loot
+from app.web.dice import parse_dice, roll_dice
 
 
 TURN_TIMEOUT_SECONDS = int(os.getenv("TURN_TIMEOUT_SECONDS", "300"))
@@ -5091,31 +5092,6 @@ async def api_character_me(session_id: str, uid: int):
         player = await get_or_create_player_web(db, as_int(uid, 0), "")
         ch = await get_character(db, sess.id, player.id)
         return JSONResponse({"ok": True, "has_character": ch is not None, "character": _char_to_payload(ch)})
-
-
-# -------------------------
-# Dice parsing
-# -------------------------
-DICE_RE = re.compile(r"^\s*(?:(roll|adv|dis)\s+)?(\d+)\s*d\s*(\d+)\s*([+-]\s*\d+)?\s*$", re.IGNORECASE)
-
-
-def roll_dice(n: int, sides: int) -> list[int]:
-    return [random.randint(1, sides) for _ in range(n)]
-
-
-def parse_dice(text: str):
-    m = DICE_RE.match(text)
-    if not m:
-        return None
-    mode = (m.group(1) or "roll").lower()
-    n = int(m.group(2))
-    sides = int(m.group(3))
-    mod_raw = (m.group(4) or "").replace(" ", "")
-    mod = int(mod_raw) if mod_raw else 0
-    # reasonable limits
-    if n < 1 or n > 50 or sides < 2 or sides > 1000:
-        return None
-    return mode, n, sides, mod, (f"{n}d{sides}{mod_raw}" if mod_raw else f"{n}d{sides}")
 
 
 # -------------------------
