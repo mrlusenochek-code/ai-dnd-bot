@@ -880,6 +880,81 @@ def _level_from_xp_total(xp_total: int, current_level: int) -> int:
     return level
 
 
+def _class_preset_from_ids(class_kit: Any, class_skin: Any) -> dict[str, Any]:
+    class_kit_key = str(class_kit or "").strip().lower()
+    class_skin_key = str(class_skin or "").strip().lower()
+    preset = CLASS_PRESETS.get(class_kit_key)
+    if preset:
+        return preset
+    preset = CLASS_PRESETS.get(class_skin_key)
+    if preset:
+        return preset
+    for candidate in CLASS_PRESETS.values():
+        display_name = str(candidate.get("display_name") or "").strip().lower()
+        if display_name and display_name in {class_kit_key, class_skin_key}:
+            return candidate
+    return {}
+
+
+def _starter_rank_for_skill(class_kit: Any, class_skin: Any, skill_key: Any) -> int:
+    key = str(skill_key or "").strip().lower()
+    if not key:
+        return 0
+    preset = _class_preset_from_ids(class_kit, class_skin)
+    starter_skills = preset.get("starter_skills") if isinstance(preset, dict) else {}
+    return _clamp(as_int((starter_skills or {}).get(key), 0), 0, 10)
+
+
+def _skill_name_from_key(skill_key: Any) -> str:
+    key = str(skill_key or "").strip().lower()
+    if not key:
+        return ""
+    return key.replace("_", " ")
+
+
+def _skill_is_active(skill: Skill, class_kit: Any, class_skin: Any) -> bool:
+    rank = _clamp(as_int(getattr(skill, "rank", 0), 0), 0, 10)
+    xp = max(0, as_int(getattr(skill, "xp", 0), 0))
+    starter_rank = _starter_rank_for_skill(class_kit, class_skin, getattr(skill, "skill_key", ""))
+    return xp > 0 or rank != starter_rank
+
+
+def _skills_payload_for_character(character: Character, skills: list[Skill]) -> list[dict[str, Any]]:
+    out: list[dict[str, Any]] = []
+    for skill in sorted(skills, key=lambda sk: str(sk.skill_key or "").strip().lower()):
+        if not _skill_is_active(skill, character.class_kit, character.class_skin):
+            continue
+        key = str(skill.skill_key or "").strip().lower()
+        rank = _clamp(as_int(skill.rank, 0), 0, 10)
+        xp = max(0, as_int(skill.xp, 0))
+        xp_to_next = _xp_to_next_skill_rank(rank)
+        out.append(
+            {
+                "key": key,
+                "name": _skill_name_from_key(key),
+                "rank": rank,
+                "xp": xp,
+                "xp_to_next": xp_to_next,
+                "to_next": max(0, xp_to_next - xp),
+            }
+        )
+    return out
+
+
+def _level_progress_payload(character: Character) -> dict[str, int]:
+    level = _clamp(as_int(character.level, 1), 1, LEVEL_CAP)
+    xp_total = max(0, as_int(character.xp_total, 0))
+    if level >= LEVEL_CAP:
+        next_level_total = xp_total
+    else:
+        next_level_total = _xp_total_for_level(level + 1)
+    return {
+        "xp_total": xp_total,
+        "next_level_total": next_level_total,
+        "to_next_level": max(0, next_level_total - xp_total),
+    }
+
+
 def _character_xp_gain_from_check(result: dict) -> int:
     return _skill_xp_gain(result)
 
@@ -3362,6 +3437,7 @@ async def build_state(db: AsyncSession, sess: Session) -> dict:
         q = await db.execute(select(Player).where(Player.id.in_(player_ids)))
         players_by_id = {p.id: p for p in q.scalars().all()}
     chars_by_player_id: dict[uuid.UUID, Character] = {}
+    skills_by_character_id: dict[uuid.UUID, list[Skill]] = {}
     if player_ids:
         q_chars = await db.execute(
             select(Character).where(
@@ -3369,8 +3445,14 @@ async def build_state(db: AsyncSession, sess: Session) -> dict:
                 Character.player_id.in_(player_ids),
             )
         )
-        for ch in q_chars.scalars().all():
+        chars = q_chars.scalars().all()
+        for ch in chars:
             chars_by_player_id[ch.player_id] = ch
+        char_ids = [ch.id for ch in chars]
+        if char_ids:
+            q_skills = await db.execute(select(Skill).where(Skill.character_id.in_(char_ids)))
+            for skill in q_skills.scalars().all():
+                skills_by_character_id.setdefault(skill.character_id, []).append(skill)
 
     # ---------------------------------------
     q2 = await db.execute(
@@ -3425,6 +3507,11 @@ async def build_state(db: AsyncSession, sess: Session) -> dict:
     players_payload = []
     for sp in all_sps:
         pl = players_by_id.get(sp.player_id)
+        char = chars_by_player_id.get(sp.player_id)
+        char_payload = _char_to_payload(char)
+        if char and char_payload is not None:
+            char_payload["level_progress"] = _level_progress_payload(char)
+            char_payload["skills"] = _skills_payload_for_character(char, skills_by_character_id.get(char.id, []))
         players_payload.append(
             {
                 "id": str(sp.player_id),
@@ -3437,8 +3524,8 @@ async def build_state(db: AsyncSession, sess: Session) -> dict:
                 "is_ready": bool(ready_map.get(str(sp.player_id), False)) if sp.is_active is not False else False,
                 "initiative": init_map.get(str(sp.player_id)) if sp.is_active is not False else None,
                 "last_seen": last_seen_map.get(str(sp.player_id)),
-                "char": _char_to_payload(chars_by_player_id.get(sp.player_id)),
-                "has_character": chars_by_player_id.get(sp.player_id) is not None,
+                "char": char_payload,
+                "has_character": char is not None,
                 "zone": positions.get(str(sp.player_id), "стартовая локация"),
             }
         )

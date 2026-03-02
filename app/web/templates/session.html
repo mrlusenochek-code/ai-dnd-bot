@@ -564,11 +564,27 @@ function openCharacterModal(){
     `Воля: ${prettyStatValue(ch, ["wil", "wis"])}`,
     `Харизма: ${prettyStatValue(ch, ["cha"])}`
   ];
-  const skillsText = "— (в разработке)";
+  const levelProgress = ch.level_progress || {};
+  const xpTotal = Number.isFinite(Number(levelProgress.xp_total)) ? Number(levelProgress.xp_total) : Number(ch.xp_total || 0);
+  const nextLevelTotal = Number.isFinite(Number(levelProgress.next_level_total)) ? Number(levelProgress.next_level_total) : xpTotal;
+  const toNextLevel = Number.isFinite(Number(levelProgress.to_next_level)) ? Number(levelProgress.to_next_level) : Math.max(0, nextLevelTotal - xpTotal);
+  const skills = Array.isArray(ch.skills) ? ch.skills : [];
+  const skillsText = skills.length > 0
+    ? skills.map((sk) => {
+        const key = String(sk && sk.key ? sk.key : "skill").trim();
+        const skillName = String(sk && sk.name ? sk.name : key.replaceAll("_", " ")).trim() || key;
+        const rank = Number.isFinite(Number(sk && sk.rank)) ? Number(sk.rank) : 0;
+        const xp = Number.isFinite(Number(sk && sk.xp)) ? Number(sk.xp) : 0;
+        const xpToNext = Number.isFinite(Number(sk && sk.xp_to_next)) ? Number(sk.xp_to_next) : 0;
+        const toNext = Number.isFinite(Number(sk && sk.to_next)) ? Number(sk.to_next) : Math.max(0, xpToNext - xp);
+        return `${skillName} (rank ${rank}, XP ${xp}/${xpToNext}, до след. ${toNext})`;
+      }).join("; ")
+    : "Нет прокачанных навыков";
   const details = [];
   details.push(`<div class="char-line"><strong>Имя:</strong> ${escapeHtml(ch.name || "—")}</div>`);
   details.push(`<div class="char-line"><strong>Класс:</strong> ${escapeHtml(klass)}</div>`);
   details.push(`<div class="char-line"><strong>Уровень:</strong> ${escapeHtml(String(ch.level ?? "—"))}</div>`);
+  details.push(`<div class="char-line"><strong>Прогресс уровня:</strong> XP ${escapeHtml(String(xpTotal))}/${escapeHtml(String(nextLevelTotal))}, до след. ${escapeHtml(String(toNextLevel))}</div>`);
   if(String(ch.gender || "").trim()){
     details.push(`<div class="char-line"><strong>Пол:</strong> ${escapeHtml(ch.gender)}</div>`);
   }
@@ -605,6 +621,7 @@ function openCharacterModal(){
   }
   copyLines.push(`Зона: ${zone}`);
   copyLines.push(`HP/STA: ${String(ch.hp ?? "—")}/${String(ch.hp_max ?? "—")} | ${String(ch.sta ?? "—")}/${String(ch.sta_max ?? "—")}`);
+  copyLines.push(`Прогресс уровня: XP ${xpTotal}/${nextLevelTotal}, до след. ${toNextLevel}`);
   copyLines.push(`Инвентарь: ${getInventoryText(ch.inventory)}`);
   copyLines.push(`Атрибуты: ${statsText.join(", ")}`);
   copyLines.push(`Навыки: ${skillsText}`);
