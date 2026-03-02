@@ -3,6 +3,7 @@
 Веб-движок DnD-подобной игры на FastAPI + WebSocket + Postgres: нарративный чат + структурный бой.
 
 ## Документация (с чего начать)
+- Документация: [docs/README.md](docs/README.md)
 - Контекст проекта: [docs/PROJECT_CONTEXT.md](docs/PROJECT_CONTEXT.md)
 - Обзор архитектуры / риски: [docs/CODE_REVIEW.md](docs/CODE_REVIEW.md)
 - Карта боёвки: [docs/COMBAT_MAP.md](docs/COMBAT_MAP.md)
