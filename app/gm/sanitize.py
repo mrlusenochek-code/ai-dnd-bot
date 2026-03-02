@@ -17,6 +17,17 @@ GM_META_BANNED_PHRASES = (
     "дальнейшее развитие сюжета",
 )
 
+META_BLOCK_START_RE = re.compile(
+    r"^\s*[\"'«»“”„]?\s*(?:"
+    r"мы\s+продолжаем\s+действие"
+    r"|в\s+этом\s+случае\s+последним\s+действием\s+игрока\s+было"
+    r"|теперь\s+ответ\s+мастера\s+будет"
+    r")\b",
+    flags=re.IGNORECASE,
+)
+
+EMPTY_BRACKETS_LINE_RE = re.compile(r"^\s*[\[\]{}()\"'«»“”„,.;:!?-]*\[\s*\][\[\]{}()\"'«»“”„,.;:!?-]*\s*$")
+
 
 def _strip_machine_lines(text: str) -> str:
     out: list[str] = []
@@ -125,6 +136,31 @@ def _enforce_ty_singular_fixes(text: str) -> str:
     return txt
 
 
+def _drop_meta_blocks_and_empty_brackets(text: str) -> str:
+    lines = str(text or "").splitlines()
+    out: list[str] = []
+    i = 0
+    while i < len(lines):
+        line = lines[i]
+        if META_BLOCK_START_RE.match(line):
+            i += 1
+            skipped_tail = 0
+            while i < len(lines) and skipped_tail < 3:
+                nxt = lines[i]
+                if not nxt.strip() or EMPTY_BRACKETS_LINE_RE.match(nxt):
+                    i += 1
+                    skipped_tail += 1
+                    continue
+                break
+            continue
+        if EMPTY_BRACKETS_LINE_RE.match(line):
+            i += 1
+            continue
+        out.append(line)
+        i += 1
+    return "\n".join(out)
+
+
 def sanitize_gm_output(text: str) -> str:
     max_len_without_question = 1800
     long_repeat_line_min_len = 80
@@ -161,6 +197,7 @@ def sanitize_gm_output(text: str) -> str:
             else:
                 lines.pop(first_nonempty_idx)
     txt = "\n".join(lines)
+    txt = _drop_meta_blocks_and_empty_brackets(txt)
     txt = re.sub(r"(?<=[А-Яа-яЁё])[A-Za-z]+|[A-Za-z]+(?=[А-Яа-яЁё])", "", txt)
     leaked_word_map = {
         "moment": "момент",

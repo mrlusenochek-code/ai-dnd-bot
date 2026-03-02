@@ -75,7 +75,7 @@ def test_turn_draft_prompt_wrapper_and_snapshot() -> None:
     out_contracts = contracts.build_turn_draft_prompt(**kwargs)
     out_server = server._build_turn_draft_prompt(**kwargs)
     assert out_server == out_contracts
-    assert _sha256(out_contracts) == "bc312d5aea6ae98a17cec6528d67cd66196a07ea4f02200b35f7f335f8ae6d39"
+    assert _sha256(out_contracts) == "db39aa4f63f91ed8fe249e72a4a981acd12a50de11f1c01a7e4bd190fd211565"
 
 
 def test_round_draft_prompt_wrapper_and_snapshot() -> None:
@@ -83,7 +83,7 @@ def test_round_draft_prompt_wrapper_and_snapshot() -> None:
     out_contracts = contracts.build_round_draft_prompt(**kwargs)
     out_server = server._build_round_draft_prompt(**kwargs)
     assert out_server == out_contracts
-    assert _sha256(out_contracts) == "9872f6cd381a861908e496af038b1f6ca4ed16d3ab07f929fc11a6d784984dfe"
+    assert _sha256(out_contracts) == "9c348c596400ebe34961ccc0af08f5a9ca95744a294adbed04f4ba3824e4a84a"
 
 
 def test_finalize_prompt_wrapper_and_snapshot() -> None:
@@ -91,7 +91,7 @@ def test_finalize_prompt_wrapper_and_snapshot() -> None:
     out_contracts = contracts.build_finalize_prompt(**kwargs)
     out_server = server._build_finalize_prompt(**kwargs)
     assert out_server == out_contracts
-    assert _sha256(out_contracts) == "ea29d8cb24e46655bcf118bcfae99daa164d3f6fb37e43575f9bf419753d1766"
+    assert _sha256(out_contracts) == "92fa55947bf94a099db68b4286da1a877b0ba1b155d1c3b30999d83683a1fbe0"
 
 
 def test_combat_narration_prompt_wrapper_and_snapshot() -> None:

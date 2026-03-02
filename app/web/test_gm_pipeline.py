@@ -26,9 +26,9 @@ def test_sanitize_gm_output_removes_meta_and_normalizes_question():
     assert out.endswith("Что делаете дальше?")
 
 
-def test_sanitize_gm_output_empty_brackets_current_fallback_behavior():
+def test_sanitize_gm_output_empty_brackets_returns_scene_fallback():
     out = server._sanitize_gm_output("[]")
-    assert out == "[]"
+    assert out == "Сцена продолжается.\nЧто делаете дальше?"
 
 
 def test_sanitize_combat_narration_strips_mechanics_and_enforces_question():
