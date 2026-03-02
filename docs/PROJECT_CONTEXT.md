@@ -54,4 +54,4 @@
 
 ## Дополнительно
 Подробный архитектурный обзор, риски и рекомендации:
-- [CODE_REVIEW.md](/home/lus/code/ai-dnd-bot/docs/CODE_REVIEW.md)
+- [CODE_REVIEW.md](./CODE_REVIEW.md)
