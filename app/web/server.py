@@ -54,6 +54,7 @@ from app.web.machine_lines import (
     _split_machine_args,
     _strip_machine_lines,
 )
+from app.web.utils import as_int, _clamp, _short_text, _slugify_inventory_id
 from app.web.regexes import (
     CHAT_COMBAT_ACTION_PATTERNS,
     COMBAT_MECHANICS_EVENT_RE,
@@ -611,13 +612,6 @@ def _maybe_restore_combat_state(sess: Session, session_id: str) -> None:
     restore_combat_state(session_id, payload)
 
 
-def as_int(s: Any, default: int = 0) -> int:
-    try:
-        return int(s)
-    except Exception:
-        return default
-
-
 def _looks_like_refusal(text: str) -> bool:
     t = str(text or "").strip().lower()
     if not t:
@@ -824,10 +818,6 @@ async def list_session_players(db: AsyncSession, sess: Session, active_only: boo
         .order_by(SessionPlayer.join_order.asc())
     )
     return q.scalars().all()
-
-
-def _clamp(n: int, low: int, high: int) -> int:
-    return max(low, min(high, n))
 
 
 def _normalized_stats(stats_raw: Any) -> dict[str, int]:
@@ -1173,15 +1163,6 @@ def _gender_pronoun_rule_line(g: str) -> str:
     if not pronouns:
         return "pronouns=unknown (пиши во 2 лице: ты/вы, избегай он/она)"
     return f"pronouns={pronouns} (строго, не путай)"
-
-
-def _slugify_inventory_id(raw: Any, fallback_name: str, index: int) -> str:
-    src = str(raw or fallback_name or "").strip().lower()
-    src = re.sub(r"[^a-z0-9]+", "-", src)
-    src = src.strip("-")
-    if src:
-        return src[:40]
-    return f"item-{max(1, index)}"
 
 
 def _normalize_inventory_def(raw_def: Any) -> Optional[str]:
@@ -1834,13 +1815,6 @@ async def _build_combat_scene_facts_for_llm(
         facts_lines.append(f"- Недавняя сцена: {_short_text(' / '.join(tail), 240)}")
     limit = max(1, int(max_lines))
     return "\n".join(facts_lines[:limit])
-
-
-def _short_text(text: str, limit: int) -> str:
-    txt = str(text or "").strip()
-    if len(txt) <= limit:
-        return txt
-    return txt[:limit].rstrip() + "..."
 
 
 def _sanitize_gm_output(text: str) -> str:
