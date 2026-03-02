@@ -32,7 +32,14 @@ from app.core.logging import configure_logging
 from app.core.log_context import request_id_var, session_id_var, uid_var, ws_conn_id_var, client_id_var
 from app.db.connection import AsyncSessionLocal
 from app.db.models import Session, Player, SessionPlayer, Character, Skill, Event
-from app.gm import checks as gm_checks, contracts as gm_contracts, narration, sanitize as gm_sanitize, service as gm_service
+from app.gm import (
+    checks as gm_checks,
+    combat_narration as gm_combat_narration,
+    contracts as gm_contracts,
+    narration,
+    sanitize as gm_sanitize,
+    service as gm_service,
+)
 from app.rules.derived_stats import compute_ac
 from app.rules.encounters import pick_encounter
 from app.rules.enemy_catalog_data import get_enemy
@@ -87,19 +94,7 @@ CHAT_COMBAT_ACTION_PATTERNS: list[tuple[str, re.Pattern[str]]] = [
     ("combat_use_object", re.compile(r"(использую|применяю|активирую|включаю|поджигаю|зажигаю|пью|выпиваю|нажимаю|достаю|зелье|флакон|свиток|факел|рычаг|кнопк)", re.IGNORECASE)),
     ("combat_end_turn", re.compile(r"(конец хода|заканчиваю ход|передаю ход|пас|пропускаю ход|жду|ничего не делаю)", re.IGNORECASE)),
 ]
-COMBAT_NARRATION_BANNED_RE = gm_sanitize.COMBAT_NARRATION_BANNED_RE
-COMBAT_DRIFT_MARKERS = (
-    "старик",
-    "стражник",
-    "стражники",
-    "стена",
-    "толпа",
-    "рынок",
-    "таверна",
-    "лес",
-    "лавка",
-    "магазин",
-)
+COMBAT_DRIFT_MARKERS = gm_combat_narration.COMBAT_DRIFT_MARKERS
 START_INTENT_SANITARY_MARKERS = (
     "шлем",
     "латы",
@@ -988,107 +983,7 @@ def _looks_like_combat_drift(text: str) -> bool:
 
 
 def _combat_narration_fact_coverage(text: str, facts: list[str]) -> int:
-    low = str(text or "").lower().replace("ё", "е")
-    if not low or not facts:
-        return 0
-
-    key_tokens = (
-        "попадает",
-        "промахивается",
-        "ранен",
-        "сильно",
-        "едва",
-        "вырывается",
-        "срывается",
-        "помогает",
-        "отступает",
-        "ускоряется",
-        "защиту",
-    )
-
-    def _stem(token: str) -> str:
-        t = str(token or "").lower().replace("ё", "е").strip()
-        if len(t) >= 5:
-            return t[:5]
-        if len(t) >= 4:
-            return t[:4]
-        return t
-
-    def _has_token(token: str, *, haystack: str) -> bool:
-        st = _stem(token)
-        if not st:
-            return False
-        # Prefix match with word boundary: "попад*" matches "попадает/попадаешь/попаданием"
-        return re.search(rf"\b{re.escape(st)}\w*\b", haystack, flags=re.IGNORECASE) is not None
-
-    coverage = 0
-    for fact in facts:
-        fact_low = str(fact or "").lower().replace("ё", "е")
-        fact_tokens = re.findall(r"[а-яёa-z0-9]{3,}", fact_low)
-        if not fact_tokens:
-            continue
-
-        anchor_name = fact_tokens[0]
-
-        key = ""
-        for token in key_tokens:
-            if _has_token(token, haystack=fact_low):
-                key = token
-                break
-
-        has_name_and_key = bool(key and _has_token(anchor_name, haystack=low) and _has_token(key, haystack=low))
-
-        matched_tokens = sum(
-            1
-            for token in set(fact_tokens)
-            if _has_token(token, haystack=low)
-        )
-
-        if has_name_and_key or matched_tokens >= 2:
-            coverage += 1
-
-    return coverage
-    low = str(text or "").lower().replace("ё", "е")
-    if not low or not facts:
-        return 0
-    key_tokens = (
-        "попадает",
-        "промахивается",
-        "ранен",
-        "сильно",
-        "едва",
-        "вырывается",
-        "срывается",
-        "помогает",
-        "отступает",
-        "ускоряется",
-        "защиту",
-    )
-    coverage = 0
-    for fact in facts:
-        fact_low = str(fact or "").lower().replace("ё", "е")
-        fact_tokens = re.findall(r"[а-яёa-z0-9]{3,}", fact_low)
-        if not fact_tokens:
-            continue
-        anchor_name = fact_tokens[0]
-        key = ""
-        for token in key_tokens:
-            if re.search(rf"\b{re.escape(token)}\b", fact_low, flags=re.IGNORECASE):
-                key = token
-                break
-        has_name_and_key = bool(
-            key
-            and re.search(rf"\b{re.escape(anchor_name)}\b", low, flags=re.IGNORECASE)
-            and re.search(rf"\b{re.escape(key)}\b", low, flags=re.IGNORECASE)
-        )
-        matched_tokens = sum(
-            1
-            for token in set(fact_tokens)
-            if re.search(rf"\b{re.escape(token)}\b", low, flags=re.IGNORECASE)
-        )
-        if has_name_and_key or matched_tokens >= 2:
-            coverage += 1
-    return coverage
+    return gm_combat_narration._combat_narration_fact_coverage(text, facts)
 
 
 def _has_start_intent_sanitary_markers(text: str) -> bool:
@@ -2300,7 +2195,7 @@ def _hit_force_label(total_damage: int) -> str:
 def _de_numberize_text(text: str) -> str:
     txt = str(text or "")
     txt = re.sub(r"\d+", "", txt)
-    txt = COMBAT_NARRATION_BANNED_RE.sub("", txt)
+    txt = gm_sanitize.COMBAT_NARRATION_BANNED_RE.sub("", txt)
     txt = re.sub(r"\s{2,}", " ", txt)
     txt = re.sub(r"\s+([,.;:!?])", r"\1", txt)
     return txt.strip()
@@ -2625,7 +2520,7 @@ def _build_combat_narration_prompt(
     actor_gender: str,
     actor_pronouns: str,
 ) -> str:
-    return gm_contracts.build_combat_narration_prompt(
+    return gm_combat_narration.build_combat_narration_prompt(
         campaign_title=campaign_title,
         outcome_summary=outcome_summary,
         current_turn=current_turn,
@@ -2637,56 +2532,15 @@ def _build_combat_narration_prompt(
 
 
 def _sanitize_combat_narration(text: str) -> str:
-    return gm_sanitize.sanitize_combat_narration(text)
+    return gm_combat_narration.sanitize_combat_narration(text)
 
 
 def _combat_safe_fallback(player_action: str, outcome_summary: list[str]) -> str:
-    summary_line = ""
-    for item in outcome_summary:
-        candidate = _de_numberize_text(item)
-        if candidate:
-            summary_line = candidate.rstrip(".!?") + "."
-            break
-    if not summary_line:
-        summary_line = "Схватка продолжается в тесном контакте."
-
-    if player_action == "combat_attack":
-        action_line = "Ты проводишь атаку в гуще боя, и исход удара сразу меняет темп схватки."
-    else:
-        action_line = "Твой боевой манёвр сразу влияет на ход столкновения."
-
-    return (
-        f"{action_line}\n"
-        f"{summary_line}\n"
-        "Противники отвечают мгновенно, и бой не даёт передышки.\n"
-        "Что делаете дальше?"
-    )
+    return gm_combat_narration._combat_safe_fallback(player_action, outcome_summary)
 
 
 def _combat_narration_mentions_action(text: str, action: str) -> bool:
-    lowered = str(text or "").lower().replace("ё", "е")
-    if action == "combat_attack":
-        return bool(re.search(r"(атак|напад|удар|выпад|тыч|пыр|замах|мета|швыр|стрел|лук|арбалет|попад|промах|крит)", lowered))
-    if action == "combat_dodge":
-        return bool(re.search(r"(уклон|уворот|уворач|защит|оборон|блок|щит|стойк)", lowered))
-    if action == "combat_help":
-        return bool(re.search(r"(помо|поддерж|страх|отвлек|координ|преимуще|открываю окно|прикр)", lowered))
-    if action == "combat_dash":
-        return bool(re.search(r"(рывок|рван|спринт|бросок|ринул|стремглав|сокращаю дистанц)", lowered))
-    if action == "combat_disengage":
-        return bool(re.search(r"(отход|отступ|разрыв дистанц|разрыва|разорва|выхожу из боя|отпрыг|отскоч)", lowered))
-    if action == "combat_escape":
-        return bool(
-            re.search(
-                r"(убеж|сбеж|беж|удир|драп|ретир|побег|спас|убег|сбег|свал|бегу\s+прочь|уход\s+из\s+боя|выхожу\s+из\s+боя|выйт[ьи]\s+из\s+боя|выйду\s+из\s+боя|выйти\s+с\s+поля\s+боя|с\s+поля\s+боя|поле\s+боя|разрыв дистанц)",
-                lowered,
-            )
-        )
-    if action == "combat_use_object":
-        return bool(re.search(r"(предмет|флакон|зелье|свиток|факел|рычаг|кнопк|устройств|активир|включа|поджига|зажига)", lowered))
-    if action == "combat_end_turn":
-        return bool(re.search(r"(переда(ет|ете) ход|инициатив|пас|пропускаю ход|жду|ничего не делаю)", lowered))
-    return True
+    return gm_combat_narration._combat_narration_mentions_action(text, action)
 
 
 def _combat_participant_line(actor: Any) -> str:
@@ -2739,33 +2593,18 @@ async def _generate_combat_narration(
     actor_gender: str,
     actor_pronouns: str,
 ) -> str:
-    prompt = _build_combat_narration_prompt(
+    return await gm_combat_narration.generate_combat_narration(
         campaign_title=campaign_title,
         outcome_summary=outcome_summary,
+        player_action=player_action,
         current_turn=current_turn,
         participants_block=participants_block,
         actor_name=actor_name,
         actor_gender=actor_gender,
         actor_pronouns=actor_pronouns,
-    )
-    resp = await generate_from_prompt(
-        prompt=prompt,
         timeout_seconds=GM_OLLAMA_TIMEOUT_SECONDS,
         num_predict=max(240, GM_FINAL_NUM_PREDICT // 3),
     )
-    text = _sanitize_combat_narration(str(resp.get("text") or "").strip())
-    if (
-        _looks_like_refusal(text)
-        or not text
-        or _looks_like_combat_drift(text)
-        or any(marker in text.lower().replace("ё", "е") for marker in COMBAT_DRIFT_MARKERS)
-    ):
-        return _combat_safe_fallback(player_action, outcome_summary)
-    if not _combat_narration_mentions_action(text, player_action):
-        repaired = _sanitize_combat_narration(f"{_combat_safe_fallback(player_action, outcome_summary)}\n{text}")
-        if repaired:
-            return repaired
-    return text
 
 
 async def _load_actor_context(
@@ -5836,115 +5675,22 @@ async def ws_room(ws: WebSocket, session_id: str):
                             )
                             if not str(scene_facts_block or "").strip():
                                 scene_facts_block = "- Зона игрока: место рядом с тобой\n- Окружение: место рядом с тобой."
-                            prompt = (
-                                f"{_COMBAT_LOCK_PROMPT}\n\n"
-                                "Сейчас идёт бой. Напиши КРАСИВОЕ подробное описание этого обмена ударами по фактам ниже.\n"
-                                "Правила (строго):\n"
-                                "- НЕЛЬЗЯ: числа, кубики, броски, урон, HP, AC, раунды, 'ход', формулы.\n"
-                                "- НЕЛЬЗЯ уводить сцену в другую локацию, мирные сцены, расследование, разговоры с третьими лицами.\n"
-                                "- Описывай ТОЛЬКО бой здесь и сейчас.\n"
-                                f"- Обязательно встроить в повествование (не списком) минимум {required_fact_count} разных пункта из блока 'Факты (без чисел)'.\n"
-                                "- Обязательно использовать минимум 1 деталь окружения из блока 'Факты сцены' (зона/окружение).\n"
-                                "- Если в 'Факты (без чисел)' есть состояние цели ('почти не ранен'/'ранен'/'сильно ранен'/'едва держится' или аналог), обязательно явно отрази это в описании.\n"
-                                "- Обязательная связка в тексте: действие игрока -> реакция врага -> исход -> текущее состояние/давление (без чисел).\n"
-                                "- НЕЛЬЗЯ добавлять новых NPC, случайных прохожих, толпу, новые предметы или новые сущности.\n"
-                                "- Предметы можно упоминать только если они есть в inventory facts.\n"
-                                "- Нельзя называть конкретные оружие/броню/экипировку, если этого нет в фактах сцены или в действии игрока; можно только нейтральные формулировки ('удар', 'выпад', 'замах', 'толчок', 'рывок').\n"
-                                "- Пиши во 2 лице: 'ты'. Реплики персонажа игрока НЕ писать.\n"
-                                "- Должно быть видно и твоё действие, и ответ врага (если он есть в фактах).\n"
-                                "- 10–14 предложений, 1–2 абзаца, кинематографично.\n"
-                                + ("- Заверши кратко финалом схватки без вопроса.\n" if ended else "- Заверши строкой: Что делаете дальше?\n")
-                                + f"\nФакты сцены (не выдумывать сверх этого):\n{scene_facts_block}\n"
-                                + f"\nПоследнее действие игрока: {_short_text(player_raw_action, 180)}\n"
-                                + "\nФакты (без чисел):\n- " + "\n- ".join(facts) + "\n"
-                                f"\nИмя героя (для ориентира): {player_name}\n"
-                            )
-                            resp = await generate_from_prompt(
-                                prompt=prompt,
+                            text = await gm_combat_narration.generate_combat_narration_from_facts(
+                                combat_lock_prompt=_COMBAT_LOCK_PROMPT,
+                                facts=facts,
+                                required_fact_count=required_fact_count,
+                                scene_facts_block=scene_facts_block,
+                                player_raw_action=_short_text(player_raw_action, 180),
+                                player_name=player_name,
+                                ended=ended,
                                 timeout_seconds=GM_OLLAMA_TIMEOUT_SECONDS,
                                 num_predict=GM_FINAL_NUM_PREDICT,
-                            )
-                            text = _sanitize_gm_output(_strip_machine_lines(str(resp.get("text") or "").strip()))
-                            text = re.sub(r"(?im)^\s*@@COMBAT_[A-Z_]+.*$", "", text).strip()
-                            has_mechanics = bool(
-                                re.search(r"(?:\d|\bd20\b|\bhp\b|\bac\b|урон|бросок)", text, flags=re.IGNORECASE)
-                            )
-                            has_forbidden_gear = _combat_text_mentions_forbidden_gear(
-                                text,
-                                action_text=player_raw_action,
-                                facts_block=scene_facts_block,
-                            )
-                            coverage = _combat_narration_fact_coverage(text, facts)
-                            has_low_fact_coverage = coverage < required_fact_count
-                            zone_low = (scene_facts_block or "").lower().replace("ё", "е")
-                            text_low = (text or "").lower().replace("ё", "е")
-                            drift = _looks_like_combat_drift(text)
-                            if drift:
-                                for stem in ("таверн", "рынок", "магазин", "лавк", "лес"):
-                                    if stem in zone_low and stem in text_low:
-                                        drift = False
-                                        break
-                            if text and (
-                                has_mechanics
-                                or drift
-                                or has_forbidden_gear
-                                or has_low_fact_coverage
-                            ):
-                                reprompt = (
-                                    f"{_COMBAT_LOCK_PROMPT}\n\n"
-                                    "Перепиши строго без механики и без чисел. "
-                                    "Никаких бросков, HP, AC, урона, формул или раундов. "
-                                    "Никакого ухода сцены из текущего боя. "
-                                    f"Обязательно встроить в повествование (не списком) минимум {required_fact_count} разных пункта из блока 'Факты (без чисел)'. "
-                                    f"Твой текст обязан отразить {required_fact_count} факта(ов) из блока фактов; сейчас отражено: {coverage}. "
-                                    "Обязательно использовать минимум 1 деталь окружения из блока 'Факты сцены' (зона/окружение). "
-                                    "Если в фактах есть состояние цели ('почти не ранен'/'ранен'/'сильно ранен'/'едва держится' или аналог), обязательно явно отрази это в описании. "
-                                    "Соблюдай связку: действие игрока -> реакция врага -> исход -> текущее состояние/давление (без чисел). "
-                                    "Нельзя добавлять новых NPC, случайных прохожих, толпу, новые предметы или новые сущности. "
-                                    "Нельзя называть конкретные оружие/броню/экипировку, если этого нет в фактах сцены или в действии игрока; можно только нейтральные формулировки ('удар', 'выпад', 'замах', 'толчок', 'рывок').\n\n"
-                                    f"Факты сцены (не выдумывать сверх этого):\n{scene_facts_block}\n\n"
-                                    f"Последнее действие игрока: {_short_text(player_raw_action, 180)}\n\n"
-                                    "Факты (без чисел):\n- "
-                                    + "\n- ".join(facts)
-                                    + "\n\n"
-                                    "Текущий текст:\n"
-                                    f"{text}"
-                                )
-                                reprompt_resp = await generate_from_prompt(
-                                    prompt=reprompt,
-                                    timeout_seconds=GM_OLLAMA_TIMEOUT_SECONDS,
-                                    num_predict=GM_FINAL_NUM_PREDICT,
-                                )
-                                text = _sanitize_gm_output(_strip_machine_lines(str(reprompt_resp.get("text") or "").strip()))
-                                text = re.sub(r"(?im)^\s*@@COMBAT_[A-Z_]+.*$", "", text).strip()
-                                has_mechanics = bool(
-                                    re.search(r"(?:\d|\bd20\b|\bhp\b|\bac\b|урон|бросок)", text, flags=re.IGNORECASE)
-                                )
-                                has_forbidden_gear = _combat_text_mentions_forbidden_gear(
-                                    text,
+                                mentions_forbidden_gear_fn=lambda candidate_text: _combat_text_mentions_forbidden_gear(
+                                    candidate_text,
                                     action_text=player_raw_action,
                                     facts_block=scene_facts_block,
-                                )
-                                zone_low = (scene_facts_block or "").lower().replace("ё", "е")
-                                text_low = (text or "").lower().replace("ё", "е")
-                                drift = _looks_like_combat_drift(text)
-                                if drift:
-                                    for stem in ("таверн", "рынок", "магазин", "лавк", "лес"):
-                                        if stem in zone_low and stem in text_low:
-                                            drift = False
-                                            break
-                                if not text or has_mechanics or drift or has_forbidden_gear:
-                                    text = (
-                                        "Схватка вспыхивает снова: ты давишь на противника, он отвечает резким выпадом."
-                                    )
-                                    if not ended:
-                                        text += " Что делаете дальше?"
-                            if ended:
-                                text = re.sub(r"(?:\s*[\r\n]+)?\s*Что\s+делаете\s+дальше\??\s*$", "", text, flags=re.IGNORECASE).strip()
-                                if not text:
-                                    text = "Схватка обрывается в последний резкий обмен, и бой затихает в этом же месте."
-                            elif text and not re.search(r"Что\s+делаете\s+дальше\??\s*$", text, flags=re.IGNORECASE):
-                                text = text.rstrip(".!? \n") + "\nЧто делаете дальше?"
+                                ),
+                            )
                             if text:
                                 await add_system_event(
                                     db,
