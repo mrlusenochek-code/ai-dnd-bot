@@ -393,6 +393,37 @@ function setNameLocal(newName){
 function escapeHtml(s){
   return (s||"").replaceAll("&","&amp;").replaceAll("<","&lt;").replaceAll(">","&gt;");
 }
+const SKILL_NAME_RU = {
+  stealth: "Скрытность",
+  crafting: "Ремесло",
+  perception: "Внимательность",
+  persuasion: "Убеждение",
+  trickery: "Хитрость",
+  investigation: "Расследование",
+  endurance: "Выносливость",
+  tracking: "Выслеживание",
+  arcana: "Магия",
+  focus: "Концентрация",
+  faith: "Вера",
+  medicine: "Медицина",
+  performance: "Выступление",
+  athletics: "Атлетика",
+  survival: "Выживание",
+  deception: "Обман",
+  intimidation: "Запугивание",
+  sleight_of_hand: "Ловкость рук",
+  marksmanship: "Меткость",
+  power_strike: "Сильный удар"
+};
+function getSkillNameRu(key){
+  const normalized = String(key || "").trim().toLowerCase();
+  if(SKILL_NAME_RU[normalized]){
+    return SKILL_NAME_RU[normalized];
+  }
+  const fallback = normalized.replaceAll("_", " ").trim();
+  if(!fallback) return "Skill";
+  return fallback.charAt(0).toUpperCase() + fallback.slice(1);
+}
 function prettyStatValue(ch, keys){
   const stats = (ch && typeof ch.stats === "object" && ch.stats) ? ch.stats : {};
   for(const key of keys){
@@ -569,17 +600,18 @@ function openCharacterModal(){
   const nextLevelTotal = Number.isFinite(Number(levelProgress.next_level_total)) ? Number(levelProgress.next_level_total) : xpTotal;
   const toNextLevel = Number.isFinite(Number(levelProgress.to_next_level)) ? Number(levelProgress.to_next_level) : Math.max(0, nextLevelTotal - xpTotal);
   const skills = Array.isArray(ch.skills) ? ch.skills : [];
-  const skillsText = skills.length > 0
-    ? skills.map((sk) => {
-        const key = String(sk && sk.key ? sk.key : "skill").trim();
-        const skillName = String(sk && sk.name ? sk.name : key.replaceAll("_", " ")).trim() || key;
-        const rank = Number.isFinite(Number(sk && sk.rank)) ? Number(sk.rank) : 0;
-        const xp = Number.isFinite(Number(sk && sk.xp)) ? Number(sk.xp) : 0;
-        const xpToNext = Number.isFinite(Number(sk && sk.xp_to_next)) ? Number(sk.xp_to_next) : 0;
-        const toNext = Number.isFinite(Number(sk && sk.to_next)) ? Number(sk.to_next) : Math.max(0, xpToNext - xp);
-        return `${skillName} (rank ${rank}, XP ${xp}/${xpToNext}, до след. ${toNext})`;
-      }).join("; ")
-    : "Нет прокачанных навыков";
+  const skillsLines = skills.map((sk) => {
+    const key = String(sk && sk.key ? sk.key : "skill").trim();
+    const skillName = getSkillNameRu(key);
+    const rank = Number.isFinite(Number(sk && sk.rank)) ? Number(sk.rank) : 0;
+    const xp = Number.isFinite(Number(sk && sk.xp)) ? Number(sk.xp) : 0;
+    const xpToNext = Number.isFinite(Number(sk && sk.xp_to_next)) ? Number(sk.xp_to_next) : 0;
+    const toNext = Number.isFinite(Number(sk && sk.to_next)) ? Number(sk.to_next) : Math.max(0, xpToNext - xp);
+    return `${skillName}: ${rank} ур. — ${xp}/${xpToNext} XP (до апа ${toNext})`;
+  });
+  const skillsHtml = skillsLines.length > 0
+    ? `<ul class='char-list'>${skillsLines.map((line) => `<li>${escapeHtml(line)}</li>`).join("")}</ul>`
+    : "—";
   const details = [];
   details.push(`<div class="char-line"><strong>Имя:</strong> ${escapeHtml(ch.name || "—")}</div>`);
   details.push(`<div class="char-line"><strong>Класс:</strong> ${escapeHtml(klass)}</div>`);
@@ -607,7 +639,7 @@ function openCharacterModal(){
     `<li>Харизма: ${escapeHtml(String(prettyStatValue(ch, ["cha"])))}</li>` +
     "</ul></div>"
   );
-  details.push(`<div class='char-line'><strong>Навыки:</strong> ${escapeHtml(skillsText)}</div>`);
+  details.push(`<div class='char-line'><strong>Навыки:</strong> ${skillsHtml}</div>`);
 
   const copyLines = [
     `Имя: ${String(ch.name || "—")}`,
@@ -624,7 +656,14 @@ function openCharacterModal(){
   copyLines.push(`Прогресс уровня: XP ${xpTotal}/${nextLevelTotal}, до след. ${toNextLevel}`);
   copyLines.push(`Инвентарь: ${getInventoryText(ch.inventory)}`);
   copyLines.push(`Атрибуты: ${statsText.join(", ")}`);
-  copyLines.push(`Навыки: ${skillsText}`);
+  if(skillsLines.length === 0){
+    copyLines.push("Навыки: —");
+  }else{
+    copyLines.push("Навыки:");
+    for(const line of skillsLines){
+      copyLines.push(` - ${line}`);
+    }
+  }
   charModalCopyText = copyLines.join("\n");
 
   const body = document.getElementById("charModalBody");
