@@ -15,3 +15,4 @@ def test_build_gm_input_contains_location_and_contract_markers():
     assert "ТЕКУЩАЯ ЛОКАЦИЯ" in txt
     assert "ДЕЙСТВИЕ ИГРОКА" in txt
     assert "ФОРМАТ ОТВЕТА" in txt
+    assert "MOVED: true" in txt

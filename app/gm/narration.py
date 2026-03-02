@@ -164,11 +164,12 @@ def apply_world_move_to_player_text(
 
 
 def build_gm_input_text(settings: dict[str, Any], session_id: str, player_text: str, *, moved: bool) -> str:
-    _ = moved
     loc = build_location_block(settings, session_id)
     contract = gm_output_contract()
+    moved_line = "true" if bool(moved) else "false"
     return (
         f"{contract}\n"
+        f"MOVED: {moved_line}\n"
         f"ТЕКУЩАЯ ЛОКАЦИЯ:\n{loc}\n\n"
         f"ДЕЙСТВИЕ ИГРОКА:\n{player_text}\n"
     )

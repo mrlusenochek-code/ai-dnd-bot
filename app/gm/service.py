@@ -92,6 +92,26 @@ ACTION_ANCHOR_STOPWORDS = {
     "своими",
     "чтобы",
 }
+MOVED_MARKER_RE = re.compile(r"(?im)^\s*MOVED:\s*(true|false)\s*$")
+SCENE_JUMP_PATTERNS: list[tuple[re.Pattern[str], str]] = [
+    (re.compile(r"\bты\s+оказываешься\b", re.IGNORECASE), "ты оказываешься"),
+    (re.compile(r"\bвы\s+оказываетесь\b", re.IGNORECASE), "вы оказываетесь"),
+    (re.compile(r"\bчерез\s+некоторое\s+время\s+ты\s+уже\b", re.IGNORECASE), "через некоторое время ты уже"),
+    (re.compile(r"\bвскоре\s+ты\s+уже\b", re.IGNORECASE), "вскоре ты уже"),
+    (re.compile(r"\bты\s+уже\s+выш[её]л\b", re.IGNORECASE), "ты уже вышел"),
+    (re.compile(r"\bты\s+стоишь\s+у\s+(?:[A-Za-zА-Яа-яЁё]+\s+){0,2}ворот\b", re.IGNORECASE), "ты стоишь у ворот"),
+    (re.compile(r"\bты\s+входишь\s+в\s+таверн\w*\b", re.IGNORECASE), "ты входишь в таверну"),
+    (re.compile(r"\bты\s+выходишь\s+из\s+таверн\w*\b", re.IGNORECASE), "ты выходишь из таверны"),
+]
+SCENE_ENV_KEYWORDS: dict[str, tuple[str, ...]] = {
+    "forest": ("лес", "чащ", "рощ"),
+    "dungeon": ("подземель", "катакомб", "крипт"),
+    "shore": ("берег", "побереж", "пристан"),
+    "gates": ("ворот",),
+    "tavern": ("таверн", "трактир"),
+    "square": ("площад",),
+    "city": ("город", "улиц", "квартал"),
+}
 
 
 def _common_prefix_len(a: str, b: str) -> int:
@@ -251,6 +271,65 @@ def _build_action_anchor_repair_prompt(*, final_text: str, player_action: str) -
     )
 
 
+def _extract_moved_flag_from_prompt(draft_prompt: str) -> Optional[bool]:
+    value: Optional[bool] = None
+    for m in MOVED_MARKER_RE.finditer(str(draft_prompt or "")):
+        token = str(m.group(1) or "").strip().lower()
+        if token == "true":
+            value = True
+        elif token == "false":
+            value = False
+    return value
+
+
+def _find_scene_env_mentions(text: str) -> set[str]:
+    lowered = str(text or "").lower()
+    found: set[str] = set()
+    for env_key, probes in SCENE_ENV_KEYWORDS.items():
+        if any(probe in lowered for probe in probes):
+            found.add(env_key)
+    return found
+
+
+def _find_scene_lock_violations(final_text: str, context_text: str, location_fallback: str | None) -> list[str]:
+    txt = str(final_text or "")
+    lowered = txt.lower()
+    ctx = str(context_text or "").lower()
+    loc = str(location_fallback or "").lower()
+    hits: list[str] = []
+
+    for pattern, label in SCENE_JUMP_PATTERNS:
+        if pattern.search(txt):
+            hits.append(label)
+
+    if re.search(r"\b(?:у|к)\s+ворот(?:ам)?\b", lowered) and ("ворот" not in ctx) and ("ворот" not in loc):
+        hits.append("ворота вне контекста")
+
+    current_envs = _find_scene_env_mentions(loc)
+    output_envs = _find_scene_env_mentions(lowered)
+    if current_envs and output_envs and current_envs.isdisjoint(output_envs):
+        hits.append("смена окружения вне контекста")
+
+    return sorted(set(hits))
+
+
+def _build_scene_lock_repair_prompt(*, final_text: str, scene_hits: list[str], location_fallback: str | None) -> str:
+    issues = ", ".join(scene_hits) if scene_hits else "(нет)"
+    current_loc = str(location_fallback or "").strip() or "(не указана)"
+    return (
+        "Перепиши текст мастера, НЕ меняя сцену и местоположение.\n"
+        "Оставайся в текущей локации из контекста.\n"
+        "Можно описывать только то, что видно/слышно рядом, и реакции NPC на действие игрока.\n"
+        "Без мета-комментариев.\n"
+        "Без реплик и мыслей за игрока.\n"
+        "Без новых имён и событий.\n"
+        "Заверши строкой: Что делаете дальше?\n\n"
+        f"Проблемные фразы: {issues}\n"
+        f"Текущая локация: {current_loc}\n\n"
+        f"Исходный текст:\n{final_text}"
+    )
+
+
 async def run_two_pass(
     db: Any,
     sess: Any,
@@ -301,6 +380,7 @@ async def run_two_pass(
     backref_guard_reprompt = False
     backref_guard_hits: list[str] = []
     action_anchor_reprompt = False
+    scene_lock_reprompt = False
     mandatory_cat = None if combat_active else gm_checks._mandatory_check_category(draft_text_raw)
     ctx_line = gm_checks._extract_last_context_line_from_prompt(draft_prompt)
     if not combat_active and mandatory_cat is None and ctx_line:
@@ -623,6 +703,27 @@ async def run_two_pass(
             if repaired:
                 final_text = repaired
 
+    moved_flag = _extract_moved_flag_from_prompt(draft_prompt)
+    if (not combat_active) and (moved_flag is False) and final_text:
+        context_text = f"{draft_prompt}\n{previous_gm_text}"
+        scene_hits = _find_scene_lock_violations(final_text, context_text, location_fallback)
+        if scene_hits:
+            scene_lock_reprompt = True
+            scene_repair_prompt = _build_scene_lock_repair_prompt(
+                final_text=final_text,
+                scene_hits=scene_hits,
+                location_fallback=location_fallback,
+            )
+            scene_repair_resp = await llm_generate(
+                prompt=scene_repair_prompt,
+                timeout_seconds=timeout_seconds,
+                num_predict=final_num_predict,
+            )
+            repaired = gm_sanitize.sanitize_gm_output(gm_sanitize._strip_machine_lines(str(scene_repair_resp.get("text") or "").strip()))
+            repaired = narration.sanitize_gm_output(repaired, location_fallback=location_fallback)
+            if repaired:
+                final_text = repaired
+
     if combat_active and looks_like_combat_drift_fn is not None and looks_like_combat_drift_fn(final_text):
         combat_lock_reprompt = True
         combat_repair_prompt = (
@@ -672,6 +773,7 @@ async def run_two_pass(
                     "fallback_backref_guard_reprompt": bool(backref_guard_reprompt),
                     "fallback_backref_guard_hits": backref_guard_hits,
                     "fallback_action_anchor_reprompt": bool(action_anchor_reprompt),
+                    "fallback_scene_lock_reprompt": bool(scene_lock_reprompt),
                     "llm_draft_finish_reason": draft_resp.get("finish_reason"),
                     "llm_draft_usage": draft_resp.get("usage"),
                     "llm_final_finish_reason": final_resp.get("finish_reason"),
