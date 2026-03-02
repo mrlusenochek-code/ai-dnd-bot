@@ -2959,6 +2959,61 @@ async def add_system_event(
     await add_event(db, sess, f"[SYSTEM] {text}", actor_player_id=None, parsed_json=parsed_json, result_json=result_json)
 
 
+def _gm_show_check_results_enabled() -> bool:
+    return str(os.getenv("GM_SHOW_CHECK_RESULTS", "0")).strip() == "1"
+
+
+def _format_check_result_line(result: dict[str, Any]) -> str:
+    actor_uid = as_int(result.get("actor_uid"), 0)
+    name = _normalize_check_name(result.get("name"))
+    if not name:
+        name = "check"
+    mod = as_int(result.get("mod"), 0)
+    total = as_int(result.get("total"), 0)
+    dc = max(0, as_int(result.get("dc"), 0))
+    mode = _normalize_check_mode(result.get("mode"))
+    roll = as_int(result.get("roll"), 0)
+    roll_a = as_int(result.get("roll_a"), 0)
+    roll_b = as_int(result.get("roll_b"), 0)
+    success = bool(result.get("success"))
+
+    actor_prefix = f"#{actor_uid} " if actor_uid > 0 else ""
+    if mode in {"advantage", "disadvantage"} and (roll_a > 0 or roll_b > 0):
+        roll_part = f"d20({roll_a},{roll_b})"
+    else:
+        roll_part = f"d20={roll}"
+    mod_part = f"+{mod}" if mod > 0 else str(mod)
+    dc_part = f" vs DC {dc}" if dc > 0 else ""
+    outcome = "успех" if success else "провал"
+    return f"🎲 {actor_prefix}{name}: {roll_part}, мод {mod_part}, итог {total}{dc_part} — {outcome}"
+
+
+def _build_check_results_system_text(check_results: list[dict[str, Any]]) -> str:
+    lines: list[str] = []
+    for result in check_results or []:
+        if isinstance(result, dict):
+            lines.append(_format_check_result_line(result))
+    if not lines:
+        return ""
+    if len(lines) == 1:
+        return lines[0]
+    return "🎲 Результаты проверок:\n" + "\n".join(lines)
+
+
+async def _emit_check_results_if_enabled(db: AsyncSession, sess: Session, check_results: list[dict[str, Any]]) -> None:
+    if not _gm_show_check_results_enabled():
+        return
+    text = _build_check_results_system_text(check_results)
+    if not text:
+        return
+    await add_system_event(
+        db,
+        sess,
+        text,
+        result_json={"type": "check_results", "check_results": check_results},
+    )
+
+
 def _get_ready_map(sess: Session) -> dict[str, bool]:
     return settings_get(sess, "ready", {}) or {}
 
@@ -4142,6 +4197,7 @@ async def _auto_gm_reply_task(session_id: str, expected_action_id: str) -> None:
                     )
                 elif not inv_commands and not zone_set_commands:
                     await add_system_event(db, sess, "🧙 GM: (модель отказала. Переформулируй действие проще, без жести и откровенных деталей.)")
+                await _emit_check_results_if_enabled(db, sess, _check_results)
 
                 nxt = await advance_turn(db, sess)
                 if nxt:
@@ -4417,6 +4473,7 @@ async def _auto_round_task(session_id: str, expected_action_id: str) -> None:
                             "zone_set_commands": zone_set_commands,
                         },
                     )
+                await _emit_check_results_if_enabled(db, sess, _check_results)
 
                 sps_active = await list_session_players(db, sess, active_only=True)
                 if _should_use_round_mode(sess, sps_active):

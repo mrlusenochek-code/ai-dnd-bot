@@ -27,6 +27,14 @@ META_BLOCK_START_RE = re.compile(
 )
 
 EMPTY_BRACKETS_LINE_RE = re.compile(r"^\s*[\[\]{}()\"'«»“”„,.;:!?-]*\[\s*\][\[\]{}()\"'«»“”„,.;:!?-]*\s*$")
+CHECK_GARBAGE_LINE_RE = re.compile(
+    r"^\s*(?:"
+    r"проверка[_\-\s]*навык\w*"
+    r"|(?:@|\.[@.\-])[A-Za-zА-Яа-яЁё0-9_@.\- ]{0,80}(?:проверк|dc|d20)[A-Za-zА-Яа-яЁё0-9_@.\- ]*"
+    r"|(?:@|\.[@.\-])[A-Za-zА-Яа-яЁё0-9_@.\- ]{1,120}"
+    r")\s*$",
+    flags=re.IGNORECASE,
+)
 
 
 def _strip_machine_lines(text: str) -> str:
@@ -213,6 +221,8 @@ def sanitize_gm_output(text: str) -> str:
     for line in txt.splitlines():
         ln = line.strip()
         if re.match(r"^(финальный|итоговый)\s+ответ\b[:\s-]*$", ln, flags=re.IGNORECASE):
+            continue
+        if CHECK_GARBAGE_LINE_RE.match(ln):
             continue
         cleaned_lines.append(line)
     txt = "\n".join(cleaned_lines)

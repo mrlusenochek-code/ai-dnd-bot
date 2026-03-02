@@ -9,6 +9,15 @@ TEXTUAL_CHECK_RE = re.compile(
     r"(?:проверка|check)\s*[:\-]?\s*([a-zA-Zа-яА-Я_]+)[^\n]{0,40}?\bdc\s*[:=]?\s*(\d+)",
     re.IGNORECASE,
 )
+CHECK_NOISE_RE = re.compile(
+    r"(?:"
+    r"\bпроверка[_\-\s]*навык\w*\b"
+    r"|(?:^|\n)\s*[@.\-]{1,}[^\n]{0,80}(?:проверк|dc|d20)[^\n]*$"
+    r"|\bпроверк\w*[^\n]{0,80}\b(?:dc|d20)\b"
+    r"|(?<![a-z0-9_])(?:dc|d20)(?![a-z0-9_])"
+    r")",
+    re.IGNORECASE | re.MULTILINE,
+)
 
 MANDATORY_ACTION_PATTERNS_BY_CATEGORY: list[tuple[str, list[str]]] = [
     (
@@ -411,7 +420,7 @@ def _extract_checks_from_draft(draft_text: str, default_actor_uid: Optional[int]
             payload["actor_uid"] = default_actor_uid
         checks.append(payload)
     text = "\n".join(text_lines).strip()
-    has_human_check_request = bool(TEXTUAL_CHECK_RE.search(text))
+    has_human_check_request = bool(TEXTUAL_CHECK_RE.search(text) or CHECK_NOISE_RE.search(text))
     return text, checks, has_human_check_request
 
 
