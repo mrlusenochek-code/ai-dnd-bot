@@ -81,7 +81,7 @@ def test_run_gm_two_pass_normal_flow_preserves_metadata_and_calls_sanitize(monke
         llm_calls.append({"prompt": prompt, "timeout_seconds": timeout_seconds, "num_predict": num_predict})
         if len(llm_calls) == 1:
             return {"text": "Черновик сцены.\nЧто делаете дальше?", "finish_reason": "stop", "usage": {"eval_count": 11}}
-        return {"text": "Финал сцены.\nЧто делаете дальше?", "finish_reason": "stop", "usage": {"eval_count": 22}}
+        return {"text": "Ты идешь вперед по коридору, и шаги гулко отражаются от камня.\nЧто делаете дальше?", "finish_reason": "stop", "usage": {"eval_count": 22}}
 
     sanitize_calls: list[dict[str, Any]] = []
 
@@ -115,7 +115,7 @@ def test_run_gm_two_pass_normal_flow_preserves_metadata_and_calls_sanitize(monke
     )
 
     assert len(llm_calls) == 2
-    assert final_text == "Финал сцены.\nЧто делаете дальше?"
+    assert final_text == "Ты идешь вперед по коридору, и шаги гулко отражаются от камня.\nЧто делаете дальше?"
     assert draft_meta.get("usage", {}).get("eval_count") == 11
     assert final_meta.get("usage", {}).get("eval_count") == 22
     assert draft_meta.get("finish_reason") == "stop"

@@ -56,6 +56,42 @@ BACKREF_TRIGGER_ANCHORS: list[tuple[re.Pattern[str], tuple[str, ...], str]] = [
         "ранее/до этого/в прошлый раз",
     ),
 ]
+PLAYER_ACTION_LINE_RE = re.compile(r"^\s*-\s*(?:игрок|player)\s*:\s*(.+?)\s*$", re.IGNORECASE)
+PLAYER_ACTION_INLINE_RE = re.compile(r"^\s*(?:игрок|player)\s*:\s*(.+?)\s*$", re.IGNORECASE)
+ACTION_ANCHOR_WORD_RE = re.compile(r"[A-Za-zА-Яа-яЁё]{4,}")
+ACTION_ANCHOR_STOPWORDS = {
+    "если",
+    "когда",
+    "потом",
+    "после",
+    "перед",
+    "снова",
+    "сейчас",
+    "просто",
+    "очень",
+    "чтобы",
+    "этого",
+    "этот",
+    "эта",
+    "эти",
+    "того",
+    "только",
+    "здесь",
+    "туда",
+    "сюда",
+    "почему",
+    "тогда",
+    "который",
+    "которая",
+    "которые",
+    "игрок",
+    "персонаж",
+    "действие",
+    "своего",
+    "своему",
+    "своими",
+    "чтобы",
+}
 
 
 def _common_prefix_len(a: str, b: str) -> int:
@@ -180,6 +216,41 @@ def _build_backref_repair_prompt(*, final_text: str, bad_refs: list[str], ctx_li
     )
 
 
+def _extract_last_player_action_from_prompt(draft_prompt: str) -> str:
+    out = ""
+    for raw_line in str(draft_prompt or "").splitlines():
+        line = raw_line.strip()
+        m = PLAYER_ACTION_LINE_RE.match(line) or PLAYER_ACTION_INLINE_RE.match(line)
+        if m:
+            out = str(m.group(1) or "").strip()
+    return out
+
+
+def _build_action_anchors(player_action: str, *, limit: int = 8) -> list[str]:
+    tokens: set[str] = set()
+    for raw in ACTION_ANCHOR_WORD_RE.findall(str(player_action or "").lower()):
+        token = raw.strip().lower()
+        if len(token) < 4:
+            continue
+        if token in ACTION_ANCHOR_STOPWORDS:
+            continue
+        tokens.add(token)
+    ranked = sorted(tokens, key=lambda x: (-len(x), x))
+    return ranked[:limit]
+
+
+def _build_action_anchor_repair_prompt(*, final_text: str, player_action: str) -> str:
+    return (
+        "Перепиши ответ мастера так, чтобы он прямо реагировал на действие игрока.\n"
+        f"Действие игрока: {player_action}\n"
+        "Не добавляй новых имён или событий.\n"
+        "Без мета-комментариев.\n"
+        "Без реплик и мыслей за игрока.\n"
+        "Сохрани сцену и завершай строкой: Что делаете дальше?\n\n"
+        f"Исходный текст:\n{final_text}"
+    )
+
+
 async def run_two_pass(
     db: Any,
     sess: Any,
@@ -224,12 +295,12 @@ async def run_two_pass(
     forced_reprompt = False
     cleaned_human_check = False
     fallback_autogen_check = False
-    fallback_coherence_reprompt = False
     combat_lock_reprompt = False
     entity_guard_reprompt = False
     entity_guard_unknown: list[str] = []
     backref_guard_reprompt = False
     backref_guard_hits: list[str] = []
+    action_anchor_reprompt = False
     mandatory_cat = None if combat_active else gm_checks._mandatory_check_category(draft_text_raw)
     ctx_line = gm_checks._extract_last_context_line_from_prompt(draft_prompt)
     if not combat_active and mandatory_cat is None and ctx_line:
@@ -532,72 +603,25 @@ async def run_two_pass(
             if repaired:
                 final_text = repaired
 
-    action_text = (ctx_line.split(":", 1)[1] if (ctx_line and ":" in ctx_line) else (ctx_line or "")).strip()
-    if (not combat_active) and action_text and final_text:
-        stopwords = {
-            "когда",
-            "потом",
-            "после",
-            "перед",
-            "снова",
-            "сейчас",
-            "просто",
-            "очень",
-            "чтобы",
-            "этого",
-            "этот",
-            "эта",
-            "эти",
-            "того",
-            "только",
-            "здесь",
-            "туда",
-            "сюда",
-            "если",
-            "лишь",
-            "тоже",
-            "меня",
-            "тебя",
-            "него",
-            "неё",
-            "ними",
-            "вами",
-            "нами",
-            "игрок",
-            "персонаж",
-            "действие",
-            "делаю",
-            "делает",
-        }
-        action_keywords = [w for w in re.findall(r"[а-яё]{4,}", action_text.lower()) if w not in stopwords]
-        if len(action_keywords) >= 2:
-            sampled_keywords = list(dict.fromkeys(action_keywords))[:6]
-            keywords_text = ", ".join(sampled_keywords)
-            final_text_lower = final_text.lower()
-            if not any(k in final_text_lower for k in action_keywords):
-                fallback_coherence_reprompt = True
-                repair_prompt = (
-                    "Перепиши ответ мастера так, чтобы он напрямую отреагировал на ПОСЛЕДНЕЕ действие игрока. "
-                    "Не меняй локацию/сцену по инерции.\n"
-                    "Строго опирайся на это последнее действие игрока (точная строка):\n"
-                    f"{action_text}\n\n"
-                    "Текущий ответ мастера:\n"
-                    f"{final_text}\n\n"
-                    "Запрещено уводить сцену в магазин/рынок/лавку или любую другую нерелевантную сцену, "
-                    "если этого нет в последнем действии игрока или в исходном черновике.\n"
-                    f"Обязательно упомяни в тексте минимум 2 из этих слов: {keywords_text}.\n"
-                    "Пиши во 2 лице (ты/вы), не используй 3 лицо с именем игрока.\n"
-                    "Строго русский язык.\n"
-                    "Заверши ответ строкой: Что делаете дальше?"
-                )
-                repair_resp = await llm_generate(
-                    prompt=repair_prompt,
-                    timeout_seconds=timeout_seconds,
-                    num_predict=final_num_predict,
-                )
-                repaired = gm_sanitize.sanitize_gm_output(gm_sanitize._strip_machine_lines(str(repair_resp.get("text") or "").strip()))
-                if repaired:
-                    final_text = repaired
+    player_action = _extract_last_player_action_from_prompt(draft_prompt)
+    action_anchors = _build_action_anchors(player_action)
+    if (not combat_active) and final_text and player_action and action_anchors:
+        final_text_lower = final_text.lower()
+        if not any(anchor in final_text_lower for anchor in action_anchors):
+            action_anchor_reprompt = True
+            repair_prompt = _build_action_anchor_repair_prompt(
+                final_text=final_text,
+                player_action=player_action,
+            )
+            repair_resp = await llm_generate(
+                prompt=repair_prompt,
+                timeout_seconds=timeout_seconds,
+                num_predict=final_num_predict,
+            )
+            repaired = gm_sanitize.sanitize_gm_output(gm_sanitize._strip_machine_lines(str(repair_resp.get("text") or "").strip()))
+            repaired = narration.sanitize_gm_output(repaired, location_fallback=location_fallback)
+            if repaired:
+                final_text = repaired
 
     if combat_active and looks_like_combat_drift_fn is not None and looks_like_combat_drift_fn(final_text):
         combat_lock_reprompt = True
@@ -642,12 +666,12 @@ async def run_two_pass(
                     "fallback_forced_reprompt": forced_reprompt,
                     "fallback_cleanup_human_check_text": cleaned_human_check,
                     "fallback_autogen_check": bool(fallback_autogen_check),
-                    "fallback_coherence_reprompt": bool(fallback_coherence_reprompt),
                     "fallback_combat_lock_reprompt": bool(combat_lock_reprompt),
                     "fallback_entity_guard_reprompt": bool(entity_guard_reprompt),
                     "fallback_entity_guard_unknown": entity_guard_unknown,
                     "fallback_backref_guard_reprompt": bool(backref_guard_reprompt),
                     "fallback_backref_guard_hits": backref_guard_hits,
+                    "fallback_action_anchor_reprompt": bool(action_anchor_reprompt),
                     "llm_draft_finish_reason": draft_resp.get("finish_reason"),
                     "llm_draft_usage": draft_resp.get("usage"),
                     "llm_final_finish_reason": final_resp.get("finish_reason"),
