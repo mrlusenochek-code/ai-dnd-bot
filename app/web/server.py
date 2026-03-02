@@ -54,6 +54,7 @@ from app.rules.loot_tables import roll_loot
 TURN_TIMEOUT_SECONDS = int(os.getenv("TURN_TIMEOUT_SECONDS", "300"))
 INACTIVE_TIMEOUT_SECONDS = int(os.getenv("DND_INACTIVE_TIMEOUT_SECONDS", "600"))
 INACTIVE_SCAN_PERIOD_SECONDS = int(os.getenv("DND_INACTIVE_SCAN_PERIOD_SECONDS", "5"))
+ENABLE_WATCHERS = os.getenv("ENABLE_WATCHERS", "1") not in ("0", "false", "False")
 DEFAULT_TIMEZONE = os.getenv("DEFAULT_TIMEZONE", "Europe/Warsaw")
 GM_CONTEXT_EVENTS = max(1, int(os.getenv("GM_CONTEXT_EVENTS", "20")))
 GM_OLLAMA_TIMEOUT_SECONDS = max(1.0, float(os.getenv("GM_OLLAMA_TIMEOUT_SECONDS", "30")))
@@ -407,9 +408,10 @@ async def lifespan(app: FastAPI):
     configure_logging()
     logger.info("Web server starting")
 
-    timer_task = asyncio.create_task(timer_watcher(), name="timer_watcher")
-    inactive_task = asyncio.create_task(inactive_watcher(), name="inactive_watcher")
-    app.state.bg_tasks = [timer_task, inactive_task]
+    if ENABLE_WATCHERS:
+        timer_task = asyncio.create_task(timer_watcher(), name="timer_watcher")
+        inactive_task = asyncio.create_task(inactive_watcher(), name="inactive_watcher")
+        app.state.bg_tasks = [timer_task, inactive_task]
 
     try:
         yield
