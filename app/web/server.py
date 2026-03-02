@@ -6,6 +6,7 @@ import os
 import random
 import re
 import zlib
+from contextlib import asynccontextmanager
 from datetime import datetime, timedelta, timezone
 import uuid
 from typing import Any, Optional
@@ -399,7 +400,28 @@ class ConnectionManager:
 
 
 manager = ConnectionManager()
-app = FastAPI()
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    configure_logging()
+    logger.info("Web server starting")
+
+    timer_task = asyncio.create_task(timer_watcher(), name="timer_watcher")
+    inactive_task = asyncio.create_task(inactive_watcher(), name="inactive_watcher")
+    app.state.bg_tasks = [timer_task, inactive_task]
+
+    try:
+        yield
+    finally:
+        tasks = getattr(app.state, "bg_tasks", [])
+        for t in tasks:
+            t.cancel()
+        if tasks:
+            await asyncio.gather(*tasks, return_exceptions=True)
+
+
+app = FastAPI(lifespan=lifespan)
 _GM_SESSION_LOCKS: dict[str, asyncio.Lock] = {}
 
 
@@ -6835,11 +6857,3 @@ async def inactive_watcher():
             logger.exception("inactive_watcher iteration failed")
 
         await asyncio.sleep(INACTIVE_SCAN_PERIOD_SECONDS)
-
-
-@app.on_event("startup")
-async def on_startup():
-    configure_logging()
-    logger.info("Web server starting")
-    asyncio.create_task(timer_watcher())
-    asyncio.create_task(inactive_watcher())
