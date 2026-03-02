@@ -27,12 +27,20 @@ ENTITY_GUARD_STOPWORDS = {
     "Анализ",
     "Final",
     "Response",
+    "После",
 }
 ENTITY_GUARD_ALLOWLIST = {
     "Север",
     "Юг",
     "Запад",
     "Восток",
+}
+ENTITY_SENTENCE_START_NAME_VERBS = {
+    "говорит",
+    "сказал",
+    "спросил",
+    "кивает",
+    "взглянул",
 }
 BACKREF_TRIGGER_ANCHORS: list[tuple[re.Pattern[str], tuple[str, ...], str]] = [
     (
@@ -112,6 +120,17 @@ SCENE_ENV_KEYWORDS: dict[str, tuple[str, ...]] = {
     "square": ("площад",),
     "city": ("город", "улиц", "квартал"),
 }
+SCENE_PRISON_COURT_TRIGGERS: list[tuple[str, str]] = [
+    ("заключенн", "заключенный вне контекста"),
+    ("тюрьм", "тюрьма вне контекста"),
+    ("камера", "камера вне контекста"),
+    ("надзират", "надзиратель вне контекста"),
+    ("по суду", "по суду вне контекста"),
+    ("приговор", "приговор вне контекста"),
+    ("конвой", "конвой вне контекста"),
+    ("арестован", "арестован вне контекста"),
+    ("тюремный страж", "тюремный страж вне контекста"),
+]
 
 
 def _common_prefix_len(a: str, b: str) -> int:
@@ -168,6 +187,27 @@ def _is_sentence_start_token(text: str, token_start: int) -> bool:
     return text[i] in ".!?"
 
 
+def _looks_like_name_token(token: str) -> bool:
+    return bool(re.fullmatch(r"[А-ЯЁ][а-яё]{2,}", str(token or "")))
+
+
+def _sentence_start_name_with_speech_verb(text: str, token: str, token_start: int) -> bool:
+    if not _is_sentence_start_token(text, token_start):
+        return False
+    if not _looks_like_name_token(token):
+        return False
+    tail = str(text or "")[max(0, token_start + len(token)) :]
+    i = 0
+    while i < len(tail) and tail[i] in ENTITY_SENTENCE_LEADING_SKIP + ",;:":
+        i += 1
+    j = i
+    while j < len(tail) and tail[j].isalpha():
+        j += 1
+    if j <= i:
+        return False
+    return tail[i:j].lower() in ENTITY_SENTENCE_START_NAME_VERBS
+
+
 def _extract_capitalized_tokens(text: str) -> set[str]:
     txt = str(text or "")
     out: set[str] = set()
@@ -176,7 +216,12 @@ def _extract_capitalized_tokens(text: str) -> set[str]:
         if not token or token in ENTITY_GUARD_STOPWORDS:
             continue
         if _is_sentence_start_token(txt, m.start()):
-            continue
+            is_name = _looks_like_name_token(token)
+            if not is_name:
+                continue
+            if _sentence_start_name_with_speech_verb(txt, token, m.start()):
+                out.add(token)
+                continue
         out.add(token)
     return out
 
@@ -199,6 +244,7 @@ def _build_entity_repair_prompt(*, final_text: str, unknown_entities: list[str],
     return (
         "Перепиши текст мастера.\n"
         "НЕ добавляй новых имён/сущностей, которых нет в контексте.\n"
+        "Не переносить сцену в тюрьму/суд/камеру, если этого нет в контексте.\n"
         "Если имя необходимо — введи его одной фразой: кто это и почему он/она сейчас в сцене.\n"
         "Не используй мета-комментарии.\n"
         "Не приписывай игроку реплики или мысли.\n"
@@ -304,6 +350,10 @@ def _find_scene_lock_violations(final_text: str, context_text: str, location_fal
 
     if re.search(r"\b(?:у|к)\s+ворот(?:ам)?\b", lowered) and ("ворот" not in ctx) and ("ворот" not in loc):
         hits.append("ворота вне контекста")
+
+    for probe, label in SCENE_PRISON_COURT_TRIGGERS:
+        if (probe in lowered) and (probe not in ctx) and (probe not in loc):
+            hits.append(label)
 
     current_envs = _find_scene_env_mentions(loc)
     output_envs = _find_scene_env_mentions(lowered)
