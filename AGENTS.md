@@ -16,3 +16,25 @@
 ## Что ожидаем от Codex
 1) Сначала анализ + план.
 2) Потом изменения малыми порциями с проверкой.
+
+## Шаблон задачи для Codex
+```md
+## Goal
+- ...
+
+## Files
+- ...
+
+## Changes
+- ...
+
+## Checks
+- python -m py_compile $(rg --files -g '*.py')
+- pytest -q
+
+## Git
+- git status
+- git diff
+- git commit -m "..."
+- git push origin main
+```
