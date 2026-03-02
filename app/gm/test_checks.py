@@ -43,6 +43,21 @@ def test_mandatory_category_cases() -> None:
     assert server._mandatory_check_category(stealth) == checks._mandatory_check_category(stealth) == "stealth"
 
 
+def test_mandatory_check_category_stealth_sneak_and_eavesdrop() -> None:
+    text = "пытаюсь тихо подкрасться и подслушать"
+    assert checks._mandatory_check_category(text) == "stealth"
+
+
+def test_mandatory_check_category_stealth_leave_quietly() -> None:
+    text = "пытаюсь скрытно уйти"
+    assert checks._mandatory_check_category(text) == "stealth"
+
+
+def test_mandatory_check_category_talking_quietly_is_not_stealth() -> None:
+    text = "тихо разговариваю со стражником"
+    assert checks._mandatory_check_category(text) != "stealth"
+
+
 def test_autogen_check_for_category_wrapper_equals_module() -> None:
     text = "Пробую взломать сложный механизм замка"
     expected = checks._autogen_check_for_category("mechanics", text, actor_uid=5)

@@ -119,6 +119,8 @@ MANDATORY_ACTION_PATTERNS_BY_CATEGORY: list[tuple[str, list[str]]] = [
         "stealth",
         [
             r"проскольз\w*",
+            r"скрытн\w*",
+            r"подслуш\w*",
             r"тих\w+_?пройти\w*",
             r"незамет\w+_?пройти\w*",
             r"затаил\w*",
