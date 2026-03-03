@@ -55,6 +55,25 @@ from app.web.machine_lines import (
     _strip_machine_lines,
 )
 from app.web.session_lock import get_session_lock
+from app.web.session_state import (
+    _ensure_settings,
+    settings_get,
+    settings_set,
+    _get_ready_map,
+    _set_ready,
+    _get_init_map,
+    _set_init_value,
+    _initiative_fixed,
+    _get_initiative_order,
+    _set_initiative_order,
+    _get_last_seen_map,
+    _touch_last_seen,
+    _get_pc_positions,
+    _set_pc_zone,
+    _initialize_pc_positions,
+    _get_phase,
+    _set_phase,
+)
 from app.web.state_builder import build_state, broadcast_state, _broadcast_state_unlocked, send_state_to_ws
 from app.web.ws_manager import manager
 from app.web.inventory_helpers import (
@@ -441,26 +460,6 @@ async def _log_context_middleware(request: Request, call_next):
             uid_var.reset(tok_uid)
         if tok_cid is not None:
             client_id_var.reset(tok_cid)
-
-# -------------------------
-# Settings helpers (Session.settings is JSON)
-# -------------------------
-def _ensure_settings(sess: Session) -> dict:
-    if not sess.settings or not isinstance(sess.settings, dict):
-        sess.settings = {}
-    return sess.settings
-
-
-def settings_get(sess: Session, key: str, default: Any) -> Any:
-    st = _ensure_settings(sess)
-    return st.get(key, default)
-
-
-def settings_set(sess: Session, key: str, value: Any) -> None:
-    st = _ensure_settings(sess)
-    st[key] = value
-    flag_modified(sess, "settings")
-
 
 def _get_combat_log_history(sess: Session) -> dict:
     st = _ensure_settings(sess)
@@ -2421,16 +2420,6 @@ async def _emit_check_results_if_enabled(db: AsyncSession, sess: Session, check_
     )
 
 
-def _get_ready_map(sess: Session) -> dict[str, bool]:
-    return settings_get(sess, "ready", {}) or {}
-
-
-def _set_ready(sess: Session, player_id: uuid.UUID, value: bool) -> None:
-    m = dict(_get_ready_map(sess))
-    m[str(player_id)] = bool(value)
-    settings_set(sess, "ready", m)
-
-
 def _get_kicked(sess: Session) -> set[str]:
     raw = settings_get(sess, "kicked", []) or []
     out: set[str] = set()
@@ -2443,64 +2432,6 @@ def _get_kicked(sess: Session) -> set[str]:
 
 def _set_kicked(sess: Session, kicked: set[str]) -> None:
     settings_set(sess, "kicked", sorted(list(kicked)))
-
-
-def _get_init_map(sess: Session) -> dict[str, int]:
-    raw = settings_get(sess, "initiative", {}) or {}
-    out: dict[str, int] = {}
-    for k, v in raw.items():
-        out[str(k)] = as_int(v, 0)
-    return out
-
-
-def _get_last_seen_map(sess: Session) -> dict[str, str]:
-    raw = settings_get(sess, "last_seen", {}) or {}
-    out: dict[str, str] = {}
-    if not isinstance(raw, dict):
-        return out
-    for k, v in raw.items():
-        if k is None or v is None:
-            continue
-        out[str(k)] = str(v)
-    return out
-
-
-def _get_pc_positions(sess: Session) -> dict[str, str]:
-    raw = settings_get(sess, "pc_positions", {}) or {}
-    out: dict[str, str] = {}
-    if not isinstance(raw, dict):
-        return out
-    for k, v in raw.items():
-        if k is None or v is None:
-            continue
-        pid = str(k).strip()
-        zone = str(v).strip()
-        if pid and zone:
-            out[pid] = zone[:80]
-    return out
-
-
-def _set_pc_zone(sess: Session, player_id: uuid.UUID, zone: str) -> None:
-    z = str(zone or "").strip()
-    if not z:
-        return
-    m = dict(_get_pc_positions(sess))
-    m[str(player_id)] = z[:80]
-    settings_set(sess, "pc_positions", m)
-
-
-def _initialize_pc_positions(sess: Session, player_ids: list[uuid.UUID], default_zone: str) -> None:
-    zone = str(default_zone or "").strip() or "стартовая локация"
-    m: dict[str, str] = {}
-    for pid in player_ids:
-        m[str(pid)] = zone
-    settings_set(sess, "pc_positions", m)
-
-
-def _touch_last_seen(sess: Session, player_id: uuid.UUID) -> None:
-    m = dict(_get_last_seen_map(sess))
-    m[str(player_id)] = utcnow().isoformat()
-    settings_set(sess, "last_seen", m)
 
 
 def _remove_player_from_session_settings(sess: Session, player_id: uuid.UUID) -> None:
@@ -2544,39 +2475,11 @@ def _parse_iso(ts: Any) -> Optional[datetime]:
     return dt
 
 
-def _set_init_value(sess: Session, player_id: uuid.UUID, value: int) -> None:
-    m = dict(_get_init_map(sess))
-    m[str(player_id)] = int(value)
-    settings_set(sess, "initiative", m)
-
-
 def _clear_initiative(sess: Session) -> None:
     settings_set(sess, "initiative", {})
     settings_set(sess, "initiative_fixed", False)
     settings_set(sess, "initiative_order", [])
     settings_set(sess, "round", 0)
-
-
-def _initiative_fixed(sess: Session) -> bool:
-    return bool(settings_get(sess, "initiative_fixed", False))
-
-
-def _get_initiative_order(sess: Session) -> list[uuid.UUID]:
-    raw = settings_get(sess, "initiative_order", []) or []
-    out: list[uuid.UUID] = []
-    for x in raw:
-        try:
-            if isinstance(x, uuid.UUID):
-                out.append(x)
-            else:
-                out.append(uuid.UUID(str(x)))
-        except Exception:
-            continue
-    return out
-
-
-def _set_initiative_order(sess: Session, order: list[uuid.UUID]) -> None:
-    settings_set(sess, "initiative_order", [str(x) for x in order])
 
 
 def _set_paused_remaining(sess: Session, remaining: int) -> None:
@@ -2597,17 +2500,6 @@ def _clear_paused_remaining(sess: Session) -> None:
     if sess.settings and isinstance(sess.settings, dict) and "paused_remaining_seconds" in sess.settings:
         sess.settings.pop("paused_remaining_seconds", None)
         flag_modified(sess, "settings")
-
-
-def _get_phase(sess: Session) -> str:
-    phase = str(settings_get(sess, "phase", "turns") or "turns").strip().lower()
-    if phase not in {"lore_pending", "collecting_actions", "gm_pending", "turns"}:
-        return "turns"
-    return phase
-
-
-def _set_phase(sess: Session, phase: str) -> None:
-    settings_set(sess, "phase", str(phase).strip().lower())
 
 
 def _new_action_id() -> str:
