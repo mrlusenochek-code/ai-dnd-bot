@@ -15,7 +15,7 @@ from app.web.session_state import (
     _initiative_fixed,
 )
 from app.web.session_lock import get_session_lock
-from app.web.state_builder import broadcast_state, _broadcast_state_unlocked, send_state_to_ws
+from app.web.state_builder import broadcast_state, _broadcast_state_unlocked, send_state_to_ws, _maybe_restore_combat_state
 from app.web.ws_manager import manager
 
 
@@ -74,7 +74,7 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                 if not sess:
                     await ws_error("Session not found", request_id=msg_request_id)
                     continue
-                deps._maybe_restore_combat_state(sess, session_id)
+                _maybe_restore_combat_state(sess, session_id)
 
                 # don't overwrite name here; join sets it
                 player = await deps.get_or_create_player_web(db, uid, "")
@@ -441,7 +441,7 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                     continue
 
                 combat_action = deps._detect_chat_combat_action(text)
-                deps._maybe_restore_combat_state(sess, session_id)
+                _maybe_restore_combat_state(sess, session_id)
                 combat_state = deps.get_combat(session_id)
                 if combat_state is None:
                     bootstrap = settings_get(sess, "combat_live_bootstrap", None)

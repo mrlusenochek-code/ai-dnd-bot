@@ -4,11 +4,13 @@ from typing import Any, Optional
 from fastapi import WebSocket
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm.attributes import flag_modified
 
+from app.combat.state import get_combat, restore_combat_state, snapshot_combat_state
 from app.db.models import Character, Event, Player, Session, Skill
 from app.web.session_state import (
+    _ensure_settings,
     settings_get,
-    settings_set,
     _get_ready_map,
     _get_init_map,
     _get_last_seen_map,
@@ -19,6 +21,146 @@ from app.web.session_state import (
 
 from app.web.session_lock import get_session_lock
 from app.web.ws_manager import manager
+
+COMBAT_LOG_HISTORY_KEY = "combat_log_history"
+COMBAT_STATE_KEY = "combat_state_v1"
+MAX_COMBAT_LOG_LINES = 200
+
+
+def _get_combat_log_history(sess: Session) -> dict:
+    st = _ensure_settings(sess)
+    raw = st.get(COMBAT_LOG_HISTORY_KEY)
+    if not isinstance(raw, dict):
+        return {"open": True, "lines": [], "status": None}
+
+    lines_raw = raw.get("lines")
+    lines: list[dict[str, Any]] = []
+    status: Optional[str] = raw.get("status") if isinstance(raw.get("status"), str) else None
+    if isinstance(lines_raw, list):
+        for item in lines_raw:
+            if isinstance(item, str):
+                lines.append({"text": item, "muted": False})
+                continue
+            if not isinstance(item, dict):
+                continue
+            text = item.get("text")
+            if not isinstance(text, str):
+                continue
+            line: dict[str, Any] = {"text": text, "muted": bool(item.get("muted"))}
+            kind = item.get("kind")
+            if isinstance(kind, str):
+                if kind == "status":
+                    status = text
+                    line["kind"] = "status"
+                else:
+                    line["kind"] = kind
+            lines.append(line)
+
+    if len(lines) > MAX_COMBAT_LOG_LINES:
+        lines = lines[-MAX_COMBAT_LOG_LINES:]
+    return {"open": bool(raw.get("open", True)), "lines": lines, "status": status}
+
+
+def _persist_combat_log_patch(sess: Session, patch: dict[str, Any]) -> None:
+    if not isinstance(patch, dict):
+        return
+
+    history = _get_combat_log_history(sess)
+
+    if patch.get("reset") is True:
+        history["lines"] = []
+        history["status"] = None
+
+    open_value = patch.get("open")
+    if isinstance(open_value, bool):
+        history["open"] = open_value
+
+    status_text = patch.get("status")
+    if isinstance(status_text, str):
+        history["status"] = status_text
+
+    patch_lines = patch.get("lines")
+    if isinstance(patch_lines, list):
+        for item in patch_lines:
+            if isinstance(item, str):
+                history["lines"].append({"text": item, "muted": False})
+                continue
+            if not isinstance(item, dict):
+                continue
+            text = item.get("text")
+            if not isinstance(text, str):
+                continue
+            line: dict[str, Any] = {"text": text, "muted": bool(item.get("muted"))}
+            kind = item.get("kind")
+            if isinstance(kind, str):
+                if kind == "status":
+                    history["status"] = text
+                    line["kind"] = "status"
+                else:
+                    line["kind"] = kind
+            history["lines"].append(line)
+
+    lines = history.get("lines")
+    if isinstance(lines, list) and len(lines) > MAX_COMBAT_LOG_LINES:
+        history["lines"] = lines[-MAX_COMBAT_LOG_LINES:]
+
+    st = _ensure_settings(sess)
+    st[COMBAT_LOG_HISTORY_KEY] = history
+    try:
+        flag_modified(sess, "settings")
+    except AttributeError:
+        pass
+
+
+def _combat_log_snapshot_patch(sess: Session) -> Optional[dict[str, Any]]:
+    st = _ensure_settings(sess)
+    history = st.get(COMBAT_LOG_HISTORY_KEY)
+    if not isinstance(history, dict):
+        return None
+    lines = history.get("lines")
+    if not isinstance(lines, list):
+        return None
+    status = history.get("status")
+    if not lines and not isinstance(status, str):
+        return None
+    patch: dict[str, Any] = {"reset": True, "open": bool(history.get("open", True)), "lines": lines}
+    if isinstance(status, str):
+        patch["status"] = status
+    return patch
+
+
+def _persist_combat_state(sess: Session, session_id: str) -> bool:
+    snapshot = snapshot_combat_state(session_id)
+    st = _ensure_settings(sess)
+
+    if snapshot is None:
+        if COMBAT_STATE_KEY in st:
+            st.pop(COMBAT_STATE_KEY, None)
+            try:
+                flag_modified(sess, "settings")
+            except AttributeError:
+                pass
+            return True
+        return False
+
+    if st.get(COMBAT_STATE_KEY) != snapshot:
+        st[COMBAT_STATE_KEY] = snapshot
+        try:
+            flag_modified(sess, "settings")
+        except AttributeError:
+            pass
+        return True
+    return False
+
+
+def _maybe_restore_combat_state(sess: Session, session_id: str) -> None:
+    if get_combat(session_id) is not None:
+        return
+
+    payload = settings_get(sess, COMBAT_STATE_KEY, None)
+    if not isinstance(payload, dict):
+        return
+    restore_combat_state(session_id, payload)
 
 
 async def build_state(db: AsyncSession, sess: Session) -> dict:
@@ -181,7 +323,7 @@ async def _broadcast_state_unlocked(
             return
         changed = False
         if combat_log_ui_patch is not None:
-            history_raw = deps._ensure_settings(sess).get(deps.COMBAT_LOG_HISTORY_KEY)
+            history_raw = _ensure_settings(sess).get(COMBAT_LOG_HISTORY_KEY)
             prev_history = history_raw if isinstance(history_raw, dict) else None
             cs = deps.get_combat(session_id)
             actor_context: dict[str, Any] | None = None
@@ -220,7 +362,7 @@ async def _broadcast_state_unlocked(
                 combat_state=cs,
                 actor_context=actor_context,
             )
-            deps._persist_combat_log_patch(sess, combat_log_ui_patch)
+            _persist_combat_log_patch(sess, combat_log_ui_patch)
             changed = True
             rewards_granted = await deps._grant_combat_rewards_once(db, sess, combat_log_ui_patch)
             if rewards_granted:
@@ -232,7 +374,7 @@ async def _broadcast_state_unlocked(
             if defeat_effects_applied:
                 changed = True
 
-        changed = deps._persist_combat_state(sess, session_id) or changed
+        changed = _persist_combat_state(sess, session_id) or changed
         if changed:
             await db.commit()
         state = await build_state(db, sess)
@@ -261,10 +403,10 @@ async def send_state_to_ws(
         sess = await deps.get_session(db, session_id)
         if not sess:
             return
-        deps._maybe_restore_combat_state(sess, session_id)
+        _maybe_restore_combat_state(sess, session_id)
         state = await build_state(db, sess)
         if combat_log_ui_patch is None:
-            snapshot = deps._combat_log_snapshot_patch(sess)
+            snapshot = _combat_log_snapshot_patch(sess)
             if snapshot:
                 cs = deps.get_combat(session_id)
                 if cs is not None and cs.active and snapshot.get("open", True):
