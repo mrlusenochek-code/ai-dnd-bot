@@ -4717,18 +4717,11 @@ async def ws_room(ws: WebSocket, session_id: str):
                         await broadcast_state(session_id, combat_log_ui_patch=combat_patch)
                         continue
 
+                lock = _get_session_gm_lock(session_id)
                 if action == "admin_combat_live_start":
                     if not await is_admin(db, sess, player):
                         await ws_error("Only admin can run live combat")
                         continue
-                    before_state = get_combat(session_id)
-                    before_active = bool(before_state and before_state.active)
-                    # If a previous combat is still active (often due to persisted restore),
-                    # hard-reset it so @@COMBAT_START is not ignored and we always start from round 1.
-                    if before_active:
-                        end_combat(session_id)
-                        before_state = None
-                        before_active = False
                     bootstrap_zone = "arena"
                     bootstrap_enemies = [
                         {"id": "band1", "name": "Разбойник", "hp": 18, "ac": 13, "init_mod": 2, "threat": 2},
@@ -4751,65 +4744,75 @@ async def ws_room(ws: WebSocket, session_id: str):
                         f'@@COMBAT_START(zone="{bootstrap_zone}", cause="admin")\n'
                         '@@COMBAT_ENEMY_ADD(id=band1, name="Разбойник", hp=18, ac=13, init_mod=2, threat=2)'
                     )
-                    combat_patch = apply_combat_machine_commands(session_id, gm_text)
-                    uid_map, chars_by_uid, _ = await _load_actor_context(db, sess)
-                    sync_pcs_from_chars(session_id, chars_by_uid)
-                    if combat_patch is None:
-                        combat_patch = {
-                            "reset": True,
-                            "open": True,
-                            "lines": [{"text": "Live бой запущен админом.", "muted": True}],
-                        }
-                    combat_state = get_combat(session_id)
-                    after_active = bool(combat_state and combat_state.active)
-                    if after_active and combat_state is not None and combat_state.active:
-                        preamble_lines = _build_combat_start_preamble_lines(
-                            player=player,
-                            chars_by_uid=chars_by_uid,
-                            combat_state=combat_state,
-                        )
-                        if not isinstance(combat_patch, dict):
-                            combat_patch = {}
-                        patch_lines = combat_patch.get("lines")
-                        already = False
-                        if isinstance(patch_lines, list):
-                            for it in patch_lines:
-                                t = None
-                                if isinstance(it, dict):
-                                    t = it.get("text")
-                                elif isinstance(it, str):
-                                    t = it
-                                if isinstance(t, str) and (
-                                    t.startswith("Бой начался между") or t.startswith("Добавлен в бой:")
-                                ):
-                                    already = True
-                                    break
-                        if preamble_lines and not already:
-                            combat_patch = _append_combat_patch_lines(combat_patch, preamble_lines, prepend=True)
-                        combat_patch["reset"] = True
-                    if combat_state is not None and combat_state.active:
-                        if combat_patch.get("reset") is True:
-                            combat_state.round_no = 1
-                            combat_state.turn_index = 0
-                        combat_patch["status"] = (
-                            f"⚔ Бой • Раунд {combat_state.round_no} • Ход: {current_turn_label(combat_state)}"
-                        )
-                    await broadcast_state(session_id, combat_log_ui_patch=combat_patch)
+                    async with lock:
+                        before_state = get_combat(session_id)
+                        before_active = bool(before_state and before_state.active)
+                        # If a previous combat is still active (often due to persisted restore),
+                        # hard-reset it so @@COMBAT_START is not ignored and we always start from round 1.
+                        if before_active:
+                            end_combat(session_id)
+                            before_state = None
+                            before_active = False
+                        combat_patch = apply_combat_machine_commands(session_id, gm_text)
+                        _uid_map, chars_by_uid, _ = await _load_actor_context(db, sess)
+                        sync_pcs_from_chars(session_id, chars_by_uid)
+                        if combat_patch is None:
+                            combat_patch = {
+                                "reset": True,
+                                "open": True,
+                                "lines": [{"text": "Live бой запущен админом.", "muted": True}],
+                            }
+                        combat_state = get_combat(session_id)
+                        after_active = bool(combat_state and combat_state.active)
+                        if after_active and combat_state is not None and combat_state.active:
+                            preamble_lines = _build_combat_start_preamble_lines(
+                                player=player,
+                                chars_by_uid=chars_by_uid,
+                                combat_state=combat_state,
+                            )
+                            if not isinstance(combat_patch, dict):
+                                combat_patch = {}
+                            patch_lines = combat_patch.get("lines")
+                            already = False
+                            if isinstance(patch_lines, list):
+                                for it in patch_lines:
+                                    t = None
+                                    if isinstance(it, dict):
+                                        t = it.get("text")
+                                    elif isinstance(it, str):
+                                        t = it
+                                    if isinstance(t, str) and (
+                                        t.startswith("Бой начался между") or t.startswith("Добавлен в бой:")
+                                    ):
+                                        already = True
+                                        break
+                            if preamble_lines and not already:
+                                combat_patch = _append_combat_patch_lines(combat_patch, preamble_lines, prepend=True)
+                            combat_patch["reset"] = True
+                        if combat_state is not None and combat_state.active:
+                            if combat_patch.get("reset") is True:
+                                combat_state.round_no = 1
+                                combat_state.turn_index = 0
+                            combat_patch["status"] = (
+                                f"⚔ Бой • Раунд {combat_state.round_no} • Ход: {current_turn_label(combat_state)}"
+                            )
+                        await _broadcast_state_unlocked(session_id, combat_log_ui_patch=combat_patch)
                     continue
 
                 if action == "admin_combat_live_end":
                     if not await is_admin(db, sess, player):
                         await ws_error("Only admin can end live combat")
                         continue
-                    end_combat(session_id)
-                    await broadcast_state(
-                        session_id,
-                        combat_log_ui_patch={
-                            "status": "Бой завершён",
-                            "open": False,
-                            "lines": [{"text": "Live бой завершён админом.", "muted": True}],
-                        },
-                    )
+                    async with lock:
+                        end_combat(session_id)
+                        await _broadcast_state_unlocked(
+                            session_id,
+                            combat_log_ui_patch={
+                                "status": "Бой завершён",
+                                "open": False,
+                                "lines": [{"text": "Live бой завершён админом.", "muted": True}],
+                            },
+                        )
                     continue
 
                 if action == "combat_log_clear":
@@ -4843,13 +4846,14 @@ async def ws_room(ws: WebSocket, session_id: str):
                     if not await is_admin(db, sess, player):
                         await ws_error("Only admin can use combat actions")
                         continue
-                    combat_patch, combat_err = handle_live_combat_action(action, session_id)
-                    if combat_err:
-                        await ws_error(combat_err)
-                        continue
-                    if combat_patch:
-                        await broadcast_state(session_id, combat_log_ui_patch=combat_patch)
-                        continue
+                    async with lock:
+                        combat_patch, combat_err = handle_live_combat_action(action, session_id)
+                        if combat_err:
+                            await ws_error(combat_err)
+                            continue
+                        if combat_patch:
+                            await _broadcast_state_unlocked(session_id, combat_log_ui_patch=combat_patch)
+                            continue
 
                 # chat / command parsing
                 if action != "say":
@@ -4901,43 +4905,44 @@ async def ws_room(ws: WebSocket, session_id: str):
                                 )
                             if len(lines) > 1:
                                 gm_text = "\n".join(lines)
-                                before_state = get_combat(session_id)
-                                before_active = bool(before_state and before_state.active)
-                                combat_patch = apply_combat_machine_commands(session_id, gm_text)
-                                uid_map, chars_by_uid, _ = await _load_actor_context(db, sess)
-                                sync_pcs_from_chars(session_id, chars_by_uid)
-                                combat_state = get_combat(session_id)
-                                after_active = bool(combat_state and combat_state.active)
-                                if after_active and combat_state is not None and combat_state.active:
-                                    preamble_lines = _build_combat_start_preamble_lines(
-                                        player=player,
-                                        chars_by_uid=chars_by_uid,
-                                        combat_state=combat_state,
-                                    )
-                                    if not isinstance(combat_patch, dict):
-                                        combat_patch = {}
-                                    patch_lines = combat_patch.get("lines")
-                                    already = False
-                                    if isinstance(patch_lines, list):
-                                        for it in patch_lines:
-                                            t = None
-                                            if isinstance(it, dict):
-                                                t = it.get("text")
-                                            elif isinstance(it, str):
-                                                t = it
-                                            if isinstance(t, str) and (
-                                                t.startswith("Бой начался между") or t.startswith("Добавлен в бой:")
-                                            ):
-                                                already = True
-                                                break
-                                    if preamble_lines and not already:
-                                        combat_patch = _append_combat_patch_lines(combat_patch, preamble_lines, prepend=True)
-                                    combat_patch["reset"] = True
-                                    combat_patch["open"] = True
-                                    combat_patch["status"] = (
-                                        f"⚔ Бой • Раунд {combat_state.round_no} • Ход: {current_turn_label(combat_state)}"
-                                    )
-                                    await broadcast_state(session_id, combat_log_ui_patch=combat_patch)
+                                async with lock:
+                                    before_state = get_combat(session_id)
+                                    before_active = bool(before_state and before_state.active)
+                                    combat_patch = apply_combat_machine_commands(session_id, gm_text)
+                                    _uid_map, chars_by_uid, _ = await _load_actor_context(db, sess)
+                                    sync_pcs_from_chars(session_id, chars_by_uid)
+                                    combat_state = get_combat(session_id)
+                                    after_active = bool(combat_state and combat_state.active)
+                                    if after_active and combat_state is not None and combat_state.active:
+                                        preamble_lines = _build_combat_start_preamble_lines(
+                                            player=player,
+                                            chars_by_uid=chars_by_uid,
+                                            combat_state=combat_state,
+                                        )
+                                        if not isinstance(combat_patch, dict):
+                                            combat_patch = {}
+                                        patch_lines = combat_patch.get("lines")
+                                        already = False
+                                        if isinstance(patch_lines, list):
+                                            for it in patch_lines:
+                                                t = None
+                                                if isinstance(it, dict):
+                                                    t = it.get("text")
+                                                elif isinstance(it, str):
+                                                    t = it
+                                                if isinstance(t, str) and (
+                                                    t.startswith("Бой начался между") or t.startswith("Добавлен в бой:")
+                                                ):
+                                                    already = True
+                                                    break
+                                        if preamble_lines and not already:
+                                            combat_patch = _append_combat_patch_lines(combat_patch, preamble_lines, prepend=True)
+                                        combat_patch["reset"] = True
+                                        combat_patch["open"] = True
+                                        combat_patch["status"] = (
+                                            f"⚔ Бой • Раунд {combat_state.round_no} • Ход: {current_turn_label(combat_state)}"
+                                        )
+                                        await _broadcast_state_unlocked(session_id, combat_log_ui_patch=combat_patch)
                 combat_active = bool(combat_state and combat_state.active)
                 start_intent = ("войти в бой" in lower) or lower.startswith("бой с") or ("начать бой" in lower)
 
@@ -4976,42 +4981,43 @@ async def ws_room(ws: WebSocket, session_id: str):
                         '@@COMBAT_START(zone="arena", cause="bootstrap")\n'
                         f'@@COMBAT_ENEMY_ADD(id=band1, name="{enemy_name_escaped}", hp=18, ac=13, init_mod=2, threat=2)'
                     )
-                    combat_patch = apply_combat_machine_commands(session_id, gm_text)
-                    _uid_map, chars_by_uid, _ = await _load_actor_context(db, sess)
-                    sync_pcs_from_chars(session_id, chars_by_uid)
-                    combat_state = get_combat(session_id)
-                    if combat_patch is None:
-                        combat_patch = {}
-                    if combat_state and combat_state.active:
-                        preamble_lines = _build_combat_start_preamble_lines(
-                            player=player,
-                            chars_by_uid=chars_by_uid,
-                            combat_state=combat_state,
-                        )
-                        patch_lines = combat_patch.get("lines")
-                        already = False
-                        if isinstance(patch_lines, list):
-                            for it in patch_lines:
-                                t = None
-                                if isinstance(it, dict):
-                                    t = it.get("text")
-                                elif isinstance(it, str):
-                                    t = it
-                                if isinstance(t, str) and (
-                                    t.startswith("Бой начался между") or t.startswith("Добавлен в бой:")
-                                ):
-                                    already = True
-                                    break
-                        if preamble_lines and not already:
-                            combat_patch = _append_combat_patch_lines(combat_patch, preamble_lines, prepend=True)
+                    async with lock:
+                        combat_patch = apply_combat_machine_commands(session_id, gm_text)
+                        _uid_map, chars_by_uid, _ = await _load_actor_context(db, sess)
+                        sync_pcs_from_chars(session_id, chars_by_uid)
+                        combat_state = get_combat(session_id)
+                        if combat_patch is None:
+                            combat_patch = {}
+                        if combat_state and combat_state.active:
+                            preamble_lines = _build_combat_start_preamble_lines(
+                                player=player,
+                                chars_by_uid=chars_by_uid,
+                                combat_state=combat_state,
+                            )
+                            patch_lines = combat_patch.get("lines")
+                            already = False
+                            if isinstance(patch_lines, list):
+                                for it in patch_lines:
+                                    t = None
+                                    if isinstance(it, dict):
+                                        t = it.get("text")
+                                    elif isinstance(it, str):
+                                        t = it
+                                    if isinstance(t, str) and (
+                                        t.startswith("Бой начался между") or t.startswith("Добавлен в бой:")
+                                    ):
+                                        already = True
+                                        break
+                            if preamble_lines and not already:
+                                combat_patch = _append_combat_patch_lines(combat_patch, preamble_lines, prepend=True)
 
-                    combat_patch["reset"] = True
-                    combat_patch["open"] = True
-                    if combat_state and combat_state.active:
-                        combat_patch["status"] = (
-                            f"⚔ Бой • Раунд {combat_state.round_no} • Ход: {current_turn_label(combat_state)}"
-                        )
-                    await broadcast_state(session_id, combat_log_ui_patch=combat_patch)
+                        combat_patch["reset"] = True
+                        combat_patch["open"] = True
+                        if combat_state and combat_state.active:
+                            combat_patch["status"] = (
+                                f"⚔ Бой • Раунд {combat_state.round_no} • Ход: {current_turn_label(combat_state)}"
+                            )
+                        await _broadcast_state_unlocked(session_id, combat_log_ui_patch=combat_patch)
 
                     ch = await get_character(db, sess.id, player.id)
                     player_name = (ch.name if ch and ch.name else player.display_name)
@@ -5147,32 +5153,33 @@ async def ws_room(ws: WebSocket, session_id: str):
                             continue
 
                         all_patches: list[dict[str, Any]] = []
-                        combat_patch, combat_err = handle_live_combat_action(combat_action, session_id)
-                        if combat_err:
-                            await ws_error(combat_err, request_id=msg_request_id)
-                            continue
-                        if combat_patch:
-                            all_patches.append(combat_patch)
+                        async with lock:
+                            combat_patch, combat_err = handle_live_combat_action(combat_action, session_id)
+                            if combat_err:
+                                await ws_error(combat_err, request_id=msg_request_id)
+                                continue
+                            if combat_patch:
+                                all_patches.append(combat_patch)
 
-                        while True:
-                            state_now = get_combat(session_id)
-                            if not state_now or not state_now.active or not state_now.order:
-                                break
-                            if state_now.turn_index < 0 or state_now.turn_index >= len(state_now.order):
-                                break
-                            turn_key_now = state_now.order[state_now.turn_index]
-                            turn_actor = state_now.combatants.get(turn_key_now)
-                            if not turn_actor or turn_actor.side != "enemy":
-                                break
-                            enemy_patch, enemy_err = handle_live_combat_action("combat_attack", session_id)
-                            if enemy_err:
-                                logger.warning("enemy auto combat action failed", extra={"action": {"error": enemy_err}})
-                                break
-                            if enemy_patch:
-                                all_patches.append(enemy_patch)
+                            while True:
+                                state_now = get_combat(session_id)
+                                if not state_now or not state_now.active or not state_now.order:
+                                    break
+                                if state_now.turn_index < 0 or state_now.turn_index >= len(state_now.order):
+                                    break
+                                turn_key_now = state_now.order[state_now.turn_index]
+                                turn_actor = state_now.combatants.get(turn_key_now)
+                                if not turn_actor or turn_actor.side != "enemy":
+                                    break
+                                enemy_patch, enemy_err = handle_live_combat_action("combat_attack", session_id)
+                                if enemy_err:
+                                    logger.warning("enemy auto combat action failed", extra={"action": {"error": enemy_err}})
+                                    break
+                                if enemy_patch:
+                                    all_patches.append(enemy_patch)
 
-                        merged_patch = _merge_combat_patches(all_patches) if all_patches else None
-                        await broadcast_state(session_id, combat_log_ui_patch=merged_patch)
+                            merged_patch = _merge_combat_patches(all_patches) if all_patches else None
+                            await _broadcast_state_unlocked(session_id, combat_log_ui_patch=merged_patch)
                         facts = extract_combat_narration_facts(merged_patch)
                         if facts:
                             required_fact_count = 3 if len(facts) >= 3 else len(facts)
