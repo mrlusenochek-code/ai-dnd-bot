@@ -1,0 +1,1635 @@
+import json
+from typing import Optional
+
+from fastapi import WebSocket, WebSocketDisconnect
+
+
+async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
+    import app.web.server as deps
+    async def ws_error(message: str, *, fatal: bool = False, request_id: Optional[str] = None) -> None:
+        rid = request_id
+        if rid is None:
+            try:
+                rid = deps.request_id_var.get()
+            except LookupError:
+                rid = None
+        payload = {"type": "error", "message": message, "fatal": fatal, "request_id": rid}
+        await ws.send_text(json.dumps(payload, ensure_ascii=False))
+
+    uid_raw = ws.query_params.get("uid")
+    if not uid_raw or not uid_raw.isdigit():
+        rid = deps._new_request_id()
+        await ws.accept()
+        await ws_error("No uid", fatal=True, request_id=rid)
+        await ws.close()
+        return
+
+    uid = int(uid_raw)
+
+    # log context for this WS connection (task-local)
+    deps.request_id_var.set(deps._new_request_id())
+    deps.session_id_var.set(session_id)
+    deps.uid_var.set(uid)
+    deps.ws_conn_id_var.set(deps.uuid.uuid4().hex[:12])
+    cid = ws.query_params.get("cid")
+    if cid:
+        deps.client_id_var.set(str(cid))
+
+    await deps.manager.connect(session_id, ws)
+    deps.logger.info("ws connected")
+
+    try:
+        await deps.send_state_to_ws(session_id, ws)
+
+        while True:
+            # Ждём входящее сообщение. State приходит через deps.broadcast_state() по событиям,
+            # а таймер рисуется локально на фронте.
+            raw = await ws.receive_text()
+            try:
+                data = json.loads(raw)
+            except Exception:
+                data = {"action": "say", "text": raw}
+
+            action = (data.get("action") or "").strip().lower()
+            text = (data.get("text") or "").strip()
+            msg_request_id = data.get("request_id") if isinstance(data, dict) else None
+
+            async with deps.AsyncSessionLocal() as db:
+                sess = await deps.get_session(db, session_id)
+                if not sess:
+                    await ws_error("Session not found", request_id=msg_request_id)
+                    continue
+                deps._maybe_restore_combat_state(sess, session_id)
+
+                # don't overwrite name here; join sets it
+                player = await deps.get_or_create_player_web(db, uid, "")
+
+                # kicked check (live)
+                if str(player.id) in deps._get_kicked(sess):
+                    await ws_error("You were kicked from this session", fatal=True)
+                    await ws.close()
+                    return
+
+                q = await db.execute(
+                    deps.select(deps.SessionPlayer).where(
+                        deps.SessionPlayer.session_id == sess.id,
+                        deps.SessionPlayer.player_id == player.id,
+                    )
+                )
+                sp = q.scalar_one_or_none()
+                if not sp:
+                    await ws_error("Not joined/active. Refresh page.", request_id=msg_request_id)
+                    continue
+                if sp.is_active is False:
+                    if action in ("leave", "quit", "exit"):
+                        await ws.close()
+                        return
+                    await ws_error("You are offline in this session", request_id=msg_request_id)
+                    continue
+
+                async def _process_leave_and_broadcast() -> None:
+                    if sess.current_player_id == player.id and bool(sess.is_active):
+                        await deps.advance_turn(db, sess)
+
+                    sp.is_active = False
+                    deps._remove_player_from_session_settings(sess, player.id)
+
+                    active_left = await deps.list_session_players(db, sess, active_only=True)
+                    if not active_left:
+                        sess.current_player_id = None
+                        sess.turn_started_at = None
+                        deps._clear_paused_remaining(sess)
+
+                    await db.commit()
+                    await deps.add_system_event(db, sess, f"Игрок {player.display_name} вышел из игры.")
+                    await deps.broadcast_state(session_id)
+
+                if action in ("leave", "quit", "exit"):
+                    await _process_leave_and_broadcast()
+                    await ws.close()
+                    return
+
+                deps._touch_last_seen(sess, player.id)
+                if action == "ping":
+                    await db.commit()
+                    continue
+                await db.commit()
+
+                # ready/unready actions (do not require game started)
+                if action in ("ready", "unready"):
+                    if action == "ready":
+                        my_char = await deps.get_character(db, sess.id, player.id)
+                        if not my_char:
+                            await ws_error("Create character first", request_id=msg_request_id)
+                            continue
+                    deps._set_ready(sess, player.id, action == "ready")
+                    await db.commit()
+                    await deps.add_system_event(db, sess, f"Готовность: игрок #{sp.join_order} — {'ГОТОВ' if action=='ready' else 'НЕ ГОТОВ'}.")
+                    await deps.broadcast_state(session_id)
+                    continue
+
+                # status: just broadcast
+                if action == "status":
+                    await deps.broadcast_state(session_id)
+                    continue
+
+                # Admin-only control actions
+                if action == "begin":
+                    if not await deps.is_admin(db, sess, player):
+                        await ws_error("Only admin can start")
+                        continue
+                    if sess.is_active:
+                        await ws_error("Already started")
+                        continue
+
+                    sps = await deps.list_session_players(db, sess, active_only=True)
+                    if not sps:
+                        await ws_error("No players")
+                        continue
+
+                    active_ids = [x.player_id for x in sps]
+                    missing_sps: list[deps.SessionPlayer] = []
+                    if active_ids:
+                        q_chars = await db.execute(
+                            deps.select(deps.Character).where(
+                                deps.Character.session_id == sess.id,
+                                deps.Character.player_id.in_(active_ids),
+                            )
+                        )
+                        char_ids = {ch.player_id for ch in q_chars.scalars().all()}
+                        missing_sps = [x for x in sps if x.player_id not in char_ids]
+                    if missing_sps:
+                        q_players = await db.execute(deps.select(deps.Player).where(deps.Player.id.in_([x.player_id for x in missing_sps])))
+                        names_by_id = {p.id: p.display_name for p in q_players.scalars().all()}
+                        missing_names = ", ".join(
+                            f"#{x.join_order} {names_by_id.get(x.player_id, str(x.player_id))}" for x in missing_sps
+                        )
+                        await deps.add_system_event(db, sess, f"Нельзя стартовать: персонаж не создан у {missing_names}.")
+                        await ws_error("Create character first", request_id=msg_request_id)
+                        await deps.broadcast_state(session_id)
+                        continue
+
+                    # all ready check
+                    ready_map = deps._get_ready_map(sess)
+                    if any(not bool(ready_map.get(str(x.player_id), False)) for x in sps):
+                        await ws_error("Not all players are ready")
+                        continue
+
+                    sess.is_active = True
+                    sess.is_paused = False
+                    sess.current_player_id = None
+                    sess.turn_started_at = None
+                    sess.turn_index = 1
+                    raw_story = deps.settings_get(sess, "story", {}) or {}
+                    if isinstance(raw_story, dict):
+                        deps.settings_set(sess, "free_turns", bool(raw_story.get("free_turns")))
+                    deps._set_phase(sess, "lore_pending")
+                    deps._clear_current_action_id(sess)
+                    deps._clear_paused_remaining(sess)
+                    await db.commit()
+                    await deps.add_system_event(db, sess, "Игра началась. Генерируем вступительную историю...")
+                    await deps.broadcast_state(session_id)
+                    deps.asyncio.create_task(deps._auto_lore_task(session_id))
+                    continue
+
+                if action == "pause":
+                    if not await deps.is_admin(db, sess, player):
+                        await ws_error("Only admin can pause")
+                        continue
+                    if sess.is_paused:
+                        await deps.broadcast_state(session_id)
+                        continue
+                    rem = await deps._compute_remaining(sess)
+                    if rem is not None:
+                        deps._set_paused_remaining(sess, rem)
+                    sess.is_paused = True
+                    await db.commit()
+                    await deps.add_system_event(db, sess, f"Пауза. Осталось: {rem if rem is not None else '—'} сек.")
+                    await deps.broadcast_state(session_id)
+                    continue
+
+                if action == "resume":
+                    if not await deps.is_admin(db, sess, player):
+                        await ws_error("Only admin can resume")
+                        continue
+                    if not sess.is_paused:
+                        await deps.broadcast_state(session_id)
+                        continue
+
+                    # continue timer from stored remaining
+                    stored = deps._get_paused_remaining(sess)
+                    if stored is not None and sess.current_player_id:
+                        stored = max(0, min(deps.TURN_TIMEOUT_SECONDS, int(stored)))
+                        elapsed = deps.TURN_TIMEOUT_SECONDS - stored
+                        sess.turn_started_at = deps.utcnow() - deps.timedelta(seconds=elapsed)
+                    else:
+                        # fallback: restart timer (or clear if no current player)
+                        sess.turn_started_at = deps.utcnow() if sess.current_player_id else None
+
+                    sess.is_paused = False
+                    deps._clear_paused_remaining(sess)
+                    await db.commit()
+                    await deps.add_system_event(db, sess, "Продолжили игру.")
+                    await deps.broadcast_state(session_id)
+                    continue
+
+                if action == "skip":
+                    if not await deps.is_admin(db, sess, player):
+                        await ws_error("Only admin can skip")
+                        continue
+                    if deps._get_phase(sess) == "gm_pending":
+                        await ws_error("Ждём ответа мастера...")
+                        continue
+                    if not sess.current_player_id:
+                        await ws_error("Not started")
+                        continue
+                    if sess.is_paused:
+                        await ws_error("Paused. Resume first.")
+                        continue
+
+                    nxt = await deps.advance_turn(db, sess)
+                    if not nxt:
+                        await ws_error("No players")
+                        continue
+                    await deps.add_system_event(db, sess, f"Ход пропущен. Следующий: #{nxt.join_order}.")
+                    await deps.broadcast_state(session_id)
+                    continue
+
+                if action.startswith("admin_combat_test_"):
+                    if not await deps.is_admin(db, sess, player):
+                        await ws_error("Only admin can run combat UI test")
+                        continue
+                    combat_patch, combat_err = deps.handle_admin_combat_test_action(action, session_id)
+                    if combat_err:
+                        await ws_error(combat_err)
+                        continue
+                    if combat_patch is not None:
+                        await deps.broadcast_state(session_id, combat_log_ui_patch=combat_patch)
+                        continue
+
+                lock = deps._get_session_gm_lock(session_id)
+                if action == "admin_combat_live_start":
+                    if not await deps.is_admin(db, sess, player):
+                        await ws_error("Only admin can run live combat")
+                        continue
+                    bootstrap_zone = "arena"
+                    bootstrap_enemies = [
+                        {"id": "band1", "name": "Разбойник", "hp": 18, "ac": 13, "init_mod": 2, "threat": 2},
+                    ]
+                    deps.settings_set(
+                        sess,
+                        "combat_live_bootstrap",
+                        {
+                            "zone": bootstrap_zone,
+                            "enemies": bootstrap_enemies,
+                        },
+                    )
+                    if sess.is_paused:
+                        sess.is_paused = False
+                        deps._clear_paused_remaining(sess)
+                        if sess.current_player_id and not sess.turn_started_at:
+                            sess.turn_started_at = deps.utcnow()
+                    await db.commit()
+                    gm_text = (
+                        f'@@COMBAT_START(zone="{bootstrap_zone}", cause="admin")\n'
+                        '@@COMBAT_ENEMY_ADD(id=band1, name="Разбойник", hp=18, ac=13, init_mod=2, threat=2)'
+                    )
+                    async with lock:
+                        before_state = deps.get_combat(session_id)
+                        before_active = bool(before_state and before_state.active)
+                        # If a previous combat is still active (often due to persisted restore),
+                        # hard-reset it so @@COMBAT_START is not ignored and we always start from round 1.
+                        if before_active:
+                            deps.end_combat(session_id)
+                            before_state = None
+                            before_active = False
+                        combat_patch = deps.apply_combat_machine_commands(session_id, gm_text)
+                        _uid_map, chars_by_uid, _ = await deps._load_actor_context(db, sess)
+                        deps.sync_pcs_from_chars(session_id, chars_by_uid)
+                        if combat_patch is None:
+                            combat_patch = {
+                                "reset": True,
+                                "open": True,
+                                "lines": [{"text": "Live бой запущен админом.", "muted": True}],
+                            }
+                        combat_state = deps.get_combat(session_id)
+                        after_active = bool(combat_state and combat_state.active)
+                        if after_active and combat_state is not None and combat_state.active:
+                            preamble_lines = deps._build_combat_start_preamble_lines(
+                                player=player,
+                                chars_by_uid=chars_by_uid,
+                                combat_state=combat_state,
+                            )
+                            if not isinstance(combat_patch, dict):
+                                combat_patch = {}
+                            patch_lines = combat_patch.get("lines")
+                            already = False
+                            if isinstance(patch_lines, list):
+                                for it in patch_lines:
+                                    t = None
+                                    if isinstance(it, dict):
+                                        t = it.get("text")
+                                    elif isinstance(it, str):
+                                        t = it
+                                    if isinstance(t, str) and (
+                                        t.startswith("Бой начался между") or t.startswith("Добавлен в бой:")
+                                    ):
+                                        already = True
+                                        break
+                            if preamble_lines and not already:
+                                combat_patch = deps._append_combat_patch_lines(combat_patch, preamble_lines, prepend=True)
+                            combat_patch["reset"] = True
+                        if combat_state is not None and combat_state.active:
+                            if combat_patch.get("reset") is True:
+                                combat_state.round_no = 1
+                                combat_state.turn_index = 0
+                            combat_patch["status"] = (
+                                f"⚔ Бой • Раунд {combat_state.round_no} • Ход: {deps.current_turn_label(combat_state)}"
+                            )
+                        await deps._broadcast_state_unlocked(session_id, combat_log_ui_patch=combat_patch)
+                    continue
+
+                if action == "admin_combat_live_end":
+                    if not await deps.is_admin(db, sess, player):
+                        await ws_error("Only admin can end live combat")
+                        continue
+                    async with lock:
+                        deps.end_combat(session_id)
+                        await deps._broadcast_state_unlocked(
+                            session_id,
+                            combat_log_ui_patch={
+                                "status": "Бой завершён",
+                                "open": False,
+                                "lines": [{"text": "Live бой завершён админом.", "muted": True}],
+                            },
+                        )
+                    continue
+
+                if action == "combat_log_clear":
+                    if not await deps.is_admin(db, sess, player):
+                        await ws_error("Only admin can clear combat log")
+                        continue
+                    state = deps.get_combat(session_id)
+                    lines = [{"text": "Журнал очищен.", "muted": True}]
+                    if state is not None and state.active:
+                        lines.append(
+                            {
+                                "text": f"⚔ Бой • Раунд {state.round_no} • Ход: {deps.current_turn_label(state)}",
+                                "muted": True,
+                                "kind": "status",
+                            }
+                        )
+                    patch = {"reset": True, "open": True, "lines": lines}
+                    await deps.broadcast_state(session_id, combat_log_ui_patch=patch)
+                    continue
+
+                if action in {
+                    "combat_attack",
+                    "combat_end_turn",
+                    "combat_dodge",
+                    "combat_dash",
+                    "combat_disengage",
+                    "combat_escape",
+                    "combat_use_object",
+                    "combat_help",
+                }:
+                    if not await deps.is_admin(db, sess, player):
+                        await ws_error("Only admin can use combat actions")
+                        continue
+                    async with lock:
+                        combat_patch, combat_err = deps.handle_live_combat_action(action, session_id)
+                        if combat_err:
+                            await ws_error(combat_err)
+                            continue
+                        if combat_patch:
+                            await deps._broadcast_state_unlocked(session_id, combat_log_ui_patch=combat_patch)
+                            continue
+
+                # chat / command parsing
+                if action != "say":
+                    await ws_error("Unknown action", request_id=msg_request_id)
+                    continue
+
+                if not text:
+                    continue
+
+                # normalize leading slash for typed commands
+                cmdline = text.lstrip()
+                if cmdline.startswith("/"):
+                    cmdline = cmdline[1:].lstrip()
+
+                lower = cmdline.lower()
+                if lower in deps.STATE_COMMAND_ALIASES:
+                    ch = await deps.get_character(db, sess.id, player.id)
+                    await deps.add_system_event(db, sess, deps._format_state_text_for_player(sess, player, ch))
+                    await deps.broadcast_state(session_id)
+                    continue
+
+                combat_action = deps._detect_chat_combat_action(text)
+                deps._maybe_restore_combat_state(sess, session_id)
+                combat_state = deps.get_combat(session_id)
+                if combat_state is None:
+                    bootstrap = deps.settings_get(sess, "combat_live_bootstrap", None)
+                    if isinstance(bootstrap, dict):
+                        zone_raw = str(bootstrap.get("zone") or "arena").strip() or "arena"
+                        zone = zone_raw.replace('"', '\\"')
+                        enemies = bootstrap.get("enemies")
+                        if isinstance(enemies, list):
+                            lines = [f'@@COMBAT_START(zone="{zone}", cause="bootstrap")']
+                            for enemy in enemies:
+                                if not isinstance(enemy, dict):
+                                    continue
+                                enemy_id = str(enemy.get("id") or "").strip()
+                                enemy_name = str(enemy.get("name") or "").strip()
+                                if not enemy_id or not enemy_name:
+                                    continue
+                                enemy_id_escaped = enemy_id.replace('"', '\\"')
+                                enemy_name_escaped = enemy_name.replace('"', '\\"')
+                                hp = max(1, deps.as_int(enemy.get("hp"), 1))
+                                ac = max(1, deps.as_int(enemy.get("ac"), 10))
+                                init_mod = deps.as_int(enemy.get("init_mod"), 0)
+                                threat = max(0, deps.as_int(enemy.get("threat"), 1))
+                                lines.append(
+                                    f'@@COMBAT_ENEMY_ADD(id={enemy_id_escaped}, name="{enemy_name_escaped}", '
+                                    f"hp={hp}, ac={ac}, init_mod={init_mod}, threat={threat})"
+                                )
+                            if len(lines) > 1:
+                                gm_text = "\n".join(lines)
+                                async with lock:
+                                    before_state = deps.get_combat(session_id)
+                                    before_active = bool(before_state and before_state.active)
+                                    combat_patch = deps.apply_combat_machine_commands(session_id, gm_text)
+                                    _uid_map, chars_by_uid, _ = await deps._load_actor_context(db, sess)
+                                    deps.sync_pcs_from_chars(session_id, chars_by_uid)
+                                    combat_state = deps.get_combat(session_id)
+                                    after_active = bool(combat_state and combat_state.active)
+                                    if after_active and combat_state is not None and combat_state.active:
+                                        preamble_lines = deps._build_combat_start_preamble_lines(
+                                            player=player,
+                                            chars_by_uid=chars_by_uid,
+                                            combat_state=combat_state,
+                                        )
+                                        if not isinstance(combat_patch, dict):
+                                            combat_patch = {}
+                                        patch_lines = combat_patch.get("lines")
+                                        already = False
+                                        if isinstance(patch_lines, list):
+                                            for it in patch_lines:
+                                                t = None
+                                                if isinstance(it, dict):
+                                                    t = it.get("text")
+                                                elif isinstance(it, str):
+                                                    t = it
+                                                if isinstance(t, str) and (
+                                                    t.startswith("Бой начался между") or t.startswith("Добавлен в бой:")
+                                                ):
+                                                    already = True
+                                                    break
+                                        if preamble_lines and not already:
+                                            combat_patch = deps._append_combat_patch_lines(combat_patch, preamble_lines, prepend=True)
+                                        combat_patch["reset"] = True
+                                        combat_patch["open"] = True
+                                        combat_patch["status"] = (
+                                            f"⚔ Бой • Раунд {combat_state.round_no} • Ход: {deps.current_turn_label(combat_state)}"
+                                        )
+                                        await deps._broadcast_state_unlocked(session_id, combat_log_ui_patch=combat_patch)
+                combat_active = bool(combat_state and combat_state.active)
+                start_intent = ("войти в бой" in lower) or lower.startswith("бой с") or ("начать бой" in lower)
+
+                if start_intent and combat_active:
+                    await ws_error("Бой уже идёт.")
+                    continue
+
+                if start_intent and not combat_active:
+                    actor_label = await deps._event_actor_label(db, sess, player)
+                    await deps.add_event(
+                        db,
+                        sess,
+                        f"{actor_label}: {text}",
+                        actor_player_id=player.id,
+                        result_json={
+                            "type": "player_action",
+                            "raw_text": text,
+                            "combat_chat_action": "start",
+                        },
+                    )
+                    await db.commit()
+
+                    enemy_name = "Разбойник" if "разбойник" in lower else ""
+                    if not enemy_name:
+                        enemy_match = deps.re.search(r"бой с\s+([^\n,.;:!?]+)", lower, flags=deps.re.IGNORECASE)
+                        if enemy_match:
+                            enemy_raw = enemy_match.group(1).strip(" \"'`")
+                            if enemy_raw:
+                                enemy_name = enemy_raw[:40].strip()
+                    if not enemy_name:
+                        enemy_name = "Разбойник"
+                    enemy_name = enemy_name[0].upper() + enemy_name[1:] if enemy_name else "Разбойник"
+
+                    enemy_name_escaped = enemy_name.replace('"', '\\"')
+                    gm_text = (
+                        '@@COMBAT_START(zone="arena", cause="bootstrap")\n'
+                        f'@@COMBAT_ENEMY_ADD(id=band1, name="{enemy_name_escaped}", hp=18, ac=13, init_mod=2, threat=2)'
+                    )
+                    async with lock:
+                        combat_patch = deps.apply_combat_machine_commands(session_id, gm_text)
+                        _uid_map, chars_by_uid, _ = await deps._load_actor_context(db, sess)
+                        deps.sync_pcs_from_chars(session_id, chars_by_uid)
+                        combat_state = deps.get_combat(session_id)
+                        if combat_patch is None:
+                            combat_patch = {}
+                        if combat_state and combat_state.active:
+                            preamble_lines = deps._build_combat_start_preamble_lines(
+                                player=player,
+                                chars_by_uid=chars_by_uid,
+                                combat_state=combat_state,
+                            )
+                            patch_lines = combat_patch.get("lines")
+                            already = False
+                            if isinstance(patch_lines, list):
+                                for it in patch_lines:
+                                    t = None
+                                    if isinstance(it, dict):
+                                        t = it.get("text")
+                                    elif isinstance(it, str):
+                                        t = it
+                                    if isinstance(t, str) and (
+                                        t.startswith("Бой начался между") or t.startswith("Добавлен в бой:")
+                                    ):
+                                        already = True
+                                        break
+                            if preamble_lines and not already:
+                                combat_patch = deps._append_combat_patch_lines(combat_patch, preamble_lines, prepend=True)
+
+                        combat_patch["reset"] = True
+                        combat_patch["open"] = True
+                        if combat_state and combat_state.active:
+                            combat_patch["status"] = (
+                                f"⚔ Бой • Раунд {combat_state.round_no} • Ход: {deps.current_turn_label(combat_state)}"
+                            )
+                        await deps._broadcast_state_unlocked(session_id, combat_log_ui_patch=combat_patch)
+
+                    ch = await deps.get_character(db, sess.id, player.id)
+                    player_name = (ch.name if ch and ch.name else player.display_name)
+                    facts_block = await deps._build_combat_scene_facts_for_llm(
+                        db,
+                        sess,
+                        player,
+                        enemy_name=enemy_name,
+                        max_lines=10,
+                    )
+                    prompt = (
+                        f"{deps._COMBAT_LOCK_PROMPT}\n\n"
+                        "ЗАПРЕЩЕНО ДОБАВЛЯТЬ НОВЫЕ СУЩНОСТИ:\n"
+                        "- никаких новых NPC (никаких 'человек', 'парень', 'толпа', 'стражник' и т.п.)\n"
+                        "- никаких новых предметов/оружия/именованных артефактов\n"
+                        "- можно упоминать оружие/предметы только если они есть в фактах сцены или в действии игрока\n"
+                        "Разрешено только:\n"
+                        "- ты\n"
+                        f"- {enemy_name}\n"
+                        "- нейтральное окружение (улица/двор/пыль/камни/фонари) без новых персонажей\n\n"
+                        "Сейчас идёт бой. Напиши вступление к схватке здесь и сейчас.\n"
+                        "Правила (строго):\n"
+                        "- Только бой здесь и сейчас.\n"
+                        "- НЕЛЬЗЯ: числа, кубики, HP, AC, урон, раунды, ходы, формулы.\n"
+                        "- 8-12 предложений, ровно 1 абзац.\n"
+                        "- Динамично, но без деталей инвентаря.\n"
+                        "- Пиши во 2 лице: 'ты'.\n"
+                        "- Герой текущего игрока всегда 'ты'. Нельзя писать про героя в 3-м лице по имени (запрещено 'Валерикус делает/устает/падает'). Имя героя можно упомянуть максимум 1 раз только как уточнение-метку, например: 'ты (Валерикус)...'.\n"
+                        "- Нельзя упоминать броню/экипировку/оружие, если этого нет в фактах или в действии игрока.\n"
+                        "- Последняя строка строго: Что делаете дальше?\n\n"
+                        f"Факты сцены (не выдумывать сверх этого):\n{facts_block}\n\n"
+                        f"Контекст: Ты вступаешь в бой с {enemy_name}. "
+                        f"Имя героя (для ориентира): {player_name}\n"
+                    )
+                    resp = await deps.generate_from_prompt(
+                        prompt=prompt,
+                        timeout_seconds=deps.GM_OLLAMA_TIMEOUT_SECONDS,
+                        num_predict=deps.GM_FINAL_NUM_PREDICT,
+                    )
+                    gm_text = deps._sanitize_gm_output(deps._strip_machine_lines(str(resp.get("text") or "").strip()))
+                    gm_text = deps.re.sub(r"(?im)^\s*@@COMBAT_[A-Z_]+.*$", "", gm_text).strip()
+
+                    has_mechanics = bool(
+                        deps.re.search(r"(?:\d|\bd20\b|\bhp\b|\bac\b|урон|бросок|раунд|ход)", gm_text, flags=deps.re.IGNORECASE)
+                    )
+                    has_forbidden_gear = deps._combat_text_mentions_forbidden_gear(
+                        gm_text,
+                        action_text=text,
+                        facts_block=facts_block,
+                    )
+                    has_markers = deps._has_start_intent_sanitary_markers(gm_text)
+                    needs_repair = deps._start_intent_text_needs_repair(gm_text)
+                    if has_markers or has_forbidden_gear or needs_repair:
+                        reprompt = (
+                            f"{prompt}\n"
+                            "Перепиши расширенно на 8–12 предложений, 1 абзац. "
+                            "Герой игрока всегда 'ты': не пиши про героя в 3-м лице по имени; имя можно упомянуть максимум 1 раз как метку вида 'ты (Имя)'. "
+                            "Запрещено: броня/экипировка/оружие, если этого нет в фактах или в действии игрока. "
+                            "Никаких новых сущностей. Только здесь-и-сейчас.\n"
+                            f"Черновик для переписывания:\n{gm_text}\n"
+                        )
+                        repair_resp = await deps.generate_from_prompt(
+                            prompt=reprompt,
+                            timeout_seconds=deps.GM_OLLAMA_TIMEOUT_SECONDS,
+                            num_predict=deps.GM_FINAL_NUM_PREDICT,
+                        )
+                        gm_text = deps._sanitize_gm_output(deps._strip_machine_lines(str(repair_resp.get("text") or "").strip()))
+                        gm_text = deps.re.sub(r"(?im)^\s*@@COMBAT_[A-Z_]+.*$", "", gm_text).strip()
+                        has_mechanics = bool(
+                            deps.re.search(r"(?:\d|\bd20\b|\bhp\b|\bac\b|урон|бросок|раунд|ход)", gm_text, flags=deps.re.IGNORECASE)
+                        )
+                        has_markers = deps._has_start_intent_sanitary_markers(gm_text)
+                        has_forbidden_gear = deps._combat_text_mentions_forbidden_gear(
+                            gm_text,
+                            action_text=text,
+                            facts_block=facts_block,
+                        )
+                        needs_repair = deps._start_intent_text_needs_repair(gm_text)
+                    if (
+                        not gm_text
+                        or has_mechanics
+                        or deps._looks_like_combat_drift(gm_text)
+                        or has_markers
+                        or has_forbidden_gear
+                        or needs_repair
+                    ):
+                        gm_text = deps.START_INTENT_FALLBACK_TEXT
+
+                    await deps.add_system_event(db, sess, f"🧙 GM: {gm_text}")
+                    await db.commit()
+                    await deps.broadcast_state(session_id)
+                    continue
+
+                phase_now = deps._get_phase(sess)
+                if phase_now == "lore_pending":
+                    await ws_error("Ждём вступительную историю...")
+                    continue
+                if phase_now == "gm_pending" and not combat_active:
+                    await ws_error("Ждём ответа мастера...")
+                    continue
+
+                # Combat Lock: during active combat only combat actions are allowed.
+                if combat_active:
+                    is_admin_user = await deps.is_admin(db, sess, player)
+                    if lower.startswith("ooc ") or cmdline.startswith("//"):
+                        pass
+                    elif (lower.startswith("gm ") or lower.startswith("gm:")) and is_admin_user:
+                        pass
+                    elif combat_action:
+                        actor_label = await deps._event_actor_label(db, sess, player)
+                        await deps.add_event(
+                            db,
+                            sess,
+                            f"{actor_label}: {text}",
+                            actor_player_id=player.id,
+                            result_json={
+                                "type": "player_action",
+                                "raw_text": text,
+                                "combat_chat_action": combat_action,
+                            },
+                        )
+                        await db.commit()
+
+                        player_uid = deps._player_uid(player)
+                        player_key = f"pc_{player_uid}" if player_uid is not None else ""
+                        turn_key: Optional[str] = None
+                        if combat_state and combat_state.order and 0 <= combat_state.turn_index < len(combat_state.order):
+                            turn_key = combat_state.order[combat_state.turn_index]
+                        if not turn_key or turn_key != player_key:
+                            current_name = deps.current_turn_label(combat_state) if combat_state else "другой участник"
+                            await deps.add_system_event(db, sess, f"Сейчас ходит {current_name}. Дождись своего хода.")
+                            await deps.broadcast_state(session_id)
+                            continue
+
+                        all_patches: list[dict[str, deps.Any]] = []
+                        async with lock:
+                            combat_patch, combat_err = deps.handle_live_combat_action(combat_action, session_id)
+                            if combat_err:
+                                await ws_error(combat_err, request_id=msg_request_id)
+                                continue
+                            if combat_patch:
+                                all_patches.append(combat_patch)
+
+                            while True:
+                                state_now = deps.get_combat(session_id)
+                                if not state_now or not state_now.active or not state_now.order:
+                                    break
+                                if state_now.turn_index < 0 or state_now.turn_index >= len(state_now.order):
+                                    break
+                                turn_key_now = state_now.order[state_now.turn_index]
+                                turn_actor = state_now.combatants.get(turn_key_now)
+                                if not turn_actor or turn_actor.side != "enemy":
+                                    break
+                                enemy_patch, enemy_err = deps.handle_live_combat_action("combat_attack", session_id)
+                                if enemy_err:
+                                    deps.logger.warning("enemy auto combat action failed", extra={"action": {"error": enemy_err}})
+                                    break
+                                if enemy_patch:
+                                    all_patches.append(enemy_patch)
+
+                            merged_patch = deps._merge_combat_patches(all_patches) if all_patches else None
+                            await deps._broadcast_state_unlocked(session_id, combat_log_ui_patch=merged_patch)
+                        facts = deps.extract_combat_narration_facts(merged_patch)
+                        if facts:
+                            required_fact_count = 3 if len(facts) >= 3 else len(facts)
+                            player_raw_action = str(text or "").strip()
+                            ch = await deps.get_character(db, sess.id, player.id)
+                            player_name = (ch.name if ch and ch.name else player.display_name)
+                            ended = any("бой заверш" in f.lower() or "победа" in f.lower() for f in facts)
+                            enemy_name_for_facts = "противник"
+                            state_for_facts = deps.get_combat(session_id)
+                            if state_for_facts and isinstance(state_for_facts.combatants, dict):
+                                for actor in state_for_facts.combatants.values():
+                                    if str(getattr(actor, "side", "")).lower() != "enemy":
+                                        continue
+                                    actor_name = str(getattr(actor, "name", "") or "").strip()
+                                    if actor_name:
+                                        enemy_name_for_facts = actor_name
+                                        break
+                            scene_facts_block = await deps._build_combat_scene_facts_for_llm(
+                                db,
+                                sess,
+                                player,
+                                enemy_name=enemy_name_for_facts,
+                                max_lines=10,
+                            )
+                            if not str(scene_facts_block or "").strip():
+                                scene_facts_block = "- Зона игрока: место рядом с тобой\n- Окружение: место рядом с тобой."
+                            text = await deps.gm_combat_narration.generate_combat_narration_from_facts(
+                                combat_lock_prompt=deps._COMBAT_LOCK_PROMPT,
+                                facts=facts,
+                                required_fact_count=required_fact_count,
+                                scene_facts_block=scene_facts_block,
+                                player_raw_action=deps._short_text(player_raw_action, 180),
+                                player_name=player_name,
+                                ended=ended,
+                                timeout_seconds=deps.GM_OLLAMA_TIMEOUT_SECONDS,
+                                num_predict=deps.GM_FINAL_NUM_PREDICT,
+                                mentions_forbidden_gear_fn=lambda candidate_text: deps._combat_text_mentions_forbidden_gear(
+                                    candidate_text,
+                                    action_text=player_raw_action,
+                                    facts_block=scene_facts_block,
+                                ),
+                            )
+                            if text:
+                                await deps.add_system_event(
+                                    db,
+                                    sess,
+                                    f"🧙 GM: {text}",
+                                    result_json={"type": "combat_narration", "facts": facts},
+                                )
+                                await db.commit()
+                                await deps.broadcast_state(session_id)
+                        continue
+                    else:
+                        await ws_error(
+                            "Combat Lock: в бою доступны только боевые команды (атака/конец хода/уклон/рывок/отход/помощь/побег) или OOC.",
+                            request_id=msg_request_id,
+                        )
+                        continue
+
+                # OOC (any time, no turn)
+                if lower.startswith("ooc ") or cmdline.startswith("//"):
+                    msg = cmdline[4:].strip() if lower.startswith("ooc ") else cmdline[2:].strip()
+                    await deps.add_event(db, sess, f"[OOC] {player.display_name} (#{sp.join_order}): {msg}")
+                    await deps.broadcast_state(session_id)
+                    continue
+
+                # GM (admin only, any time, no turn)
+                if lower.startswith("gm ") or lower.startswith("gm:"):
+                    if not await deps.is_admin(db, sess, player):
+                        await ws_error("Only admin can GM")
+                        continue
+                    msg = cmdline[2:].lstrip(":").strip()
+                    await deps.add_system_event(db, sess, f"🧙 GM: {msg}")
+                    await deps.broadcast_state(session_id)
+                    continue
+
+                if lower == "help":
+                    await deps.add_system_event(
+                        db,
+                        sess,
+                        "Команды: roll/adv/dis <1d20+3> (на своём ходу, не тратит ход), "
+                        "pass|end (на своём ходу, заканчивает ход), "
+                        "ooc <текст> или //текст (не тратит ход), "
+                        "gm <текст> (только админ), "
+                        "name <НовоеИмя> (не тратит ход), "
+                        "leave (выйти), kick <#> (админ), turn <#> (админ), "
+                        "init / init roll / init set <#> <val> / init start / init clear (админ)."
+                    )
+                    await deps.broadcast_state(session_id)
+                    continue
+
+                if lower == "char":
+                    await deps.add_system_event(
+                        db,
+                        sess,
+                        "deps.Character commands: char create <Name> [Class], me, hp <+N|-N|N>, sta <+N|-N|N>, "
+                        "stat <str|dex|con|int|wis|cha> <0..100>, check [adv|dis] <stat_or_skill> [dc N] (ручной бросок, опционально).",
+                    )
+                    await deps.broadcast_state(session_id)
+                    continue
+
+                m_char_create = deps.re.match(r"^char\s+create\s+(.+)$", cmdline, deps.re.IGNORECASE)
+                if m_char_create:
+                    payload = m_char_create.group(1).strip()
+                    if not payload:
+                        await ws_error("Usage: char create <Name> [Class]", request_id=msg_request_id)
+                        continue
+                    ch_existing = await deps.get_character(db, sess.id, player.id)
+                    if ch_existing:
+                        await ws_error("deps.Character already exists", request_id=msg_request_id)
+                        continue
+                    parts = payload.split()
+                    ch_name = parts[0][:80]
+                    ch_class = (parts[1] if len(parts) > 1 else "Adventurer")[:40]
+                    await deps.create_character(
+                        db,
+                        sess.id,
+                        player.id,
+                        name=ch_name,
+                        class_kit=ch_class,
+                        class_skin=ch_class,
+                    )
+                    await deps.add_system_event(db, sess, f"deps.Character created: {ch_name} ({ch_class}) for player #{sp.join_order}.")
+                    await deps.broadcast_state(session_id)
+                    continue
+
+                if lower == "me":
+                    ch = await deps.get_character(db, sess.id, player.id)
+                    if not ch:
+                        await ws_error("No character. Use: char create ...", request_id=msg_request_id)
+                        continue
+                    stats = deps._normalized_stats(ch.stats)
+                    await deps.add_system_event(
+                        db,
+                        sess,
+                        f"[ME] {ch.name} ({ch.class_kit}) lvl {int(ch.level or 1)} | "
+                        f"HP {int(ch.hp or 0)}/{int(ch.hp_max or 0)} | STA {int(ch.sta or 0)}/{int(ch.sta_max or 0)} | "
+                        f"STR {stats['str']} DEX {stats['dex']} CON {stats['con']} INT {stats['int']} WIS {stats['wis']} CHA {stats['cha']}",
+                    )
+                    await deps.broadcast_state(session_id)
+                    continue
+
+                m_res = deps.re.match(r"^(hp|sta)\s+([+-]?\d+)$", lower, deps.re.IGNORECASE)
+                if m_res:
+                    ch = await deps.get_character(db, sess.id, player.id)
+                    if not ch:
+                        await ws_error("No character. Use: char create ...", request_id=msg_request_id)
+                        continue
+                    key = m_res.group(1).lower()
+                    raw_val = m_res.group(2)
+                    delta_or_value = deps.as_int(raw_val, 0)
+                    cur_attr = "hp" if key == "hp" else "sta"
+                    max_attr = "hp_max" if key == "hp" else "sta_max"
+                    cur = deps.as_int(getattr(ch, cur_attr), 0)
+                    max_v = max(0, deps.as_int(getattr(ch, max_attr), 0))
+                    if raw_val.startswith("+") or raw_val.startswith("-"):
+                        nxt = deps._clamp(cur + delta_or_value, 0, max_v)
+                    else:
+                        nxt = deps._clamp(delta_or_value, 0, max_v)
+                    setattr(ch, cur_attr, nxt)
+                    await db.commit()
+                    await deps.add_system_event(db, sess, f"{ch.name}: {key.upper()} {cur}->{nxt}/{max_v}")
+                    await deps.broadcast_state(session_id)
+                    continue
+
+                if lower.startswith("stat "):
+                    parts = cmdline.split()
+                    if len(parts) < 3 or len(parts) > 4:
+                        await ws_error("Usage: stat <str|dex|con|int|wis|cha> <0..100>", request_id=msg_request_id)
+                        continue
+
+                    admin = await deps.is_admin(db, sess, player)
+                    target_sp = sp
+
+                    if len(parts) == 4:
+                        maybe_order = parts[1].lstrip("#")
+                        if not maybe_order.isdigit():
+                            await ws_error("Usage: stat #<order> <stat> <0..100>", request_id=msg_request_id)
+                            continue
+                        target_order = deps.as_int(maybe_order, 0)
+                        if target_order <= 0:
+                            await ws_error("Usage: stat #<order> <stat> <0..100>", request_id=msg_request_id)
+                            continue
+                        sps_all = await deps.list_session_players(db, sess, active_only=False)
+                        target_sp = next((x for x in sps_all if int(x.join_order or 0) == target_order), None)
+                        if not target_sp:
+                            await ws_error("deps.Player not found", request_id=msg_request_id)
+                            continue
+                        stat_key = parts[2].lower()
+                        stat_val = deps.as_int(parts[3], -1)
+                    else:
+                        stat_key = parts[1].lower()
+                        stat_val = deps.as_int(parts[2], -1)
+
+                    if stat_key not in deps.CHAR_STAT_KEYS:
+                        await ws_error("Unknown stat key", request_id=msg_request_id)
+                        continue
+                    if stat_val < 0 or stat_val > 100:
+                        await ws_error("Stat must be 0..100", request_id=msg_request_id)
+                        continue
+                    if sess.is_active and not admin:
+                        await ws_error("Only admin can change stats after start", request_id=msg_request_id)
+                        continue
+                    if not admin and target_sp.player_id != player.id:
+                        await ws_error("You can change only your own stats before start", request_id=msg_request_id)
+                        continue
+
+                    target_ch = await deps.get_character(db, sess.id, target_sp.player_id)
+                    if not target_ch:
+                        await ws_error("No character. Use: char create ...", request_id=msg_request_id)
+                        continue
+
+                    stats = deps._normalized_stats(target_ch.stats)
+                    old_val = stats.get(stat_key, 50)
+                    stats[stat_key] = stat_val
+                    target_ch.stats = stats
+                    await db.commit()
+                    await deps.add_system_event(
+                        db,
+                        sess,
+                        f"[STAT] #{target_sp.join_order} {target_ch.name}: {stat_key} {old_val}->{stat_val}",
+                    )
+                    await deps.broadcast_state(session_id)
+                    continue
+
+                if lower.startswith("check"):
+                    parts = cmdline.split()
+                    if len(parts) < 2:
+                        await ws_error("Usage: check [adv|dis] <stat_or_skill> [dc N]", request_id=msg_request_id)
+                        continue
+                    mode = "roll"
+                    idx = 1
+                    if idx < len(parts) and parts[idx].lower() in ("adv", "dis"):
+                        mode = parts[idx].lower()
+                        idx += 1
+                    if idx >= len(parts):
+                        await ws_error("Usage: check [adv|dis] <stat_or_skill> [dc N]", request_id=msg_request_id)
+                        continue
+
+                    key = parts[idx].lower()
+                    idx += 1
+                    while idx < len(parts) and not parts[idx].lower().startswith("dc"):
+                        key += f" {parts[idx].lower()}"
+                        idx += 1
+                    key = deps._normalize_check_name(key)
+                    dc: Optional[int] = None
+                    if idx < len(parts):
+                        tok = parts[idx].lower()
+                        if tok.startswith("dc"):
+                            if tok == "dc":
+                                if idx + 1 >= len(parts):
+                                    await ws_error("Usage: check ... dc <N>", request_id=msg_request_id)
+                                    continue
+                                dc = deps.as_int(parts[idx + 1], -1)
+                                idx += 2
+                            else:
+                                dc = deps.as_int(tok[2:], -1)
+                                idx += 1
+                        else:
+                            await ws_error("Usage: check [adv|dis] <stat_or_skill> [dc N]", request_id=msg_request_id)
+                            continue
+                    if idx != len(parts):
+                        await ws_error("Usage: check [adv|dis] <stat_or_skill> [dc N]", request_id=msg_request_id)
+                        continue
+                    if dc is not None and dc < 0:
+                        await ws_error("DC must be >= 0", request_id=msg_request_id)
+                        continue
+
+                    ch = await deps.get_character(db, sess.id, player.id)
+                    if not ch:
+                        await ws_error("No character. Use: char create ...", request_id=msg_request_id)
+                        continue
+
+                    def _manual_candidate_mod(candidate: str, skills_by_key: dict[str, deps.Skill]) -> int:
+                        if candidate in deps.CHAR_STAT_KEYS:
+                            return deps._ability_mod_from_stats(ch.stats, candidate)
+                        ability_key = deps.SKILL_TO_ABILITY.get(candidate)
+                        ability_mod = deps._ability_mod_from_stats(ch.stats, ability_key) if ability_key else 0
+                        sk = skills_by_key.get(candidate)
+                        skill_bonus = deps._skill_bonus_from_rank(sk.rank) if sk else 0
+                        return ability_mod + skill_bonus
+
+                    skills_by_key: dict[str, deps.Skill] = {}
+                    if "|" in key:
+                        candidates = [x.strip() for x in key.split("|") if x.strip()]
+                        if not candidates:
+                            mod = 0
+                        else:
+                            skill_candidates = [c for c in candidates if c not in deps.CHAR_STAT_KEYS]
+                            if skill_candidates:
+                                q_skills = await db.execute(
+                                    deps.select(deps.Skill).where(
+                                        deps.Skill.character_id == ch.id,
+                                        deps.Skill.skill_key.in_(skill_candidates),
+                                    )
+                                )
+                                skills_by_key = {str(sk.skill_key or "").strip().lower(): sk for sk in q_skills.scalars().all()}
+                            mod = max(_manual_candidate_mod(c, skills_by_key) for c in candidates)
+                    elif key in deps.CHAR_STAT_KEYS:
+                        mod = deps._ability_mod_from_stats(ch.stats, key)
+                    else:
+                        q_skill = await db.execute(
+                            deps.select(deps.Skill).where(
+                                deps.Skill.character_id == ch.id,
+                                deps.Skill.skill_key == key,
+                            )
+                        )
+                        sk = q_skill.scalar_one_or_none()
+                        ability_key = deps.SKILL_TO_ABILITY.get(key)
+                        ability_mod = deps._ability_mod_from_stats(ch.stats, ability_key) if ability_key else 0
+                        skill_bonus = deps._skill_bonus_from_rank(sk.rank) if sk else 0
+                        mod = ability_mod + skill_bonus
+
+                    if mode == "roll":
+                        roll = deps.random.randint(1, 20)
+                        total = roll + mod
+                        rolls_text = str(roll)
+                    else:
+                        ra = deps.random.randint(1, 20)
+                        rb = deps.random.randint(1, 20)
+                        roll = max(ra, rb) if mode == "adv" else min(ra, rb)
+                        total = roll + mod
+                        rolls_text = f"{ra}/{rb}->{roll}"
+
+                    msg = f"[CHECK] {ch.name}: {key} = {rolls_text} + {mod:+d} => {total}"
+                    if dc is not None:
+                        ok = total >= dc
+                        msg += f" (DC {dc}) {'SUCCESS' if ok else 'FAIL'}"
+                    await deps.add_system_event(db, sess, msg)
+                    await deps.broadcast_state(session_id)
+                    continue
+
+                # name change (any time)
+                m_name = deps.re.match(r"^name\s+(.+)$", lower, deps.re.IGNORECASE)
+                if m_name:
+                    new_name = cmdline.split(" ", 1)[1].strip()
+                    if new_name:
+                        player.display_name = new_name
+                        await db.commit()
+                        await deps.add_system_event(db, sess, f"Игрок #{sp.join_order} сменил имя на: {new_name}")
+                        await deps.broadcast_state(session_id)
+                    continue
+
+                # leave/quit/exit (any time)
+                if lower in ("leave", "quit", "exit"):
+                    await _process_leave_and_broadcast()
+                    await ws.close()
+                    return
+
+                # admin: kick <#>
+                if lower.startswith("kick "):
+                    if not await deps.is_admin(db, sess, player):
+                        await ws_error("Only admin can kick")
+                        continue
+                    arg = cmdline.split(" ", 1)[1].strip().lstrip("#")
+                    target_order = deps.as_int(arg, 0)
+                    if target_order <= 0:
+                        await ws_error("Usage: kick 2 or kick #2")
+                        continue
+
+                    # find target
+                    sps_all = await deps.list_session_players(db, sess, active_only=False)
+                    target_sp = next((x for x in sps_all if int(x.join_order or 0) == target_order), None)
+                    if not target_sp:
+                        await ws_error("deps.Player not found")
+                        continue
+                    if target_sp.player_id == player.id:
+                        await ws_error("You can't kick yourself")
+                        continue
+
+                    # mark kicked
+                    kicked = deps._get_kicked(sess)
+                    kicked.add(str(target_sp.player_id))
+                    deps._set_kicked(sess, kicked)
+
+                    target_sp.is_active = False
+                    await db.commit()
+                    deps._set_ready(sess, target_sp.player_id, False)
+                    await db.commit()
+
+                    await deps.add_system_event(db, sess, f"Игрок #{target_order} исключён (kick).")
+                    # if kicked player had the turn, advance
+                    if sess.current_player_id == target_sp.player_id and not sess.is_paused:
+                        nxt = await deps.advance_turn(db, sess)
+                        if nxt:
+                            await deps.add_system_event(db, sess, f"Ход передан следующему: #{nxt.join_order}.")
+                    await deps.broadcast_state(session_id)
+                    continue
+
+                # admin: turn/goto <#>
+                if lower.startswith("turn ") or lower.startswith("goto "):
+                    if not await deps.is_admin(db, sess, player):
+                        await ws_error("Only admin can change turn")
+                        continue
+                    arg = cmdline.split(" ", 1)[1].strip().lstrip("#")
+                    target_order = deps.as_int(arg, 0)
+                    if target_order <= 0:
+                        await ws_error("Usage: turn 2 or goto #2")
+                        continue
+                    target = await deps.set_turn_to_order(db, sess, target_order)
+                    if not target:
+                        await ws_error("deps.Player not found/active")
+                        continue
+                    await deps.add_system_event(db, sess, f"Админ передал ход игроку #{target.join_order}.")
+                    await deps.broadcast_state(session_id)
+                    continue
+
+                # initiative commands (admin)
+                if lower.startswith("init"):
+                    if not await deps.is_admin(db, sess, player):
+                        await ws_error("Only admin can manage initiative")
+                        continue
+                    parts = cmdline.split()
+                    sub = parts[1].lower() if len(parts) > 1 else ""
+
+                    sps_active = await deps.list_session_players(db, sess, active_only=True)
+                    init_map = deps._get_init_map(sess)
+                    # prefetch display names to avoid awaits in formatter
+                    pids_active = [spx.player_id for spx in sps_active]
+                    names: dict[str, str] = {}
+                    
+                    # pids_active должен быть UUID (players.id). Всё прочее игнорируем, чтобы не сломать запрос.
+                    uuid_ids: list[deps.uuid.UUID] = []
+                    for x in pids_active:
+                        if isinstance(x, deps.uuid.UUID):
+                            uuid_ids.append(x)
+                        else:
+                            try:
+                                uuid_ids.append(deps.uuid.UUID(str(x)))
+                            except Exception:
+                                pass
+                    uuid_ids = list(dict.fromkeys(uuid_ids))  # убираем дубли, сохраняя порядок
+
+                    if uuid_ids:
+                        qn = await db.execute(deps.select(deps.Player).where(deps.Player.id.in_(uuid_ids)))
+                        for p in qn.scalars().all():
+                            names[str(p.id)] = p.display_name
+                            if p.web_user_id is not None:
+                                names[str(p.web_user_id)] = p.display_name
+                    def _format_init(fixed: bool) -> str:
+                        rows = []
+                        header = ""
+                        if fixed:
+                            rnd = deps.as_int(deps.settings_get(sess, "round", 1), 1)
+                            header = f"Раунд: {rnd}\n"
+                        # order for display: if fixed, show initiative_order else by join_order
+                        if fixed:
+                            pids = _get_initiative_order(sess)
+                            # keep only active
+                            pids = [pid for pid in pids if pid in {spx.player_id for spx in sps_active}]
+                            # append missing actives
+                            for spx in sps_active:
+                                if spx.player_id not in pids:
+                                    pids.append(spx.player_id)
+                            for pid in pids:
+                                spx = next((x for x in sps_active if x.player_id == pid), None)
+                                if not spx:
+                                    continue
+                                nm = names.get(str(pid), str(pid))
+                                val = init_map.get(str(pid), 0)
+                                cur = " ← ход" if sess.current_player_id == pid else ""
+                                rows.append(f"  #{spx.join_order} {nm}: {val}{cur}")
+                        else:
+                            for spx in sps_active:
+                                nm = names.get(str(spx.player_id), str(spx.player_id))
+                                val = init_map.get(str(spx.player_id), 0)
+                                cur = " ← ход" if sess.current_player_id == spx.player_id else ""
+                                rows.append(f"  #{spx.join_order} {nm}: {val}{cur}")
+                        return (header + "\n".join(rows)) if rows else (header + "  (нет игроков)")
+
+                    if sub == "" or sub == "show":
+                        fixed = deps._initiative_fixed(sess)
+                        await deps.add_system_event(
+                            db,
+                            sess,
+                            f"Инициатива ({'зафиксирована' if fixed else 'не зафиксирована'}):\n{_format_init(fixed)}",
+                        )
+                        await deps.broadcast_state(session_id)
+                        continue
+
+                    if sub == "roll":
+                        for spx in sps_active:
+                            val = deps.random.randint(1, 20)
+                            deps._set_init_value(sess, spx.player_id, val)
+                        await db.commit()
+                        init_map = deps._get_init_map(sess)
+                        lines = []
+                        for spx in sps_active:
+                            nm = names.get(str(spx.player_id), str(spx.player_id))
+                            lines.append(f"  #{spx.join_order} {nm}: {init_map.get(str(spx.player_id), 0)}")
+                        await deps.add_system_event(db, sess, "Инициатива: всем брошено 1d20:\n" + "\n".join(lines))
+                        await deps.broadcast_state(session_id)
+                        continue
+
+                    if sub == "set" and len(parts) >= 4:
+                        target_order = deps.as_int(parts[2].lstrip("#"), 0)
+                        val = deps.as_int(parts[3], 0)
+                        target_sp = next((x for x in sps_active if int(x.join_order or 0) == target_order), None)
+                        if not target_sp:
+                            await ws_error("deps.Player not found/active")
+                            continue
+                        deps._set_init_value(sess, target_sp.player_id, val)
+                        await db.commit()
+                        nm = names.get(str(target_sp.player_id), str(target_sp.player_id))
+                        await deps.add_system_event(db, sess, f"Инициатива: игрок #{target_order} ({nm}) = {val}.")
+                        await deps.broadcast_state(session_id)
+                        continue
+
+                    if sub == "start":
+                        # fix order by initiative desc, then join_order asc
+                        init_map = deps._get_init_map(sess)
+                        scored = []
+                        for spx in sps_active:
+                            scored.append((init_map.get(str(spx.player_id), 0), int(spx.join_order or 0), spx.player_id))
+                        scored.sort(key=lambda x: (-x[0], x[1]))
+                        order = [pid for _, _, pid in scored]
+                        deps._set_initiative_order(sess, order)
+                        deps.settings_set(sess, "initiative_fixed", True)
+                        deps.settings_set(sess, "round", 1)
+                        await db.commit()
+
+                        # move turn to first in initiative
+                        first_pid = order[0] if order else None
+                        if first_pid:
+                            sess.is_active = True
+                            sess.current_player_id = first_pid
+                            sess.turn_started_at = deps.utcnow()
+                            sess.turn_index = (sess.turn_index or 0) + 1 if sess.turn_index else 1
+                            deps._clear_paused_remaining(sess)
+                            await db.commit()
+
+                        # log
+                        lines = []
+                        for pid in order:
+                            spx = next((x for x in sps_active if x.player_id == pid), None)
+                            if not spx:
+                                continue
+                            nm = names.get(str(pid), str(pid))
+                            lines.append(f"  #{spx.join_order} {nm}: {init_map.get(str(pid), 0)}")
+                        await deps.add_system_event(db, sess, "Инициатива зафиксирована. Порядок:\n" + "\n".join(lines))
+                        if first_pid:
+                            sp_first = next((x for x in sps_active if x.player_id == first_pid), None)
+                            if sp_first:
+                                await deps.add_system_event(db, sess, f"Ход по инициативе: игрок #{sp_first.join_order}.")
+                        await deps.broadcast_state(session_id)
+                        continue
+
+                    if sub == "clear":
+                        deps._clear_initiative(sess)
+                        await db.commit()
+                        await deps.add_system_event(db, sess, "Инициатива сброшена.")
+                        await deps.broadcast_state(session_id)
+                        continue
+
+                    await ws_error("Unknown init command")
+                    continue
+
+                if combat_active:
+                    actor_label = await deps._event_actor_label(db, sess, player)
+                    pid = str(player.id)
+                    current_zone = deps._get_pc_positions(sess).get(pid, "стартовая локация")
+                    new_zone_preview = current_zone
+                    payload = {
+                        "type": "player_action",
+                        "actor_uid": deps._player_uid(player),
+                        "actor_player_id": str(player.id),
+                        "join_order": int(sp.join_order or 0),
+                        "raw_text": text,
+                        "mode": "free_turns" if deps._is_free_turns(sess) else "turns",
+                        "phase": deps._get_phase(sess),
+                        "zone_before": current_zone,
+                        "zone_after": new_zone_preview,
+                        "turn_index": int(sess.turn_index or 0),
+                        "combat_chat_action": combat_action,
+                    }
+                    await deps.add_event(
+                        db,
+                        sess,
+                        f"{actor_label}: {text}",
+                        actor_player_id=player.id,
+                        result_json=payload,
+                    )
+                    await db.commit()
+                    await deps.broadcast_state(session_id)
+
+                    if combat_action:
+                        player_uid = deps._player_uid(player)
+                        player_key = f"pc_{player_uid}" if player_uid is not None else ""
+                        turn_key: Optional[str] = None
+                        if combat_state and combat_state.order and 0 <= combat_state.turn_index < len(combat_state.order):
+                            turn_key = combat_state.order[combat_state.turn_index]
+                        if not turn_key or turn_key != player_key:
+                            current_name = deps.current_turn_label(combat_state) if combat_state else "другой участник"
+                            await deps.add_system_event(db, sess, f"Сейчас ходит {current_name}. Дождись своего хода.")
+                            await deps.broadcast_state(session_id)
+                            continue
+
+                        all_patches: list[dict[str, deps.Any]] = []
+                        outcome_summary: list[str] = []
+                        combat_patch, combat_err = deps.handle_live_combat_action(combat_action, session_id)
+                        if combat_err:
+                            await ws_error(combat_err)
+                            continue
+                        if combat_patch:
+                            all_patches.append(combat_patch)
+                            outcome_summary.extend(deps._combat_outcome_summary_from_patch(combat_action, combat_patch))
+
+                        while True:
+                            state_now = deps.get_combat(session_id)
+                            if not state_now or not state_now.active or not state_now.order:
+                                break
+                            if state_now.turn_index < 0 or state_now.turn_index >= len(state_now.order):
+                                break
+                            turn_key_now = state_now.order[state_now.turn_index]
+                            turn_actor = state_now.combatants.get(turn_key_now)
+                            if not turn_actor or turn_actor.side != "enemy":
+                                break
+                            enemy_patch, enemy_err = deps.handle_live_combat_action("combat_attack", session_id)
+                            if enemy_err:
+                                deps.logger.warning("enemy auto combat action failed", extra={"action": {"error": enemy_err}})
+                                break
+                            if enemy_patch:
+                                all_patches.append(enemy_patch)
+                                outcome_summary.extend(deps._combat_outcome_summary_from_patch("combat_attack", enemy_patch))
+
+                        state_after_actions = deps.get_combat(session_id)
+                        if state_after_actions is None:
+                            # Keep combat_live_bootstrap in settings until explicit reset
+                            # (admin_combat_live_end or a dedicated reset command).
+                            pass
+
+                        merged_patch = deps._merge_combat_patches(all_patches) if all_patches else None
+                        await deps.broadcast_state(session_id, combat_log_ui_patch=merged_patch)
+                        state_for_prompt = state_after_actions
+                        story = deps.settings_get(sess, "story", {}) or {}
+                        if not isinstance(story, dict):
+                            story = {}
+                        campaign_title = str(story.get("story_title") or "").strip() or str(sess.title or "Campaign").strip() or "Campaign"
+                        turn_label = deps.current_turn_label(state_for_prompt) if state_for_prompt else "-"
+                        participants_block = deps._combat_participants_block(state_for_prompt)
+                        ch = await deps.get_character(db, sess.id, player.id)
+                        meta = deps._character_meta_from_stats(ch.stats) if ch else {"gender": "", "race": "", "description": ""}
+                        actor_gender = meta["gender"]
+                        actor_pronouns = deps._gender_to_pronouns(actor_gender) or "unknown"
+                        actor_name = str(ch.name).strip() if ch and str(ch.name or "").strip() else actor_label
+                        gm_text = await deps._generate_combat_narration(
+                            campaign_title=campaign_title,
+                            outcome_summary=outcome_summary,
+                            player_action=combat_action,
+                            current_turn=turn_label,
+                            participants_block=participants_block,
+                            actor_name=actor_name,
+                            actor_gender=actor_gender,
+                            actor_pronouns=actor_pronouns,
+                        )
+                        await deps.add_system_event(
+                            db,
+                            sess,
+                            f"🧙 GM: {gm_text}",
+                            result_json={
+                                "type": "combat_chat_gm_reply",
+                                "combat_action": combat_action,
+                                "combat_summary": outcome_summary,
+                            },
+                        )
+                        await deps.broadcast_state(session_id)
+                        continue
+
+                    player_uid = deps._player_uid(player)
+                    player_key = f"pc_{player_uid}" if player_uid is not None else ""
+                    state_now = deps.get_combat(session_id)
+                    turn_key_now = ""
+                    if state_now and state_now.order and 0 <= state_now.turn_index < len(state_now.order):
+                        turn_key_now = state_now.order[state_now.turn_index]
+                    if not turn_key_now or turn_key_now != player_key:
+                        current_name = deps.current_turn_label(state_now) if state_now else "другой участник"
+                        await deps.add_system_event(db, sess, f"Сейчас ходит {current_name}. Дождись своего хода.")
+                        await deps.broadcast_state(session_id)
+                        continue
+
+                    already_sent = await deps._combat_clarify_already_sent(db, sess, msg_request_id)
+                    settings = sess.settings if isinstance(sess.settings, dict) else {}
+                    if not isinstance(sess.settings, dict):
+                        sess.settings = settings
+                    marker_player_key = player_key or f"player_{player.id}"
+                    marker = f"{turn_key_now}:{marker_player_key}"
+                    previous_marker = str(settings.get("combat_clarify_marker") or "")
+                    if marker != previous_marker and not already_sent:
+                        settings["combat_clarify_marker"] = marker
+                        deps.flag_modified(sess, "settings")
+                        await db.commit()
+                        await deps.add_system_event(
+                            db,
+                            sess,
+                            deps.COMBAT_CLARIFY_TEXT,
+                            result_json={
+                                "type": "combat_chat_gm_reply",
+                                "combat_action": None,
+                                "combat_summary": ["Схватка продолжается в текущем темпе."],
+                                "request_id": str(msg_request_id or ""),
+                            },
+                        )
+                        await deps.broadcast_state(session_id)
+                    continue
+
+                # DICE (must be started, not paused, your turn) — does NOT end turn
+                dice = deps.parse_dice(cmdline)
+                if dice:
+                    if not sess.current_player_id:
+                        await ws_error("Game not started. Press Start.")
+                        continue
+                    if sess.is_paused:
+                        await ws_error("Paused.")
+                        continue
+                    if player.id != sess.current_player_id:
+                        await ws_error("Not your turn.")
+                        continue
+
+                    mode, n, sides, mod, expr = dice
+                    if mode == "roll":
+                        rolls = deps.roll_dice(n, sides)
+                        total = sum(rolls) + mod
+                        detail = ",".join(str(x) for x in rolls)
+                        await deps.add_system_event(db, sess, f"🎲 Игрок #{sp.join_order}: {expr} → {n}d{sides}({detail}){('+'+str(mod)) if mod>0 else (str(mod) if mod<0 else '')} = {total}")
+                        await deps.add_system_event(db, sess, "(ход не закончен)")
+                        await deps.broadcast_state(session_id)
+                        continue
+
+                    # adv/dis only meaningful for 1d20-ish but we allow any NdS as whole formula twice
+                    rolls_a = deps.roll_dice(n, sides)
+                    rolls_b = deps.roll_dice(n, sides)
+                    tot_a = sum(rolls_a) + mod
+                    tot_b = sum(rolls_b) + mod
+                    chosen = max(tot_a, tot_b) if mode == "adv" else min(tot_a, tot_b)
+                    da = ",".join(str(x) for x in rolls_a)
+                    dbb = ",".join(str(x) for x in rolls_b)
+                    tag = "adv" if mode == "adv" else "dis"
+                    pick = "большее" if mode == "adv" else "меньшее"
+                    await deps.add_system_event(
+                        db,
+                        sess,
+                        f"🎲 Игрок #{sp.join_order} ({tag}): {expr} → A: {n}d{sides}({da}){('+'+str(mod)) if mod>0 else (str(mod) if mod<0 else '')} = {tot_a}; "
+                        f"B: {n}d{sides}({dbb}){('+'+str(mod)) if mod>0 else (str(mod) if mod<0 else '')} = {tot_b}; ✅ берём {pick} = {chosen}"
+                    )
+                    await deps.add_system_event(db, sess, "(ход не закончен)")
+                    await deps.broadcast_state(session_id)
+                    continue
+
+                # PASS/END — ends turn
+                if lower in ("pass", "end"):
+                    if not sess.current_player_id:
+                        await ws_error("Game not started. Press Start.")
+                        continue
+                    if sess.is_paused:
+                        await ws_error("Paused.")
+                        continue
+                    if player.id != sess.current_player_id:
+                        await ws_error("Not your turn.")
+                        continue
+                    nxt = await deps.advance_turn(db, sess)
+                    if not nxt:
+                        await ws_error("No players")
+                        continue
+                    await deps.add_system_event(db, sess, f"Игрок #{sp.join_order} пропустил ход. Следующий: #{nxt.join_order}.")
+                    await deps.broadcast_state(session_id)
+                    continue
+
+                # Normal SAY — ends turn
+                if deps._is_free_turns(sess):
+                    phase = deps._get_phase(sess)
+                    if phase == "lore_pending":
+                        await ws_error("Ждём вступительную историю...")
+                        continue
+                    if phase == "gm_pending":
+                        await ws_error("Ждём ответа мастера...")
+                        continue
+                    if phase != "collecting_actions":
+                        await ws_error("Сейчас нельзя отправлять действие.")
+                        continue
+
+                    sps_active = await deps.list_session_players(db, sess, active_only=True)
+                    active_ids = {spx.player_id for spx in sps_active}
+                    if player.id not in active_ids:
+                        await ws_error("You are offline in this session", request_id=msg_request_id)
+                        continue
+                    ready_sps = deps._ready_active_players(sess, sps_active)
+                    ready_ids = {spx.player_id for spx in ready_sps}
+                    if player.id not in ready_ids:
+                        await ws_error("В этом раунде действие принимается только от READY игроков.")
+                        continue
+
+                    round_actions = deps._get_round_actions(sess)
+                    pid = str(player.id)
+                    if pid in round_actions:
+                        await ws_error("В этом раунде вы уже отправили действие.")
+                        continue
+
+                    gm_action_text, _moved, _encounter_patch = await deps._build_player_gm_action_text(
+                        db,
+                        sess,
+                        session_id,
+                        text,
+                        include_encounter_after_move=False,
+                    )
+                    round_actions[pid] = gm_action_text
+                    deps.settings_set(sess, "round_actions", round_actions)
+                    current_zone = deps._get_pc_positions(sess).get(pid, "стартовая локация")
+                    new_zone = deps.infer_zone_from_action(text, current_zone)
+                    deps._set_pc_zone(sess, player.id, new_zone)
+                    actor_label = await deps._event_actor_label(db, sess, player)
+                    payload = {
+                        "type": "player_action",
+                        "actor_uid": deps._player_uid(player),
+                        "actor_player_id": str(player.id),
+                        "join_order": int(sp.join_order or 0),
+                        "raw_text": gm_action_text,
+                        "mode": "free_turns",
+                        "phase": phase,
+                        "zone_before": current_zone,
+                        "zone_after": new_zone,
+                        "turn_index": int(sess.turn_index or 0),
+                        "combat_chat_action": combat_action,
+                    }
+                    await deps.add_event(
+                        db,
+                        sess,
+                        f"{actor_label}: {text}",
+                        actor_player_id=player.id,
+                        result_json=payload,
+                    )
+                    await db.commit()
+
+                    all_collected = bool(ready_sps) and all(str(spx.player_id) in round_actions for spx in ready_sps)
+                    if all_collected:
+                        action_id = deps._new_action_id()
+                        deps._set_current_action_id(sess, action_id)
+                        deps._set_phase(sess, "gm_pending")
+                        await db.commit()
+                        await deps.add_system_event(db, sess, "Мастер обрабатывает действия...")
+                        await deps.broadcast_state(session_id)
+                        deps.asyncio.create_task(deps._auto_round_task(session_id, action_id))
+                    else:
+                        await deps.broadcast_state(session_id)
+                    continue
+
+                if not sess.current_player_id:
+                    await ws_error("Game not started. Press Start.")
+                    continue
+                if sess.is_paused:
+                    await ws_error("Paused.")
+                    continue
+                if player.id != sess.current_player_id:
+                    await ws_error("Not your turn.")
+                    continue
+
+                actor_label = await deps._event_actor_label(db, sess, player)
+                pid = str(player.id)
+                phase = deps._get_phase(sess)
+                current_zone = deps._get_pc_positions(sess).get(pid, "стартовая локация")
+                new_zone = deps.infer_zone_from_action(text, current_zone)
+                deps._set_pc_zone(sess, player.id, new_zone)
+                gm_action_text, _moved, encounter_patch = await deps._build_player_gm_action_text(
+                    db,
+                    sess,
+                    session_id,
+                    text,
+                    include_encounter_after_move=True,
+                )
+                payload = {
+                    "type": "player_action",
+                    "actor_uid": deps._player_uid(player),
+                    "actor_player_id": str(player.id),
+                    "join_order": int(sp.join_order or 0),
+                    "raw_text": gm_action_text,
+                    "mode": "free_turns" if deps._is_free_turns(sess) else "turns",
+                    "phase": phase,
+                    "zone_before": current_zone,
+                    "zone_after": new_zone,
+                    "turn_index": int(sess.turn_index or 0),
+                    "combat_chat_action": combat_action,
+                }
+                await deps.add_event(
+                    db,
+                    sess,
+                    f"{actor_label}: {text}",
+                    actor_player_id=player.id,
+                    result_json=payload,
+                )
+                action_id = deps._new_action_id()
+                deps._set_current_action_id(sess, action_id)
+                deps._set_phase(sess, "gm_pending")
+                sess.turn_started_at = None
+                await db.commit()
+                await deps.add_system_event(db, sess, "Мастер обрабатывает действие...")
+                await deps.broadcast_state(session_id, combat_log_ui_patch=encounter_patch)
+                deps.asyncio.create_task(deps._auto_gm_reply_task(session_id, action_id))
+                continue
+
+    except deps.WebSocketDisconnect:
+        deps.manager.disconnect(session_id, ws)
+    except Exception:
+        deps.manager.disconnect(session_id, ws)
+        raise
