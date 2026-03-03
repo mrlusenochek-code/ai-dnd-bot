@@ -3331,7 +3331,7 @@ async def _grant_combat_rewards_once(
     return True
 
 
-async def broadcast_state(
+async def _broadcast_state_unlocked(
     session_id: str,
     combat_log_ui_patch: Optional[dict[str, Any]] = None,
 ) -> None:
@@ -3399,6 +3399,15 @@ async def broadcast_state(
     if combat_log_ui_patch is not None:
         state["combat_log_ui_patch"] = combat_log_ui_patch
     await manager.broadcast_json(session_id, state)
+
+
+async def broadcast_state(
+    session_id: str,
+    combat_log_ui_patch: Optional[dict[str, Any]] = None,
+) -> None:
+    lock = _get_session_gm_lock(session_id)
+    async with lock:
+        await _broadcast_state_unlocked(session_id, combat_log_ui_patch=combat_log_ui_patch)
 
 
 async def send_state_to_ws(
@@ -3813,7 +3822,7 @@ async def _auto_round_task(session_id: str, expected_action_id: str) -> None:
                     _set_phase(sess, "collecting_actions")
                     _clear_current_action_id(sess)
                     await db.commit()
-                    await broadcast_state(session_id)
+                    await _broadcast_state_unlocked(session_id)
                     return
 
                 sps = await list_session_players(db, sess, active_only=True)
