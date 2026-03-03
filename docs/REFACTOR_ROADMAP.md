@@ -66,6 +66,28 @@
 ## Этап B. Конкурентность и критические секции
 
 ### Стратегия per-session lock
+### Актуальная реализация session lock (и правила без дедлоков)
+
+Сейчас в коде используется один per-session lock:
+
+- `asyncio.Lock` на `session_id`: `_get_session_gm_lock(session_id)` (см. `app/web/server.py`).
+- Этот lock используется как “мутационный” для одной сессии:
+  - сериализация `broadcast_state(...)` (внутри `broadcast_state` берётся lock),
+  - боевые мутации в `ws_room` (ветки `apply_combat_machine_commands`, `handle_live_combat_action`, `end_combat`),
+  - фоновые GM-задачи (`_auto_gm_reply_task`, `_auto_round_task`) и их критические секции.
+
+Правила (строго):
+- **НЕЛЬЗЯ** вызывать `broadcast_state(...)` внутри `async with _get_session_gm_lock(session_id):`  
+  (будет дедлок, потому что `broadcast_state` берёт lock внутри себя).
+- Если lock уже взят — вызывать **только** `_broadcast_state_unlocked(...)`.
+- Любая новая ветка, которая мутирует боёвку (in-memory combat state) или делает важные изменения в `sessions.settings`,
+  должна быть сериализована per-session lock’ом.
+- **LLM вызовы** (`generate_from_prompt`, `gm_combat_narration...`) должны быть **вне** lock’а. Lock держим только на короткую
+  секцию: “мутация → (unlocked) broadcast”.
+- Текущий компромисс: отправка состояния в WS (`manager.broadcast_json`) сейчас происходит внутри `_broadcast_state_unlocked`,
+  значит lock может держаться во время отправки. Это упрощает порядок/атомарность, но может увеличивать задержки.
+  Будущая оптимизация: собирать payload под lock, а отправку делать после release (потребует контроля порядка через revision).
+
 - Ввести единый registry lock-ов: `SessionLockRegistry`.
 - Ключ lock: `session_id` (UUID string).
 - Использовать один базовый lock для всех mutation paths:

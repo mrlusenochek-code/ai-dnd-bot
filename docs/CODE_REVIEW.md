@@ -69,20 +69,23 @@
 ## 4) Риски и слабые места
 
 ### 4.1 Конкурентность и гонки
-1. Lock покрывает только часть путей.
-- `_get_session_gm_lock` используется в `_auto_gm_reply_task`/`_auto_round_task`, но не охватывает watcher-задачи, большую часть `ws_room` и live combat mutations.
-- Последствие: параллельные мутации `sessions.settings` и `_COMBAT_BY_SESSION` из разных корутин.
+1. Per-session lock теперь реально используется на hot-path.
+- `broadcast_state(...)` сериализован per-session lock’ом, чтобы не было параллельной выдачи rewards/defeat и гонок при persist combat snapshot.
+- В `ws_room` боевые мутации (`apply_combat_machine_commands`, `handle_live_combat_action`, `end_combat`) выполняются под тем же lock’ом.
+- В фоновых GM-задачах критические секции также под lock’ом, а broadcast внутри lock делается через `_broadcast_state_unlocked(...)`.
 
-2. In-memory combat state без per-session combat lock.
-- `handle_live_combat_action` и `apply_combat_machine_commands` мутируют общий dict состояния без отдельного синхронизатора.
-- Потенциально конфликтует с одновременными WS-командами, bootstrap restore и broadcast persistence.
+2. Важное правило (иначе дедлок).
+- `broadcast_state(...)` берёт lock внутри себя, поэтому **нельзя** вызывать `broadcast_state(...)` под `async with _get_session_gm_lock(...)`.
+- Внутри lock использовать только `_broadcast_state_unlocked(...)`.
 
-3. Watchers могут пересекаться с WS потоком.
-- `timer_watcher` и `inactive_watcher` двигают ходы/active flags и сразу вызывают `broadcast_state`, пока `ws_room` может обрабатывать пользовательскую команду для той же сессии.
+3. Что всё ещё остаётся риском/долгом.
+- Watchers (`timer_watcher`, `inactive_watcher`) делают мутации сессии до вызова `broadcast_state`; сам broadcast сериализован, но изменения до него всё ещё могут пересекаться с WS/GM путями.
+- Lock сейчас может держаться во время отправки state по WS (см. `_broadcast_state_unlocked` → `manager.broadcast_json`), что увеличивает время удержания lock при медленных клиентах.
+- In-memory combat state всё ещё проблемен для multi-worker/scale-out: разные процессы не разделяют `_COMBAT_BY_SESSION`.
 
-4. `broadcast_state` смешивает persist+side effects.
-- Внутри одной функции: normalize patch, reward/defeat mutations, commit, build_state, broadcast.
-- При конкурентном входе это повышает вероятность reorder эффектов.
+4. Практическая рекомендация на будущее.
+- Любая новая мутация боёвки/critical settings должна попадать под per-session lock.
+- Любые LLM/долгие операции — вне lock, с повторной проверкой `action_id/phase` перед применением результата.
 
 ### 4.2 Потеря состояния при рестарте
 - Active combat runtime хранится в памяти процесса (`_COMBAT_BY_SESSION`); `sessions.settings` хранит только snapshot.
