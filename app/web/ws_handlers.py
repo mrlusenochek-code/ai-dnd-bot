@@ -2,6 +2,7 @@ import json
 from typing import Optional
 
 from fastapi import WebSocket, WebSocketDisconnect
+from app.web.session_lock import get_session_lock
 from app.web.ws_manager import manager
 
 
@@ -268,7 +269,7 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                         await deps.broadcast_state(session_id, combat_log_ui_patch=combat_patch)
                         continue
 
-                lock = deps._get_session_gm_lock(session_id)
+                lock = get_session_lock(session_id)
                 if action == "admin_combat_live_start":
                     if not await deps.is_admin(db, sess, player):
                         await ws_error("Only admin can run live combat")

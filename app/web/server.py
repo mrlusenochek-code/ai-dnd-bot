@@ -54,6 +54,7 @@ from app.web.machine_lines import (
     _split_machine_args,
     _strip_machine_lines,
 )
+from app.web.session_lock import get_session_lock
 from app.web.ws_manager import manager
 from app.web.inventory_helpers import (
     _normalize_inventory_def,
@@ -382,15 +383,6 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(lifespan=lifespan)
-_GM_SESSION_LOCKS: dict[str, asyncio.Lock] = {}
-
-
-def _get_session_gm_lock(session_id: str) -> asyncio.Lock:
-    lock = _GM_SESSION_LOCKS.get(session_id)
-    if lock is None:
-        lock = asyncio.Lock()
-        _GM_SESSION_LOCKS[session_id] = lock
-    return lock
 
 
 def _new_request_id() -> str:
@@ -3371,7 +3363,7 @@ async def broadcast_state(
     session_id: str,
     combat_log_ui_patch: Optional[dict[str, Any]] = None,
 ) -> None:
-    lock = _get_session_gm_lock(session_id)
+    lock = get_session_lock(session_id)
     async with lock:
         await _broadcast_state_unlocked(session_id, combat_log_ui_patch=combat_log_ui_patch)
 
@@ -3489,7 +3481,7 @@ async def _auto_gm_reply_task(session_id: str, expected_action_id: str) -> None:
     tok_rid = request_id_var.set(_new_request_id())
     tok_sid = session_id_var.set(session_id)
     try:
-        lock = _get_session_gm_lock(session_id)
+        lock = get_session_lock(session_id)
         async with lock:
             async with AsyncSessionLocal() as db:
                 sess = await get_session(db, session_id)
@@ -3765,7 +3757,7 @@ async def _auto_round_task(session_id: str, expected_action_id: str) -> None:
     tok_rid = request_id_var.set(_new_request_id())
     tok_sid = session_id_var.set(session_id)
     try:
-        lock = _get_session_gm_lock(session_id)
+        lock = get_session_lock(session_id)
         async with lock:
             async with AsyncSessionLocal() as db:
                 sess = await get_session(db, session_id)
