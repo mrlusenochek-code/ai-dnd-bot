@@ -3679,7 +3679,7 @@ async def _auto_gm_reply_task(session_id: str, expected_action_id: str) -> None:
                 _clear_current_action_id(sess)
                 await db.commit()
 
-        await broadcast_state(session_id, combat_log_ui_patch=combat_log_ui_patch)
+        await _broadcast_state_unlocked(session_id, combat_log_ui_patch=combat_log_ui_patch)
     except Exception:
         logger.exception("auto gm reply task failed")
     finally:
@@ -3974,7 +3974,7 @@ async def _auto_round_task(session_id: str, expected_action_id: str) -> None:
                             await add_system_event(db, sess, f"Следующий ход: игрок #{first.join_order}.")
                     await db.commit()
 
-        await broadcast_state(session_id, combat_log_ui_patch=combat_log_ui_patch)
+        await _broadcast_state_unlocked(session_id, combat_log_ui_patch=combat_log_ui_patch)
     except Exception:
         logger.exception("auto round task failed")
         try:
