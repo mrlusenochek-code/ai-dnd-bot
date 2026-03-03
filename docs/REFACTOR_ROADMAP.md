@@ -26,6 +26,10 @@
   - `build_state`, `broadcast_state`, `send_state_to_ws`, combat_log_history persistence helpers.
 - `app/web/session_state.py`
   - `settings_get/settings_set`, phase/ready/initiative helpers, typed accessors к `sessions.settings`.
+  - `app/web/constants.py`
+  - Единый источник ключей/лимитов web-state (без дублей в модулях).
+  - Сейчас хранит: `COMBAT_LOG_HISTORY_KEY`, `COMBAT_STATE_KEY`, `MAX_COMBAT_LOG_LINES`.
+  - Используется `server.py`, `state_builder.py`, тестами (через re-export из `server.py`).
 
 ### Таблица переноса
 | Что переносим из `server.py` | Куда | Комментарий |

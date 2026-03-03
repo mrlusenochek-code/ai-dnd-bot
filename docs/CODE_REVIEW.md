@@ -15,6 +15,8 @@
   - WS endpoint `ws_room` с обработкой всех команд/фаз/боевых веток ([app/web/server.py](/home/lus/code/ai-dnd-bot/app/web/server.py#L5125)).
   - Auto-GM задачи: `_auto_gm_reply_task`, `_auto_round_task`, `_auto_lore_task` ([app/web/server.py](/home/lus/code/ai-dnd-bot/app/web/server.py#L4164), [app/web/server.py](/home/lus/code/ai-dnd-bot/app/web/server.py#L4440), [app/web/server.py](/home/lus/code/ai-dnd-bot/app/web/server.py#L4332)).
   - UI state assembly: `build_state` и `broadcast_state` ([app/web/server.py](/home/lus/code/ai-dnd-bot/app/web/server.py#L3452), [app/web/server.py](/home/lus/code/ai-dnd-bot/app/web/server.py#L3985)).
+  - `app/web/state_builder.py` — сборка state и рассылка (build_state + broadcast/send), а также persist/restore боевого snapshot и combat log history.
+  - `app/web/constants.py` — общий модуль ключей/лимитов для web/state (например `COMBAT_STATE_KEY`, `COMBAT_LOG_HISTORY_KEY`, `MAX_COMBAT_LOG_LINES`) чтобы не было дублей и расхождений.
 
 ### 1.2 GM слой (`app/gm/*`)
 - `service.run_two_pass` — основной двухпроходный pipeline (draft -> checks/xp/skills -> finalize + repair guards) ([service.py](/home/lus/code/ai-dnd-bot/app/gm/service.py#L383)).
