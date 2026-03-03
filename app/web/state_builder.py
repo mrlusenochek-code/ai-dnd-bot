@@ -2,9 +2,161 @@ import json
 from typing import Any, Optional
 
 from fastapi import WebSocket
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.db.models import Character, Event, Player, Session, Skill
 
 from app.web.session_lock import get_session_lock
 from app.web.ws_manager import manager
+
+
+async def build_state(db: AsyncSession, sess: Session) -> dict:
+    import app.web.server as deps
+
+    all_sps = await deps.list_session_players(db, sess, active_only=False)
+    kicked = deps._get_kicked(sess)
+    all_sps = [sp for sp in all_sps if str(sp.player_id) not in kicked]
+    active_sps = [sp for sp in all_sps if sp.is_active is not False]
+    player_ids = [sp.player_id for sp in all_sps]
+
+    players_by_id: dict = {}
+    if player_ids:
+        q = await db.execute(select(Player).where(Player.id.in_(player_ids)))
+        players_by_id = {p.id: p for p in q.scalars().all()}
+    chars_by_player_id: dict = {}
+    skills_by_character_id: dict = {}
+    if player_ids:
+        q_chars = await db.execute(
+            select(Character).where(
+                Character.session_id == sess.id,
+                Character.player_id.in_(player_ids),
+            )
+        )
+        chars = q_chars.scalars().all()
+        for ch in chars:
+            chars_by_player_id[ch.player_id] = ch
+        char_ids = [ch.id for ch in chars]
+        if char_ids:
+            q_skills = await db.execute(select(Skill).where(Skill.character_id.in_(char_ids)))
+            for skill in q_skills.scalars().all():
+                skills_by_character_id.setdefault(skill.character_id, []).append(skill)
+
+    q2 = await db.execute(
+        select(Event)
+        .where(Event.session_id == sess.id)
+        .order_by(Event.created_at.desc())
+        .limit(250)
+    )
+
+    events_desc = q2.scalars().all()
+    events = list(reversed(events_desc))
+
+    remaining = None
+    if sess.turn_started_at and not sess.is_paused and sess.current_player_id:
+        elapsed = (deps.utcnow() - sess.turn_started_at).total_seconds()
+        remaining = max(0, int(deps.TURN_TIMEOUT_SECONDS - elapsed))
+
+    cur_order = None
+    for sp in active_sps:
+        if sp.player_id == sess.current_player_id:
+            cur_order = sp.join_order
+            break
+
+    current_uid = None
+    if sess.current_player_id:
+        current_uid = deps._player_uid(players_by_id.get(sess.current_player_id))
+
+    ready_map = deps._get_ready_map(sess)
+    init_map = deps._get_init_map(sess)
+    last_seen_map = deps._get_last_seen_map(sess)
+
+    all_ready = True
+    if active_sps:
+        for sp in active_sps:
+            if not bool(ready_map.get(str(sp.player_id), False)):
+                all_ready = False
+                break
+    else:
+        all_ready = False
+
+    can_begin = all_ready and not bool(sess.current_player_id) and not bool(sess.is_active)
+    free_turns = deps._is_free_turns(sess)
+    phase = deps._get_phase(sess)
+    round_actions = deps._get_round_actions(sess)
+    round_participants = deps._ready_active_players(sess, active_sps) if free_turns else active_sps
+    actions_total = len(round_participants)
+    actions_done = sum(1 for sp in round_participants if str(sp.player_id) in round_actions)
+    positions = deps._get_pc_positions(sess)
+    players_payload = []
+    for sp in all_sps:
+        pl = players_by_id.get(sp.player_id)
+        char = chars_by_player_id.get(sp.player_id)
+        char_payload = deps._char_to_payload(char)
+        if char and char_payload is not None:
+            char_payload["level_progress"] = deps._level_progress_payload(char)
+            char_payload["skills"] = deps._skills_payload_for_character(char, skills_by_character_id.get(char.id, []))
+        players_payload.append(
+            {
+                "id": str(sp.player_id),
+                "uid": deps._player_uid(pl),
+                "name": (pl.display_name if pl else str(sp.player_id)),
+                "order": int(sp.join_order or 0),
+                "is_admin": bool(sp.is_admin),
+                "is_current": (sp.is_active is not False) and sp.player_id == sess.current_player_id,
+                "is_active": sp.is_active is not False,
+                "is_ready": bool(ready_map.get(str(sp.player_id), False)) if sp.is_active is not False else False,
+                "initiative": init_map.get(str(sp.player_id)) if sp.is_active is not False else None,
+                "last_seen": last_seen_map.get(str(sp.player_id)),
+                "char": char_payload,
+                "has_character": char is not None,
+                "zone": positions.get(str(sp.player_id), "стартовая локация"),
+            }
+        )
+
+    pc_positions: dict[str, str] = {}
+    for sp in all_sps:
+        pl = players_by_id.get(sp.player_id)
+        uid = deps._player_uid(pl)
+        key = str(uid) if uid is not None else str(sp.player_id)
+        zone = positions.get(str(sp.player_id), "стартовая локация")
+        pc_positions[key] = zone
+
+    return {
+        "type": "state",
+        "session": {
+            "id": str(sess.id),
+            "title": sess.title,
+            "is_active": bool(sess.is_active),
+            "requires_character": True,
+            "is_paused": bool(sess.is_paused),
+            "turn_index": int(sess.turn_index or 0),
+            "current_order": (int(cur_order) if cur_order is not None else None),
+            "current_uid": current_uid,
+            "remaining_seconds": remaining,
+            "all_ready": bool(all_ready),
+            "can_begin": bool(can_begin),
+            "initiative_fixed": deps._initiative_fixed(sess),
+            "round": (deps.as_int(deps.settings_get(sess, "round", 0), 0) or 1) if deps._initiative_fixed(sess) else None,
+        },
+        "players": players_payload,
+        "events": [
+            {
+                "turn": int(e.turn_index or 0),
+                "text": e.message_text,
+                "ts": e.created_at.isoformat(),
+            }
+            for e in events
+        ],
+        "game": {
+            "free_turns": free_turns,
+            "phase": phase,
+            "free_round": deps._get_free_round(sess) if free_turns else None,
+            "actions_done": actions_done,
+            "actions_total": actions_total,
+            "pc_positions": pc_positions,
+        },
+    }
 
 
 async def _broadcast_state_unlocked(
@@ -73,7 +225,7 @@ async def _broadcast_state_unlocked(
         changed = deps._persist_combat_state(sess, session_id) or changed
         if changed:
             await db.commit()
-        state = await deps.build_state(db, sess)
+        state = await build_state(db, sess)
     if combat_log_ui_patch is not None:
         state["combat_log_ui_patch"] = combat_log_ui_patch
     await manager.broadcast_json(session_id, state)
@@ -100,7 +252,7 @@ async def send_state_to_ws(
         if not sess:
             return
         deps._maybe_restore_combat_state(sess, session_id)
-        state = await deps.build_state(db, sess)
+        state = await build_state(db, sess)
         if combat_log_ui_patch is None:
             snapshot = deps._combat_log_snapshot_patch(sess)
             if snapshot:
