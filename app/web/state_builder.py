@@ -6,6 +6,16 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models import Character, Event, Player, Session, Skill
+from app.web.session_state import (
+    settings_get,
+    settings_set,
+    _get_ready_map,
+    _get_init_map,
+    _get_last_seen_map,
+    _get_pc_positions,
+    _get_phase,
+    _initiative_fixed,
+)
 
 from app.web.session_lock import get_session_lock
 from app.web.ws_manager import manager
@@ -67,9 +77,9 @@ async def build_state(db: AsyncSession, sess: Session) -> dict:
     if sess.current_player_id:
         current_uid = deps._player_uid(players_by_id.get(sess.current_player_id))
 
-    ready_map = deps._get_ready_map(sess)
-    init_map = deps._get_init_map(sess)
-    last_seen_map = deps._get_last_seen_map(sess)
+    ready_map = _get_ready_map(sess)
+    init_map = _get_init_map(sess)
+    last_seen_map = _get_last_seen_map(sess)
 
     all_ready = True
     if active_sps:
@@ -82,12 +92,12 @@ async def build_state(db: AsyncSession, sess: Session) -> dict:
 
     can_begin = all_ready and not bool(sess.current_player_id) and not bool(sess.is_active)
     free_turns = deps._is_free_turns(sess)
-    phase = deps._get_phase(sess)
+    phase = _get_phase(sess)
     round_actions = deps._get_round_actions(sess)
     round_participants = deps._ready_active_players(sess, active_sps) if free_turns else active_sps
     actions_total = len(round_participants)
     actions_done = sum(1 for sp in round_participants if str(sp.player_id) in round_actions)
-    positions = deps._get_pc_positions(sess)
+    positions = _get_pc_positions(sess)
     players_payload = []
     for sp in all_sps:
         pl = players_by_id.get(sp.player_id)
@@ -136,8 +146,8 @@ async def build_state(db: AsyncSession, sess: Session) -> dict:
             "remaining_seconds": remaining,
             "all_ready": bool(all_ready),
             "can_begin": bool(can_begin),
-            "initiative_fixed": deps._initiative_fixed(sess),
-            "round": (deps.as_int(deps.settings_get(sess, "round", 0), 0) or 1) if deps._initiative_fixed(sess) else None,
+            "initiative_fixed": _initiative_fixed(sess),
+            "round": (deps.as_int(settings_get(sess, "round", 0), 0) or 1) if _initiative_fixed(sess) else None,
         },
         "players": players_payload,
         "events": [

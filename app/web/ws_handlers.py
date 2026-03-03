@@ -2,6 +2,18 @@ import json
 from typing import Optional
 
 from fastapi import WebSocket, WebSocketDisconnect
+from app.web.session_state import (
+    settings_get,
+    settings_set,
+    _get_ready_map,
+    _get_init_map,
+    _get_pc_positions,
+    _touch_last_seen,
+    _get_phase,
+    _set_phase,
+    _set_pc_zone,
+    _initiative_fixed,
+)
 from app.web.session_lock import get_session_lock
 from app.web.state_builder import broadcast_state, _broadcast_state_unlocked, send_state_to_ws
 from app.web.ws_manager import manager
@@ -112,7 +124,7 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                     await ws.close()
                     return
 
-                deps._touch_last_seen(sess, player.id)
+                _touch_last_seen(sess, player.id)
                 if action == "ping":
                     await db.commit()
                     continue
@@ -173,7 +185,7 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                         continue
 
                     # all ready check
-                    ready_map = deps._get_ready_map(sess)
+                    ready_map = _get_ready_map(sess)
                     if any(not bool(ready_map.get(str(x.player_id), False)) for x in sps):
                         await ws_error("Not all players are ready")
                         continue
@@ -183,10 +195,10 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                     sess.current_player_id = None
                     sess.turn_started_at = None
                     sess.turn_index = 1
-                    raw_story = deps.settings_get(sess, "story", {}) or {}
+                    raw_story = settings_get(sess, "story", {}) or {}
                     if isinstance(raw_story, dict):
-                        deps.settings_set(sess, "free_turns", bool(raw_story.get("free_turns")))
-                    deps._set_phase(sess, "lore_pending")
+                        settings_set(sess, "free_turns", bool(raw_story.get("free_turns")))
+                    _set_phase(sess, "lore_pending")
                     deps._clear_current_action_id(sess)
                     deps._clear_paused_remaining(sess)
                     await db.commit()
@@ -240,7 +252,7 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                     if not await deps.is_admin(db, sess, player):
                         await ws_error("Only admin can skip")
                         continue
-                    if deps._get_phase(sess) == "gm_pending":
+                    if _get_phase(sess) == "gm_pending":
                         await ws_error("Ждём ответа мастера...")
                         continue
                     if not sess.current_player_id:
@@ -279,7 +291,7 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                     bootstrap_enemies = [
                         {"id": "band1", "name": "Разбойник", "hp": 18, "ac": 13, "init_mod": 2, "threat": 2},
                     ]
-                    deps.settings_set(
+                    settings_set(
                         sess,
                         "combat_live_bootstrap",
                         {
@@ -432,7 +444,7 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                 deps._maybe_restore_combat_state(sess, session_id)
                 combat_state = deps.get_combat(session_id)
                 if combat_state is None:
-                    bootstrap = deps.settings_get(sess, "combat_live_bootstrap", None)
+                    bootstrap = settings_get(sess, "combat_live_bootstrap", None)
                     if isinstance(bootstrap, dict):
                         zone_raw = str(bootstrap.get("zone") or "arena").strip() or "arena"
                         zone = zone_raw.replace('"', '\\"')
@@ -664,7 +676,7 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                     await broadcast_state(session_id)
                     continue
 
-                phase_now = deps._get_phase(sess)
+                phase_now = _get_phase(sess)
                 if phase_now == "lore_pending":
                     await ws_error("Ждём вступительную историю...")
                     continue
@@ -1149,7 +1161,7 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                     sub = parts[1].lower() if len(parts) > 1 else ""
 
                     sps_active = await deps.list_session_players(db, sess, active_only=True)
-                    init_map = deps._get_init_map(sess)
+                    init_map = _get_init_map(sess)
                     # prefetch display names to avoid awaits in formatter
                     pids_active = [spx.player_id for spx in sps_active]
                     names: dict[str, str] = {}
@@ -1176,7 +1188,7 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                         rows = []
                         header = ""
                         if fixed:
-                            rnd = deps.as_int(deps.settings_get(sess, "round", 1), 1)
+                            rnd = deps.as_int(settings_get(sess, "round", 1), 1)
                             header = f"Раунд: {rnd}\n"
                         # order for display: if fixed, show initiative_order else by join_order
                         if fixed:
@@ -1204,7 +1216,7 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                         return (header + "\n".join(rows)) if rows else (header + "  (нет игроков)")
 
                     if sub == "" or sub == "show":
-                        fixed = deps._initiative_fixed(sess)
+                        fixed = _initiative_fixed(sess)
                         await deps.add_system_event(
                             db,
                             sess,
@@ -1218,7 +1230,7 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                             val = deps.random.randint(1, 20)
                             deps._set_init_value(sess, spx.player_id, val)
                         await db.commit()
-                        init_map = deps._get_init_map(sess)
+                        init_map = _get_init_map(sess)
                         lines = []
                         for spx in sps_active:
                             nm = names.get(str(spx.player_id), str(spx.player_id))
@@ -1243,15 +1255,15 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
 
                     if sub == "start":
                         # fix order by initiative desc, then join_order asc
-                        init_map = deps._get_init_map(sess)
+                        init_map = _get_init_map(sess)
                         scored = []
                         for spx in sps_active:
                             scored.append((init_map.get(str(spx.player_id), 0), int(spx.join_order or 0), spx.player_id))
                         scored.sort(key=lambda x: (-x[0], x[1]))
                         order = [pid for _, _, pid in scored]
                         deps._set_initiative_order(sess, order)
-                        deps.settings_set(sess, "initiative_fixed", True)
-                        deps.settings_set(sess, "round", 1)
+                        settings_set(sess, "initiative_fixed", True)
+                        settings_set(sess, "round", 1)
                         await db.commit()
 
                         # move turn to first in initiative
@@ -1293,7 +1305,7 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                 if combat_active:
                     actor_label = await deps._event_actor_label(db, sess, player)
                     pid = str(player.id)
-                    current_zone = deps._get_pc_positions(sess).get(pid, "стартовая локация")
+                    current_zone = _get_pc_positions(sess).get(pid, "стартовая локация")
                     new_zone_preview = current_zone
                     payload = {
                         "type": "player_action",
@@ -1302,7 +1314,7 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                         "join_order": int(sp.join_order or 0),
                         "raw_text": text,
                         "mode": "free_turns" if deps._is_free_turns(sess) else "turns",
-                        "phase": deps._get_phase(sess),
+                        "phase": _get_phase(sess),
                         "zone_before": current_zone,
                         "zone_after": new_zone_preview,
                         "turn_index": int(sess.turn_index or 0),
@@ -1367,7 +1379,7 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                         merged_patch = deps._merge_combat_patches(all_patches) if all_patches else None
                         await broadcast_state(session_id, combat_log_ui_patch=merged_patch)
                         state_for_prompt = state_after_actions
-                        story = deps.settings_get(sess, "story", {}) or {}
+                        story = settings_get(sess, "story", {}) or {}
                         if not isinstance(story, dict):
                             story = {}
                         campaign_title = str(story.get("story_title") or "").strip() or str(sess.title or "Campaign").strip() or "Campaign"
@@ -1502,7 +1514,7 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
 
                 # Normal SAY — ends turn
                 if deps._is_free_turns(sess):
-                    phase = deps._get_phase(sess)
+                    phase = _get_phase(sess)
                     if phase == "lore_pending":
                         await ws_error("Ждём вступительную историю...")
                         continue
@@ -1538,10 +1550,10 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                         include_encounter_after_move=False,
                     )
                     round_actions[pid] = gm_action_text
-                    deps.settings_set(sess, "round_actions", round_actions)
-                    current_zone = deps._get_pc_positions(sess).get(pid, "стартовая локация")
+                    settings_set(sess, "round_actions", round_actions)
+                    current_zone = _get_pc_positions(sess).get(pid, "стартовая локация")
                     new_zone = deps.infer_zone_from_action(text, current_zone)
-                    deps._set_pc_zone(sess, player.id, new_zone)
+                    _set_pc_zone(sess, player.id, new_zone)
                     actor_label = await deps._event_actor_label(db, sess, player)
                     payload = {
                         "type": "player_action",
@@ -1569,7 +1581,7 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                     if all_collected:
                         action_id = deps._new_action_id()
                         deps._set_current_action_id(sess, action_id)
-                        deps._set_phase(sess, "gm_pending")
+                        _set_phase(sess, "gm_pending")
                         await db.commit()
                         await deps.add_system_event(db, sess, "Мастер обрабатывает действия...")
                         await broadcast_state(session_id)
@@ -1590,10 +1602,10 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
 
                 actor_label = await deps._event_actor_label(db, sess, player)
                 pid = str(player.id)
-                phase = deps._get_phase(sess)
-                current_zone = deps._get_pc_positions(sess).get(pid, "стартовая локация")
+                phase = _get_phase(sess)
+                current_zone = _get_pc_positions(sess).get(pid, "стартовая локация")
                 new_zone = deps.infer_zone_from_action(text, current_zone)
-                deps._set_pc_zone(sess, player.id, new_zone)
+                _set_pc_zone(sess, player.id, new_zone)
                 gm_action_text, _moved, encounter_patch = await deps._build_player_gm_action_text(
                     db,
                     sess,
@@ -1623,7 +1635,7 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                 )
                 action_id = deps._new_action_id()
                 deps._set_current_action_id(sess, action_id)
-                deps._set_phase(sess, "gm_pending")
+                _set_phase(sess, "gm_pending")
                 sess.turn_started_at = None
                 await db.commit()
                 await deps.add_system_event(db, sess, "Мастер обрабатывает действие...")
