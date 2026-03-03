@@ -74,6 +74,7 @@ from app.web.session_state import (
     _get_phase,
     _set_phase,
 )
+from app.web.constants import COMBAT_LOG_HISTORY_KEY, COMBAT_STATE_KEY, MAX_COMBAT_LOG_LINES
 from app.web.state_builder import build_state, broadcast_state, _broadcast_state_unlocked, send_state_to_ws
 from app.web.ws_manager import manager
 from app.web.inventory_helpers import (
@@ -111,9 +112,6 @@ GM_CONTEXT_EVENTS = max(1, int(os.getenv("GM_CONTEXT_EVENTS", "20")))
 GM_OLLAMA_TIMEOUT_SECONDS = max(1.0, float(os.getenv("GM_OLLAMA_TIMEOUT_SECONDS", "30")))
 GM_DRAFT_NUM_PREDICT = max(200, int(os.getenv("GM_DRAFT_NUM_PREDICT", "1000")))
 GM_FINAL_NUM_PREDICT = max(400, int(os.getenv("GM_FINAL_NUM_PREDICT", "1600")))
-COMBAT_LOG_HISTORY_KEY = "combat_log_history"
-COMBAT_STATE_KEY = "combat_state_v1"
-MAX_COMBAT_LOG_LINES = 200
 logger = logging.getLogger(__name__)
 CHAR_STAT_KEYS = ("str", "dex", "con", "int", "wis", "cha")
 CHAR_DEFAULT_STATS = {k: 50 for k in CHAR_STAT_KEYS}

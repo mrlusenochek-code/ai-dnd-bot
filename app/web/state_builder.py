@@ -8,6 +8,7 @@ from sqlalchemy.orm.attributes import flag_modified
 
 from app.combat.state import get_combat, restore_combat_state, snapshot_combat_state
 from app.db.models import Character, Event, Player, Session, Skill
+from app.web.constants import COMBAT_LOG_HISTORY_KEY, COMBAT_STATE_KEY, MAX_COMBAT_LOG_LINES
 from app.web.session_state import (
     _ensure_settings,
     settings_get,
@@ -21,10 +22,6 @@ from app.web.session_state import (
 
 from app.web.session_lock import get_session_lock
 from app.web.ws_manager import manager
-
-COMBAT_LOG_HISTORY_KEY = "combat_log_history"
-COMBAT_STATE_KEY = "combat_state_v1"
-MAX_COMBAT_LOG_LINES = 200
 
 
 def _get_combat_log_history(sess: Session) -> dict:
