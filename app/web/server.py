@@ -54,6 +54,7 @@ from app.web.machine_lines import (
     _split_machine_args,
     _strip_machine_lines,
 )
+from app.web.ws_manager import manager
 from app.web.inventory_helpers import (
     _normalize_inventory_def,
     _normalize_inventory_item,
@@ -358,41 +359,6 @@ STATE_COMMAND_ALIASES = {"state", "inv", "инв", "inventory"}
 
 def utcnow() -> datetime:
     return datetime.utcnow()
-
-
-# -------------------------
-# WebSocket connection manager
-# -------------------------
-class ConnectionManager:
-    def __init__(self) -> None:
-        self.rooms: dict[str, set[WebSocket]] = {}
-
-    async def connect(self, session_id: str, ws: WebSocket) -> None:
-        await ws.accept()
-        self.rooms.setdefault(session_id, set()).add(ws)
-
-    def disconnect(self, session_id: str, ws: WebSocket) -> None:
-        room = self.rooms.get(session_id)
-        if not room:
-            return
-        room.discard(ws)
-        if not room:
-            self.rooms.pop(session_id, None)
-
-    async def broadcast_json(self, session_id: str, data: dict) -> None:
-        room = list(self.rooms.get(session_id, set()))
-        dead: list[WebSocket] = []
-        payload = json.dumps(data, ensure_ascii=False)
-        for ws in room:
-            try:
-                await ws.send_text(payload)
-            except Exception:
-                dead.append(ws)
-        for ws in dead:
-            self.disconnect(session_id, ws)
-
-
-manager = ConnectionManager()
 
 
 @asynccontextmanager

@@ -2,6 +2,7 @@ import json
 from typing import Optional
 
 from fastapi import WebSocket, WebSocketDisconnect
+from app.web.ws_manager import manager
 
 
 async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
@@ -35,7 +36,7 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
     if cid:
         deps.client_id_var.set(str(cid))
 
-    await deps.manager.connect(session_id, ws)
+    await manager.connect(session_id, ws)
     deps.logger.info("ws connected")
 
     try:
@@ -1629,7 +1630,7 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                 continue
 
     except deps.WebSocketDisconnect:
-        deps.manager.disconnect(session_id, ws)
+        manager.disconnect(session_id, ws)
     except Exception:
-        deps.manager.disconnect(session_id, ws)
+        manager.disconnect(session_id, ws)
         raise
