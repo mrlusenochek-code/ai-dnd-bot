@@ -3,6 +3,7 @@ from typing import Optional
 
 from fastapi import WebSocket, WebSocketDisconnect
 from app.web.session_lock import get_session_lock
+from app.web.state_builder import broadcast_state, _broadcast_state_unlocked, send_state_to_ws
 from app.web.ws_manager import manager
 
 
@@ -41,10 +42,10 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
     deps.logger.info("ws connected")
 
     try:
-        await deps.send_state_to_ws(session_id, ws)
+        await send_state_to_ws(session_id, ws)
 
         while True:
-            # Ждём входящее сообщение. State приходит через deps.broadcast_state() по событиям,
+            # Ждём входящее сообщение. State приходит через broadcast_state() по событиям,
             # а таймер рисуется локально на фронте.
             raw = await ws.receive_text()
             try:
@@ -104,7 +105,7 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
 
                     await db.commit()
                     await deps.add_system_event(db, sess, f"Игрок {player.display_name} вышел из игры.")
-                    await deps.broadcast_state(session_id)
+                    await broadcast_state(session_id)
 
                 if action in ("leave", "quit", "exit"):
                     await _process_leave_and_broadcast()
@@ -127,12 +128,12 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                     deps._set_ready(sess, player.id, action == "ready")
                     await db.commit()
                     await deps.add_system_event(db, sess, f"Готовность: игрок #{sp.join_order} — {'ГОТОВ' if action=='ready' else 'НЕ ГОТОВ'}.")
-                    await deps.broadcast_state(session_id)
+                    await broadcast_state(session_id)
                     continue
 
                 # status: just broadcast
                 if action == "status":
-                    await deps.broadcast_state(session_id)
+                    await broadcast_state(session_id)
                     continue
 
                 # Admin-only control actions
@@ -168,7 +169,7 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                         )
                         await deps.add_system_event(db, sess, f"Нельзя стартовать: персонаж не создан у {missing_names}.")
                         await ws_error("Create character first", request_id=msg_request_id)
-                        await deps.broadcast_state(session_id)
+                        await broadcast_state(session_id)
                         continue
 
                     # all ready check
@@ -190,7 +191,7 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                     deps._clear_paused_remaining(sess)
                     await db.commit()
                     await deps.add_system_event(db, sess, "Игра началась. Генерируем вступительную историю...")
-                    await deps.broadcast_state(session_id)
+                    await broadcast_state(session_id)
                     deps.asyncio.create_task(deps._auto_lore_task(session_id))
                     continue
 
@@ -199,7 +200,7 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                         await ws_error("Only admin can pause")
                         continue
                     if sess.is_paused:
-                        await deps.broadcast_state(session_id)
+                        await broadcast_state(session_id)
                         continue
                     rem = await deps._compute_remaining(sess)
                     if rem is not None:
@@ -207,7 +208,7 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                     sess.is_paused = True
                     await db.commit()
                     await deps.add_system_event(db, sess, f"Пауза. Осталось: {rem if rem is not None else '—'} сек.")
-                    await deps.broadcast_state(session_id)
+                    await broadcast_state(session_id)
                     continue
 
                 if action == "resume":
@@ -215,7 +216,7 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                         await ws_error("Only admin can resume")
                         continue
                     if not sess.is_paused:
-                        await deps.broadcast_state(session_id)
+                        await broadcast_state(session_id)
                         continue
 
                     # continue timer from stored remaining
@@ -232,7 +233,7 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                     deps._clear_paused_remaining(sess)
                     await db.commit()
                     await deps.add_system_event(db, sess, "Продолжили игру.")
-                    await deps.broadcast_state(session_id)
+                    await broadcast_state(session_id)
                     continue
 
                 if action == "skip":
@@ -254,7 +255,7 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                         await ws_error("No players")
                         continue
                     await deps.add_system_event(db, sess, f"Ход пропущен. Следующий: #{nxt.join_order}.")
-                    await deps.broadcast_state(session_id)
+                    await broadcast_state(session_id)
                     continue
 
                 if action.startswith("admin_combat_test_"):
@@ -266,7 +267,7 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                         await ws_error(combat_err)
                         continue
                     if combat_patch is not None:
-                        await deps.broadcast_state(session_id, combat_log_ui_patch=combat_patch)
+                        await broadcast_state(session_id, combat_log_ui_patch=combat_patch)
                         continue
 
                 lock = get_session_lock(session_id)
@@ -348,7 +349,7 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                             combat_patch["status"] = (
                                 f"⚔ Бой • Раунд {combat_state.round_no} • Ход: {deps.current_turn_label(combat_state)}"
                             )
-                        await deps._broadcast_state_unlocked(session_id, combat_log_ui_patch=combat_patch)
+                        await _broadcast_state_unlocked(session_id, combat_log_ui_patch=combat_patch)
                     continue
 
                 if action == "admin_combat_live_end":
@@ -357,7 +358,7 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                         continue
                     async with lock:
                         deps.end_combat(session_id)
-                        await deps._broadcast_state_unlocked(
+                        await _broadcast_state_unlocked(
                             session_id,
                             combat_log_ui_patch={
                                 "status": "Бой завершён",
@@ -382,7 +383,7 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                             }
                         )
                     patch = {"reset": True, "open": True, "lines": lines}
-                    await deps.broadcast_state(session_id, combat_log_ui_patch=patch)
+                    await broadcast_state(session_id, combat_log_ui_patch=patch)
                     continue
 
                 if action in {
@@ -404,7 +405,7 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                             await ws_error(combat_err)
                             continue
                         if combat_patch:
-                            await deps._broadcast_state_unlocked(session_id, combat_log_ui_patch=combat_patch)
+                            await _broadcast_state_unlocked(session_id, combat_log_ui_patch=combat_patch)
                             continue
 
                 # chat / command parsing
@@ -424,7 +425,7 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                 if lower in deps.STATE_COMMAND_ALIASES:
                     ch = await deps.get_character(db, sess.id, player.id)
                     await deps.add_system_event(db, sess, deps._format_state_text_for_player(sess, player, ch))
-                    await deps.broadcast_state(session_id)
+                    await broadcast_state(session_id)
                     continue
 
                 combat_action = deps._detect_chat_combat_action(text)
@@ -494,7 +495,7 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                                         combat_patch["status"] = (
                                             f"⚔ Бой • Раунд {combat_state.round_no} • Ход: {deps.current_turn_label(combat_state)}"
                                         )
-                                        await deps._broadcast_state_unlocked(session_id, combat_log_ui_patch=combat_patch)
+                                        await _broadcast_state_unlocked(session_id, combat_log_ui_patch=combat_patch)
                 combat_active = bool(combat_state and combat_state.active)
                 start_intent = ("войти в бой" in lower) or lower.startswith("бой с") or ("начать бой" in lower)
 
@@ -569,7 +570,7 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                             combat_patch["status"] = (
                                 f"⚔ Бой • Раунд {combat_state.round_no} • Ход: {deps.current_turn_label(combat_state)}"
                             )
-                        await deps._broadcast_state_unlocked(session_id, combat_log_ui_patch=combat_patch)
+                        await _broadcast_state_unlocked(session_id, combat_log_ui_patch=combat_patch)
 
                     ch = await deps.get_character(db, sess.id, player.id)
                     player_name = (ch.name if ch and ch.name else player.display_name)
@@ -660,7 +661,7 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
 
                     await deps.add_system_event(db, sess, f"🧙 GM: {gm_text}")
                     await db.commit()
-                    await deps.broadcast_state(session_id)
+                    await broadcast_state(session_id)
                     continue
 
                 phase_now = deps._get_phase(sess)
@@ -701,7 +702,7 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                         if not turn_key or turn_key != player_key:
                             current_name = deps.current_turn_label(combat_state) if combat_state else "другой участник"
                             await deps.add_system_event(db, sess, f"Сейчас ходит {current_name}. Дождись своего хода.")
-                            await deps.broadcast_state(session_id)
+                            await broadcast_state(session_id)
                             continue
 
                         all_patches: list[dict[str, deps.Any]] = []
@@ -731,7 +732,7 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                                     all_patches.append(enemy_patch)
 
                             merged_patch = deps._merge_combat_patches(all_patches) if all_patches else None
-                            await deps._broadcast_state_unlocked(session_id, combat_log_ui_patch=merged_patch)
+                            await _broadcast_state_unlocked(session_id, combat_log_ui_patch=merged_patch)
                         facts = deps.extract_combat_narration_facts(merged_patch)
                         if facts:
                             required_fact_count = 3 if len(facts) >= 3 else len(facts)
@@ -782,7 +783,7 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                                     result_json={"type": "combat_narration", "facts": facts},
                                 )
                                 await db.commit()
-                                await deps.broadcast_state(session_id)
+                                await broadcast_state(session_id)
                         continue
                     else:
                         await ws_error(
@@ -795,7 +796,7 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                 if lower.startswith("ooc ") or cmdline.startswith("//"):
                     msg = cmdline[4:].strip() if lower.startswith("ooc ") else cmdline[2:].strip()
                     await deps.add_event(db, sess, f"[OOC] {player.display_name} (#{sp.join_order}): {msg}")
-                    await deps.broadcast_state(session_id)
+                    await broadcast_state(session_id)
                     continue
 
                 # GM (admin only, any time, no turn)
@@ -805,7 +806,7 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                         continue
                     msg = cmdline[2:].lstrip(":").strip()
                     await deps.add_system_event(db, sess, f"🧙 GM: {msg}")
-                    await deps.broadcast_state(session_id)
+                    await broadcast_state(session_id)
                     continue
 
                 if lower == "help":
@@ -820,7 +821,7 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                         "leave (выйти), kick <#> (админ), turn <#> (админ), "
                         "init / init roll / init set <#> <val> / init start / init clear (админ)."
                     )
-                    await deps.broadcast_state(session_id)
+                    await broadcast_state(session_id)
                     continue
 
                 if lower == "char":
@@ -830,7 +831,7 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                         "deps.Character commands: char create <Name> [Class], me, hp <+N|-N|N>, sta <+N|-N|N>, "
                         "stat <str|dex|con|int|wis|cha> <0..100>, check [adv|dis] <stat_or_skill> [dc N] (ручной бросок, опционально).",
                     )
-                    await deps.broadcast_state(session_id)
+                    await broadcast_state(session_id)
                     continue
 
                 m_char_create = deps.re.match(r"^char\s+create\s+(.+)$", cmdline, deps.re.IGNORECASE)
@@ -855,7 +856,7 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                         class_skin=ch_class,
                     )
                     await deps.add_system_event(db, sess, f"deps.Character created: {ch_name} ({ch_class}) for player #{sp.join_order}.")
-                    await deps.broadcast_state(session_id)
+                    await broadcast_state(session_id)
                     continue
 
                 if lower == "me":
@@ -871,7 +872,7 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                         f"HP {int(ch.hp or 0)}/{int(ch.hp_max or 0)} | STA {int(ch.sta or 0)}/{int(ch.sta_max or 0)} | "
                         f"STR {stats['str']} DEX {stats['dex']} CON {stats['con']} INT {stats['int']} WIS {stats['wis']} CHA {stats['cha']}",
                     )
-                    await deps.broadcast_state(session_id)
+                    await broadcast_state(session_id)
                     continue
 
                 m_res = deps.re.match(r"^(hp|sta)\s+([+-]?\d+)$", lower, deps.re.IGNORECASE)
@@ -894,7 +895,7 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                     setattr(ch, cur_attr, nxt)
                     await db.commit()
                     await deps.add_system_event(db, sess, f"{ch.name}: {key.upper()} {cur}->{nxt}/{max_v}")
-                    await deps.broadcast_state(session_id)
+                    await broadcast_state(session_id)
                     continue
 
                 if lower.startswith("stat "):
@@ -954,7 +955,7 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                         sess,
                         f"[STAT] #{target_sp.join_order} {target_ch.name}: {stat_key} {old_val}->{stat_val}",
                     )
-                    await deps.broadcast_state(session_id)
+                    await broadcast_state(session_id)
                     continue
 
                 if lower.startswith("check"):
@@ -1061,7 +1062,7 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                         ok = total >= dc
                         msg += f" (DC {dc}) {'SUCCESS' if ok else 'FAIL'}"
                     await deps.add_system_event(db, sess, msg)
-                    await deps.broadcast_state(session_id)
+                    await broadcast_state(session_id)
                     continue
 
                 # name change (any time)
@@ -1072,7 +1073,7 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                         player.display_name = new_name
                         await db.commit()
                         await deps.add_system_event(db, sess, f"Игрок #{sp.join_order} сменил имя на: {new_name}")
-                        await deps.broadcast_state(session_id)
+                        await broadcast_state(session_id)
                     continue
 
                 # leave/quit/exit (any time)
@@ -1118,7 +1119,7 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                         nxt = await deps.advance_turn(db, sess)
                         if nxt:
                             await deps.add_system_event(db, sess, f"Ход передан следующему: #{nxt.join_order}.")
-                    await deps.broadcast_state(session_id)
+                    await broadcast_state(session_id)
                     continue
 
                 # admin: turn/goto <#>
@@ -1136,7 +1137,7 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                         await ws_error("deps.Player not found/active")
                         continue
                     await deps.add_system_event(db, sess, f"Админ передал ход игроку #{target.join_order}.")
-                    await deps.broadcast_state(session_id)
+                    await broadcast_state(session_id)
                     continue
 
                 # initiative commands (admin)
@@ -1209,7 +1210,7 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                             sess,
                             f"Инициатива ({'зафиксирована' if fixed else 'не зафиксирована'}):\n{_format_init(fixed)}",
                         )
-                        await deps.broadcast_state(session_id)
+                        await broadcast_state(session_id)
                         continue
 
                     if sub == "roll":
@@ -1223,7 +1224,7 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                             nm = names.get(str(spx.player_id), str(spx.player_id))
                             lines.append(f"  #{spx.join_order} {nm}: {init_map.get(str(spx.player_id), 0)}")
                         await deps.add_system_event(db, sess, "Инициатива: всем брошено 1d20:\n" + "\n".join(lines))
-                        await deps.broadcast_state(session_id)
+                        await broadcast_state(session_id)
                         continue
 
                     if sub == "set" and len(parts) >= 4:
@@ -1237,7 +1238,7 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                         await db.commit()
                         nm = names.get(str(target_sp.player_id), str(target_sp.player_id))
                         await deps.add_system_event(db, sess, f"Инициатива: игрок #{target_order} ({nm}) = {val}.")
-                        await deps.broadcast_state(session_id)
+                        await broadcast_state(session_id)
                         continue
 
                     if sub == "start":
@@ -1276,14 +1277,14 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                             sp_first = next((x for x in sps_active if x.player_id == first_pid), None)
                             if sp_first:
                                 await deps.add_system_event(db, sess, f"Ход по инициативе: игрок #{sp_first.join_order}.")
-                        await deps.broadcast_state(session_id)
+                        await broadcast_state(session_id)
                         continue
 
                     if sub == "clear":
                         deps._clear_initiative(sess)
                         await db.commit()
                         await deps.add_system_event(db, sess, "Инициатива сброшена.")
-                        await deps.broadcast_state(session_id)
+                        await broadcast_state(session_id)
                         continue
 
                     await ws_error("Unknown init command")
@@ -1315,7 +1316,7 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                         result_json=payload,
                     )
                     await db.commit()
-                    await deps.broadcast_state(session_id)
+                    await broadcast_state(session_id)
 
                     if combat_action:
                         player_uid = deps._player_uid(player)
@@ -1326,7 +1327,7 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                         if not turn_key or turn_key != player_key:
                             current_name = deps.current_turn_label(combat_state) if combat_state else "другой участник"
                             await deps.add_system_event(db, sess, f"Сейчас ходит {current_name}. Дождись своего хода.")
-                            await deps.broadcast_state(session_id)
+                            await broadcast_state(session_id)
                             continue
 
                         all_patches: list[dict[str, deps.Any]] = []
@@ -1364,7 +1365,7 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                             pass
 
                         merged_patch = deps._merge_combat_patches(all_patches) if all_patches else None
-                        await deps.broadcast_state(session_id, combat_log_ui_patch=merged_patch)
+                        await broadcast_state(session_id, combat_log_ui_patch=merged_patch)
                         state_for_prompt = state_after_actions
                         story = deps.settings_get(sess, "story", {}) or {}
                         if not isinstance(story, dict):
@@ -1397,7 +1398,7 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                                 "combat_summary": outcome_summary,
                             },
                         )
-                        await deps.broadcast_state(session_id)
+                        await broadcast_state(session_id)
                         continue
 
                     player_uid = deps._player_uid(player)
@@ -1409,7 +1410,7 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                     if not turn_key_now or turn_key_now != player_key:
                         current_name = deps.current_turn_label(state_now) if state_now else "другой участник"
                         await deps.add_system_event(db, sess, f"Сейчас ходит {current_name}. Дождись своего хода.")
-                        await deps.broadcast_state(session_id)
+                        await broadcast_state(session_id)
                         continue
 
                     already_sent = await deps._combat_clarify_already_sent(db, sess, msg_request_id)
@@ -1434,7 +1435,7 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                                 "request_id": str(msg_request_id or ""),
                             },
                         )
-                        await deps.broadcast_state(session_id)
+                        await broadcast_state(session_id)
                     continue
 
                 # DICE (must be started, not paused, your turn) — does NOT end turn
@@ -1457,7 +1458,7 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                         detail = ",".join(str(x) for x in rolls)
                         await deps.add_system_event(db, sess, f"🎲 Игрок #{sp.join_order}: {expr} → {n}d{sides}({detail}){('+'+str(mod)) if mod>0 else (str(mod) if mod<0 else '')} = {total}")
                         await deps.add_system_event(db, sess, "(ход не закончен)")
-                        await deps.broadcast_state(session_id)
+                        await broadcast_state(session_id)
                         continue
 
                     # adv/dis only meaningful for 1d20-ish but we allow any NdS as whole formula twice
@@ -1477,7 +1478,7 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                         f"B: {n}d{sides}({dbb}){('+'+str(mod)) if mod>0 else (str(mod) if mod<0 else '')} = {tot_b}; ✅ берём {pick} = {chosen}"
                     )
                     await deps.add_system_event(db, sess, "(ход не закончен)")
-                    await deps.broadcast_state(session_id)
+                    await broadcast_state(session_id)
                     continue
 
                 # PASS/END — ends turn
@@ -1496,7 +1497,7 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                         await ws_error("No players")
                         continue
                     await deps.add_system_event(db, sess, f"Игрок #{sp.join_order} пропустил ход. Следующий: #{nxt.join_order}.")
-                    await deps.broadcast_state(session_id)
+                    await broadcast_state(session_id)
                     continue
 
                 # Normal SAY — ends turn
@@ -1571,10 +1572,10 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                         deps._set_phase(sess, "gm_pending")
                         await db.commit()
                         await deps.add_system_event(db, sess, "Мастер обрабатывает действия...")
-                        await deps.broadcast_state(session_id)
+                        await broadcast_state(session_id)
                         deps.asyncio.create_task(deps._auto_round_task(session_id, action_id))
                     else:
-                        await deps.broadcast_state(session_id)
+                        await broadcast_state(session_id)
                     continue
 
                 if not sess.current_player_id:
@@ -1626,7 +1627,7 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                 sess.turn_started_at = None
                 await db.commit()
                 await deps.add_system_event(db, sess, "Мастер обрабатывает действие...")
-                await deps.broadcast_state(session_id, combat_log_ui_patch=encounter_patch)
+                await broadcast_state(session_id, combat_log_ui_patch=encounter_patch)
                 deps.asyncio.create_task(deps._auto_gm_reply_task(session_id, action_id))
                 continue
 
