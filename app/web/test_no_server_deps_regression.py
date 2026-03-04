@@ -27,6 +27,12 @@ def test_ws_handlers_has_no_server_deps_pattern() -> None:
     assert "deps." not in src
 
 
+def test_state_builder_has_no_server_deps_pattern() -> None:
+    src = (APP_WEB_DIR / "state_builder.py").read_text(encoding="utf-8")
+    assert "app.web.server" not in src
+    assert "deps." not in src
+
+
 def test_server_deps_gateway_is_limited() -> None:
     files_with_gateway: list[str] = []
     for path in APP_WEB_DIR.rglob("*.py"):
@@ -36,8 +42,6 @@ def test_server_deps_gateway_is_limited() -> None:
         if "import app.web.server as deps" in src:
             files_with_gateway.append(str(path.relative_to(APP_WEB_DIR.parent)))
 
-    allowed = {
-        "web/state_builder.py",
-    }
+    allowed: set[str] = set()
     assert set(files_with_gateway).issubset(allowed)
     assert len(files_with_gateway) <= len(allowed)

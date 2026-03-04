@@ -8,9 +8,25 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm.attributes import flag_modified
 
-from app.combat.state import get_combat, restore_combat_state, snapshot_combat_state
+from app.combat.log_ui import normalize_combat_log_ui_patch
+from app.combat.state import current_turn_label, get_combat, restore_combat_state, snapshot_combat_state
+from app.db.connection import AsyncSessionLocal
 from app.db.models import Character, Event, Player, Session, Skill
+from app.web.db_helpers import get_session, list_session_players
 from app.web.constants import COMBAT_LOG_HISTORY_KEY, COMBAT_STATE_KEY, MAX_COMBAT_LOG_LINES
+from app.web.gameplay_helpers import _char_to_payload, _get_kicked
+from app.web.utils import as_int
+from app.web.ws_access import _load_actor_context, _player_uid
+from app.web.ws_progression import _level_progress_payload, _skills_payload_for_character
+from app.web.ws_rewards import _apply_defeat_effects_once, _grant_combat_rewards_once, _grant_defeat_outcome_once
+from app.web.ws_turns import (
+    TURN_TIMEOUT_SECONDS,
+    _get_free_round,
+    _get_round_actions,
+    _is_free_turns,
+    _ready_active_players,
+    utcnow,
+)
 from app.web.session_state import (
     _ensure_settings,
     settings_get,
@@ -166,10 +182,8 @@ def _maybe_restore_combat_state(sess: Session, session_id: str) -> None:
 
 
 async def build_state(db: AsyncSession, sess: Session) -> dict:
-    import app.web.server as deps
-
-    all_sps = await deps.list_session_players(db, sess, active_only=False)
-    kicked = deps._get_kicked(sess)
+    all_sps = await list_session_players(db, sess, active_only=False)
+    kicked = _get_kicked(sess)
     all_sps = [sp for sp in all_sps if str(sp.player_id) not in kicked]
     active_sps = [sp for sp in all_sps if sp.is_active is not False]
     player_ids = [sp.player_id for sp in all_sps]
@@ -208,8 +222,8 @@ async def build_state(db: AsyncSession, sess: Session) -> dict:
 
     remaining = None
     if sess.turn_started_at and not sess.is_paused and sess.current_player_id:
-        elapsed = (deps.utcnow() - sess.turn_started_at).total_seconds()
-        remaining = max(0, int(deps.TURN_TIMEOUT_SECONDS - elapsed))
+        elapsed = (utcnow() - sess.turn_started_at).total_seconds()
+        remaining = max(0, int(TURN_TIMEOUT_SECONDS - elapsed))
 
     cur_order = None
     for sp in active_sps:
@@ -219,7 +233,7 @@ async def build_state(db: AsyncSession, sess: Session) -> dict:
 
     current_uid = None
     if sess.current_player_id:
-        current_uid = deps._player_uid(players_by_id.get(sess.current_player_id))
+        current_uid = _player_uid(players_by_id.get(sess.current_player_id))
 
     ready_map = _get_ready_map(sess)
     init_map = _get_init_map(sess)
@@ -235,10 +249,10 @@ async def build_state(db: AsyncSession, sess: Session) -> dict:
         all_ready = False
 
     can_begin = all_ready and not bool(sess.current_player_id) and not bool(sess.is_active)
-    free_turns = deps._is_free_turns(sess)
+    free_turns = _is_free_turns(sess)
     phase = _get_phase(sess)
-    round_actions = deps._get_round_actions(sess)
-    round_participants = deps._ready_active_players(sess, active_sps) if free_turns else active_sps
+    round_actions = _get_round_actions(sess)
+    round_participants = _ready_active_players(sess, active_sps) if free_turns else active_sps
     actions_total = len(round_participants)
     actions_done = sum(1 for sp in round_participants if str(sp.player_id) in round_actions)
     positions = _get_pc_positions(sess)
@@ -246,14 +260,14 @@ async def build_state(db: AsyncSession, sess: Session) -> dict:
     for sp in all_sps:
         pl = players_by_id.get(sp.player_id)
         char = chars_by_player_id.get(sp.player_id)
-        char_payload = deps._char_to_payload(char)
+        char_payload = _char_to_payload(char)
         if char and char_payload is not None:
-            char_payload["level_progress"] = deps._level_progress_payload(char)
-            char_payload["skills"] = deps._skills_payload_for_character(char, skills_by_character_id.get(char.id, []))
+            char_payload["level_progress"] = _level_progress_payload(char)
+            char_payload["skills"] = _skills_payload_for_character(char, skills_by_character_id.get(char.id, []))
         players_payload.append(
             {
                 "id": str(sp.player_id),
-                "uid": deps._player_uid(pl),
+                "uid": _player_uid(pl),
                 "name": (pl.display_name if pl else str(sp.player_id)),
                 "order": int(sp.join_order or 0),
                 "is_admin": bool(sp.is_admin),
@@ -271,7 +285,7 @@ async def build_state(db: AsyncSession, sess: Session) -> dict:
     pc_positions: dict[str, str] = {}
     for sp in all_sps:
         pl = players_by_id.get(sp.player_id)
-        uid = deps._player_uid(pl)
+        uid = _player_uid(pl)
         key = str(uid) if uid is not None else str(sp.player_id)
         zone = positions.get(str(sp.player_id), "стартовая локация")
         pc_positions[key] = zone
@@ -291,7 +305,7 @@ async def build_state(db: AsyncSession, sess: Session) -> dict:
             "all_ready": bool(all_ready),
             "can_begin": bool(can_begin),
             "initiative_fixed": _initiative_fixed(sess),
-            "round": (deps.as_int(settings_get(sess, "round", 0), 0) or 1) if _initiative_fixed(sess) else None,
+            "round": (as_int(settings_get(sess, "round", 0), 0) or 1) if _initiative_fixed(sess) else None,
         },
         "players": players_payload,
         "events": [
@@ -305,7 +319,7 @@ async def build_state(db: AsyncSession, sess: Session) -> dict:
         "game": {
             "free_turns": free_turns,
             "phase": phase,
-            "free_round": deps._get_free_round(sess) if free_turns else None,
+            "free_round": _get_free_round(sess) if free_turns else None,
             "actions_done": actions_done,
             "actions_total": actions_total,
             "pc_positions": pc_positions,
@@ -317,21 +331,19 @@ async def _broadcast_state_unlocked(
     session_id: str,
     combat_log_ui_patch: Optional[dict[str, Any]] = None,
 ) -> None:
-    import app.web.server as deps
-
     t_db0 = time.monotonic()
     commit_ms: float | None = None
     build_state_ms = 0.0
     ws_broadcast_ms = 0.0
     changed = False
-    async with deps.AsyncSessionLocal() as db:
-        sess = await deps.get_session(db, session_id)
+    async with AsyncSessionLocal() as db:
+        sess = await get_session(db, session_id)
         if not sess:
             return
         if combat_log_ui_patch is not None:
             history_raw = _ensure_settings(sess).get(COMBAT_LOG_HISTORY_KEY)
             prev_history = history_raw if isinstance(history_raw, dict) else None
-            cs = deps.get_combat(session_id)
+            cs = get_combat(session_id)
             actor_context: dict[str, Any] | None = None
             if cs is not None and cs.active:
                 actor_uid: Optional[int] = None
@@ -356,13 +368,13 @@ async def _broadcast_state_unlocked(
                                 break
 
                 if actor_uid is not None:
-                    _uid_map, chars_by_uid, _skill_mods_by_char = await deps._load_actor_context(db, sess)
+                    _uid_map, chars_by_uid, _skill_mods_by_char = await _load_actor_context(db, sess)
                     character = chars_by_uid.get(actor_uid)
                     actor_context = {"uid": actor_uid}
                     if character is not None:
                         actor_context["character"] = character
 
-            combat_log_ui_patch = deps.normalize_combat_log_ui_patch(
+            combat_log_ui_patch = normalize_combat_log_ui_patch(
                 combat_log_ui_patch,
                 prev_history=prev_history,
                 combat_state=cs,
@@ -370,13 +382,13 @@ async def _broadcast_state_unlocked(
             )
             _persist_combat_log_patch(sess, combat_log_ui_patch)
             changed = True
-            rewards_granted = await deps._grant_combat_rewards_once(db, sess, combat_log_ui_patch)
+            rewards_granted = await _grant_combat_rewards_once(db, sess, combat_log_ui_patch)
             if rewards_granted:
                 changed = True
-            defeat_outcome_granted = await deps._grant_defeat_outcome_once(db, sess, combat_log_ui_patch)
+            defeat_outcome_granted = await _grant_defeat_outcome_once(db, sess, combat_log_ui_patch)
             if defeat_outcome_granted:
                 changed = True
-            defeat_effects_applied = await deps._apply_defeat_effects_once(db, sess)
+            defeat_effects_applied = await _apply_defeat_effects_once(db, sess)
             if defeat_effects_applied:
                 changed = True
 
@@ -444,10 +456,8 @@ async def send_state_to_ws(
     ws: WebSocket,
     combat_log_ui_patch: Optional[dict[str, Any]] = None,
 ) -> None:
-    import app.web.server as deps
-
-    async with deps.AsyncSessionLocal() as db:
-        sess = await deps.get_session(db, session_id)
+    async with AsyncSessionLocal() as db:
+        sess = await get_session(db, session_id)
         if not sess:
             return
         _maybe_restore_combat_state(sess, session_id)
@@ -455,10 +465,10 @@ async def send_state_to_ws(
         if combat_log_ui_patch is None:
             snapshot = _combat_log_snapshot_patch(sess)
             if snapshot:
-                cs = deps.get_combat(session_id)
+                cs = get_combat(session_id)
                 if cs is not None and cs.active and snapshot.get("open", True):
                     snapshot = dict(snapshot)  # safety copy
-                    snapshot["status"] = f"⚔ Бой • Раунд {cs.round_no} • Ход: {deps.current_turn_label(cs)}"
+                    snapshot["status"] = f"⚔ Бой • Раунд {cs.round_no} • Ход: {current_turn_label(cs)}"
                 state["combat_log_ui_patch"] = snapshot
         else:
             state["combat_log_ui_patch"] = combat_log_ui_patch

@@ -127,6 +127,10 @@ def _get_round_actions(sess: Session) -> dict[str, str]:
     return out
 
 
+def _get_free_round(sess: Session) -> int:
+    return max(1, as_int(settings_get(sess, "free_round", 1), 1))
+
+
 async def _compute_remaining(sess: Session) -> Optional[int]:
     if not sess.turn_started_at or not sess.current_player_id:
         return None
