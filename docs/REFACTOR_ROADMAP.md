@@ -78,7 +78,12 @@
 - Этот lock используется как “мутационный” для одной сессии:
   - сериализация `broadcast_state(...)` (внутри `broadcast_state` берётся lock),
   - боевые мутации в `ws_room` (ветки `apply_combat_machine_commands`, `handle_live_combat_action`, `end_combat`),
-  - фоновые GM-задачи (`_auto_gm_reply_task`, `_auto_round_task`) и их критические секции.
+  - фоновые GM-задачи (`_auto_gm_reply_task`, `_auto_round_task`) и их критические секции,
+  - мутации watcher-задач (`timer_watcher`, `inactive_watcher`) при смене хода/деактивации игроков.
+
+Дополнение по watcher coverage:
+- В `timer_watcher` и `inactive_watcher` мутации и commit теперь выполняются под `get_session_lock(session_id)`.
+- Внутри этих lock-секций используется `_broadcast_state_unlocked(...)`, а не `broadcast_state(...)`, чтобы избежать re-lock и дедлока.
 
 Правила (строго):
 - **НЕЛЬЗЯ** вызывать `broadcast_state(...)` внутри `async with _get_session_gm_lock(session_id):`  
@@ -97,7 +102,7 @@
 - Использовать один базовый lock для всех mutation paths:
   - `ws_room` mutating actions,
   - `_auto_gm_reply_task`/`_auto_round_task`/`_auto_lore_task`,
-  - `timer_watcher`/`inactive_watcher` при изменении сессии,
+  - `timer_watcher`/`inactive_watcher` при изменении сессии (уже покрыто),
   - `broadcast_state`, если внутри есть mutations (`settings`, rewards, defeat effects, combat snapshot).
 
 ### Где нельзя держать lock долго

@@ -81,9 +81,9 @@
 - Внутри lock использовать только `_broadcast_state_unlocked(...)`.
 
 3. Что всё ещё остаётся риском/долгом.
-- Watchers (`timer_watcher`, `inactive_watcher`) делают мутации сессии до вызова `broadcast_state`; сам broadcast сериализован, но изменения до него всё ещё могут пересекаться с WS/GM путями.
+- Watchers (`timer_watcher`, `inactive_watcher`) теперь покрыты тем же per-session lock: мутации + commit сериализованы, а broadcast в lock-секции идёт через `_broadcast_state_unlocked(...)` (без `broadcast_state` re-lock).
 - Lock сейчас может держаться во время отправки state по WS (см. `_broadcast_state_unlocked` → `manager.broadcast_json`), что увеличивает время удержания lock при медленных клиентах.
-- In-memory combat state всё ещё проблемен для multi-worker/scale-out: разные процессы не разделяют `_COMBAT_BY_SESSION`.
+- Основной оставшийся concurrency-риск смещён в multi-worker/scale-out: in-memory combat state не разделяется между процессами (`_COMBAT_BY_SESSION` локален процессу).
 
 4. Практическая рекомендация на будущее.
 - Любая новая мутация боёвки/critical settings должна попадать под per-session lock.
