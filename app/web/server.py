@@ -111,6 +111,7 @@ from app.web.regexes import (
     ZONE_MOVE_RE,
 )
 from app.web import gm_orchestrator
+from app.web.db_helpers import get_or_create_player_web, get_player_by_uid, get_session, list_session_players
 
 
 TURN_TIMEOUT_SECONDS = int(os.getenv("TURN_TIMEOUT_SECONDS", "300"))
@@ -625,60 +626,6 @@ def _normalize_story_config(sess: Session, raw: Any) -> dict[str, Any]:
 # -------------------------
 BASE_DIR = Path(__file__).resolve().parent
 templates = Jinja2Templates(directory=str(BASE_DIR / "templates"))
-
-# -------------------------
-# DB helpers
-# -------------------------
-async def get_or_create_player_web(db: AsyncSession, uid: int, display_name: str) -> Player:
-    """
-    uid — это наш "web user id". Храним в Player.web_user_id.
-    """
-    q = await db.execute(select(Player).where(Player.web_user_id == uid))
-    player = q.scalar_one_or_none()
-    if player:
-        if display_name and display_name.strip() and player.display_name != display_name.strip():
-            player.display_name = display_name.strip()
-            await db.commit()
-        return player
-
-    name = (display_name or "").strip() or f"Player {uid}"
-    player = Player(
-        web_user_id=uid,
-        username=None,
-        display_name=name,
-    )
-    db.add(player)
-    await db.commit()
-    await db.refresh(player)
-    return player
-
-
-async def get_player_by_uid(db: AsyncSession, uid: int) -> Optional[Player]:
-    q = await db.execute(select(Player).where(Player.web_user_id == uid))
-    return q.scalar_one_or_none()
-
-
-async def get_session(db: AsyncSession, session_id: str) -> Optional[Session]:
-    try:
-        sid = uuid.UUID(session_id)
-    except Exception:
-        return None
-    q = await db.execute(select(Session).where(Session.id == sid))
-    return q.scalar_one_or_none()
-
-
-async def list_session_players(db: AsyncSession, sess: Session, active_only: bool = True) -> list[SessionPlayer]:
-    conds = [SessionPlayer.session_id == sess.id]
-    if active_only:
-        # is_active could be NULL for legacy records -> treat as active
-        conds.append(or_(SessionPlayer.is_active == True, SessionPlayer.is_active.is_(None)))
-    q = await db.execute(
-        select(SessionPlayer)
-        .where(*conds)
-        .order_by(SessionPlayer.join_order.asc())
-    )
-    return q.scalars().all()
-
 
 def _normalized_stats(stats_raw: Any) -> dict[str, int]:
     out = dict(CHAR_DEFAULT_STATS)
