@@ -23,12 +23,6 @@ BASE_DIR = Path(__file__).resolve().parent
 templates = Jinja2Templates(directory=str(BASE_DIR / "templates"))
 
 
-def _deps():
-    import app.web.server as deps
-
-    return deps
-
-
 @router.get("/", response_class=HTMLResponse)
 async def index(request: Request):
     return templates.TemplateResponse("index.html", {"request": request})
@@ -71,7 +65,8 @@ async def story_setup_page(request: Request, session_id: str, uid: Optional[int]
 
 @router.post("/api/new")
 async def api_new(payload: dict):
-    deps = _deps()
+    from app.web.server import DEFAULT_TIMEZONE, add_system_event
+
     title = (payload.get("title") or "Campaign").strip()
     uid = int(payload.get("uid"))
     name = (payload.get("name") or "Игрок").strip()
@@ -85,7 +80,7 @@ async def api_new(payload: dict):
             title=title,
             settings={"channel": "web"},
             world_seed=random.randint(1, 2_000_000_000),
-            timezone=deps.DEFAULT_TIMEZONE,
+            timezone=DEFAULT_TIMEZONE,
             is_active=False,
             is_paused=False,
             turn_index=0,
@@ -110,7 +105,7 @@ async def api_new(payload: dict):
         _set_ready(sess, player.id, False)
         await db.commit()
 
-        await deps.add_system_event(db, sess, f"Создана игра «{title}». Админ: {player.display_name}.")
+        await add_system_event(db, sess, f"Создана игра «{title}». Админ: {player.display_name}.")
 
     return JSONResponse({"session_id": str(sess.id)})
 
@@ -127,7 +122,8 @@ async def session_page(request: Request, session_id: str):
 
 @router.post("/api/join")
 async def api_join(payload: dict):
-    deps = _deps()
+    from app.web.server import _get_kicked, add_system_event
+
     session_id = payload.get("session_id")
     uid = int(payload.get("uid"))
     name = (payload.get("name") or "Игрок").strip()
@@ -139,7 +135,7 @@ async def api_join(payload: dict):
 
         player = await get_or_create_player_web(db, uid, name)
 
-        kicked = deps._get_kicked(sess)
+        kicked = _get_kicked(sess)
         if str(player.id) in kicked:
             raise HTTPException(status_code=403, detail="You were kicked from this session")
 
@@ -157,7 +153,7 @@ async def api_join(payload: dict):
                 _set_ready(sess, player.id, False)
                 _touch_last_seen(sess, player.id)
                 await db.commit()
-                await deps.add_system_event(db, sess, f"Игрок вернулся: {player.display_name} (#{sp.join_order}).")
+                await add_system_event(db, sess, f"Игрок вернулся: {player.display_name} (#{sp.join_order}).")
                 await broadcast_state(session_id)
                 return JSONResponse({"ok": True})
             _touch_last_seen(sess, player.id)
@@ -180,7 +176,7 @@ async def api_join(payload: dict):
         _touch_last_seen(sess, player.id)
         await db.commit()
 
-        await deps.add_system_event(db, sess, f"Игрок присоединился: {player.display_name} (#{join_order}).")
+        await add_system_event(db, sess, f"Игрок присоединился: {player.display_name} (#{join_order}).")
 
     await broadcast_state(session_id)
     return JSONResponse({"ok": True})
@@ -188,10 +184,11 @@ async def api_join(payload: dict):
 
 @router.get("/api/classes")
 async def api_classes():
-    deps = _deps()
+    from app.web.server import CLASS_PRESETS, _resolve_character_stats
+
     items = []
-    for class_id, preset in deps.CLASS_PRESETS.items():
-        stats = deps._resolve_character_stats(class_id, None)
+    for class_id, preset in CLASS_PRESETS.items():
+        stats = _resolve_character_stats(class_id, None)
         items.append(
             {
                 "id": class_id,
@@ -206,7 +203,8 @@ async def api_classes():
 
 @router.get("/api/story/get")
 async def api_story_get(session_id: str, uid: int):
-    deps = _deps()
+    from app.web.server import _normalize_story_config
+
     if uid <= 0:
         raise HTTPException(status_code=400, detail="Bad uid")
 
@@ -230,7 +228,7 @@ async def api_story_get(session_id: str, uid: int):
             raise HTTPException(status_code=403, detail="Admin access required")
 
         raw_story = settings_get(sess, "story", {}) or {}
-        config = deps._normalize_story_config(sess, raw_story)
+        config = _normalize_story_config(sess, raw_story)
         configured = bool(isinstance(raw_story, dict) and raw_story.get("story_configured"))
         if configured:
             config["story_configured"] = True
@@ -243,7 +241,8 @@ async def api_story_get(session_id: str, uid: int):
 
 @router.post("/api/story/save")
 async def api_story_save(payload: dict):
-    deps = _deps()
+    from app.web.server import _looks_like_refusal, _normalize_story_config
+
     session_id = str(payload.get("session_id") or "").strip()
     uid = as_int(payload.get("uid"), 0)
     config_raw = payload.get("config")
@@ -272,13 +271,13 @@ async def api_story_save(payload: dict):
         if not sp or not sp.is_admin:
             raise HTTPException(status_code=403, detail="Admin access required")
 
-        config = deps._normalize_story_config(sess, config_raw)
+        config = _normalize_story_config(sess, config_raw)
         config["story_configured"] = True
         config["configured_at"] = datetime.now(timezone.utc).isoformat()
         settings_set(sess, "story", config)
         if "lore_text" in config_raw:
             lore_text = str(config_raw.get("lore_text") or "").strip()
-            if lore_text and not deps._looks_like_refusal(lore_text):
+            if lore_text and not _looks_like_refusal(lore_text):
                 settings_set(sess, "lore_text", lore_text)
                 settings_set(sess, "lore_generated", True)
                 settings_set(sess, "lore_posted", False)
@@ -294,7 +293,8 @@ async def api_story_save(payload: dict):
 
 @router.post("/api/story/lore/generate")
 async def api_story_lore_generate(payload: dict):
-    deps = _deps()
+    from app.web.server import GM_OLLAMA_TIMEOUT_SECONDS, _looks_like_refusal, logger
+
     session_id = str(payload.get("session_id") or "").strip()
     uid = as_int(payload.get("uid"), 0)
     force = bool(payload.get("force", False))
@@ -333,9 +333,9 @@ async def api_story_lore_generate(payload: dict):
         lore_resp = await generate_lore(
             session_title=story_title,
             setting_text=story_setting,
-            timeout_seconds=deps.GM_OLLAMA_TIMEOUT_SECONDS,
+            timeout_seconds=GM_OLLAMA_TIMEOUT_SECONDS,
         )
-        deps.logger.info(
+        logger.info(
             "lore generation call",
             extra={
                 "action": {
@@ -348,7 +348,7 @@ async def api_story_lore_generate(payload: dict):
         lore_text = lore_text.strip()
         if not lore_text:
             raise HTTPException(status_code=400, detail="Lore generation refused...")
-        if deps._looks_like_refusal(lore_text):
+        if _looks_like_refusal(lore_text):
             raise HTTPException(status_code=400, detail="Lore generation refused...")
 
         settings_set(sess, "lore_text", lore_text)
@@ -362,7 +362,19 @@ async def api_story_lore_generate(payload: dict):
 
 @router.post("/api/character/create")
 async def api_character_create(payload: dict):
-    deps = _deps()
+    from app.web.server import (
+        CLASS_PRESETS,
+        _char_to_payload,
+        _put_character_meta_into_stats,
+        _resolve_character_stats,
+        _stats_points_used,
+        _story_is_configured,
+        _upsert_starter_skills,
+        add_system_event,
+        create_character,
+        get_character,
+    )
+
     session_id = str(payload.get("session_id") or "").strip()
     uid = as_int(payload.get("uid"), 0)
     char_name = str(payload.get("name") or "").strip()
@@ -396,25 +408,25 @@ async def api_character_create(payload: dict):
         if sp.is_active is False:
             raise HTTPException(status_code=403, detail="You are offline in this session")
 
-        existing = await deps.get_character(db, sess.id, player.id)
+        existing = await get_character(db, sess.id, player.id)
         if existing:
             return JSONResponse({"detail": "Character already exists"}, status_code=409)
 
-        selected_preset = deps.CLASS_PRESETS.get(class_id) if class_id else None
+        selected_preset = CLASS_PRESETS.get(class_id) if class_id else None
         class_name = custom_class or (selected_preset.get("display_name") if selected_preset else "Adventurer")
-        stats = deps._resolve_character_stats(class_id if selected_preset else None, stats_in)
-        stats = deps._put_character_meta_into_stats(
+        stats = _resolve_character_stats(class_id if selected_preset else None, stats_in)
+        stats = _put_character_meta_into_stats(
             stats,
             gender=meta_gender,
             race=meta_race,
             description=meta_description,
         )
-        if deps._stats_points_used(stats) > 20:
+        if _stats_points_used(stats) > 20:
             raise HTTPException(status_code=400, detail="Points budget exceeded (max 20)")
 
         hp_max = max(1, as_int((selected_preset or {}).get("hp_max"), 20))
         sta_max = max(1, as_int((selected_preset or {}).get("sta_max"), 10))
-        ch = await deps.create_character(
+        ch = await create_character(
             db,
             sess.id,
             player.id,
@@ -425,17 +437,18 @@ async def api_character_create(payload: dict):
             sta_max=sta_max,
             stats=stats,
         )
-        await deps._upsert_starter_skills(db, ch, (selected_preset or {}).get("starter_skills") or {})
-        await deps.add_system_event(db, sess, f"Character ready: {ch.name} for player #{sp.join_order}.")
+        await _upsert_starter_skills(db, ch, (selected_preset or {}).get("starter_skills") or {})
+        await add_system_event(db, sess, f"Character ready: {ch.name} for player #{sp.join_order}.")
         next_url = f"/s/{session_id}"
-        if sp.is_admin and not deps._story_is_configured(sess):
+        if sp.is_admin and not _story_is_configured(sess):
             next_url = f"/story/{session_id}?uid={uid}"
-        return JSONResponse({"ok": True, "character": deps._char_to_payload(ch), "next_url": next_url})
+        return JSONResponse({"ok": True, "character": _char_to_payload(ch), "next_url": next_url})
 
 
 @router.post("/api/character/update_stats")
 async def api_character_update_stats(payload: dict):
-    deps = _deps()
+    from app.web.server import _char_to_payload, _resolve_character_stats, _stats_points_used, add_system_event, get_character, is_admin
+
     session_id = str(payload.get("session_id") or "").strip()
     uid = as_int(payload.get("uid"), 0)
     stats_in = payload.get("stats")
@@ -463,31 +476,32 @@ async def api_character_update_stats(payload: dict):
         if sp.is_active is False:
             raise HTTPException(status_code=403, detail="You are offline in this session")
 
-        admin = await deps.is_admin(db, sess, player)
+        admin = await is_admin(db, sess, player)
         if sess.is_active and not admin:
             raise HTTPException(status_code=403, detail="Only admin can change stats after start")
 
-        ch = await deps.get_character(db, sess.id, player.id)
+        ch = await get_character(db, sess.id, player.id)
         if not ch:
             raise HTTPException(status_code=404, detail="No character. Use: char create ...")
 
-        stats = deps._resolve_character_stats(None, stats_in)
-        if deps._stats_points_used(stats) > 20:
+        stats = _resolve_character_stats(None, stats_in)
+        if _stats_points_used(stats) > 20:
             raise HTTPException(status_code=400, detail="Points budget exceeded (max 20)")
 
         ch.stats = stats
         await db.commit()
-        await deps.add_system_event(db, sess, f"[STAT] player #{sp.join_order} updated character stats.")
-        return JSONResponse({"ok": True, "character": deps._char_to_payload(ch)})
+        await add_system_event(db, sess, f"[STAT] player #{sp.join_order} updated character stats.")
+        return JSONResponse({"ok": True, "character": _char_to_payload(ch)})
 
 
 @router.get("/api/character/me")
 async def api_character_me(session_id: str, uid: int):
-    deps = _deps()
+    from app.web.server import _char_to_payload, get_character
+
     async with AsyncSessionLocal() as db:
         sess = await get_session(db, session_id)
         if not sess:
             raise HTTPException(status_code=404, detail="Session not found")
         player = await get_or_create_player_web(db, as_int(uid, 0), "")
-        ch = await deps.get_character(db, sess.id, player.id)
-        return JSONResponse({"ok": True, "has_character": ch is not None, "character": deps._char_to_payload(ch)})
+        ch = await get_character(db, sess.id, player.id)
+        return JSONResponse({"ok": True, "has_character": ch is not None, "character": _char_to_payload(ch)})
