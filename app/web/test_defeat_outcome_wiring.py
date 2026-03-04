@@ -1,8 +1,9 @@
 import asyncio
 from dataclasses import dataclass
 
-import app.web.server as server
-from app.web.server import COMBAT_STATE_KEY, _grant_defeat_outcome_once
+import app.web.ws_rewards as ws_rewards
+from app.web.constants import COMBAT_STATE_KEY
+from app.web.ws_rewards import _grant_defeat_outcome_once
 
 
 @dataclass
@@ -23,8 +24,7 @@ def test_grant_defeat_outcome_once_stores_payload_and_is_idempotent(monkeypatch)
     async def _fake_add_system_event(_db, _sess, text, **_kwargs):
         events.append(text)
 
-    monkeypatch.setattr(server, "flag_modified", lambda *_args, **_kwargs: None)
-    monkeypatch.setattr(server, "add_system_event", _fake_add_system_event)
+    monkeypatch.setattr(ws_rewards, "add_system_event", _fake_add_system_event)
 
     first = asyncio.run(_grant_defeat_outcome_once(None, sess, patch))
     second = asyncio.run(_grant_defeat_outcome_once(None, sess, patch))

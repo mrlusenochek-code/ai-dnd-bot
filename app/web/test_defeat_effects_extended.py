@@ -1,6 +1,6 @@
 from dataclasses import dataclass
 
-from app.web import server
+from app.web import ws_rewards
 
 
 @dataclass
@@ -16,7 +16,7 @@ def test_left_for_dead_revives_only_leader_with_min_uid() -> None:
         10: _FakeCharacter(hp=4, is_alive=False),
     }
 
-    leader_uid = server._apply_left_for_dead_character_state(chars_by_uid)
+    leader_uid = ws_rewards._apply_left_for_dead_character_state(chars_by_uid)
 
     assert leader_uid == 3
     assert chars_by_uid[3].hp == 1

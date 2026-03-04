@@ -1,11 +1,8 @@
 import asyncio
 from dataclasses import dataclass
 
-from app.web.server import (
-    COMBAT_STATE_KEY,
-    _compute_rewards_from_combat_state_payload,
-    _grant_combat_rewards_once,
-)
+from app.web.constants import COMBAT_STATE_KEY
+from app.web.ws_rewards import _compute_rewards_from_combat_state_payload, _grant_combat_rewards_once
 
 
 def test_compute_rewards_payload_xp_and_seeded_loot_stable() -> None:

@@ -1,7 +1,7 @@
 from dataclasses import dataclass
 from typing import Any
 
-from app.web import server
+from app.web import ws_rewards
 
 
 @dataclass
@@ -19,8 +19,8 @@ def test_compute_robbed_removals_is_deterministic_and_skips_quest_items() -> Non
         {"id": "gamma", "name": "No def item", "qty": 1},
     ]
 
-    removals_first = server._compute_robbed_removals(inv, max_take=2)
-    removals_second = server._compute_robbed_removals(inv, max_take=2)
+    removals_first = ws_rewards._compute_robbed_removals(inv, max_take=2)
+    removals_second = ws_rewards._compute_robbed_removals(inv, max_take=2)
 
     assert removals_first == ["beta", "gamma"]
     assert removals_second == removals_first
@@ -31,7 +31,7 @@ def test_revive_characters_to_1hp_only_for_zero_or_negative_hp() -> None:
     downed = _FakeCharacter(hp=0, is_alive=False, stats={})
     dead = _FakeCharacter(hp=-3, is_alive=False, stats={})
 
-    changed = server._revive_characters_to_1hp([alive, downed, dead])
+    changed = ws_rewards._revive_characters_to_1hp([alive, downed, dead])
 
     assert changed is True
     assert alive.hp == 5
