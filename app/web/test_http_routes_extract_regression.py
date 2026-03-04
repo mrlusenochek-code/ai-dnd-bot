@@ -8,9 +8,10 @@ def test_server_has_no_http_route_decorators_and_keeps_ws() -> None:
     assert "@app.put(" not in server_src
     assert "@app.patch(" not in server_src
     assert "@app.delete(" not in server_src
-    assert '@app.websocket("/ws/{session_id}")' in server_src
-    assert "from app.web.http_routes import router as http_router" in server_src
-    assert "app.include_router(http_router)" in server_src
+    assert '@app.websocket("/ws/{session_id}")' not in server_src
+    assert "http_router" not in server_src
+    assert "include_router" not in server_src
+    assert "server_impl" in server_src
 
 
 def test_http_routes_module_defines_router_and_routes() -> None:

@@ -10,7 +10,8 @@
 Опора на механику — документы/референсы в репозитории (`SRD/PHB/DMG` и сопутствующие материалы).
 
 ## Карта модулей
-- `app/web/server.py`: центр оркестрации (WS, фазы/ходы, GM pipeline, combat patch, `broadcast_state`).
+- `app/web/server.py`: wiring-only entrypoint (реэкспорт из `server_impl`, без доменной логики).
+- `app/web/server_impl.py`: центр оркестрации (WS, фазы/ходы, GM pipeline, combat patch, `broadcast_state`).
 - `app/gm/*`:
 - `service.py`: two-pass и repair-циклы.
 - `sanitize.py`: очистка шумов/мета/псевдо-механик.
@@ -58,3 +59,7 @@
 ## Дополнительно
 Подробный архитектурный обзор, риски и рекомендации:
 - [CODE_REVIEW.md](./CODE_REVIEW.md)
+
+## Контракт entrypoint
+- `app/web/server.py` должен оставаться wiring-only: импорт/реэкспорт, без route-декораторов и доменной логики.
+- Реализация Web/API должна добавляться в `app/web/server_impl.py`.
