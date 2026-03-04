@@ -17,6 +17,14 @@ from app.web.session_state import (
 from app.web.session_lock import get_session_lock
 from app.web.state_builder import broadcast_state, _broadcast_state_unlocked, send_state_to_ws, _maybe_restore_combat_state
 from app.web.ws_manager import manager
+from app.web.combat_bridge import (
+    _append_combat_patch_lines,
+    _build_combat_start_preamble_lines,
+    _combat_outcome_summary_from_patch,
+    _combat_participants_block,
+    _generate_combat_narration,
+    _merge_combat_patches,
+)
 
 
 async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
@@ -330,7 +338,7 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                         combat_state = deps.get_combat(session_id)
                         after_active = bool(combat_state and combat_state.active)
                         if after_active and combat_state is not None and combat_state.active:
-                            preamble_lines = deps._build_combat_start_preamble_lines(
+                            preamble_lines = _build_combat_start_preamble_lines(
                                 player=player,
                                 chars_by_uid=chars_by_uid,
                                 combat_state=combat_state,
@@ -352,7 +360,7 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                                         already = True
                                         break
                             if preamble_lines and not already:
-                                combat_patch = deps._append_combat_patch_lines(combat_patch, preamble_lines, prepend=True)
+                                combat_patch = _append_combat_patch_lines(combat_patch, preamble_lines, prepend=True)
                             combat_patch["reset"] = True
                         if combat_state is not None and combat_state.active:
                             if combat_patch.get("reset") is True:
@@ -479,7 +487,7 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                                     combat_state = deps.get_combat(session_id)
                                     after_active = bool(combat_state and combat_state.active)
                                     if after_active and combat_state is not None and combat_state.active:
-                                        preamble_lines = deps._build_combat_start_preamble_lines(
+                                        preamble_lines = _build_combat_start_preamble_lines(
                                             player=player,
                                             chars_by_uid=chars_by_uid,
                                             combat_state=combat_state,
@@ -501,7 +509,7 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                                                     already = True
                                                     break
                                         if preamble_lines and not already:
-                                            combat_patch = deps._append_combat_patch_lines(combat_patch, preamble_lines, prepend=True)
+                                            combat_patch = _append_combat_patch_lines(combat_patch, preamble_lines, prepend=True)
                                         combat_patch["reset"] = True
                                         combat_patch["open"] = True
                                         combat_patch["status"] = (
@@ -554,7 +562,7 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                         if combat_patch is None:
                             combat_patch = {}
                         if combat_state and combat_state.active:
-                            preamble_lines = deps._build_combat_start_preamble_lines(
+                            preamble_lines = _build_combat_start_preamble_lines(
                                 player=player,
                                 chars_by_uid=chars_by_uid,
                                 combat_state=combat_state,
@@ -574,7 +582,7 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                                         already = True
                                         break
                             if preamble_lines and not already:
-                                combat_patch = deps._append_combat_patch_lines(combat_patch, preamble_lines, prepend=True)
+                                combat_patch = _append_combat_patch_lines(combat_patch, preamble_lines, prepend=True)
 
                         combat_patch["reset"] = True
                         combat_patch["open"] = True
@@ -743,7 +751,7 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                                 if enemy_patch:
                                     all_patches.append(enemy_patch)
 
-                            merged_patch = deps._merge_combat_patches(all_patches) if all_patches else None
+                            merged_patch = _merge_combat_patches(all_patches) if all_patches else None
                             await _broadcast_state_unlocked(session_id, combat_log_ui_patch=merged_patch)
                         facts = deps.extract_combat_narration_facts(merged_patch)
                         if facts:
@@ -1350,7 +1358,7 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                             continue
                         if combat_patch:
                             all_patches.append(combat_patch)
-                            outcome_summary.extend(deps._combat_outcome_summary_from_patch(combat_action, combat_patch))
+                            outcome_summary.extend(_combat_outcome_summary_from_patch(combat_action, combat_patch))
 
                         while True:
                             state_now = deps.get_combat(session_id)
@@ -1368,7 +1376,7 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                                 break
                             if enemy_patch:
                                 all_patches.append(enemy_patch)
-                                outcome_summary.extend(deps._combat_outcome_summary_from_patch("combat_attack", enemy_patch))
+                                outcome_summary.extend(_combat_outcome_summary_from_patch("combat_attack", enemy_patch))
 
                         state_after_actions = deps.get_combat(session_id)
                         if state_after_actions is None:
@@ -1376,7 +1384,7 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                             # (admin_combat_live_end or a dedicated reset command).
                             pass
 
-                        merged_patch = deps._merge_combat_patches(all_patches) if all_patches else None
+                        merged_patch = _merge_combat_patches(all_patches) if all_patches else None
                         await broadcast_state(session_id, combat_log_ui_patch=merged_patch)
                         state_for_prompt = state_after_actions
                         story = settings_get(sess, "story", {}) or {}
@@ -1384,13 +1392,13 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                             story = {}
                         campaign_title = str(story.get("story_title") or "").strip() or str(sess.title or "Campaign").strip() or "Campaign"
                         turn_label = deps.current_turn_label(state_for_prompt) if state_for_prompt else "-"
-                        participants_block = deps._combat_participants_block(state_for_prompt)
+                        participants_block = _combat_participants_block(state_for_prompt)
                         ch = await deps.get_character(db, sess.id, player.id)
                         meta = deps._character_meta_from_stats(ch.stats) if ch else {"gender": "", "race": "", "description": ""}
                         actor_gender = meta["gender"]
                         actor_pronouns = deps._gender_to_pronouns(actor_gender) or "unknown"
                         actor_name = str(ch.name).strip() if ch and str(ch.name or "").strip() else actor_label
-                        gm_text = await deps._generate_combat_narration(
+                        gm_text = await _generate_combat_narration(
                             campaign_title=campaign_title,
                             outcome_summary=outcome_summary,
                             player_action=combat_action,
