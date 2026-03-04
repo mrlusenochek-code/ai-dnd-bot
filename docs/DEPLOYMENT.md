@@ -15,3 +15,8 @@
 - `DND_ALLOW_MULTI_WORKER=1`
 
 Это рискованно: разные workers будут иметь разный in-memory combat state, что может ломать целостность боевых сессий.
+
+## Perf logs
+
+- `DND_PERF_LOG=1` включает лёгкие perf-логи для session lock/broadcast таймингов.
+- `DND_PERF_WARN_MS=250` задаёт порог для `WARNING` (ниже порога — `DEBUG`).

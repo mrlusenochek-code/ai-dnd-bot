@@ -1,4 +1,6 @@
 import json
+import logging
+import time
 from typing import Any, Optional
 
 from fastapi import WebSocket
@@ -21,7 +23,10 @@ from app.web.session_state import (
 )
 
 from app.web.session_lock import get_session_lock
+from app.web.perf_log import log_perf
 from app.web.ws_manager import manager
+
+logger = logging.getLogger(__name__)
 
 
 def _get_combat_log_history(sess: Session) -> dict:
@@ -314,11 +319,15 @@ async def _broadcast_state_unlocked(
 ) -> None:
     import app.web.server as deps
 
+    t_db0 = time.monotonic()
+    commit_ms: float | None = None
+    build_state_ms = 0.0
+    ws_broadcast_ms = 0.0
+    changed = False
     async with deps.AsyncSessionLocal() as db:
         sess = await deps.get_session(db, session_id)
         if not sess:
             return
-        changed = False
         if combat_log_ui_patch is not None:
             history_raw = _ensure_settings(sess).get(COMBAT_LOG_HISTORY_KEY)
             prev_history = history_raw if isinstance(history_raw, dict) else None
@@ -373,20 +382,61 @@ async def _broadcast_state_unlocked(
 
         changed = _persist_combat_state(sess, session_id) or changed
         if changed:
+            t_commit0 = time.monotonic()
             await db.commit()
+            commit_ms = (time.monotonic() - t_commit0) * 1000.0
+        t_build0 = time.monotonic()
         state = await build_state(db, sess)
+        build_state_ms = (time.monotonic() - t_build0) * 1000.0
+        t_before_build = t_build0
     if combat_log_ui_patch is not None:
         state["combat_log_ui_patch"] = combat_log_ui_patch
+    t_ws0 = time.monotonic()
     await manager.broadcast_json(session_id, state)
+    ws_broadcast_ms = (time.monotonic() - t_ws0) * 1000.0
+
+    db_total_ms = (t_before_build - t_db0) * 1000.0
+    if commit_ms is not None:
+        db_total_ms = max(0.0, db_total_ms - commit_ms)
+    log_perf(
+        logger,
+        "broadcast_state_unlocked",
+        db_total_ms + build_state_ms + ws_broadcast_ms + (commit_ms or 0.0),
+        fields={
+            "session_id": session_id,
+            "db_ms": round(db_total_ms, 2),
+            "build_state_ms": round(build_state_ms, 2),
+            "ws_broadcast_ms": round(ws_broadcast_ms, 2),
+            "commit_ms": round(commit_ms, 2) if commit_ms is not None else None,
+            "changed": changed,
+        },
+    )
 
 
 async def broadcast_state(
     session_id: str,
     combat_log_ui_patch: Optional[dict[str, Any]] = None,
 ) -> None:
+    t0 = time.monotonic()
     lock = get_session_lock(session_id)
     async with lock:
+        t1 = time.monotonic()
         await _broadcast_state_unlocked(session_id, combat_log_ui_patch=combat_log_ui_patch)
+        t2 = time.monotonic()
+    wait_ms = (t1 - t0) * 1000.0
+    inside_ms = (t2 - t1) * 1000.0
+    total_ms = (t2 - t0) * 1000.0
+    log_perf(
+        logger,
+        "broadcast_state",
+        total_ms,
+        fields={
+            "session_id": session_id,
+            "wait_ms": round(wait_ms, 2),
+            "inside_ms": round(inside_ms, 2),
+            "has_patch": combat_log_ui_patch is not None,
+        },
+    )
 
 
 async def send_state_to_ws(
