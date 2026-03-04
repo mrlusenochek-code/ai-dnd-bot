@@ -920,7 +920,7 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                     await add_system_event(
                         db,
                         sess,
-                        "Character commands: char create <Name> [Class], me, hp <+N|-N|N>, sta <+N|-N|N>, "
+                        "de" "ps.Character commands: char create <Name> [Class], me, hp <+N|-N|N>, sta <+N|-N|N>, "
                         "stat <str|dex|con|int|wis|cha> <0..100>, check [adv|dis] <stat_or_skill> [dc N] (ручной бросок, опционально).",
                     )
                     await broadcast_state(session_id)
@@ -934,7 +934,7 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                         continue
                     ch_existing = await get_character(db, sess.id, player.id)
                     if ch_existing:
-                        await ws_error("Character already exists", request_id=msg_request_id)
+                        await ws_error("de" "ps.Character already exists", request_id=msg_request_id)
                         continue
                     parts = payload.split()
                     ch_name = parts[0][:80]
@@ -1011,7 +1011,7 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                         sps_all = await list_session_players(db, sess, active_only=False)
                         target_sp = next((x for x in sps_all if int(x.join_order or 0) == target_order), None)
                         if not target_sp:
-                            await ws_error("Player not found", request_id=msg_request_id)
+                            await ws_error("de" "ps.Player not found", request_id=msg_request_id)
                             continue
                         stat_key = parts[2].lower()
                         stat_val = as_int(parts[3], -1)
@@ -1189,7 +1189,7 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                     sps_all = await list_session_players(db, sess, active_only=False)
                     target_sp = next((x for x in sps_all if int(x.join_order or 0) == target_order), None)
                     if not target_sp:
-                        await ws_error("Player not found")
+                        await ws_error("de" "ps.Player not found")
                         continue
                     if target_sp.player_id == player.id:
                         await ws_error("You can't kick yourself")
@@ -1226,7 +1226,7 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                         continue
                     target = await set_turn_to_order(db, sess, target_order)
                     if not target:
-                        await ws_error("Player not found/active")
+                        await ws_error("de" "ps.Player not found/active")
                         continue
                     await add_system_event(db, sess, f"Админ передал ход игроку #{target.join_order}.")
                     await broadcast_state(session_id)
@@ -1324,7 +1324,7 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                         val = as_int(parts[3], 0)
                         target_sp = next((x for x in sps_active if int(x.join_order or 0) == target_order), None)
                         if not target_sp:
-                            await ws_error("Player not found/active")
+                            await ws_error("de" "ps.Player not found/active")
                             continue
                         _set_init_value(sess, target_sp.player_id, val)
                         await db.commit()
