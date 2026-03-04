@@ -5,7 +5,7 @@ import os
 import random
 import re
 from contextlib import asynccontextmanager
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta
 import uuid
 from typing import Any, Optional
 
@@ -79,7 +79,6 @@ from app.web.combat_bridge import (
     _merge_combat_patches,
 )
 from app.web.state_builder import build_state, broadcast_state, _broadcast_state_unlocked, send_state_to_ws
-from app.web.ws_manager import manager
 from app.web.inventory_helpers import (
     _normalize_inventory_def,
     _normalize_inventory_item,
@@ -99,6 +98,7 @@ from app.web.inventory_helpers import (
     _equip_state_line,
 )
 from app.web.utils import as_int, _clamp, _short_text, _slugify_inventory_id
+from app.web.watchers import inactive_watcher, timer_watcher
 from app.web.regexes import (
     CHAT_COMBAT_ACTION_PATTERNS,
     COMBAT_MECHANICS_EVENT_RE,
@@ -134,8 +134,6 @@ from app.web.http_routes import router as http_router
 
 
 TURN_TIMEOUT_SECONDS = int(os.getenv("TURN_TIMEOUT_SECONDS", "300"))
-INACTIVE_TIMEOUT_SECONDS = int(os.getenv("DND_INACTIVE_TIMEOUT_SECONDS", "600"))
-INACTIVE_SCAN_PERIOD_SECONDS = int(os.getenv("DND_INACTIVE_SCAN_PERIOD_SECONDS", "5"))
 ENABLE_WATCHERS = os.getenv("ENABLE_WATCHERS", "1") not in ("0", "false", "False")
 GM_CONTEXT_EVENTS = max(1, int(os.getenv("GM_CONTEXT_EVENTS", "20")))
 GM_DRAFT_NUM_PREDICT = max(200, int(os.getenv("GM_DRAFT_NUM_PREDICT", "1000")))
@@ -1611,18 +1609,6 @@ def _remove_player_from_session_settings(sess: Session, player_id: uuid.UUID) ->
         settings_set(sess, "pc_positions", pc_positions)
 
 
-def _parse_iso(ts: Any) -> Optional[datetime]:
-    if not isinstance(ts, str) or not ts:
-        return None
-    try:
-        dt = datetime.fromisoformat(ts)
-    except Exception:
-        return None
-    if dt.tzinfo is not None:
-        dt = dt.astimezone(timezone.utc).replace(tzinfo=None)
-    return dt
-
-
 def _clear_initiative(sess: Session) -> None:
     settings_set(sess, "initiative", {})
     settings_set(sess, "initiative_fixed", False)
@@ -1885,125 +1871,6 @@ from app.web.ws_handlers import ws_room_handler
 async def ws_room(ws: WebSocket, session_id: str):
     await ws_room_handler(ws, session_id)
 
-
-# -------------------------
-# Timer watcher (autopass on timeout)
-# -------------------------
-
-
-async def timer_watcher():
-    while True:
-        try:
-            async with AsyncSessionLocal() as db:
-                q = await db.execute(
-                    select(Session).where(
-                        Session.is_active == True,
-                        Session.is_paused == False,
-                        Session.current_player_id.is_not(None),
-                        Session.turn_started_at.is_not(None),
-                    )
-                )
-                sessions = q.scalars().all()
-
-                now = utcnow()
-                for sess in sessions:
-                    tok_rid = request_id_var.set(_new_request_id())
-                    tok_sid = session_id_var.set(str(sess.id))
-                    try:
-                        elapsed = (now - sess.turn_started_at).total_seconds()
-                        if elapsed < TURN_TIMEOUT_SECONDS:
-                            continue
-
-                        session_id = str(sess.id)
-                        lock = get_session_lock(session_id)
-                        async with lock:
-                            nxt = await advance_turn(db, sess)
-                            if not nxt:
-                                continue
-                            await add_system_event(db, sess, f"⏰ Время вышло. Ход пропущен. Следующий: #{nxt.join_order}.")
-                            await _broadcast_state_unlocked(session_id)
-                    finally:
-                        request_id_var.reset(tok_rid)
-                        session_id_var.reset(tok_sid)
-
-        except Exception:
-            logger.exception("timer_watcher iteration failed")
-
-        await asyncio.sleep(1)
-
-
-async def inactive_watcher():
-    while True:
-        try:
-            room_session_ids: list[uuid.UUID] = []
-            for sid_raw in list(manager.rooms.keys()):
-                try:
-                    room_session_ids.append(uuid.UUID(str(sid_raw)))
-                except Exception:
-                    continue
-
-            if room_session_ids:
-                async with AsyncSessionLocal() as db:
-                    q = await db.execute(select(Session).where(Session.id.in_(room_session_ids)))
-                    sessions = q.scalars().all()
-                    now = utcnow()
-
-                    for sess in sessions:
-                        tok_rid = request_id_var.set(_new_request_id())
-                        tok_sid = session_id_var.set(str(sess.id))
-                        try:
-                            session_id = str(sess.id)
-                            lock = get_session_lock(session_id)
-                            async with lock:
-                                changed = False
-                                active_sps = await list_session_players(db, sess, active_only=True)
-                                if not active_sps:
-                                    continue
-
-                                player_ids = [sp.player_id for sp in active_sps]
-                                players_by_id: dict[uuid.UUID, Player] = {}
-                                if player_ids:
-                                    q_players = await db.execute(select(Player).where(Player.id.in_(player_ids)))
-                                    players_by_id = {p.id: p for p in q_players.scalars().all()}
-
-                                last_seen_map = _get_last_seen_map(sess)
-
-                                for sp in active_sps:
-                                    ts = _parse_iso(last_seen_map.get(str(sp.player_id)))
-                                    if ts is None:
-                                        _touch_last_seen(sess, sp.player_id)
-                                        changed = True
-                                        continue
-
-                                    if (now - ts).total_seconds() <= INACTIVE_TIMEOUT_SECONDS:
-                                        continue
-
-                                    if sess.current_player_id == sp.player_id and bool(sess.is_active):
-                                        await advance_turn(db, sess)
-
-                                    sp.is_active = False
-                                    _remove_player_from_session_settings(sess, sp.player_id)
-                                    changed = True
-
-                                    pl = players_by_id.get(sp.player_id)
-                                    name = pl.display_name if pl else f"#{sp.join_order}"
-                                    await add_system_event(db, sess, f"Игрок {name} стал неактивен (timeout).")
-
-                                if changed:
-                                    active_left = await list_session_players(db, sess, active_only=True)
-                                    if not active_left:
-                                        sess.current_player_id = None
-                                        sess.turn_started_at = None
-                                        _clear_paused_remaining(sess)
-                                    await db.commit()
-                                    await _broadcast_state_unlocked(session_id)
-                        finally:
-                            request_id_var.reset(tok_rid)
-                            session_id_var.reset(tok_sid)
-        except Exception:
-            logger.exception("inactive_watcher iteration failed")
-
-        await asyncio.sleep(INACTIVE_SCAN_PERIOD_SECONDS)
 
 # Re-export helpers extracted from server for compatibility.
 from app.web.ws_access import COMBAT_CLARIFY_TEXT, _combat_clarify_already_sent, _event_actor_label, _load_actor_context, _player_uid
