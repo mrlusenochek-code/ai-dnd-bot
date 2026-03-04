@@ -100,6 +100,10 @@ from app.web.ws_turns import (
 logger = logging.getLogger("app.web" ".server")
 
 
+def _new_request_id() -> str:
+    return uuid.uuid4().hex
+
+
 async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
     async def ws_error(message: str, *, fatal: bool = False, request_id: Optional[str] = None) -> None:
         rid = request_id
