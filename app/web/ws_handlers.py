@@ -41,6 +41,7 @@ from app.web.session_state import (
     settings_get,
     settings_set,
     _get_ready_map,
+    _set_ready,
     _get_init_map,
     _get_pc_positions,
     _touch_last_seen,
