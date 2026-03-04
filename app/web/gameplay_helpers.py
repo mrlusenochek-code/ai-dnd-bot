@@ -16,6 +16,7 @@ from app.web.utils import _clamp, as_int
 logger = logging.getLogger("app.web.server")
 DEFAULT_TIMEZONE = os.getenv("DEFAULT_TIMEZONE", "Europe/Warsaw")
 GM_OLLAMA_TIMEOUT_SECONDS = max(1.0, float(os.getenv("GM_OLLAMA_TIMEOUT_SECONDS", "30")))
+GM_FINAL_NUM_PREDICT = max(400, int(os.getenv("GM_FINAL_NUM_PREDICT", "1600")))
 CHAR_STAT_KEYS = ("str", "dex", "con", "int", "wis", "cha")
 CHAR_DEFAULT_STATS = {k: 50 for k in CHAR_STAT_KEYS}
 CLASS_PRESETS: dict[str, dict[str, Any]] = {
@@ -190,6 +191,13 @@ def _normalized_stats(stats_raw: Any) -> dict[str, int]:
             if key in stats_raw:
                 out[key] = _clamp(as_int(stats_raw.get(key), 50), 0, 100)
     return out
+
+
+def _player_uid(player: Optional[Player]) -> Optional[int]:
+    if not player:
+        return None
+    raw = player.web_user_id if player.web_user_id is not None else player.telegram_user_id
+    return int(raw) if raw is not None else None
 
 
 def _character_meta_from_stats(stats_raw: Any) -> dict[str, str]:

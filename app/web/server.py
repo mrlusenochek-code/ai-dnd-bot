@@ -108,12 +108,14 @@ from app.web.regexes import (
     ZONE_MOVE_RE,
 )
 from app.web import gm_orchestrator
+from app.web.combat_helpers import _combat_participant_line, _de_numberize_text, _hit_force_label, _hp_state_label
 from app.web.db_helpers import get_or_create_player_web, get_player_by_uid, get_session, list_session_players
 from app.web.gameplay_helpers import (
     CHAR_DEFAULT_STATS,
     CHAR_STAT_KEYS,
     CLASS_PRESETS,
     DEFAULT_TIMEZONE,
+    GM_FINAL_NUM_PREDICT,
     GM_OLLAMA_TIMEOUT_SECONDS,
     _char_to_payload,
     _character_meta_from_stats,
@@ -140,7 +142,6 @@ INACTIVE_SCAN_PERIOD_SECONDS = int(os.getenv("DND_INACTIVE_SCAN_PERIOD_SECONDS",
 ENABLE_WATCHERS = os.getenv("ENABLE_WATCHERS", "1") not in ("0", "false", "False")
 GM_CONTEXT_EVENTS = max(1, int(os.getenv("GM_CONTEXT_EVENTS", "20")))
 GM_DRAFT_NUM_PREDICT = max(200, int(os.getenv("GM_DRAFT_NUM_PREDICT", "1000")))
-GM_FINAL_NUM_PREDICT = max(400, int(os.getenv("GM_FINAL_NUM_PREDICT", "1600")))
 logger = logging.getLogger(__name__)
 CHECK_LINE_RE = gm_checks.CHECK_LINE_RE
 TEXTUAL_CHECK_RE = gm_checks.TEXTUAL_CHECK_RE
@@ -1263,43 +1264,6 @@ async def _maybe_start_encounter_after_move(db: AsyncSession, sess: Session, ses
     return patch, ""
 
 
-def _hp_state_label(hp_current: int, hp_max: int) -> str:
-    hp_max_norm = max(1, int(hp_max))
-    hp_cur_norm = max(0, int(hp_current))
-    if hp_cur_norm <= 0:
-        return "повержен"
-    ratio = hp_cur_norm / hp_max_norm
-    if ratio <= 0.1:
-        return "при смерти"
-    if ratio <= 0.3:
-        return "тяжело ранен"
-    if ratio <= 0.6:
-        return "ранен"
-    if ratio <= 0.85:
-        return "слегка ранен"
-    return "цел"
-
-
-def _hit_force_label(total_damage: int) -> str:
-    dmg = max(0, int(total_damage))
-    if dmg <= 3:
-        return "легко"
-    if dmg <= 7:
-        return "сильно"
-    return "тяжело"
-
-
-def _de_numberize_text(text: str) -> str:
-    txt = str(text or "")
-    txt = re.sub(r"\d+", "", txt)
-    txt = gm_sanitize.COMBAT_NARRATION_BANNED_RE.sub("", txt)
-    txt = re.sub(r"\s{2,}", " ", txt)
-    txt = re.sub(r"\s+([,.;:!?])", r"\1", txt)
-    return txt.strip()
-
-
-
-
 async def _recent_narrative_events_for_combat_prompt(
     db: AsyncSession,
     sess: Session,
@@ -1395,14 +1359,6 @@ def _combat_safe_fallback(player_action: str, outcome_summary: list[str]) -> str
 
 def _combat_narration_mentions_action(text: str, action: str) -> bool:
     return gm_combat_narration._combat_narration_mentions_action(text, action)
-
-
-def _combat_participant_line(actor: Any) -> str:
-    name = str(getattr(actor, "name", "") or getattr(actor, "key", "") or "боец").strip()
-    hp_cur = int(getattr(actor, "hp_current", 0) or 0)
-    hp_max = int(getattr(actor, "hp_max", 1) or 1)
-    state = _hp_state_label(hp_cur, hp_max)
-    return f"{name} ({state})"
 
 
 async def _load_actor_context(

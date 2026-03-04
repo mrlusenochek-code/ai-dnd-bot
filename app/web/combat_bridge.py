@@ -3,6 +3,21 @@ import re
 import uuid
 from typing import Any, Optional
 
+from app.combat.live_actions import handle_live_combat_action
+from app.combat.state import current_turn_label, get_combat
+from app.gm import combat_narration as gm_combat_narration
+from app.rules.derived_stats import compute_ac
+from app.web.combat_helpers import _combat_participant_line, _de_numberize_text, _hit_force_label, _hp_state_label
+from app.web.gameplay_helpers import (
+    CHAR_DEFAULT_STATS,
+    GM_FINAL_NUM_PREDICT,
+    GM_OLLAMA_TIMEOUT_SECONDS,
+    _normalized_stats,
+    _player_uid,
+)
+from app.web.inventory_helpers import _character_equip_from_stats, _character_inventory_from_stats
+from app.web.utils import _clamp, as_int
+
 
 logger = logging.getLogger("app.web.server")
 
@@ -11,8 +26,6 @@ def _combat_outcome_summary_from_patch(
     action: str,
     combat_patch: Optional[dict[str, Any]],
 ) -> list[str]:
-    import app.web.server as deps
-
     combat_line_re = re.compile(
         r"(?:^Атака:|^Результат:|^Урон:|:\s*HP\s*\d+/\d+|Ход автоматически передан|повержен|промах|попадание|крит)",
         flags=re.IGNORECASE,
@@ -53,7 +66,7 @@ def _combat_outcome_summary_from_patch(
         for line in lines:
             m_hp = re.search(r":\s*HP\s*(\d+)\s*/\s*(\d+)", line, flags=re.IGNORECASE)
             if m_hp:
-                hp_state = deps._hp_state_label(int(m_hp.group(1)), int(m_hp.group(2)))
+                hp_state = _hp_state_label(int(m_hp.group(1)), int(m_hp.group(2)))
                 break
             if "повержен" in line.lower():
                 hp_state = "повержен"
@@ -63,11 +76,11 @@ def _combat_outcome_summary_from_patch(
         for line in lines:
             m_dmg = re.search(r"Урон:\s*.+?=\s*(\d+)", line, flags=re.IGNORECASE)
             if m_dmg:
-                hit_force = deps._hit_force_label(int(m_dmg.group(1)))
+                hit_force = _hit_force_label(int(m_dmg.group(1)))
                 break
 
         summary = f"{actor} атакует {target}: {outcome}; цель {hp_state}; удар {hit_force}."
-        return [deps._de_numberize_text(summary)]
+        return [_de_numberize_text(summary)]
 
     action_summaries = {
         "combat_dodge": "ушёл в оборону и сбил темп противника.",
@@ -85,7 +98,7 @@ def _combat_outcome_summary_from_patch(
         if "повержен" in line.lower():
             base = f"{base.rstrip('.')} Один из противников повержен."
             break
-    return [deps._de_numberize_text(base)]
+    return [_de_numberize_text(base)]
 
 
 def _merge_combat_patches(patches: list[dict[str, Any]]) -> dict[str, Any]:
@@ -132,16 +145,14 @@ def _build_combat_start_preamble_lines(
     chars_by_uid: dict[int, Any],
     combat_state: Any,
 ) -> list[dict[str, Any]]:
-    import app.web.server as deps
-
     if combat_state is None or not getattr(combat_state, "active", False):
         return []
 
-    player_uid = deps._player_uid(player)
+    player_uid = _player_uid(player)
     player_name = str(getattr(player, "display_name", "") or "").strip() or "Игрок"
     level = 1
     class_kit = "Adventurer"
-    stats = dict(deps.CHAR_DEFAULT_STATS)
+    stats = dict(CHAR_DEFAULT_STATS)
     hp_cur = 0
     hp_max = 1
     ac = 10
@@ -152,23 +163,23 @@ def _build_combat_start_preamble_lines(
             char_name = str(character.name or "").strip()
             if char_name:
                 player_name = char_name
-            level = max(1, deps.as_int(character.level, 1))
+            level = max(1, as_int(character.level, 1))
             class_kit = str(character.class_kit or "").strip() or "Adventurer"
-            stats = deps._normalized_stats(character.stats)
-            equip_map = deps._character_equip_from_stats(character.stats)
-            inv = deps._character_inventory_from_stats(character.stats)
-            ac = deps.compute_ac(stats=character.stats, inventory=inv, equip_map=equip_map)
-            hp_max = max(1, deps.as_int(character.hp_max, hp_max))
-            hp_cur = deps._clamp(deps.as_int(character.hp, hp_cur), 0, hp_max)
+            stats = _normalized_stats(character.stats)
+            equip_map = _character_equip_from_stats(character.stats)
+            inv = _character_inventory_from_stats(character.stats)
+            ac = compute_ac(stats=character.stats, inventory=inv, equip_map=equip_map)
+            hp_max = max(1, as_int(character.hp_max, hp_max))
+            hp_cur = _clamp(as_int(character.hp, hp_cur), 0, hp_max)
 
         combatants = getattr(combat_state, "combatants", {})
         if isinstance(combatants, dict):
             pc_key = f"pc_{player_uid}"
             player_combatant = combatants.get(pc_key)
             if player_combatant is not None:
-                hp_max = max(1, deps.as_int(getattr(player_combatant, "hp_max", hp_max), hp_max))
-                hp_cur = deps._clamp(deps.as_int(getattr(player_combatant, "hp_current", hp_cur), hp_cur), 0, hp_max)
-                ac = max(0, deps.as_int(getattr(player_combatant, "ac", ac), ac))
+                hp_max = max(1, as_int(getattr(player_combatant, "hp_max", hp_max), hp_max))
+                hp_cur = _clamp(as_int(getattr(player_combatant, "hp_current", hp_cur), hp_cur), 0, hp_max)
+                ac = max(0, as_int(getattr(player_combatant, "ac", ac), ac))
 
     enemy_name = "противником"
     combatants = getattr(combat_state, "combatants", {})
@@ -199,13 +210,11 @@ def _maybe_apply_opening_combat_action(
     player_id: uuid.UUID,
     combat_patch: Optional[dict[str, Any]],
 ) -> Optional[dict[str, Any]]:
-    import app.web.server as deps
-
     _ = player_id
     if combat_action is None:
         return combat_patch
 
-    state = deps.get_combat(session_id)
+    state = get_combat(session_id)
     if state is None or not state.active:
         return combat_patch
 
@@ -222,7 +231,7 @@ def _maybe_apply_opening_combat_action(
             "open": True,
             "lines": [
                 {
-                    "text": f"⚔ Бой • Раунд {state.round_no} • Ход: {deps.current_turn_label(state)}",
+                    "text": f"⚔ Бой • Раунд {state.round_no} • Ход: {current_turn_label(state)}",
                     "muted": True,
                     "kind": "status",
                 }
@@ -230,14 +239,14 @@ def _maybe_apply_opening_combat_action(
         }
     )
 
-    opening_patch, _opening_err = deps.handle_live_combat_action(combat_action, session_id)
+    opening_patch, _opening_err = handle_live_combat_action(combat_action, session_id)
     if isinstance(opening_patch, dict):
         merge_items.append(opening_patch)
 
         max_enemy_steps = 3
         enemy_steps = 0
         while enemy_steps < max_enemy_steps:
-            state_now = deps.get_combat(session_id)
+            state_now = get_combat(session_id)
             if state_now is None or not state_now.active or not state_now.order:
                 break
             if state_now.turn_index < 0 or state_now.turn_index >= len(state_now.order):
@@ -247,7 +256,7 @@ def _maybe_apply_opening_combat_action(
             if not turn_actor or turn_actor.side != "enemy":
                 break
 
-            enemy_patch, enemy_err = deps.handle_live_combat_action("combat_attack", session_id)
+            enemy_patch, enemy_err = handle_live_combat_action("combat_attack", session_id)
             if enemy_err:
                 logger.warning("enemy auto combat action failed", extra={"action": {"error": enemy_err}})
                 break
@@ -259,8 +268,6 @@ def _maybe_apply_opening_combat_action(
 
 
 def _combat_participants_block(state: Any) -> str:
-    import app.web.server as deps
-
     combatants = getattr(state, "combatants", {}) if state is not None else {}
     if not isinstance(combatants, dict) or not combatants:
         return "- PC: (нет)\n- ENEMY: (нет)"
@@ -271,7 +278,7 @@ def _combat_participants_block(state: Any) -> str:
         actor = combatants.get(key)
         if actor is None:
             continue
-        label = deps._combat_participant_line(actor)
+        label = _combat_participant_line(actor)
         side = str(getattr(actor, "side", "")).lower()
         if side == "pc":
             pcs.append(label)
@@ -280,7 +287,7 @@ def _combat_participants_block(state: Any) -> str:
 
     if not pcs or not enemies:
         for key, actor in combatants.items():
-            label = deps._combat_participant_line(actor)
+            label = _combat_participant_line(actor)
             side = str(getattr(actor, "side", "")).lower()
             if side == "pc" and label not in pcs:
                 pcs.append(label)
@@ -302,9 +309,7 @@ async def _generate_combat_narration(
     actor_gender: str,
     actor_pronouns: str,
 ) -> str:
-    import app.web.server as deps
-
-    return await deps.gm_combat_narration.generate_combat_narration(
+    return await gm_combat_narration.generate_combat_narration(
         campaign_title=campaign_title,
         outcome_summary=outcome_summary,
         player_action=player_action,
@@ -313,6 +318,6 @@ async def _generate_combat_narration(
         actor_name=actor_name,
         actor_gender=actor_gender,
         actor_pronouns=actor_pronouns,
-        timeout_seconds=deps.GM_OLLAMA_TIMEOUT_SECONDS,
-        num_predict=max(240, deps.GM_FINAL_NUM_PREDICT // 3),
+        timeout_seconds=GM_OLLAMA_TIMEOUT_SECONDS,
+        num_predict=max(240, GM_FINAL_NUM_PREDICT // 3),
     )
