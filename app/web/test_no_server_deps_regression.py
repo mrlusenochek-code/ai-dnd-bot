@@ -6,8 +6,7 @@ APP_WEB_DIR = Path(__file__).resolve().parent
 
 def test_http_routes_has_no_server_deps_pattern() -> None:
     src = (APP_WEB_DIR / "http_routes.py").read_text(encoding="utf-8")
-    assert "import app.web.server as deps" not in src
-    assert "deps." not in src
+    assert "app.web.server" not in src
 
 
 def test_server_deps_gateway_is_limited() -> None:

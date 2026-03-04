@@ -13,6 +13,25 @@ from app.ai.gm import generate_lore
 from app.db.connection import AsyncSessionLocal
 from app.db.models import Session, SessionPlayer
 from app.web.db_helpers import get_or_create_player_web, get_player_by_uid, get_session
+from app.web.gameplay_helpers import (
+    CLASS_PRESETS,
+    DEFAULT_TIMEZONE,
+    GM_OLLAMA_TIMEOUT_SECONDS,
+    _char_to_payload,
+    _get_kicked,
+    _looks_like_refusal,
+    _normalize_story_config,
+    _put_character_meta_into_stats,
+    _resolve_character_stats,
+    _stats_points_used,
+    _story_is_configured,
+    _upsert_starter_skills,
+    add_system_event,
+    create_character,
+    get_character,
+    is_admin,
+    logger,
+)
 from app.web.session_state import _set_ready, _touch_last_seen, settings_get, settings_set
 from app.web.state_builder import broadcast_state
 from app.web.utils import as_int
@@ -65,8 +84,6 @@ async def story_setup_page(request: Request, session_id: str, uid: Optional[int]
 
 @router.post("/api/new")
 async def api_new(payload: dict):
-    from app.web.server import DEFAULT_TIMEZONE, add_system_event
-
     title = (payload.get("title") or "Campaign").strip()
     uid = int(payload.get("uid"))
     name = (payload.get("name") or "Игрок").strip()
@@ -122,8 +139,6 @@ async def session_page(request: Request, session_id: str):
 
 @router.post("/api/join")
 async def api_join(payload: dict):
-    from app.web.server import _get_kicked, add_system_event
-
     session_id = payload.get("session_id")
     uid = int(payload.get("uid"))
     name = (payload.get("name") or "Игрок").strip()
@@ -184,8 +199,6 @@ async def api_join(payload: dict):
 
 @router.get("/api/classes")
 async def api_classes():
-    from app.web.server import CLASS_PRESETS, _resolve_character_stats
-
     items = []
     for class_id, preset in CLASS_PRESETS.items():
         stats = _resolve_character_stats(class_id, None)
@@ -203,8 +216,6 @@ async def api_classes():
 
 @router.get("/api/story/get")
 async def api_story_get(session_id: str, uid: int):
-    from app.web.server import _normalize_story_config
-
     if uid <= 0:
         raise HTTPException(status_code=400, detail="Bad uid")
 
@@ -241,8 +252,6 @@ async def api_story_get(session_id: str, uid: int):
 
 @router.post("/api/story/save")
 async def api_story_save(payload: dict):
-    from app.web.server import _looks_like_refusal, _normalize_story_config
-
     session_id = str(payload.get("session_id") or "").strip()
     uid = as_int(payload.get("uid"), 0)
     config_raw = payload.get("config")
@@ -293,8 +302,6 @@ async def api_story_save(payload: dict):
 
 @router.post("/api/story/lore/generate")
 async def api_story_lore_generate(payload: dict):
-    from app.web.server import GM_OLLAMA_TIMEOUT_SECONDS, _looks_like_refusal, logger
-
     session_id = str(payload.get("session_id") or "").strip()
     uid = as_int(payload.get("uid"), 0)
     force = bool(payload.get("force", False))
@@ -362,19 +369,6 @@ async def api_story_lore_generate(payload: dict):
 
 @router.post("/api/character/create")
 async def api_character_create(payload: dict):
-    from app.web.server import (
-        CLASS_PRESETS,
-        _char_to_payload,
-        _put_character_meta_into_stats,
-        _resolve_character_stats,
-        _stats_points_used,
-        _story_is_configured,
-        _upsert_starter_skills,
-        add_system_event,
-        create_character,
-        get_character,
-    )
-
     session_id = str(payload.get("session_id") or "").strip()
     uid = as_int(payload.get("uid"), 0)
     char_name = str(payload.get("name") or "").strip()
@@ -447,8 +441,6 @@ async def api_character_create(payload: dict):
 
 @router.post("/api/character/update_stats")
 async def api_character_update_stats(payload: dict):
-    from app.web.server import _char_to_payload, _resolve_character_stats, _stats_points_used, add_system_event, get_character, is_admin
-
     session_id = str(payload.get("session_id") or "").strip()
     uid = as_int(payload.get("uid"), 0)
     stats_in = payload.get("stats")
@@ -496,8 +488,6 @@ async def api_character_update_stats(payload: dict):
 
 @router.get("/api/character/me")
 async def api_character_me(session_id: str, uid: int):
-    from app.web.server import _char_to_payload, get_character
-
     async with AsyncSessionLocal() as db:
         sess = await get_session(db, session_id)
         if not sess:
