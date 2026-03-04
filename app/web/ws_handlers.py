@@ -204,7 +204,7 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                     await db.commit()
                     await deps.add_system_event(db, sess, "Игра началась. Генерируем вступительную историю...")
                     await broadcast_state(session_id)
-                    deps.asyncio.create_task(deps._auto_lore_task(session_id))
+                    deps.asyncio.create_task(deps.gm_orchestrator.run_lore_generation(session_id))
                     continue
 
                 if action == "pause":
@@ -1585,7 +1585,7 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                         await db.commit()
                         await deps.add_system_event(db, sess, "Мастер обрабатывает действия...")
                         await broadcast_state(session_id)
-                        deps.asyncio.create_task(deps._auto_round_task(session_id, action_id))
+                        deps.asyncio.create_task(deps.gm_orchestrator.run_round_gm(session_id, action_id))
                     else:
                         await broadcast_state(session_id)
                     continue
@@ -1640,7 +1640,7 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                 await db.commit()
                 await deps.add_system_event(db, sess, "Мастер обрабатывает действие...")
                 await broadcast_state(session_id, combat_log_ui_patch=encounter_patch)
-                deps.asyncio.create_task(deps._auto_gm_reply_task(session_id, action_id))
+                deps.asyncio.create_task(deps.gm_orchestrator.run_turn_gm(session_id, action_id))
                 continue
 
     except deps.WebSocketDisconnect:
