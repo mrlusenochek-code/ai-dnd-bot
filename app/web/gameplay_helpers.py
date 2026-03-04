@@ -16,6 +16,7 @@ from app.web.utils import _clamp, as_int
 logger = logging.getLogger("app.web.server")
 DEFAULT_TIMEZONE = os.getenv("DEFAULT_TIMEZONE", "Europe/Warsaw")
 GM_OLLAMA_TIMEOUT_SECONDS = max(1.0, float(os.getenv("GM_OLLAMA_TIMEOUT_SECONDS", "30")))
+GM_DRAFT_NUM_PREDICT = max(200, int(os.getenv("GM_DRAFT_NUM_PREDICT", "1000")))
 GM_FINAL_NUM_PREDICT = max(400, int(os.getenv("GM_FINAL_NUM_PREDICT", "1600")))
 CHAR_STAT_KEYS = ("str", "dex", "con", "int", "wis", "cha")
 CHAR_DEFAULT_STATS = {k: 50 for k in CHAR_STAT_KEYS}

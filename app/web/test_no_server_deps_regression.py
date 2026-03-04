@@ -15,6 +15,12 @@ def test_combat_bridge_has_no_server_deps_pattern() -> None:
     assert "deps." not in src
 
 
+def test_gm_orchestrator_has_no_server_deps_pattern() -> None:
+    src = (APP_WEB_DIR / "gm_orchestrator.py").read_text(encoding="utf-8")
+    assert "import app.web.server as deps" not in src
+    assert "deps." not in src
+
+
 def test_server_deps_gateway_is_limited() -> None:
     files_with_gateway: list[str] = []
     for path in APP_WEB_DIR.rglob("*.py"):
@@ -25,7 +31,6 @@ def test_server_deps_gateway_is_limited() -> None:
             files_with_gateway.append(str(path.relative_to(APP_WEB_DIR.parent)))
 
     allowed = {
-        "web/gm_orchestrator.py",
         "web/state_builder.py",
         "web/ws_handlers.py",
     }

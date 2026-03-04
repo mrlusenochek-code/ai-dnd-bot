@@ -1,13 +1,42 @@
 import logging
+import os
 import uuid
 from datetime import datetime, timezone
 from typing import Any, Optional
 
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.db.models import Session
+from app.ai.gm import generate_from_prompt, generate_lore
+from app.combat.apply_machine import apply_combat_machine_commands
+from app.combat.state import current_turn_label, get_combat
+from app.combat.sync_pcs import sync_pcs_from_chars
+from app.core.log_context import request_id_var, session_id_var
+from app.db.connection import AsyncSessionLocal
+from app.db.models import Character, Event, Player, Session
+from app.gm import narration, service as gm_service
+from app.web.combat_bridge import _maybe_apply_opening_combat_action
+from app.web.db_helpers import get_session, list_session_players
+from app.web.gameplay_helpers import (
+    GM_DRAFT_NUM_PREDICT,
+    GM_FINAL_NUM_PREDICT,
+    GM_OLLAMA_TIMEOUT_SECONDS,
+    _looks_like_refusal,
+    _player_uid,
+    add_system_event,
+)
+from app.web.machine_extract import _extract_machine_commands, _trim_for_log
+from app.web.session_lock import get_session_lock
+from app.web.session_state import _ensure_settings, _get_phase, _initialize_pc_positions, _set_phase, settings_get, settings_set
+from app.web.state_builder import _broadcast_state_unlocked, broadcast_state
+from app.web.utils import _clamp, as_int
 
 logger = logging.getLogger("app.web.server")
+GM_CONTEXT_EVENTS = max(1, int(os.getenv("GM_CONTEXT_EVENTS", "20")))
+
+
+def _new_request_id() -> str:
+    return uuid.uuid4().hex
 
 
 async def run_two_pass(
@@ -19,13 +48,13 @@ async def run_two_pass(
     default_actor_uid: Optional[int],
     previous_gm_text: str = "",
 ) -> tuple[str, dict[str, Any], dict[str, Any], list[dict[str, Any]], list[dict[str, Any]]]:
-    import app.web.server as deps
+    import app.web.server as server_mod
 
-    settings = deps._ensure_settings(sess)
-    location_fallback = deps.narration.build_location_block(settings, session_id)
-    combat_state = deps.get_combat(session_id)
+    settings = server_mod._ensure_settings(sess)
+    location_fallback = server_mod.narration.build_location_block(settings, session_id)
+    combat_state = server_mod.get_combat(session_id)
     combat_active = bool(combat_state and combat_state.active)
-    return await deps.gm_service.run_two_pass(
+    return await gm_service.run_two_pass(
         db,
         sess,
         session_id=session_id,
@@ -33,52 +62,67 @@ async def run_two_pass(
         default_actor_uid=default_actor_uid,
         previous_gm_text=previous_gm_text,
         location_fallback=location_fallback,
-        timeout_seconds=deps.GM_OLLAMA_TIMEOUT_SECONDS,
-        draft_num_predict=deps.GM_DRAFT_NUM_PREDICT,
-        final_num_predict=deps.GM_FINAL_NUM_PREDICT,
+        timeout_seconds=GM_OLLAMA_TIMEOUT_SECONDS,
+        draft_num_predict=GM_DRAFT_NUM_PREDICT,
+        final_num_predict=GM_FINAL_NUM_PREDICT,
         combat_active=combat_active,
-        load_actor_context=deps._load_actor_context,
-        compute_check_mod=deps._compute_check_mod,
-        roll_check=deps._roll_check,
-        build_check_result=deps._build_check_result,
-        character_xp_gain_from_check=deps._character_xp_gain_from_check,
-        level_from_xp_total=deps._level_from_xp_total,
-        skill_xp_gain=deps._skill_xp_gain,
-        xp_to_next_skill_rank=deps._xp_to_next_skill_rank,
-        clamp_fn=deps._clamp,
-        as_int_fn=deps.as_int,
-        get_phase_fn=deps._get_phase,
-        trim_for_log_fn=deps._trim_for_log,
-        looks_like_combat_drift_fn=deps._looks_like_combat_drift,
-        llm_generate=deps.generate_from_prompt,
+        load_actor_context=server_mod._load_actor_context,
+        compute_check_mod=server_mod._compute_check_mod,
+        roll_check=server_mod._roll_check,
+        build_check_result=server_mod._build_check_result,
+        character_xp_gain_from_check=server_mod._character_xp_gain_from_check,
+        level_from_xp_total=server_mod._level_from_xp_total,
+        skill_xp_gain=server_mod._skill_xp_gain,
+        xp_to_next_skill_rank=server_mod._xp_to_next_skill_rank,
+        clamp_fn=_clamp,
+        as_int_fn=as_int,
+        get_phase_fn=_get_phase,
+        trim_for_log_fn=_trim_for_log,
+        looks_like_combat_drift_fn=server_mod._looks_like_combat_drift,
+        llm_generate=server_mod.generate_from_prompt,
         logger=logger,
     )
 
 
 async def run_turn_gm(session_id: str, expected_action_id: str) -> None:
-    import app.web.server as deps
+    from app.web.server import (
+        _apply_inventory_machine_commands,
+        _apply_zone_set_machine_commands,
+        _build_actor_list_for_prompt,
+        _build_positions_block_for_prompt,
+        _build_turn_draft_prompt,
+        _clear_current_action_id,
+        _detect_chat_combat_action,
+        _emit_check_results_if_enabled,
+        _find_latest_gm_text,
+        _get_current_action_id,
+        _is_free_turns,
+        _load_actor_context,
+        advance_turn,
+        utcnow,
+    )
 
-    tok_rid = deps.request_id_var.set(deps._new_request_id())
-    tok_sid = deps.session_id_var.set(session_id)
+    tok_rid = request_id_var.set(_new_request_id())
+    tok_sid = session_id_var.set(session_id)
     try:
-        lock = deps.get_session_lock(session_id)
+        lock = get_session_lock(session_id)
         async with lock:
-            async with deps.AsyncSessionLocal() as db:
-                sess = await deps.get_session(db, session_id)
+            async with AsyncSessionLocal() as db:
+                sess = await get_session(db, session_id)
                 if not sess:
                     return
-                if deps._is_free_turns(sess):
+                if _is_free_turns(sess):
                     return
-                if deps._get_phase(sess) != "gm_pending":
+                if _get_phase(sess) != "gm_pending":
                     return
-                if deps._get_current_action_id(sess) != expected_action_id:
+                if _get_current_action_id(sess) != expected_action_id:
                     return
 
                 q_events = await db.execute(
-                    deps.select(deps.Event)
-                    .where(deps.Event.session_id == sess.id)
-                    .order_by(deps.Event.created_at.desc())
-                    .limit(deps.GM_CONTEXT_EVENTS)
+                    select(Event)
+                    .where(Event.session_id == sess.id)
+                    .order_by(Event.created_at.desc())
+                    .limit(GM_CONTEXT_EVENTS)
                 )
                 events_desc = q_events.scalars().all()
                 opening_combat_action: Optional[str] = None
@@ -89,7 +133,7 @@ async def run_turn_gm(session_id: str, expected_action_id: str) -> None:
                     if str(payload_raw.get("type") or "").strip().lower() != "player_action":
                         continue
                     raw_text = str(payload_raw.get("raw_text") or "").strip()
-                    detected = deps._detect_chat_combat_action(raw_text)
+                    detected = _detect_chat_combat_action(raw_text)
                     if detected is None:
                         continue
                     opening_combat_action = detected
@@ -118,29 +162,29 @@ async def run_turn_gm(session_id: str, expected_action_id: str) -> None:
                         continue
                     if msg.startswith("[SYSTEM] 📜 История:"):
                         continue
-                    if deps._looks_like_refusal(msg):
+                    if _looks_like_refusal(msg):
                         continue
                     context_events.append(msg)
                 if not context_events:
                     context_events = ["(контекст пуст)"]
-                previous_gm_text = deps._find_latest_gm_text(context_events)
+                previous_gm_text = _find_latest_gm_text(context_events)
 
-                story = deps.settings_get(sess, "story", {}) or {}
+                story = settings_get(sess, "story", {}) or {}
                 if not isinstance(story, dict):
                     story = {}
                 story_title = str(story.get("story_title") or "").strip() or str(sess.title or "Campaign").strip() or "Campaign"
 
-                uid_map, chars_by_uid, _skill_mods_by_char = await deps._load_actor_context(db, sess)
-                actors_block = deps._build_actor_list_for_prompt(uid_map, chars_by_uid)
-                positions_block = deps._build_positions_block_for_prompt(sess, uid_map, chars_by_uid)
+                uid_map, chars_by_uid, _skill_mods_by_char = await _load_actor_context(db, sess)
+                actors_block = _build_actor_list_for_prompt(uid_map, chars_by_uid)
+                positions_block = _build_positions_block_for_prompt(sess, uid_map, chars_by_uid)
                 cur_uid: Optional[int] = None
                 if sess.current_player_id:
-                    q_cur_player = await db.execute(deps.select(deps.Player).where(deps.Player.id == sess.current_player_id))
+                    q_cur_player = await db.execute(select(Player).where(Player.id == sess.current_player_id))
                     cur_player = q_cur_player.scalar_one_or_none()
-                    cur_uid = deps._player_uid(cur_player)
+                    cur_uid = _player_uid(cur_player)
                 if opening_player_uid is None:
                     opening_player_uid = cur_uid
-                draft_prompt = deps._build_turn_draft_prompt(
+                draft_prompt = _build_turn_draft_prompt(
                     session_title=story_title,
                     context_events=context_events,
                     actor_uid=cur_uid,
@@ -157,19 +201,19 @@ async def run_turn_gm(session_id: str, expected_action_id: str) -> None:
                 )
 
                 await db.refresh(sess)
-                if deps._get_current_action_id(sess) != expected_action_id:
+                if _get_current_action_id(sess) != expected_action_id:
                     logger.info("gm final dropped due to action mismatch", extra={"action": {"expected_action_id": expected_action_id}})
                     return
 
                 gm_text = gm_text.strip()
-                before_state = deps.get_combat(session_id)
+                before_state = get_combat(session_id)
                 before_active = bool(before_state and before_state.active)
-                combat_log_ui_patch = deps.apply_combat_machine_commands(session_id, gm_text)
-                deps.sync_pcs_from_chars(session_id, chars_by_uid)
-                after_state = deps.get_combat(session_id)
+                combat_log_ui_patch = apply_combat_machine_commands(session_id, gm_text)
+                sync_pcs_from_chars(session_id, chars_by_uid)
+                after_state = get_combat(session_id)
                 after_active = bool(after_state and after_state.active)
                 if (not before_active) and after_active and opening_player_id is not None:
-                    combat_log_ui_patch = deps._maybe_apply_opening_combat_action(
+                    combat_log_ui_patch = _maybe_apply_opening_combat_action(
                         session_id=session_id,
                         combat_action=opening_combat_action,
                         player_uid=opening_player_uid,
@@ -177,20 +221,20 @@ async def run_turn_gm(session_id: str, expected_action_id: str) -> None:
                         combat_patch=combat_log_ui_patch,
                     )
                 if combat_log_ui_patch is not None:
-                    combat_state = deps.get_combat(session_id)
+                    combat_state = get_combat(session_id)
                     if combat_state is not None and combat_state.active:
                         if combat_log_ui_patch.get("reset") is True:
                             combat_state.round_no = 1
                             combat_state.turn_index = 0
                         combat_log_ui_patch["status"] = (
-                            f"⚔ Бой • Раунд {combat_state.round_no} • Ход: {deps.current_turn_label(combat_state)}"
+                            f"⚔ Бой • Раунд {combat_state.round_no} • Ход: {current_turn_label(combat_state)}"
                         )
-                gm_text_visible, inv_commands, zone_set_commands = deps._extract_machine_commands(gm_text)
-                await deps._apply_inventory_machine_commands(db, sess, inv_commands)
-                await deps._apply_zone_set_machine_commands(db, sess, zone_set_commands)
+                gm_text_visible, inv_commands, zone_set_commands = _extract_machine_commands(gm_text)
+                await _apply_inventory_machine_commands(db, sess, inv_commands)
+                await _apply_zone_set_machine_commands(db, sess, zone_set_commands)
                 gm_text_visible = gm_text_visible.strip()
-                if gm_text_visible and not deps._looks_like_refusal(gm_text_visible):
-                    await deps.add_system_event(
+                if gm_text_visible and not _looks_like_refusal(gm_text_visible):
+                    await add_system_event(
                         db,
                         sess,
                         f"🧙 GM: {gm_text_visible}",
@@ -203,54 +247,64 @@ async def run_turn_gm(session_id: str, expected_action_id: str) -> None:
                         },
                     )
                 elif not inv_commands and not zone_set_commands:
-                    await deps.add_system_event(db, sess, "🧙 GM: (модель отказала. Переформулируй действие проще, без жести и откровенных деталей.)")
-                await deps._emit_check_results_if_enabled(db, sess, _check_results)
+                    await add_system_event(db, sess, "🧙 GM: (модель отказала. Переформулируй действие проще, без жести и откровенных деталей.)")
+                await _emit_check_results_if_enabled(db, sess, _check_results)
 
-                nxt = await deps.advance_turn(db, sess)
+                nxt = await advance_turn(db, sess)
                 if nxt:
                     sess.current_player_id = nxt.player_id
-                    sess.turn_started_at = deps.utcnow()
-                    combat_active = bool(deps.get_combat(session_id) and deps.get_combat(session_id).active)
+                    sess.turn_started_at = utcnow()
+                    combat_active = bool(get_combat(session_id) and get_combat(session_id).active)
                     if not combat_active:
-                        await deps.add_system_event(db, sess, f"Следующий ход: игрок #{nxt.join_order}.")
-                deps._set_phase(sess, "turns")
-                deps._clear_current_action_id(sess)
+                        await add_system_event(db, sess, f"Следующий ход: игрок #{nxt.join_order}.")
+                _set_phase(sess, "turns")
+                _clear_current_action_id(sess)
                 await db.commit()
 
-        await deps._broadcast_state_unlocked(session_id, combat_log_ui_patch=combat_log_ui_patch)
+        await _broadcast_state_unlocked(session_id, combat_log_ui_patch=combat_log_ui_patch)
     except Exception:
         logger.exception("auto gm reply task failed")
     finally:
-        deps.request_id_var.reset(tok_rid)
-        deps.session_id_var.reset(tok_sid)
+        request_id_var.reset(tok_rid)
+        session_id_var.reset(tok_sid)
 
 
 async def run_lore_generation(session_id: str) -> None:
-    import app.web.server as deps
+    from app.web.server import (
+        _clear_current_action_id,
+        _clear_paused_remaining,
+        _find_latest_gm_text,
+        _get_free_round,
+        _get_round_actions,
+        _infer_initial_zone,
+        _is_free_turns,
+        _set_phase,
+        _should_use_round_mode,
+    )
 
-    tok_rid = deps.request_id_var.set(deps._new_request_id())
-    tok_sid = deps.session_id_var.set(session_id)
+    tok_rid = request_id_var.set(_new_request_id())
+    tok_sid = session_id_var.set(session_id)
     try:
         logger.info("lore generation started")
-        async with deps.AsyncSessionLocal() as db:
-            sess = await deps.get_session(db, session_id)
+        async with AsyncSessionLocal() as db:
+            sess = await get_session(db, session_id)
             if not sess:
                 return
 
-            story = deps.settings_get(sess, "story", {}) or {}
+            story = settings_get(sess, "story", {}) or {}
             if not (isinstance(story, dict) and story.get("story_configured") is True):
                 return
 
-            lore_text = str(deps.settings_get(sess, "lore_text", "") or "").strip()
-            lore_posted = bool(deps.settings_get(sess, "lore_posted", False))
+            lore_text = str(settings_get(sess, "lore_text", "") or "").strip()
+            lore_posted = bool(settings_get(sess, "lore_posted", False))
 
-            if not lore_text and not bool(deps.settings_get(sess, "lore_generated", False)):
+            if not lore_text and not bool(settings_get(sess, "lore_generated", False)):
                 story_setting = str(story.get("story_setting") or "").strip()
                 story_title = str(story.get("story_title") or "").strip() or str(sess.title or "Campaign").strip() or "Campaign"
-                lore_resp = await deps.generate_lore(
+                lore_resp = await generate_lore(
                     session_title=story_title,
                     setting_text=story_setting,
-                    timeout_seconds=deps.GM_OLLAMA_TIMEOUT_SECONDS,
+                    timeout_seconds=GM_OLLAMA_TIMEOUT_SECONDS,
                 )
                 logger.info(
                     "lore generation call",
@@ -264,125 +318,143 @@ async def run_lore_generation(session_id: str) -> None:
                 lore_text = str(lore_resp.get("text") or "")
                 lore_text = lore_text.strip()
                 if not lore_text:
-                    deps._set_phase(sess, "lore_pending")
-                    deps._clear_current_action_id(sess)
+                    _set_phase(sess, "lore_pending")
+                    _clear_current_action_id(sess)
                     sess.current_player_id = None
                     sess.turn_started_at = None
                     await db.commit()
-                    await deps.add_system_event(db, sess, "Лор не сгенерирован: модель отказала. Измени сеттинг или нажми Сгенерировать лор.")
-                    await deps.broadcast_state(session_id)
+                    await add_system_event(db, sess, "Лор не сгенерирован: модель отказала. Измени сеттинг или нажми Сгенерировать лор.")
+                    await broadcast_state(session_id)
                     return
-                if deps._looks_like_refusal(lore_text):
-                    deps._set_phase(sess, "lore_pending")
-                    deps._clear_current_action_id(sess)
+                if _looks_like_refusal(lore_text):
+                    _set_phase(sess, "lore_pending")
+                    _clear_current_action_id(sess)
                     sess.current_player_id = None
                     sess.turn_started_at = None
                     await db.commit()
-                    await deps.add_system_event(db, sess, "Лор не сгенерирован: модель отказала. Измени сеттинг или нажми Сгенерировать лор.")
-                    await deps.broadcast_state(session_id)
+                    await add_system_event(db, sess, "Лор не сгенерирован: модель отказала. Измени сеттинг или нажми Сгенерировать лор.")
+                    await broadcast_state(session_id)
                     return
 
-                deps.settings_set(sess, "lore_text", lore_text)
-                deps.settings_set(sess, "lore_generated", True)
-                deps.settings_set(sess, "lore_generated_at", datetime.now(timezone.utc).isoformat())
-                deps.settings_set(sess, "lore_posted", False)
+                settings_set(sess, "lore_text", lore_text)
+                settings_set(sess, "lore_generated", True)
+                settings_set(sess, "lore_generated_at", datetime.now(timezone.utc).isoformat())
+                settings_set(sess, "lore_posted", False)
                 lore_posted = False
 
             if lore_text and not lore_posted:
-                await deps.add_system_event(db, sess, f"📜 История:\n{lore_text}")
-                deps.settings_set(sess, "lore_posted", True)
+                await add_system_event(db, sess, f"📜 История:\n{lore_text}")
+                settings_set(sess, "lore_posted", True)
 
-            sps = await deps.list_session_players(db, sess, active_only=True)
+            sps = await list_session_players(db, sess, active_only=True)
             q_recent_events = await db.execute(
-                deps.select(deps.Event)
-                .where(deps.Event.session_id == sess.id)
-                .order_by(deps.Event.created_at.desc())
+                select(Event)
+                .where(Event.session_id == sess.id)
+                .order_by(Event.created_at.desc())
                 .limit(20)
             )
             recent_events = [e.message_text for e in reversed(q_recent_events.scalars().all()) if e.message_text]
-            initial_zone = deps._infer_initial_zone(lore_text, deps._find_latest_gm_text(recent_events))
-            deps._initialize_pc_positions(sess, [sp.player_id for sp in sps], initial_zone)
-            free_turns = deps._should_use_round_mode(sess, sps)
-            deps.settings_set(sess, "free_turns", free_turns)
+            initial_zone = _infer_initial_zone(lore_text, _find_latest_gm_text(recent_events))
+            _initialize_pc_positions(sess, [sp.player_id for sp in sps], initial_zone)
+            free_turns = _should_use_round_mode(sess, sps)
+            settings_set(sess, "free_turns", free_turns)
             if free_turns:
-                deps._set_phase(sess, "collecting_actions")
-                deps._clear_current_action_id(sess)
-                deps.settings_set(sess, "free_round", 1)
-                deps.settings_set(sess, "round_actions", {})
+                _set_phase(sess, "collecting_actions")
+                _clear_current_action_id(sess)
+                settings_set(sess, "free_round", 1)
+                settings_set(sess, "round_actions", {})
                 sess.current_player_id = None
                 sess.turn_started_at = None
-                deps._clear_paused_remaining(sess)
+                _clear_paused_remaining(sess)
                 await db.commit()
-                await deps.add_system_event(db, sess, f"Раунд {deps._get_free_round(sess)}: каждый отправьте ОДНО сообщение с действием.")
+                await add_system_event(db, sess, f"Раунд {_get_free_round(sess)}: каждый отправьте ОДНО сообщение с действием.")
             else:
-                deps._set_phase(sess, "turns")
-                deps._clear_current_action_id(sess)
+                _set_phase(sess, "turns")
+                _clear_current_action_id(sess)
                 first = sps[0] if sps else None
                 sess.current_player_id = first.player_id if first else None
-                sess.turn_started_at = deps.utcnow() if first else None
-                deps._clear_paused_remaining(sess)
+                sess.turn_started_at = utcnow() if first else None
+                _clear_paused_remaining(sess)
                 await db.commit()
                 if first:
-                    await deps.add_system_event(db, sess, f"Игра началась. Ход игрока #{first.join_order}.")
+                    await add_system_event(db, sess, f"Игра началась. Ход игрока #{first.join_order}.")
             await db.commit()
 
         logger.info("lore generation finished")
-        await deps.broadcast_state(session_id)
+        await broadcast_state(session_id)
     except Exception:
         logger.exception("auto lore task failed")
     finally:
-        deps.request_id_var.reset(tok_rid)
-        deps.session_id_var.reset(tok_sid)
+        request_id_var.reset(tok_rid)
+        session_id_var.reset(tok_sid)
 
 
 async def run_round_gm(session_id: str, expected_action_id: str) -> None:
-    import app.web.server as deps
+    from app.web.server import (
+        _apply_inventory_machine_commands,
+        _apply_zone_set_machine_commands,
+        _build_actor_list_for_prompt,
+        _build_positions_block_for_prompt,
+        _build_round_draft_prompt,
+        _clear_current_action_id,
+        _clear_paused_remaining,
+        _detect_chat_combat_action,
+        _emit_check_results_if_enabled,
+        _find_latest_gm_text,
+        _get_current_action_id,
+        _get_free_round,
+        _get_round_actions,
+        _is_free_turns,
+        _load_actor_context,
+        _should_use_round_mode,
+        utcnow,
+    )
 
-    tok_rid = deps.request_id_var.set(deps._new_request_id())
-    tok_sid = deps.session_id_var.set(session_id)
+    tok_rid = request_id_var.set(_new_request_id())
+    tok_sid = session_id_var.set(session_id)
     try:
-        lock = deps.get_session_lock(session_id)
+        lock = get_session_lock(session_id)
         async with lock:
-            async with deps.AsyncSessionLocal() as db:
-                sess = await deps.get_session(db, session_id)
+            async with AsyncSessionLocal() as db:
+                sess = await get_session(db, session_id)
                 if not sess:
                     return
-                if not deps._is_free_turns(sess) or deps._get_phase(sess) != "gm_pending":
+                if not _is_free_turns(sess) or _get_phase(sess) != "gm_pending":
                     return
-                if deps._get_current_action_id(sess) != expected_action_id:
+                if _get_current_action_id(sess) != expected_action_id:
                     return
 
-                story = deps.settings_get(sess, "story", {}) or {}
+                story = settings_get(sess, "story", {}) or {}
                 if not isinstance(story, dict):
                     story = {}
                 difficulty = str(story.get("difficulty") or "medium").strip().lower()
                 gm_notes = str(story.get("gm_notes") or "").strip()
-                lore_text = str(deps.settings_get(sess, "lore_text", "") or "").strip()
+                lore_text = str(settings_get(sess, "lore_text", "") or "").strip()
 
-                round_actions = deps._get_round_actions(sess)
+                round_actions = _get_round_actions(sess)
                 if not round_actions:
-                    deps._set_phase(sess, "collecting_actions")
-                    deps._clear_current_action_id(sess)
+                    _set_phase(sess, "collecting_actions")
+                    _clear_current_action_id(sess)
                     await db.commit()
-                    await deps._broadcast_state_unlocked(session_id)
+                    await _broadcast_state_unlocked(session_id)
                     return
 
-                sps = await deps.list_session_players(db, sess, active_only=True)
-                players_by_id: dict[uuid.UUID, deps.Player] = {}
+                sps = await list_session_players(db, sess, active_only=True)
+                players_by_id: dict[uuid.UUID, Player] = {}
                 if sps:
-                    q_players = await db.execute(deps.select(deps.Player).where(deps.Player.id.in_([sp.player_id for sp in sps])))
+                    q_players = await db.execute(select(Player).where(Player.id.in_([sp.player_id for sp in sps])))
                     players_by_id = {p.id: p for p in q_players.scalars().all()}
 
                 player_actions: list[str] = []
-                chars_by_player_id: dict[uuid.UUID, deps.Character] = {}
+                chars_by_player_id: dict[uuid.UUID, Character] = {}
                 opening_combat_action: Optional[str] = None
                 opening_player_uid: Optional[int] = None
                 opening_player_id: Optional[uuid.UUID] = None
                 if sps:
                     q_chars = await db.execute(
-                        deps.select(deps.Character).where(
-                            deps.Character.session_id == sess.id,
-                            deps.Character.player_id.in_([sp.player_id for sp in sps]),
+                        select(Character).where(
+                            Character.session_id == sess.id,
+                            Character.player_id.in_([sp.player_id for sp in sps]),
                         )
                     )
                     chars_by_player_id = {c.player_id: c for c in q_chars.scalars().all()}
@@ -399,27 +471,27 @@ async def run_round_gm(session_id: str, expected_action_id: str) -> None:
                     )
                     player_actions.append(f"{pname} (#{sp.join_order}): {action_text}")
                     if opening_combat_action is None:
-                        detected = deps._detect_chat_combat_action(action_text)
+                        detected = _detect_chat_combat_action(action_text)
                         if detected is not None:
                             opening_combat_action = detected
-                            opening_player_uid = deps._player_uid(pl)
+                            opening_player_uid = _player_uid(pl)
                             opening_player_id = sp.player_id
 
                 q_events = await db.execute(
-                    deps.select(deps.Event)
-                    .where(deps.Event.session_id == sess.id)
-                    .order_by(deps.Event.created_at.desc())
+                    select(Event)
+                    .where(Event.session_id == sess.id)
+                    .order_by(Event.created_at.desc())
                     .limit(40)
                 )
                 events_desc = q_events.scalars().all()
                 recent_events = [e.message_text for e in reversed(events_desc) if e.message_text]
-                previous_gm_text = deps._find_latest_gm_text(recent_events)
+                previous_gm_text = _find_latest_gm_text(recent_events)
 
                 story_title = str(story.get("story_title") or "").strip() or str(sess.title or "Campaign").strip() or "Campaign"
-                uid_map, chars_by_uid, _skill_mods_by_char = await deps._load_actor_context(db, sess)
-                actors_block = deps._build_actor_list_for_prompt(uid_map, chars_by_uid)
-                positions_block = deps._build_positions_block_for_prompt(sess, uid_map, chars_by_uid)
-                draft_prompt = deps._build_round_draft_prompt(
+                uid_map, chars_by_uid, _skill_mods_by_char = await _load_actor_context(db, sess)
+                actors_block = _build_actor_list_for_prompt(uid_map, chars_by_uid)
+                positions_block = _build_positions_block_for_prompt(sess, uid_map, chars_by_uid)
+                draft_prompt = _build_round_draft_prompt(
                     session_title=story_title,
                     lore_text=lore_text,
                     recent_events=recent_events,
@@ -439,19 +511,19 @@ async def run_round_gm(session_id: str, expected_action_id: str) -> None:
                 )
 
                 await db.refresh(sess)
-                if deps._get_current_action_id(sess) != expected_action_id:
+                if _get_current_action_id(sess) != expected_action_id:
                     logger.info("round final dropped due to action mismatch", extra={"action": {"expected_action_id": expected_action_id}})
                     return
 
                 gm_text = gm_text.strip()
-                before_state = deps.get_combat(session_id)
+                before_state = get_combat(session_id)
                 before_active = bool(before_state and before_state.active)
-                combat_log_ui_patch = deps.apply_combat_machine_commands(session_id, gm_text)
-                deps.sync_pcs_from_chars(session_id, chars_by_uid)
-                after_state = deps.get_combat(session_id)
+                combat_log_ui_patch = apply_combat_machine_commands(session_id, gm_text)
+                sync_pcs_from_chars(session_id, chars_by_uid)
+                after_state = get_combat(session_id)
                 after_active = bool(after_state and after_state.active)
                 if (not before_active) and after_active and opening_player_id is not None:
-                    combat_log_ui_patch = deps._maybe_apply_opening_combat_action(
+                    combat_log_ui_patch = _maybe_apply_opening_combat_action(
                         session_id=session_id,
                         combat_action=opening_combat_action,
                         player_uid=opening_player_uid,
@@ -459,20 +531,20 @@ async def run_round_gm(session_id: str, expected_action_id: str) -> None:
                         combat_patch=combat_log_ui_patch,
                     )
                 if combat_log_ui_patch is not None:
-                    combat_state = deps.get_combat(session_id)
+                    combat_state = get_combat(session_id)
                     if combat_state is not None and combat_state.active:
                         if combat_log_ui_patch.get("reset") is True:
                             combat_state.round_no = 1
                             combat_state.turn_index = 0
                         combat_log_ui_patch["status"] = (
-                            f"⚔ Бой • Раунд {combat_state.round_no} • Ход: {deps.current_turn_label(combat_state)}"
+                            f"⚔ Бой • Раунд {combat_state.round_no} • Ход: {current_turn_label(combat_state)}"
                         )
-                gm_text_visible, inv_commands, zone_set_commands = deps._extract_machine_commands(gm_text)
-                await deps._apply_inventory_machine_commands(db, sess, inv_commands)
-                await deps._apply_zone_set_machine_commands(db, sess, zone_set_commands)
+                gm_text_visible, inv_commands, zone_set_commands = _extract_machine_commands(gm_text)
+                await _apply_inventory_machine_commands(db, sess, inv_commands)
+                await _apply_zone_set_machine_commands(db, sess, zone_set_commands)
                 gm_text_visible = gm_text_visible.strip()
                 if gm_text_visible:
-                    await deps.add_system_event(
+                    await add_system_event(
                         db,
                         sess,
                         f"🧙 Мастер: {gm_text_visible}",
@@ -484,51 +556,51 @@ async def run_round_gm(session_id: str, expected_action_id: str) -> None:
                             "zone_set_commands": zone_set_commands,
                         },
                     )
-                await deps._emit_check_results_if_enabled(db, sess, _check_results)
+                await _emit_check_results_if_enabled(db, sess, _check_results)
 
-                sps_active = await deps.list_session_players(db, sess, active_only=True)
-                if deps._should_use_round_mode(sess, sps_active):
-                    next_round = deps._get_free_round(sess) + 1
-                    deps.settings_set(sess, "free_turns", True)
-                    deps.settings_set(sess, "round_actions", {})
-                    deps._set_phase(sess, "collecting_actions")
-                    deps.settings_set(sess, "free_round", next_round)
-                    deps._clear_current_action_id(sess)
+                sps_active = await list_session_players(db, sess, active_only=True)
+                if _should_use_round_mode(sess, sps_active):
+                    next_round = _get_free_round(sess) + 1
+                    settings_set(sess, "free_turns", True)
+                    settings_set(sess, "round_actions", {})
+                    _set_phase(sess, "collecting_actions")
+                    settings_set(sess, "free_round", next_round)
+                    _clear_current_action_id(sess)
                     sess.current_player_id = None
                     sess.turn_started_at = None
-                    deps._clear_paused_remaining(sess)
+                    _clear_paused_remaining(sess)
                     await db.commit()
-                    await deps.add_system_event(db, sess, f"Раунд {next_round}: каждый отправьте ОДНО сообщение с действием.")
+                    await add_system_event(db, sess, f"Раунд {next_round}: каждый отправьте ОДНО сообщение с действием.")
                     await db.commit()
                 else:
-                    deps.settings_set(sess, "free_turns", False)
-                    deps.settings_set(sess, "round_actions", {})
-                    deps._set_phase(sess, "turns")
-                    deps._clear_current_action_id(sess)
+                    settings_set(sess, "free_turns", False)
+                    settings_set(sess, "round_actions", {})
+                    _set_phase(sess, "turns")
+                    _clear_current_action_id(sess)
                     first = sps_active[0] if sps_active else None
                     sess.current_player_id = first.player_id if first else None
-                    sess.turn_started_at = deps.utcnow() if first else None
-                    deps._clear_paused_remaining(sess)
+                    sess.turn_started_at = utcnow() if first else None
+                    _clear_paused_remaining(sess)
                     await db.commit()
                     if first:
-                        combat_active = bool(deps.get_combat(session_id) and deps.get_combat(session_id).active)
+                        combat_active = bool(get_combat(session_id) and get_combat(session_id).active)
                         if not combat_active:
-                            await deps.add_system_event(db, sess, f"Следующий ход: игрок #{first.join_order}.")
+                            await add_system_event(db, sess, f"Следующий ход: игрок #{first.join_order}.")
                     await db.commit()
 
-        await deps._broadcast_state_unlocked(session_id, combat_log_ui_patch=combat_log_ui_patch)
+        await _broadcast_state_unlocked(session_id, combat_log_ui_patch=combat_log_ui_patch)
     except Exception:
         logger.exception("auto round task failed")
         try:
-            async with deps.AsyncSessionLocal() as db:
-                sess = await deps.get_session(db, session_id)
-                if sess and deps._is_free_turns(sess):
-                    deps._set_phase(sess, "collecting_actions")
-                    deps._clear_current_action_id(sess)
+            async with AsyncSessionLocal() as db:
+                sess = await get_session(db, session_id)
+                if sess and _is_free_turns(sess):
+                    _set_phase(sess, "collecting_actions")
+                    _clear_current_action_id(sess)
                     await db.commit()
-            await deps.broadcast_state(session_id)
+            await broadcast_state(session_id)
         except Exception:
             logger.exception("auto round recovery failed")
     finally:
-        deps.request_id_var.reset(tok_rid)
-        deps.session_id_var.reset(tok_sid)
+        request_id_var.reset(tok_rid)
+        session_id_var.reset(tok_sid)
