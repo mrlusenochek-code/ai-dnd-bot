@@ -25,6 +25,9 @@
 - Долгоживущее: таблицы `characters`, `skills`, `events`.
 - Оперативное JSON: `sessions.settings` (мир, combat snapshot/history, фазы, идемпотентные ключи наград/поражений).
 - Runtime: активный бой хранится в памяти процесса.
+- Ограничение деплоя: из-за in-memory runtime боёвки production сейчас запускать только с `1` worker.
+- Startup guard блокирует `workers > 1` (если не задан явный override).
+- Детали и примеры запуска: [DEPLOYMENT.md](./DEPLOYMENT.md).
 
 ## Уже реализовано (ключевое)
 - Идемпотентные боевые награды/лут.

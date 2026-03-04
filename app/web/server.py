@@ -383,6 +383,9 @@ def utcnow() -> datetime:
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     configure_logging()
+    from app.web.deploy_guard import ensure_single_worker
+
+    ensure_single_worker()
     logger.info("Web server starting")
 
     if ENABLE_WATCHERS:

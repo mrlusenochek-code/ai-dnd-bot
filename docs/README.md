@@ -5,6 +5,7 @@
 | Документ | Описание |
 | --- | --- |
 | [PROJECT_CONTEXT.md](PROJECT_CONTEXT.md) | Контекст проекта и правила работы |
+| [DEPLOYMENT.md](DEPLOYMENT.md) | Ограничения деплоя (single-worker) |
 | [CODE_REVIEW.md](CODE_REVIEW.md) | Архитектура и риски |
 | [REFACTOR_ROADMAP.md](REFACTOR_ROADMAP.md) | План рефакторинга (server.py / конкурентность / UI патчи) |
 | [COMBAT_MAP.md](COMBAT_MAP.md) | Потоки боевой системы |
