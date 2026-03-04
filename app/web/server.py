@@ -3956,11 +3956,14 @@ async def timer_watcher():
                         if elapsed < TURN_TIMEOUT_SECONDS:
                             continue
 
-                        nxt = await advance_turn(db, sess)
-                        if not nxt:
-                            continue
-                        await add_system_event(db, sess, f"⏰ Время вышло. Ход пропущен. Следующий: #{nxt.join_order}.")
-                        await broadcast_state(str(sess.id))
+                        session_id = str(sess.id)
+                        lock = get_session_lock(session_id)
+                        async with lock:
+                            nxt = await advance_turn(db, sess)
+                            if not nxt:
+                                continue
+                            await add_system_event(db, sess, f"⏰ Время вышло. Ход пропущен. Следующий: #{nxt.join_order}.")
+                            await _broadcast_state_unlocked(session_id)
                     finally:
                         request_id_var.reset(tok_rid)
                         session_id_var.reset(tok_sid)
@@ -3990,54 +3993,55 @@ async def inactive_watcher():
                     for sess in sessions:
                         tok_rid = request_id_var.set(_new_request_id())
                         tok_sid = session_id_var.set(str(sess.id))
-                        changed = False
                         try:
-                            active_sps = await list_session_players(db, sess, active_only=True)
-                            if not active_sps:
-                                continue
+                            session_id = str(sess.id)
+                            lock = get_session_lock(session_id)
+                            async with lock:
+                                changed = False
+                                active_sps = await list_session_players(db, sess, active_only=True)
+                                if not active_sps:
+                                    continue
 
-                            player_ids = [sp.player_id for sp in active_sps]
-                            players_by_id: dict[uuid.UUID, Player] = {}
-                            if player_ids:
-                                q_players = await db.execute(select(Player).where(Player.id.in_(player_ids)))
-                                players_by_id = {p.id: p for p in q_players.scalars().all()}
+                                player_ids = [sp.player_id for sp in active_sps]
+                                players_by_id: dict[uuid.UUID, Player] = {}
+                                if player_ids:
+                                    q_players = await db.execute(select(Player).where(Player.id.in_(player_ids)))
+                                    players_by_id = {p.id: p for p in q_players.scalars().all()}
 
-                            last_seen_map = _get_last_seen_map(sess)
+                                last_seen_map = _get_last_seen_map(sess)
 
-                            for sp in active_sps:
-                                ts = _parse_iso(last_seen_map.get(str(sp.player_id)))
-                                if ts is None:
-                                    _touch_last_seen(sess, sp.player_id)
+                                for sp in active_sps:
+                                    ts = _parse_iso(last_seen_map.get(str(sp.player_id)))
+                                    if ts is None:
+                                        _touch_last_seen(sess, sp.player_id)
+                                        changed = True
+                                        continue
+
+                                    if (now - ts).total_seconds() <= INACTIVE_TIMEOUT_SECONDS:
+                                        continue
+
+                                    if sess.current_player_id == sp.player_id and bool(sess.is_active):
+                                        await advance_turn(db, sess)
+
+                                    sp.is_active = False
+                                    _remove_player_from_session_settings(sess, sp.player_id)
                                     changed = True
-                                    continue
 
-                                if (now - ts).total_seconds() <= INACTIVE_TIMEOUT_SECONDS:
-                                    continue
+                                    pl = players_by_id.get(sp.player_id)
+                                    name = pl.display_name if pl else f"#{sp.join_order}"
+                                    await add_system_event(db, sess, f"Игрок {name} стал неактивен (timeout).")
 
-                                if sess.current_player_id == sp.player_id and bool(sess.is_active):
-                                    await advance_turn(db, sess)
-
-                                sp.is_active = False
-                                _remove_player_from_session_settings(sess, sp.player_id)
-                                changed = True
-
-                                pl = players_by_id.get(sp.player_id)
-                                name = pl.display_name if pl else f"#{sp.join_order}"
-                                await add_system_event(db, sess, f"Игрок {name} стал неактивен (timeout).")
-
-                            if changed:
-                                active_left = await list_session_players(db, sess, active_only=True)
-                                if not active_left:
-                                    sess.current_player_id = None
-                                    sess.turn_started_at = None
-                                    _clear_paused_remaining(sess)
-                                await db.commit()
+                                if changed:
+                                    active_left = await list_session_players(db, sess, active_only=True)
+                                    if not active_left:
+                                        sess.current_player_id = None
+                                        sess.turn_started_at = None
+                                        _clear_paused_remaining(sess)
+                                    await db.commit()
+                                    await _broadcast_state_unlocked(session_id)
                         finally:
                             request_id_var.reset(tok_rid)
                             session_id_var.reset(tok_sid)
-
-                        if changed:
-                            await broadcast_state(str(sess.id))
         except Exception:
             logger.exception("inactive_watcher iteration failed")
 
