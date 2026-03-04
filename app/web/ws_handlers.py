@@ -1,7 +1,42 @@
+import asyncio
 import json
-from typing import Optional
+import logging
+import random
+import re
+import uuid
+from datetime import timedelta
+from typing import Any, Optional
 
 from fastapi import WebSocket, WebSocketDisconnect
+from sqlalchemy import select
+from sqlalchemy.orm.attributes import flag_modified
+
+from app.ai.gm import generate_from_prompt
+from app.combat.apply_machine import apply_combat_machine_commands
+from app.combat.combat_narration_facts import extract_combat_narration_facts
+from app.combat.live_actions import handle_live_combat_action
+from app.combat.state import current_turn_label, end_combat, get_combat
+from app.combat.sync_pcs import sync_pcs_from_chars
+from app.combat.test_actions import handle_admin_combat_test_action
+from app.core.log_context import client_id_var, request_id_var, session_id_var, uid_var, ws_conn_id_var
+from app.db.connection import AsyncSessionLocal
+from app.db.models import Character, Player, SessionPlayer, Skill
+from app.gm import combat_narration as gm_combat_narration
+from app.web import gm_orchestrator
+from app.web.db_helpers import get_or_create_player_web, get_session, list_session_players
+from app.web.dice import parse_dice, roll_dice
+from app.web.gameplay_helpers import (
+    CHAR_STAT_KEYS,
+    GM_FINAL_NUM_PREDICT,
+    GM_OLLAMA_TIMEOUT_SECONDS,
+    _get_kicked,
+    _normalized_stats,
+    add_event,
+    add_system_event,
+    create_character,
+    get_character,
+    is_admin,
+)
 from app.web.session_state import (
     settings_get,
     settings_set,
@@ -11,12 +46,12 @@ from app.web.session_state import (
     _touch_last_seen,
     _get_phase,
     _set_phase,
+    _set_init_value,
     _set_pc_zone,
     _initiative_fixed,
 )
 from app.web.session_lock import get_session_lock
 from app.web.state_builder import broadcast_state, _broadcast_state_unlocked, send_state_to_ws, _maybe_restore_combat_state
-from app.web.ws_manager import manager
 from app.web.combat_bridge import (
     _append_combat_patch_lines,
     _build_combat_start_preamble_lines,
@@ -25,15 +60,52 @@ from app.web.combat_bridge import (
     _generate_combat_narration,
     _merge_combat_patches,
 )
+from app.web.utils import _clamp, _short_text, as_int
+from app.web.ws_access import COMBAT_CLARIFY_TEXT, _combat_clarify_already_sent, _event_actor_label, _load_actor_context, _player_uid
+from app.web.ws_checks import SKILL_TO_ABILITY, _ability_mod_from_stats, _normalize_check_name, _skill_bonus_from_rank
+from app.web.ws_combat_prompting import (
+    START_INTENT_FALLBACK_TEXT,
+    _COMBAT_LOCK_PROMPT,
+    _build_combat_scene_facts_for_llm,
+    _combat_text_mentions_forbidden_gear,
+    _gender_to_pronouns,
+    _has_start_intent_sanitary_markers,
+    _looks_like_combat_drift,
+    _sanitize_gm_output,
+    _start_intent_text_needs_repair,
+)
+from app.web.ws_gameplay import STATE_COMMAND_ALIASES, _detect_chat_combat_action, _format_state_text_for_player, infer_zone_from_action
+from app.web.ws_manager import manager
+from app.web.ws_turns import (
+    TURN_TIMEOUT_SECONDS,
+    _clear_current_action_id,
+    _clear_initiative,
+    _clear_paused_remaining,
+    _compute_remaining,
+    _get_paused_remaining,
+    _get_round_actions,
+    _is_free_turns,
+    _new_action_id,
+    _ready_active_players,
+    _remove_player_from_session_settings,
+    _set_current_action_id,
+    _set_kicked,
+    _set_paused_remaining,
+    advance_turn,
+    set_turn_to_order,
+    utcnow,
+)
+
+
+logger = logging.getLogger("app.web" ".server")
 
 
 async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
-    import app.web.server as deps
     async def ws_error(message: str, *, fatal: bool = False, request_id: Optional[str] = None) -> None:
         rid = request_id
         if rid is None:
             try:
-                rid = deps.request_id_var.get()
+                rid = request_id_var.get()
             except LookupError:
                 rid = None
         payload = {"type": "error", "message": message, "fatal": fatal, "request_id": rid}
@@ -41,7 +113,7 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
 
     uid_raw = ws.query_params.get("uid")
     if not uid_raw or not uid_raw.isdigit():
-        rid = deps._new_request_id()
+        rid = _new_request_id()
         await ws.accept()
         await ws_error("No uid", fatal=True, request_id=rid)
         await ws.close()
@@ -50,16 +122,16 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
     uid = int(uid_raw)
 
     # log context for this WS connection (task-local)
-    deps.request_id_var.set(deps._new_request_id())
-    deps.session_id_var.set(session_id)
-    deps.uid_var.set(uid)
-    deps.ws_conn_id_var.set(deps.uuid.uuid4().hex[:12])
+    request_id_var.set(_new_request_id())
+    session_id_var.set(session_id)
+    uid_var.set(uid)
+    ws_conn_id_var.set(uuid.uuid4().hex[:12])
     cid = ws.query_params.get("cid")
     if cid:
-        deps.client_id_var.set(str(cid))
+        client_id_var.set(str(cid))
 
     await manager.connect(session_id, ws)
-    deps.logger.info("ws connected")
+    logger.info("ws connected")
 
     try:
         await send_state_to_ws(session_id, ws)
@@ -77,26 +149,26 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
             text = (data.get("text") or "").strip()
             msg_request_id = data.get("request_id") if isinstance(data, dict) else None
 
-            async with deps.AsyncSessionLocal() as db:
-                sess = await deps.get_session(db, session_id)
+            async with AsyncSessionLocal() as db:
+                sess = await get_session(db, session_id)
                 if not sess:
                     await ws_error("Session not found", request_id=msg_request_id)
                     continue
                 _maybe_restore_combat_state(sess, session_id)
 
                 # don't overwrite name here; join sets it
-                player = await deps.get_or_create_player_web(db, uid, "")
+                player = await get_or_create_player_web(db, uid, "")
 
                 # kicked check (live)
-                if str(player.id) in deps._get_kicked(sess):
+                if str(player.id) in _get_kicked(sess):
                     await ws_error("You were kicked from this session", fatal=True)
                     await ws.close()
                     return
 
                 q = await db.execute(
-                    deps.select(deps.SessionPlayer).where(
-                        deps.SessionPlayer.session_id == sess.id,
-                        deps.SessionPlayer.player_id == player.id,
+                    select(SessionPlayer).where(
+                        SessionPlayer.session_id == sess.id,
+                        SessionPlayer.player_id == player.id,
                     )
                 )
                 sp = q.scalar_one_or_none()
@@ -112,19 +184,19 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
 
                 async def _process_leave_and_broadcast() -> None:
                     if sess.current_player_id == player.id and bool(sess.is_active):
-                        await deps.advance_turn(db, sess)
+                        await advance_turn(db, sess)
 
                     sp.is_active = False
-                    deps._remove_player_from_session_settings(sess, player.id)
+                    _remove_player_from_session_settings(sess, player.id)
 
-                    active_left = await deps.list_session_players(db, sess, active_only=True)
+                    active_left = await list_session_players(db, sess, active_only=True)
                     if not active_left:
                         sess.current_player_id = None
                         sess.turn_started_at = None
-                        deps._clear_paused_remaining(sess)
+                        _clear_paused_remaining(sess)
 
                     await db.commit()
-                    await deps.add_system_event(db, sess, f"Игрок {player.display_name} вышел из игры.")
+                    await add_system_event(db, sess, f"Игрок {player.display_name} вышел из игры.")
                     await broadcast_state(session_id)
 
                 if action in ("leave", "quit", "exit"):
@@ -141,13 +213,13 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                 # ready/unready actions (do not require game started)
                 if action in ("ready", "unready"):
                     if action == "ready":
-                        my_char = await deps.get_character(db, sess.id, player.id)
+                        my_char = await get_character(db, sess.id, player.id)
                         if not my_char:
                             await ws_error("Create character first", request_id=msg_request_id)
                             continue
-                    deps._set_ready(sess, player.id, action == "ready")
+                    _set_ready(sess, player.id, action == "ready")
                     await db.commit()
-                    await deps.add_system_event(db, sess, f"Готовность: игрок #{sp.join_order} — {'ГОТОВ' if action=='ready' else 'НЕ ГОТОВ'}.")
+                    await add_system_event(db, sess, f"Готовность: игрок #{sp.join_order} — {'ГОТОВ' if action=='ready' else 'НЕ ГОТОВ'}.")
                     await broadcast_state(session_id)
                     continue
 
@@ -158,36 +230,36 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
 
                 # Admin-only control actions
                 if action == "begin":
-                    if not await deps.is_admin(db, sess, player):
+                    if not await is_admin(db, sess, player):
                         await ws_error("Only admin can start")
                         continue
                     if sess.is_active:
                         await ws_error("Already started")
                         continue
 
-                    sps = await deps.list_session_players(db, sess, active_only=True)
+                    sps = await list_session_players(db, sess, active_only=True)
                     if not sps:
                         await ws_error("No players")
                         continue
 
                     active_ids = [x.player_id for x in sps]
-                    missing_sps: list[deps.SessionPlayer] = []
+                    missing_sps: list[SessionPlayer] = []
                     if active_ids:
                         q_chars = await db.execute(
-                            deps.select(deps.Character).where(
-                                deps.Character.session_id == sess.id,
-                                deps.Character.player_id.in_(active_ids),
+                            select(Character).where(
+                                Character.session_id == sess.id,
+                                Character.player_id.in_(active_ids),
                             )
                         )
                         char_ids = {ch.player_id for ch in q_chars.scalars().all()}
                         missing_sps = [x for x in sps if x.player_id not in char_ids]
                     if missing_sps:
-                        q_players = await db.execute(deps.select(deps.Player).where(deps.Player.id.in_([x.player_id for x in missing_sps])))
+                        q_players = await db.execute(select(Player).where(Player.id.in_([x.player_id for x in missing_sps])))
                         names_by_id = {p.id: p.display_name for p in q_players.scalars().all()}
                         missing_names = ", ".join(
                             f"#{x.join_order} {names_by_id.get(x.player_id, str(x.player_id))}" for x in missing_sps
                         )
-                        await deps.add_system_event(db, sess, f"Нельзя стартовать: персонаж не создан у {missing_names}.")
+                        await add_system_event(db, sess, f"Нельзя стартовать: персонаж не создан у {missing_names}.")
                         await ws_error("Create character first", request_id=msg_request_id)
                         await broadcast_state(session_id)
                         continue
@@ -207,32 +279,32 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                     if isinstance(raw_story, dict):
                         settings_set(sess, "free_turns", bool(raw_story.get("free_turns")))
                     _set_phase(sess, "lore_pending")
-                    deps._clear_current_action_id(sess)
-                    deps._clear_paused_remaining(sess)
+                    _clear_current_action_id(sess)
+                    _clear_paused_remaining(sess)
                     await db.commit()
-                    await deps.add_system_event(db, sess, "Игра началась. Генерируем вступительную историю...")
+                    await add_system_event(db, sess, "Игра началась. Генерируем вступительную историю...")
                     await broadcast_state(session_id)
-                    deps.asyncio.create_task(deps.gm_orchestrator.run_lore_generation(session_id))
+                    asyncio.create_task(gm_orchestrator.run_lore_generation(session_id))
                     continue
 
                 if action == "pause":
-                    if not await deps.is_admin(db, sess, player):
+                    if not await is_admin(db, sess, player):
                         await ws_error("Only admin can pause")
                         continue
                     if sess.is_paused:
                         await broadcast_state(session_id)
                         continue
-                    rem = await deps._compute_remaining(sess)
+                    rem = await _compute_remaining(sess)
                     if rem is not None:
-                        deps._set_paused_remaining(sess, rem)
+                        _set_paused_remaining(sess, rem)
                     sess.is_paused = True
                     await db.commit()
-                    await deps.add_system_event(db, sess, f"Пауза. Осталось: {rem if rem is not None else '—'} сек.")
+                    await add_system_event(db, sess, f"Пауза. Осталось: {rem if rem is not None else '—'} сек.")
                     await broadcast_state(session_id)
                     continue
 
                 if action == "resume":
-                    if not await deps.is_admin(db, sess, player):
+                    if not await is_admin(db, sess, player):
                         await ws_error("Only admin can resume")
                         continue
                     if not sess.is_paused:
@@ -240,24 +312,24 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                         continue
 
                     # continue timer from stored remaining
-                    stored = deps._get_paused_remaining(sess)
+                    stored = _get_paused_remaining(sess)
                     if stored is not None and sess.current_player_id:
-                        stored = max(0, min(deps.TURN_TIMEOUT_SECONDS, int(stored)))
-                        elapsed = deps.TURN_TIMEOUT_SECONDS - stored
-                        sess.turn_started_at = deps.utcnow() - deps.timedelta(seconds=elapsed)
+                        stored = max(0, min(TURN_TIMEOUT_SECONDS, int(stored)))
+                        elapsed = TURN_TIMEOUT_SECONDS - stored
+                        sess.turn_started_at = utcnow() - timedelta(seconds=elapsed)
                     else:
                         # fallback: restart timer (or clear if no current player)
-                        sess.turn_started_at = deps.utcnow() if sess.current_player_id else None
+                        sess.turn_started_at = utcnow() if sess.current_player_id else None
 
                     sess.is_paused = False
-                    deps._clear_paused_remaining(sess)
+                    _clear_paused_remaining(sess)
                     await db.commit()
-                    await deps.add_system_event(db, sess, "Продолжили игру.")
+                    await add_system_event(db, sess, "Продолжили игру.")
                     await broadcast_state(session_id)
                     continue
 
                 if action == "skip":
-                    if not await deps.is_admin(db, sess, player):
+                    if not await is_admin(db, sess, player):
                         await ws_error("Only admin can skip")
                         continue
                     if _get_phase(sess) == "gm_pending":
@@ -270,19 +342,19 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                         await ws_error("Paused. Resume first.")
                         continue
 
-                    nxt = await deps.advance_turn(db, sess)
+                    nxt = await advance_turn(db, sess)
                     if not nxt:
                         await ws_error("No players")
                         continue
-                    await deps.add_system_event(db, sess, f"Ход пропущен. Следующий: #{nxt.join_order}.")
+                    await add_system_event(db, sess, f"Ход пропущен. Следующий: #{nxt.join_order}.")
                     await broadcast_state(session_id)
                     continue
 
                 if action.startswith("admin_combat_test_"):
-                    if not await deps.is_admin(db, sess, player):
+                    if not await is_admin(db, sess, player):
                         await ws_error("Only admin can run combat UI test")
                         continue
-                    combat_patch, combat_err = deps.handle_admin_combat_test_action(action, session_id)
+                    combat_patch, combat_err = handle_admin_combat_test_action(action, session_id)
                     if combat_err:
                         await ws_error(combat_err)
                         continue
@@ -292,7 +364,7 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
 
                 lock = get_session_lock(session_id)
                 if action == "admin_combat_live_start":
-                    if not await deps.is_admin(db, sess, player):
+                    if not await is_admin(db, sess, player):
                         await ws_error("Only admin can run live combat")
                         continue
                     bootstrap_zone = "arena"
@@ -309,33 +381,33 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                     )
                     if sess.is_paused:
                         sess.is_paused = False
-                        deps._clear_paused_remaining(sess)
+                        _clear_paused_remaining(sess)
                         if sess.current_player_id and not sess.turn_started_at:
-                            sess.turn_started_at = deps.utcnow()
+                            sess.turn_started_at = utcnow()
                     await db.commit()
                     gm_text = (
                         f'@@COMBAT_START(zone="{bootstrap_zone}", cause="admin")\n'
                         '@@COMBAT_ENEMY_ADD(id=band1, name="Разбойник", hp=18, ac=13, init_mod=2, threat=2)'
                     )
                     async with lock:
-                        before_state = deps.get_combat(session_id)
+                        before_state = get_combat(session_id)
                         before_active = bool(before_state and before_state.active)
                         # If a previous combat is still active (often due to persisted restore),
                         # hard-reset it so @@COMBAT_START is not ignored and we always start from round 1.
                         if before_active:
-                            deps.end_combat(session_id)
+                            end_combat(session_id)
                             before_state = None
                             before_active = False
-                        combat_patch = deps.apply_combat_machine_commands(session_id, gm_text)
-                        _uid_map, chars_by_uid, _ = await deps._load_actor_context(db, sess)
-                        deps.sync_pcs_from_chars(session_id, chars_by_uid)
+                        combat_patch = apply_combat_machine_commands(session_id, gm_text)
+                        _uid_map, chars_by_uid, _ = await _load_actor_context(db, sess)
+                        sync_pcs_from_chars(session_id, chars_by_uid)
                         if combat_patch is None:
                             combat_patch = {
                                 "reset": True,
                                 "open": True,
                                 "lines": [{"text": "Live бой запущен админом.", "muted": True}],
                             }
-                        combat_state = deps.get_combat(session_id)
+                        combat_state = get_combat(session_id)
                         after_active = bool(combat_state and combat_state.active)
                         if after_active and combat_state is not None and combat_state.active:
                             preamble_lines = _build_combat_start_preamble_lines(
@@ -367,17 +439,17 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                                 combat_state.round_no = 1
                                 combat_state.turn_index = 0
                             combat_patch["status"] = (
-                                f"⚔ Бой • Раунд {combat_state.round_no} • Ход: {deps.current_turn_label(combat_state)}"
+                                f"⚔ Бой • Раунд {combat_state.round_no} • Ход: {current_turn_label(combat_state)}"
                             )
                         await _broadcast_state_unlocked(session_id, combat_log_ui_patch=combat_patch)
                     continue
 
                 if action == "admin_combat_live_end":
-                    if not await deps.is_admin(db, sess, player):
+                    if not await is_admin(db, sess, player):
                         await ws_error("Only admin can end live combat")
                         continue
                     async with lock:
-                        deps.end_combat(session_id)
+                        end_combat(session_id)
                         await _broadcast_state_unlocked(
                             session_id,
                             combat_log_ui_patch={
@@ -389,15 +461,15 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                     continue
 
                 if action == "combat_log_clear":
-                    if not await deps.is_admin(db, sess, player):
+                    if not await is_admin(db, sess, player):
                         await ws_error("Only admin can clear combat log")
                         continue
-                    state = deps.get_combat(session_id)
+                    state = get_combat(session_id)
                     lines = [{"text": "Журнал очищен.", "muted": True}]
                     if state is not None and state.active:
                         lines.append(
                             {
-                                "text": f"⚔ Бой • Раунд {state.round_no} • Ход: {deps.current_turn_label(state)}",
+                                "text": f"⚔ Бой • Раунд {state.round_no} • Ход: {current_turn_label(state)}",
                                 "muted": True,
                                 "kind": "status",
                             }
@@ -416,11 +488,11 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                     "combat_use_object",
                     "combat_help",
                 }:
-                    if not await deps.is_admin(db, sess, player):
+                    if not await is_admin(db, sess, player):
                         await ws_error("Only admin can use combat actions")
                         continue
                     async with lock:
-                        combat_patch, combat_err = deps.handle_live_combat_action(action, session_id)
+                        combat_patch, combat_err = handle_live_combat_action(action, session_id)
                         if combat_err:
                             await ws_error(combat_err)
                             continue
@@ -442,15 +514,15 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                     cmdline = cmdline[1:].lstrip()
 
                 lower = cmdline.lower()
-                if lower in deps.STATE_COMMAND_ALIASES:
-                    ch = await deps.get_character(db, sess.id, player.id)
-                    await deps.add_system_event(db, sess, deps._format_state_text_for_player(sess, player, ch))
+                if lower in STATE_COMMAND_ALIASES:
+                    ch = await get_character(db, sess.id, player.id)
+                    await add_system_event(db, sess, _format_state_text_for_player(sess, player, ch))
                     await broadcast_state(session_id)
                     continue
 
-                combat_action = deps._detect_chat_combat_action(text)
+                combat_action = _detect_chat_combat_action(text)
                 _maybe_restore_combat_state(sess, session_id)
-                combat_state = deps.get_combat(session_id)
+                combat_state = get_combat(session_id)
                 if combat_state is None:
                     bootstrap = settings_get(sess, "combat_live_bootstrap", None)
                     if isinstance(bootstrap, dict):
@@ -468,10 +540,10 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                                     continue
                                 enemy_id_escaped = enemy_id.replace('"', '\\"')
                                 enemy_name_escaped = enemy_name.replace('"', '\\"')
-                                hp = max(1, deps.as_int(enemy.get("hp"), 1))
-                                ac = max(1, deps.as_int(enemy.get("ac"), 10))
-                                init_mod = deps.as_int(enemy.get("init_mod"), 0)
-                                threat = max(0, deps.as_int(enemy.get("threat"), 1))
+                                hp = max(1, as_int(enemy.get("hp"), 1))
+                                ac = max(1, as_int(enemy.get("ac"), 10))
+                                init_mod = as_int(enemy.get("init_mod"), 0)
+                                threat = max(0, as_int(enemy.get("threat"), 1))
                                 lines.append(
                                     f'@@COMBAT_ENEMY_ADD(id={enemy_id_escaped}, name="{enemy_name_escaped}", '
                                     f"hp={hp}, ac={ac}, init_mod={init_mod}, threat={threat})"
@@ -479,12 +551,12 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                             if len(lines) > 1:
                                 gm_text = "\n".join(lines)
                                 async with lock:
-                                    before_state = deps.get_combat(session_id)
+                                    before_state = get_combat(session_id)
                                     before_active = bool(before_state and before_state.active)
-                                    combat_patch = deps.apply_combat_machine_commands(session_id, gm_text)
-                                    _uid_map, chars_by_uid, _ = await deps._load_actor_context(db, sess)
-                                    deps.sync_pcs_from_chars(session_id, chars_by_uid)
-                                    combat_state = deps.get_combat(session_id)
+                                    combat_patch = apply_combat_machine_commands(session_id, gm_text)
+                                    _uid_map, chars_by_uid, _ = await _load_actor_context(db, sess)
+                                    sync_pcs_from_chars(session_id, chars_by_uid)
+                                    combat_state = get_combat(session_id)
                                     after_active = bool(combat_state and combat_state.active)
                                     if after_active and combat_state is not None and combat_state.active:
                                         preamble_lines = _build_combat_start_preamble_lines(
@@ -513,7 +585,7 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                                         combat_patch["reset"] = True
                                         combat_patch["open"] = True
                                         combat_patch["status"] = (
-                                            f"⚔ Бой • Раунд {combat_state.round_no} • Ход: {deps.current_turn_label(combat_state)}"
+                                            f"⚔ Бой • Раунд {combat_state.round_no} • Ход: {current_turn_label(combat_state)}"
                                         )
                                         await _broadcast_state_unlocked(session_id, combat_log_ui_patch=combat_patch)
                 combat_active = bool(combat_state and combat_state.active)
@@ -524,8 +596,8 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                     continue
 
                 if start_intent and not combat_active:
-                    actor_label = await deps._event_actor_label(db, sess, player)
-                    await deps.add_event(
+                    actor_label = await _event_actor_label(db, sess, player)
+                    await add_event(
                         db,
                         sess,
                         f"{actor_label}: {text}",
@@ -540,7 +612,7 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
 
                     enemy_name = "Разбойник" if "разбойник" in lower else ""
                     if not enemy_name:
-                        enemy_match = deps.re.search(r"бой с\s+([^\n,.;:!?]+)", lower, flags=deps.re.IGNORECASE)
+                        enemy_match = re.search(r"бой с\s+([^\n,.;:!?]+)", lower, flags=re.IGNORECASE)
                         if enemy_match:
                             enemy_raw = enemy_match.group(1).strip(" \"'`")
                             if enemy_raw:
@@ -555,10 +627,10 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                         f'@@COMBAT_ENEMY_ADD(id=band1, name="{enemy_name_escaped}", hp=18, ac=13, init_mod=2, threat=2)'
                     )
                     async with lock:
-                        combat_patch = deps.apply_combat_machine_commands(session_id, gm_text)
-                        _uid_map, chars_by_uid, _ = await deps._load_actor_context(db, sess)
-                        deps.sync_pcs_from_chars(session_id, chars_by_uid)
-                        combat_state = deps.get_combat(session_id)
+                        combat_patch = apply_combat_machine_commands(session_id, gm_text)
+                        _uid_map, chars_by_uid, _ = await _load_actor_context(db, sess)
+                        sync_pcs_from_chars(session_id, chars_by_uid)
+                        combat_state = get_combat(session_id)
                         if combat_patch is None:
                             combat_patch = {}
                         if combat_state and combat_state.active:
@@ -588,13 +660,13 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                         combat_patch["open"] = True
                         if combat_state and combat_state.active:
                             combat_patch["status"] = (
-                                f"⚔ Бой • Раунд {combat_state.round_no} • Ход: {deps.current_turn_label(combat_state)}"
+                                f"⚔ Бой • Раунд {combat_state.round_no} • Ход: {current_turn_label(combat_state)}"
                             )
                         await _broadcast_state_unlocked(session_id, combat_log_ui_patch=combat_patch)
 
-                    ch = await deps.get_character(db, sess.id, player.id)
+                    ch = await get_character(db, sess.id, player.id)
                     player_name = (ch.name if ch and ch.name else player.display_name)
-                    facts_block = await deps._build_combat_scene_facts_for_llm(
+                    facts_block = await _build_combat_scene_facts_for_llm(
                         db,
                         sess,
                         player,
@@ -602,7 +674,7 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                         max_lines=10,
                     )
                     prompt = (
-                        f"{deps._COMBAT_LOCK_PROMPT}\n\n"
+                        f"{_COMBAT_LOCK_PROMPT}\n\n"
                         "ЗАПРЕЩЕНО ДОБАВЛЯТЬ НОВЫЕ СУЩНОСТИ:\n"
                         "- никаких новых NPC (никаких 'человек', 'парень', 'толпа', 'стражник' и т.п.)\n"
                         "- никаких новых предметов/оружия/именованных артефактов\n"
@@ -625,24 +697,24 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                         f"Контекст: Ты вступаешь в бой с {enemy_name}. "
                         f"Имя героя (для ориентира): {player_name}\n"
                     )
-                    resp = await deps.generate_from_prompt(
+                    resp = await generate_from_prompt(
                         prompt=prompt,
-                        timeout_seconds=deps.GM_OLLAMA_TIMEOUT_SECONDS,
-                        num_predict=deps.GM_FINAL_NUM_PREDICT,
+                        timeout_seconds=GM_OLLAMA_TIMEOUT_SECONDS,
+                        num_predict=GM_FINAL_NUM_PREDICT,
                     )
-                    gm_text = deps._sanitize_gm_output(deps._strip_machine_lines(str(resp.get("text") or "").strip()))
-                    gm_text = deps.re.sub(r"(?im)^\s*@@COMBAT_[A-Z_]+.*$", "", gm_text).strip()
+                    gm_text = _sanitize_gm_output(_strip_machine_lines(str(resp.get("text") or "").strip()))
+                    gm_text = re.sub(r"(?im)^\s*@@COMBAT_[A-Z_]+.*$", "", gm_text).strip()
 
                     has_mechanics = bool(
-                        deps.re.search(r"(?:\d|\bd20\b|\bhp\b|\bac\b|урон|бросок|раунд|ход)", gm_text, flags=deps.re.IGNORECASE)
+                        re.search(r"(?:\d|\bd20\b|\bhp\b|\bac\b|урон|бросок|раунд|ход)", gm_text, flags=re.IGNORECASE)
                     )
-                    has_forbidden_gear = deps._combat_text_mentions_forbidden_gear(
+                    has_forbidden_gear = _combat_text_mentions_forbidden_gear(
                         gm_text,
                         action_text=text,
                         facts_block=facts_block,
                     )
-                    has_markers = deps._has_start_intent_sanitary_markers(gm_text)
-                    needs_repair = deps._start_intent_text_needs_repair(gm_text)
+                    has_markers = _has_start_intent_sanitary_markers(gm_text)
+                    needs_repair = _start_intent_text_needs_repair(gm_text)
                     if has_markers or has_forbidden_gear or needs_repair:
                         reprompt = (
                             f"{prompt}\n"
@@ -652,34 +724,34 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                             "Никаких новых сущностей. Только здесь-и-сейчас.\n"
                             f"Черновик для переписывания:\n{gm_text}\n"
                         )
-                        repair_resp = await deps.generate_from_prompt(
+                        repair_resp = await generate_from_prompt(
                             prompt=reprompt,
-                            timeout_seconds=deps.GM_OLLAMA_TIMEOUT_SECONDS,
-                            num_predict=deps.GM_FINAL_NUM_PREDICT,
+                            timeout_seconds=GM_OLLAMA_TIMEOUT_SECONDS,
+                            num_predict=GM_FINAL_NUM_PREDICT,
                         )
-                        gm_text = deps._sanitize_gm_output(deps._strip_machine_lines(str(repair_resp.get("text") or "").strip()))
-                        gm_text = deps.re.sub(r"(?im)^\s*@@COMBAT_[A-Z_]+.*$", "", gm_text).strip()
+                        gm_text = _sanitize_gm_output(_strip_machine_lines(str(repair_resp.get("text") or "").strip()))
+                        gm_text = re.sub(r"(?im)^\s*@@COMBAT_[A-Z_]+.*$", "", gm_text).strip()
                         has_mechanics = bool(
-                            deps.re.search(r"(?:\d|\bd20\b|\bhp\b|\bac\b|урон|бросок|раунд|ход)", gm_text, flags=deps.re.IGNORECASE)
+                            re.search(r"(?:\d|\bd20\b|\bhp\b|\bac\b|урон|бросок|раунд|ход)", gm_text, flags=re.IGNORECASE)
                         )
-                        has_markers = deps._has_start_intent_sanitary_markers(gm_text)
-                        has_forbidden_gear = deps._combat_text_mentions_forbidden_gear(
+                        has_markers = _has_start_intent_sanitary_markers(gm_text)
+                        has_forbidden_gear = _combat_text_mentions_forbidden_gear(
                             gm_text,
                             action_text=text,
                             facts_block=facts_block,
                         )
-                        needs_repair = deps._start_intent_text_needs_repair(gm_text)
+                        needs_repair = _start_intent_text_needs_repair(gm_text)
                     if (
                         not gm_text
                         or has_mechanics
-                        or deps._looks_like_combat_drift(gm_text)
+                        or _looks_like_combat_drift(gm_text)
                         or has_markers
                         or has_forbidden_gear
                         or needs_repair
                     ):
-                        gm_text = deps.START_INTENT_FALLBACK_TEXT
+                        gm_text = START_INTENT_FALLBACK_TEXT
 
-                    await deps.add_system_event(db, sess, f"🧙 GM: {gm_text}")
+                    await add_system_event(db, sess, f"🧙 GM: {gm_text}")
                     await db.commit()
                     await broadcast_state(session_id)
                     continue
@@ -694,14 +766,14 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
 
                 # Combat Lock: during active combat only combat actions are allowed.
                 if combat_active:
-                    is_admin_user = await deps.is_admin(db, sess, player)
+                    is_admin_user = await is_admin(db, sess, player)
                     if lower.startswith("ooc ") or cmdline.startswith("//"):
                         pass
                     elif (lower.startswith("gm ") or lower.startswith("gm:")) and is_admin_user:
                         pass
                     elif combat_action:
-                        actor_label = await deps._event_actor_label(db, sess, player)
-                        await deps.add_event(
+                        actor_label = await _event_actor_label(db, sess, player)
+                        await add_event(
                             db,
                             sess,
                             f"{actor_label}: {text}",
@@ -714,20 +786,20 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                         )
                         await db.commit()
 
-                        player_uid = deps._player_uid(player)
+                        player_uid = _player_uid(player)
                         player_key = f"pc_{player_uid}" if player_uid is not None else ""
                         turn_key: Optional[str] = None
                         if combat_state and combat_state.order and 0 <= combat_state.turn_index < len(combat_state.order):
                             turn_key = combat_state.order[combat_state.turn_index]
                         if not turn_key or turn_key != player_key:
-                            current_name = deps.current_turn_label(combat_state) if combat_state else "другой участник"
-                            await deps.add_system_event(db, sess, f"Сейчас ходит {current_name}. Дождись своего хода.")
+                            current_name = current_turn_label(combat_state) if combat_state else "другой участник"
+                            await add_system_event(db, sess, f"Сейчас ходит {current_name}. Дождись своего хода.")
                             await broadcast_state(session_id)
                             continue
 
-                        all_patches: list[dict[str, deps.Any]] = []
+                        all_patches: list[dict[str, Any]] = []
                         async with lock:
-                            combat_patch, combat_err = deps.handle_live_combat_action(combat_action, session_id)
+                            combat_patch, combat_err = handle_live_combat_action(combat_action, session_id)
                             if combat_err:
                                 await ws_error(combat_err, request_id=msg_request_id)
                                 continue
@@ -735,7 +807,7 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                                 all_patches.append(combat_patch)
 
                             while True:
-                                state_now = deps.get_combat(session_id)
+                                state_now = get_combat(session_id)
                                 if not state_now or not state_now.active or not state_now.order:
                                     break
                                 if state_now.turn_index < 0 or state_now.turn_index >= len(state_now.order):
@@ -744,24 +816,24 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                                 turn_actor = state_now.combatants.get(turn_key_now)
                                 if not turn_actor or turn_actor.side != "enemy":
                                     break
-                                enemy_patch, enemy_err = deps.handle_live_combat_action("combat_attack", session_id)
+                                enemy_patch, enemy_err = handle_live_combat_action("combat_attack", session_id)
                                 if enemy_err:
-                                    deps.logger.warning("enemy auto combat action failed", extra={"action": {"error": enemy_err}})
+                                    logger.warning("enemy auto combat action failed", extra={"action": {"error": enemy_err}})
                                     break
                                 if enemy_patch:
                                     all_patches.append(enemy_patch)
 
                             merged_patch = _merge_combat_patches(all_patches) if all_patches else None
                             await _broadcast_state_unlocked(session_id, combat_log_ui_patch=merged_patch)
-                        facts = deps.extract_combat_narration_facts(merged_patch)
+                        facts = extract_combat_narration_facts(merged_patch)
                         if facts:
                             required_fact_count = 3 if len(facts) >= 3 else len(facts)
                             player_raw_action = str(text or "").strip()
-                            ch = await deps.get_character(db, sess.id, player.id)
+                            ch = await get_character(db, sess.id, player.id)
                             player_name = (ch.name if ch and ch.name else player.display_name)
                             ended = any("бой заверш" in f.lower() or "победа" in f.lower() for f in facts)
                             enemy_name_for_facts = "противник"
-                            state_for_facts = deps.get_combat(session_id)
+                            state_for_facts = get_combat(session_id)
                             if state_for_facts and isinstance(state_for_facts.combatants, dict):
                                 for actor in state_for_facts.combatants.values():
                                     if str(getattr(actor, "side", "")).lower() != "enemy":
@@ -770,7 +842,7 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                                     if actor_name:
                                         enemy_name_for_facts = actor_name
                                         break
-                            scene_facts_block = await deps._build_combat_scene_facts_for_llm(
+                            scene_facts_block = await _build_combat_scene_facts_for_llm(
                                 db,
                                 sess,
                                 player,
@@ -779,24 +851,24 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                             )
                             if not str(scene_facts_block or "").strip():
                                 scene_facts_block = "- Зона игрока: место рядом с тобой\n- Окружение: место рядом с тобой."
-                            text = await deps.gm_combat_narration.generate_combat_narration_from_facts(
-                                combat_lock_prompt=deps._COMBAT_LOCK_PROMPT,
+                            text = await gm_combat_narration.generate_combat_narration_from_facts(
+                                combat_lock_prompt=_COMBAT_LOCK_PROMPT,
                                 facts=facts,
                                 required_fact_count=required_fact_count,
                                 scene_facts_block=scene_facts_block,
-                                player_raw_action=deps._short_text(player_raw_action, 180),
+                                player_raw_action=_short_text(player_raw_action, 180),
                                 player_name=player_name,
                                 ended=ended,
-                                timeout_seconds=deps.GM_OLLAMA_TIMEOUT_SECONDS,
-                                num_predict=deps.GM_FINAL_NUM_PREDICT,
-                                mentions_forbidden_gear_fn=lambda candidate_text: deps._combat_text_mentions_forbidden_gear(
+                                timeout_seconds=GM_OLLAMA_TIMEOUT_SECONDS,
+                                num_predict=GM_FINAL_NUM_PREDICT,
+                                mentions_forbidden_gear_fn=lambda candidate_text: _combat_text_mentions_forbidden_gear(
                                     candidate_text,
                                     action_text=player_raw_action,
                                     facts_block=scene_facts_block,
                                 ),
                             )
                             if text:
-                                await deps.add_system_event(
+                                await add_system_event(
                                     db,
                                     sess,
                                     f"🧙 GM: {text}",
@@ -815,22 +887,22 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                 # OOC (any time, no turn)
                 if lower.startswith("ooc ") or cmdline.startswith("//"):
                     msg = cmdline[4:].strip() if lower.startswith("ooc ") else cmdline[2:].strip()
-                    await deps.add_event(db, sess, f"[OOC] {player.display_name} (#{sp.join_order}): {msg}")
+                    await add_event(db, sess, f"[OOC] {player.display_name} (#{sp.join_order}): {msg}")
                     await broadcast_state(session_id)
                     continue
 
                 # GM (admin only, any time, no turn)
                 if lower.startswith("gm ") or lower.startswith("gm:"):
-                    if not await deps.is_admin(db, sess, player):
+                    if not await is_admin(db, sess, player):
                         await ws_error("Only admin can GM")
                         continue
                     msg = cmdline[2:].lstrip(":").strip()
-                    await deps.add_system_event(db, sess, f"🧙 GM: {msg}")
+                    await add_system_event(db, sess, f"🧙 GM: {msg}")
                     await broadcast_state(session_id)
                     continue
 
                 if lower == "help":
-                    await deps.add_system_event(
+                    await add_system_event(
                         db,
                         sess,
                         "Команды: roll/adv/dis <1d20+3> (на своём ходу, не тратит ход), "
@@ -845,29 +917,29 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                     continue
 
                 if lower == "char":
-                    await deps.add_system_event(
+                    await add_system_event(
                         db,
                         sess,
-                        "deps.Character commands: char create <Name> [Class], me, hp <+N|-N|N>, sta <+N|-N|N>, "
+                        "Character commands: char create <Name> [Class], me, hp <+N|-N|N>, sta <+N|-N|N>, "
                         "stat <str|dex|con|int|wis|cha> <0..100>, check [adv|dis] <stat_or_skill> [dc N] (ручной бросок, опционально).",
                     )
                     await broadcast_state(session_id)
                     continue
 
-                m_char_create = deps.re.match(r"^char\s+create\s+(.+)$", cmdline, deps.re.IGNORECASE)
+                m_char_create = re.match(r"^char\s+create\s+(.+)$", cmdline, re.IGNORECASE)
                 if m_char_create:
                     payload = m_char_create.group(1).strip()
                     if not payload:
                         await ws_error("Usage: char create <Name> [Class]", request_id=msg_request_id)
                         continue
-                    ch_existing = await deps.get_character(db, sess.id, player.id)
+                    ch_existing = await get_character(db, sess.id, player.id)
                     if ch_existing:
-                        await ws_error("deps.Character already exists", request_id=msg_request_id)
+                        await ws_error("Character already exists", request_id=msg_request_id)
                         continue
                     parts = payload.split()
                     ch_name = parts[0][:80]
                     ch_class = (parts[1] if len(parts) > 1 else "Adventurer")[:40]
-                    await deps.create_character(
+                    await create_character(
                         db,
                         sess.id,
                         player.id,
@@ -875,17 +947,17 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                         class_kit=ch_class,
                         class_skin=ch_class,
                     )
-                    await deps.add_system_event(db, sess, f"deps.Character created: {ch_name} ({ch_class}) for player #{sp.join_order}.")
+                    await add_system_event(db, sess, f"Character created: {ch_name} ({ch_class}) for player #{sp.join_order}.")
                     await broadcast_state(session_id)
                     continue
 
                 if lower == "me":
-                    ch = await deps.get_character(db, sess.id, player.id)
+                    ch = await get_character(db, sess.id, player.id)
                     if not ch:
                         await ws_error("No character. Use: char create ...", request_id=msg_request_id)
                         continue
-                    stats = deps._normalized_stats(ch.stats)
-                    await deps.add_system_event(
+                    stats = _normalized_stats(ch.stats)
+                    await add_system_event(
                         db,
                         sess,
                         f"[ME] {ch.name} ({ch.class_kit}) lvl {int(ch.level or 1)} | "
@@ -895,26 +967,26 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                     await broadcast_state(session_id)
                     continue
 
-                m_res = deps.re.match(r"^(hp|sta)\s+([+-]?\d+)$", lower, deps.re.IGNORECASE)
+                m_res = re.match(r"^(hp|sta)\s+([+-]?\d+)$", lower, re.IGNORECASE)
                 if m_res:
-                    ch = await deps.get_character(db, sess.id, player.id)
+                    ch = await get_character(db, sess.id, player.id)
                     if not ch:
                         await ws_error("No character. Use: char create ...", request_id=msg_request_id)
                         continue
                     key = m_res.group(1).lower()
                     raw_val = m_res.group(2)
-                    delta_or_value = deps.as_int(raw_val, 0)
+                    delta_or_value = as_int(raw_val, 0)
                     cur_attr = "hp" if key == "hp" else "sta"
                     max_attr = "hp_max" if key == "hp" else "sta_max"
-                    cur = deps.as_int(getattr(ch, cur_attr), 0)
-                    max_v = max(0, deps.as_int(getattr(ch, max_attr), 0))
+                    cur = as_int(getattr(ch, cur_attr), 0)
+                    max_v = max(0, as_int(getattr(ch, max_attr), 0))
                     if raw_val.startswith("+") or raw_val.startswith("-"):
-                        nxt = deps._clamp(cur + delta_or_value, 0, max_v)
+                        nxt = _clamp(cur + delta_or_value, 0, max_v)
                     else:
-                        nxt = deps._clamp(delta_or_value, 0, max_v)
+                        nxt = _clamp(delta_or_value, 0, max_v)
                     setattr(ch, cur_attr, nxt)
                     await db.commit()
-                    await deps.add_system_event(db, sess, f"{ch.name}: {key.upper()} {cur}->{nxt}/{max_v}")
+                    await add_system_event(db, sess, f"{ch.name}: {key.upper()} {cur}->{nxt}/{max_v}")
                     await broadcast_state(session_id)
                     continue
 
@@ -924,7 +996,7 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                         await ws_error("Usage: stat <str|dex|con|int|wis|cha> <0..100>", request_id=msg_request_id)
                         continue
 
-                    admin = await deps.is_admin(db, sess, player)
+                    admin = await is_admin(db, sess, player)
                     target_sp = sp
 
                     if len(parts) == 4:
@@ -932,22 +1004,22 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                         if not maybe_order.isdigit():
                             await ws_error("Usage: stat #<order> <stat> <0..100>", request_id=msg_request_id)
                             continue
-                        target_order = deps.as_int(maybe_order, 0)
+                        target_order = as_int(maybe_order, 0)
                         if target_order <= 0:
                             await ws_error("Usage: stat #<order> <stat> <0..100>", request_id=msg_request_id)
                             continue
-                        sps_all = await deps.list_session_players(db, sess, active_only=False)
+                        sps_all = await list_session_players(db, sess, active_only=False)
                         target_sp = next((x for x in sps_all if int(x.join_order or 0) == target_order), None)
                         if not target_sp:
-                            await ws_error("deps.Player not found", request_id=msg_request_id)
+                            await ws_error("Player not found", request_id=msg_request_id)
                             continue
                         stat_key = parts[2].lower()
-                        stat_val = deps.as_int(parts[3], -1)
+                        stat_val = as_int(parts[3], -1)
                     else:
                         stat_key = parts[1].lower()
-                        stat_val = deps.as_int(parts[2], -1)
+                        stat_val = as_int(parts[2], -1)
 
-                    if stat_key not in deps.CHAR_STAT_KEYS:
+                    if stat_key not in CHAR_STAT_KEYS:
                         await ws_error("Unknown stat key", request_id=msg_request_id)
                         continue
                     if stat_val < 0 or stat_val > 100:
@@ -960,17 +1032,17 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                         await ws_error("You can change only your own stats before start", request_id=msg_request_id)
                         continue
 
-                    target_ch = await deps.get_character(db, sess.id, target_sp.player_id)
+                    target_ch = await get_character(db, sess.id, target_sp.player_id)
                     if not target_ch:
                         await ws_error("No character. Use: char create ...", request_id=msg_request_id)
                         continue
 
-                    stats = deps._normalized_stats(target_ch.stats)
+                    stats = _normalized_stats(target_ch.stats)
                     old_val = stats.get(stat_key, 50)
                     stats[stat_key] = stat_val
                     target_ch.stats = stats
                     await db.commit()
-                    await deps.add_system_event(
+                    await add_system_event(
                         db,
                         sess,
                         f"[STAT] #{target_sp.join_order} {target_ch.name}: {stat_key} {old_val}->{stat_val}",
@@ -997,7 +1069,7 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                     while idx < len(parts) and not parts[idx].lower().startswith("dc"):
                         key += f" {parts[idx].lower()}"
                         idx += 1
-                    key = deps._normalize_check_name(key)
+                    key = _normalize_check_name(key)
                     dc: Optional[int] = None
                     if idx < len(parts):
                         tok = parts[idx].lower()
@@ -1006,10 +1078,10 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                                 if idx + 1 >= len(parts):
                                     await ws_error("Usage: check ... dc <N>", request_id=msg_request_id)
                                     continue
-                                dc = deps.as_int(parts[idx + 1], -1)
+                                dc = as_int(parts[idx + 1], -1)
                                 idx += 2
                             else:
-                                dc = deps.as_int(tok[2:], -1)
+                                dc = as_int(tok[2:], -1)
                                 idx += 1
                         else:
                             await ws_error("Usage: check [adv|dis] <stat_or_skill> [dc N]", request_id=msg_request_id)
@@ -1021,58 +1093,58 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                         await ws_error("DC must be >= 0", request_id=msg_request_id)
                         continue
 
-                    ch = await deps.get_character(db, sess.id, player.id)
+                    ch = await get_character(db, sess.id, player.id)
                     if not ch:
                         await ws_error("No character. Use: char create ...", request_id=msg_request_id)
                         continue
 
-                    def _manual_candidate_mod(candidate: str, skills_by_key: dict[str, deps.Skill]) -> int:
-                        if candidate in deps.CHAR_STAT_KEYS:
-                            return deps._ability_mod_from_stats(ch.stats, candidate)
-                        ability_key = deps.SKILL_TO_ABILITY.get(candidate)
-                        ability_mod = deps._ability_mod_from_stats(ch.stats, ability_key) if ability_key else 0
+                    def _manual_candidate_mod(candidate: str, skills_by_key: dict[str, Skill]) -> int:
+                        if candidate in CHAR_STAT_KEYS:
+                            return _ability_mod_from_stats(ch.stats, candidate)
+                        ability_key = SKILL_TO_ABILITY.get(candidate)
+                        ability_mod = _ability_mod_from_stats(ch.stats, ability_key) if ability_key else 0
                         sk = skills_by_key.get(candidate)
-                        skill_bonus = deps._skill_bonus_from_rank(sk.rank) if sk else 0
+                        skill_bonus = _skill_bonus_from_rank(sk.rank) if sk else 0
                         return ability_mod + skill_bonus
 
-                    skills_by_key: dict[str, deps.Skill] = {}
+                    skills_by_key: dict[str, Skill] = {}
                     if "|" in key:
                         candidates = [x.strip() for x in key.split("|") if x.strip()]
                         if not candidates:
                             mod = 0
                         else:
-                            skill_candidates = [c for c in candidates if c not in deps.CHAR_STAT_KEYS]
+                            skill_candidates = [c for c in candidates if c not in CHAR_STAT_KEYS]
                             if skill_candidates:
                                 q_skills = await db.execute(
-                                    deps.select(deps.Skill).where(
-                                        deps.Skill.character_id == ch.id,
-                                        deps.Skill.skill_key.in_(skill_candidates),
+                                    select(Skill).where(
+                                        Skill.character_id == ch.id,
+                                        Skill.skill_key.in_(skill_candidates),
                                     )
                                 )
                                 skills_by_key = {str(sk.skill_key or "").strip().lower(): sk for sk in q_skills.scalars().all()}
                             mod = max(_manual_candidate_mod(c, skills_by_key) for c in candidates)
-                    elif key in deps.CHAR_STAT_KEYS:
-                        mod = deps._ability_mod_from_stats(ch.stats, key)
+                    elif key in CHAR_STAT_KEYS:
+                        mod = _ability_mod_from_stats(ch.stats, key)
                     else:
                         q_skill = await db.execute(
-                            deps.select(deps.Skill).where(
-                                deps.Skill.character_id == ch.id,
-                                deps.Skill.skill_key == key,
+                            select(Skill).where(
+                                Skill.character_id == ch.id,
+                                Skill.skill_key == key,
                             )
                         )
                         sk = q_skill.scalar_one_or_none()
-                        ability_key = deps.SKILL_TO_ABILITY.get(key)
-                        ability_mod = deps._ability_mod_from_stats(ch.stats, ability_key) if ability_key else 0
-                        skill_bonus = deps._skill_bonus_from_rank(sk.rank) if sk else 0
+                        ability_key = SKILL_TO_ABILITY.get(key)
+                        ability_mod = _ability_mod_from_stats(ch.stats, ability_key) if ability_key else 0
+                        skill_bonus = _skill_bonus_from_rank(sk.rank) if sk else 0
                         mod = ability_mod + skill_bonus
 
                     if mode == "roll":
-                        roll = deps.random.randint(1, 20)
+                        roll = random.randint(1, 20)
                         total = roll + mod
                         rolls_text = str(roll)
                     else:
-                        ra = deps.random.randint(1, 20)
-                        rb = deps.random.randint(1, 20)
+                        ra = random.randint(1, 20)
+                        rb = random.randint(1, 20)
                         roll = max(ra, rb) if mode == "adv" else min(ra, rb)
                         total = roll + mod
                         rolls_text = f"{ra}/{rb}->{roll}"
@@ -1081,18 +1153,18 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                     if dc is not None:
                         ok = total >= dc
                         msg += f" (DC {dc}) {'SUCCESS' if ok else 'FAIL'}"
-                    await deps.add_system_event(db, sess, msg)
+                    await add_system_event(db, sess, msg)
                     await broadcast_state(session_id)
                     continue
 
                 # name change (any time)
-                m_name = deps.re.match(r"^name\s+(.+)$", lower, deps.re.IGNORECASE)
+                m_name = re.match(r"^name\s+(.+)$", lower, re.IGNORECASE)
                 if m_name:
                     new_name = cmdline.split(" ", 1)[1].strip()
                     if new_name:
                         player.display_name = new_name
                         await db.commit()
-                        await deps.add_system_event(db, sess, f"Игрок #{sp.join_order} сменил имя на: {new_name}")
+                        await add_system_event(db, sess, f"Игрок #{sp.join_order} сменил имя на: {new_name}")
                         await broadcast_state(session_id)
                     continue
 
@@ -1104,90 +1176,90 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
 
                 # admin: kick <#>
                 if lower.startswith("kick "):
-                    if not await deps.is_admin(db, sess, player):
+                    if not await is_admin(db, sess, player):
                         await ws_error("Only admin can kick")
                         continue
                     arg = cmdline.split(" ", 1)[1].strip().lstrip("#")
-                    target_order = deps.as_int(arg, 0)
+                    target_order = as_int(arg, 0)
                     if target_order <= 0:
                         await ws_error("Usage: kick 2 or kick #2")
                         continue
 
                     # find target
-                    sps_all = await deps.list_session_players(db, sess, active_only=False)
+                    sps_all = await list_session_players(db, sess, active_only=False)
                     target_sp = next((x for x in sps_all if int(x.join_order or 0) == target_order), None)
                     if not target_sp:
-                        await ws_error("deps.Player not found")
+                        await ws_error("Player not found")
                         continue
                     if target_sp.player_id == player.id:
                         await ws_error("You can't kick yourself")
                         continue
 
                     # mark kicked
-                    kicked = deps._get_kicked(sess)
+                    kicked = _get_kicked(sess)
                     kicked.add(str(target_sp.player_id))
-                    deps._set_kicked(sess, kicked)
+                    _set_kicked(sess, kicked)
 
                     target_sp.is_active = False
                     await db.commit()
-                    deps._set_ready(sess, target_sp.player_id, False)
+                    _set_ready(sess, target_sp.player_id, False)
                     await db.commit()
 
-                    await deps.add_system_event(db, sess, f"Игрок #{target_order} исключён (kick).")
+                    await add_system_event(db, sess, f"Игрок #{target_order} исключён (kick).")
                     # if kicked player had the turn, advance
                     if sess.current_player_id == target_sp.player_id and not sess.is_paused:
-                        nxt = await deps.advance_turn(db, sess)
+                        nxt = await advance_turn(db, sess)
                         if nxt:
-                            await deps.add_system_event(db, sess, f"Ход передан следующему: #{nxt.join_order}.")
+                            await add_system_event(db, sess, f"Ход передан следующему: #{nxt.join_order}.")
                     await broadcast_state(session_id)
                     continue
 
                 # admin: turn/goto <#>
                 if lower.startswith("turn ") or lower.startswith("goto "):
-                    if not await deps.is_admin(db, sess, player):
+                    if not await is_admin(db, sess, player):
                         await ws_error("Only admin can change turn")
                         continue
                     arg = cmdline.split(" ", 1)[1].strip().lstrip("#")
-                    target_order = deps.as_int(arg, 0)
+                    target_order = as_int(arg, 0)
                     if target_order <= 0:
                         await ws_error("Usage: turn 2 or goto #2")
                         continue
-                    target = await deps.set_turn_to_order(db, sess, target_order)
+                    target = await set_turn_to_order(db, sess, target_order)
                     if not target:
-                        await ws_error("deps.Player not found/active")
+                        await ws_error("Player not found/active")
                         continue
-                    await deps.add_system_event(db, sess, f"Админ передал ход игроку #{target.join_order}.")
+                    await add_system_event(db, sess, f"Админ передал ход игроку #{target.join_order}.")
                     await broadcast_state(session_id)
                     continue
 
                 # initiative commands (admin)
                 if lower.startswith("init"):
-                    if not await deps.is_admin(db, sess, player):
+                    if not await is_admin(db, sess, player):
                         await ws_error("Only admin can manage initiative")
                         continue
                     parts = cmdline.split()
                     sub = parts[1].lower() if len(parts) > 1 else ""
 
-                    sps_active = await deps.list_session_players(db, sess, active_only=True)
+                    sps_active = await list_session_players(db, sess, active_only=True)
                     init_map = _get_init_map(sess)
                     # prefetch display names to avoid awaits in formatter
                     pids_active = [spx.player_id for spx in sps_active]
                     names: dict[str, str] = {}
                     
                     # pids_active должен быть UUID (players.id). Всё прочее игнорируем, чтобы не сломать запрос.
-                    uuid_ids: list[deps.uuid.UUID] = []
+                    uuid_ids: list[uuid.UUID] = []
                     for x in pids_active:
-                        if isinstance(x, deps.uuid.UUID):
+                        if isinstance(x, uuid.UUID):
                             uuid_ids.append(x)
                         else:
                             try:
-                                uuid_ids.append(deps.uuid.UUID(str(x)))
+                                uuid_ids.append(uuid.UUID(str(x)))
                             except Exception:
                                 pass
                     uuid_ids = list(dict.fromkeys(uuid_ids))  # убираем дубли, сохраняя порядок
 
                     if uuid_ids:
-                        qn = await db.execute(deps.select(deps.Player).where(deps.Player.id.in_(uuid_ids)))
+                        qn = await db.execute(select(Player).where(Player.id.in_(uuid_ids)))
                         for p in qn.scalars().all():
                             names[str(p.id)] = p.display_name
                             if p.web_user_id is not None:
@@ -1196,7 +1268,7 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                         rows = []
                         header = ""
                         if fixed:
-                            rnd = deps.as_int(settings_get(sess, "round", 1), 1)
+                            rnd = as_int(settings_get(sess, "round", 1), 1)
                             header = f"Раунд: {rnd}\n"
                         # order for display: if fixed, show initiative_order else by join_order
                         if fixed:
@@ -1225,7 +1297,7 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
 
                     if sub == "" or sub == "show":
                         fixed = _initiative_fixed(sess)
-                        await deps.add_system_event(
+                        await add_system_event(
                             db,
                             sess,
                             f"Инициатива ({'зафиксирована' if fixed else 'не зафиксирована'}):\n{_format_init(fixed)}",
@@ -1235,29 +1307,29 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
 
                     if sub == "roll":
                         for spx in sps_active:
-                            val = deps.random.randint(1, 20)
-                            deps._set_init_value(sess, spx.player_id, val)
+                            val = random.randint(1, 20)
+                            _set_init_value(sess, spx.player_id, val)
                         await db.commit()
                         init_map = _get_init_map(sess)
                         lines = []
                         for spx in sps_active:
                             nm = names.get(str(spx.player_id), str(spx.player_id))
                             lines.append(f"  #{spx.join_order} {nm}: {init_map.get(str(spx.player_id), 0)}")
-                        await deps.add_system_event(db, sess, "Инициатива: всем брошено 1d20:\n" + "\n".join(lines))
+                        await add_system_event(db, sess, "Инициатива: всем брошено 1d20:\n" + "\n".join(lines))
                         await broadcast_state(session_id)
                         continue
 
                     if sub == "set" and len(parts) >= 4:
-                        target_order = deps.as_int(parts[2].lstrip("#"), 0)
-                        val = deps.as_int(parts[3], 0)
+                        target_order = as_int(parts[2].lstrip("#"), 0)
+                        val = as_int(parts[3], 0)
                         target_sp = next((x for x in sps_active if int(x.join_order or 0) == target_order), None)
                         if not target_sp:
-                            await ws_error("deps.Player not found/active")
+                            await ws_error("Player not found/active")
                             continue
-                        deps._set_init_value(sess, target_sp.player_id, val)
+                        _set_init_value(sess, target_sp.player_id, val)
                         await db.commit()
                         nm = names.get(str(target_sp.player_id), str(target_sp.player_id))
-                        await deps.add_system_event(db, sess, f"Инициатива: игрок #{target_order} ({nm}) = {val}.")
+                        await add_system_event(db, sess, f"Инициатива: игрок #{target_order} ({nm}) = {val}.")
                         await broadcast_state(session_id)
                         continue
 
@@ -1269,7 +1341,7 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                             scored.append((init_map.get(str(spx.player_id), 0), int(spx.join_order or 0), spx.player_id))
                         scored.sort(key=lambda x: (-x[0], x[1]))
                         order = [pid for _, _, pid in scored]
-                        deps._set_initiative_order(sess, order)
+                        _set_initiative_order(sess, order)
                         settings_set(sess, "initiative_fixed", True)
                         settings_set(sess, "round", 1)
                         await db.commit()
@@ -1279,9 +1351,9 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                         if first_pid:
                             sess.is_active = True
                             sess.current_player_id = first_pid
-                            sess.turn_started_at = deps.utcnow()
+                            sess.turn_started_at = utcnow()
                             sess.turn_index = (sess.turn_index or 0) + 1 if sess.turn_index else 1
-                            deps._clear_paused_remaining(sess)
+                            _clear_paused_remaining(sess)
                             await db.commit()
 
                         # log
@@ -1292,18 +1364,18 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                                 continue
                             nm = names.get(str(pid), str(pid))
                             lines.append(f"  #{spx.join_order} {nm}: {init_map.get(str(pid), 0)}")
-                        await deps.add_system_event(db, sess, "Инициатива зафиксирована. Порядок:\n" + "\n".join(lines))
+                        await add_system_event(db, sess, "Инициатива зафиксирована. Порядок:\n" + "\n".join(lines))
                         if first_pid:
                             sp_first = next((x for x in sps_active if x.player_id == first_pid), None)
                             if sp_first:
-                                await deps.add_system_event(db, sess, f"Ход по инициативе: игрок #{sp_first.join_order}.")
+                                await add_system_event(db, sess, f"Ход по инициативе: игрок #{sp_first.join_order}.")
                         await broadcast_state(session_id)
                         continue
 
                     if sub == "clear":
-                        deps._clear_initiative(sess)
+                        _clear_initiative(sess)
                         await db.commit()
-                        await deps.add_system_event(db, sess, "Инициатива сброшена.")
+                        await add_system_event(db, sess, "Инициатива сброшена.")
                         await broadcast_state(session_id)
                         continue
 
@@ -1311,24 +1383,24 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                     continue
 
                 if combat_active:
-                    actor_label = await deps._event_actor_label(db, sess, player)
+                    actor_label = await _event_actor_label(db, sess, player)
                     pid = str(player.id)
                     current_zone = _get_pc_positions(sess).get(pid, "стартовая локация")
                     new_zone_preview = current_zone
                     payload = {
                         "type": "player_action",
-                        "actor_uid": deps._player_uid(player),
+                        "actor_uid": _player_uid(player),
                         "actor_player_id": str(player.id),
                         "join_order": int(sp.join_order or 0),
                         "raw_text": text,
-                        "mode": "free_turns" if deps._is_free_turns(sess) else "turns",
+                        "mode": "free_turns" if _is_free_turns(sess) else "turns",
                         "phase": _get_phase(sess),
                         "zone_before": current_zone,
                         "zone_after": new_zone_preview,
                         "turn_index": int(sess.turn_index or 0),
                         "combat_chat_action": combat_action,
                     }
-                    await deps.add_event(
+                    await add_event(
                         db,
                         sess,
                         f"{actor_label}: {text}",
@@ -1339,20 +1411,20 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                     await broadcast_state(session_id)
 
                     if combat_action:
-                        player_uid = deps._player_uid(player)
+                        player_uid = _player_uid(player)
                         player_key = f"pc_{player_uid}" if player_uid is not None else ""
                         turn_key: Optional[str] = None
                         if combat_state and combat_state.order and 0 <= combat_state.turn_index < len(combat_state.order):
                             turn_key = combat_state.order[combat_state.turn_index]
                         if not turn_key or turn_key != player_key:
-                            current_name = deps.current_turn_label(combat_state) if combat_state else "другой участник"
-                            await deps.add_system_event(db, sess, f"Сейчас ходит {current_name}. Дождись своего хода.")
+                            current_name = current_turn_label(combat_state) if combat_state else "другой участник"
+                            await add_system_event(db, sess, f"Сейчас ходит {current_name}. Дождись своего хода.")
                             await broadcast_state(session_id)
                             continue
 
-                        all_patches: list[dict[str, deps.Any]] = []
+                        all_patches: list[dict[str, Any]] = []
                         outcome_summary: list[str] = []
-                        combat_patch, combat_err = deps.handle_live_combat_action(combat_action, session_id)
+                        combat_patch, combat_err = handle_live_combat_action(combat_action, session_id)
                         if combat_err:
                             await ws_error(combat_err)
                             continue
@@ -1361,7 +1433,7 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                             outcome_summary.extend(_combat_outcome_summary_from_patch(combat_action, combat_patch))
 
                         while True:
-                            state_now = deps.get_combat(session_id)
+                            state_now = get_combat(session_id)
                             if not state_now or not state_now.active or not state_now.order:
                                 break
                             if state_now.turn_index < 0 or state_now.turn_index >= len(state_now.order):
@@ -1370,15 +1442,15 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                             turn_actor = state_now.combatants.get(turn_key_now)
                             if not turn_actor or turn_actor.side != "enemy":
                                 break
-                            enemy_patch, enemy_err = deps.handle_live_combat_action("combat_attack", session_id)
+                            enemy_patch, enemy_err = handle_live_combat_action("combat_attack", session_id)
                             if enemy_err:
-                                deps.logger.warning("enemy auto combat action failed", extra={"action": {"error": enemy_err}})
+                                logger.warning("enemy auto combat action failed", extra={"action": {"error": enemy_err}})
                                 break
                             if enemy_patch:
                                 all_patches.append(enemy_patch)
                                 outcome_summary.extend(_combat_outcome_summary_from_patch("combat_attack", enemy_patch))
 
-                        state_after_actions = deps.get_combat(session_id)
+                        state_after_actions = get_combat(session_id)
                         if state_after_actions is None:
                             # Keep combat_live_bootstrap in settings until explicit reset
                             # (admin_combat_live_end or a dedicated reset command).
@@ -1391,12 +1463,12 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                         if not isinstance(story, dict):
                             story = {}
                         campaign_title = str(story.get("story_title") or "").strip() or str(sess.title or "Campaign").strip() or "Campaign"
-                        turn_label = deps.current_turn_label(state_for_prompt) if state_for_prompt else "-"
+                        turn_label = current_turn_label(state_for_prompt) if state_for_prompt else "-"
                         participants_block = _combat_participants_block(state_for_prompt)
-                        ch = await deps.get_character(db, sess.id, player.id)
-                        meta = deps._character_meta_from_stats(ch.stats) if ch else {"gender": "", "race": "", "description": ""}
+                        ch = await get_character(db, sess.id, player.id)
+                        meta = _character_meta_from_stats(ch.stats) if ch else {"gender": "", "race": "", "description": ""}
                         actor_gender = meta["gender"]
-                        actor_pronouns = deps._gender_to_pronouns(actor_gender) or "unknown"
+                        actor_pronouns = _gender_to_pronouns(actor_gender) or "unknown"
                         actor_name = str(ch.name).strip() if ch and str(ch.name or "").strip() else actor_label
                         gm_text = await _generate_combat_narration(
                             campaign_title=campaign_title,
@@ -1408,7 +1480,7 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                             actor_gender=actor_gender,
                             actor_pronouns=actor_pronouns,
                         )
-                        await deps.add_system_event(
+                        await add_system_event(
                             db,
                             sess,
                             f"🧙 GM: {gm_text}",
@@ -1421,19 +1493,19 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                         await broadcast_state(session_id)
                         continue
 
-                    player_uid = deps._player_uid(player)
+                    player_uid = _player_uid(player)
                     player_key = f"pc_{player_uid}" if player_uid is not None else ""
-                    state_now = deps.get_combat(session_id)
+                    state_now = get_combat(session_id)
                     turn_key_now = ""
                     if state_now and state_now.order and 0 <= state_now.turn_index < len(state_now.order):
                         turn_key_now = state_now.order[state_now.turn_index]
                     if not turn_key_now or turn_key_now != player_key:
-                        current_name = deps.current_turn_label(state_now) if state_now else "другой участник"
-                        await deps.add_system_event(db, sess, f"Сейчас ходит {current_name}. Дождись своего хода.")
+                        current_name = current_turn_label(state_now) if state_now else "другой участник"
+                        await add_system_event(db, sess, f"Сейчас ходит {current_name}. Дождись своего хода.")
                         await broadcast_state(session_id)
                         continue
 
-                    already_sent = await deps._combat_clarify_already_sent(db, sess, msg_request_id)
+                    already_sent = await _combat_clarify_already_sent(db, sess, msg_request_id)
                     settings = sess.settings if isinstance(sess.settings, dict) else {}
                     if not isinstance(sess.settings, dict):
                         sess.settings = settings
@@ -1442,12 +1514,12 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                     previous_marker = str(settings.get("combat_clarify_marker") or "")
                     if marker != previous_marker and not already_sent:
                         settings["combat_clarify_marker"] = marker
-                        deps.flag_modified(sess, "settings")
+                        flag_modified(sess, "settings")
                         await db.commit()
-                        await deps.add_system_event(
+                        await add_system_event(
                             db,
                             sess,
-                            deps.COMBAT_CLARIFY_TEXT,
+                            COMBAT_CLARIFY_TEXT,
                             result_json={
                                 "type": "combat_chat_gm_reply",
                                 "combat_action": None,
@@ -1459,7 +1531,7 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                     continue
 
                 # DICE (must be started, not paused, your turn) — does NOT end turn
-                dice = deps.parse_dice(cmdline)
+                dice = parse_dice(cmdline)
                 if dice:
                     if not sess.current_player_id:
                         await ws_error("Game not started. Press Start.")
@@ -1473,17 +1545,17 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
 
                     mode, n, sides, mod, expr = dice
                     if mode == "roll":
-                        rolls = deps.roll_dice(n, sides)
+                        rolls = roll_dice(n, sides)
                         total = sum(rolls) + mod
                         detail = ",".join(str(x) for x in rolls)
-                        await deps.add_system_event(db, sess, f"🎲 Игрок #{sp.join_order}: {expr} → {n}d{sides}({detail}){('+'+str(mod)) if mod>0 else (str(mod) if mod<0 else '')} = {total}")
-                        await deps.add_system_event(db, sess, "(ход не закончен)")
+                        await add_system_event(db, sess, f"🎲 Игрок #{sp.join_order}: {expr} → {n}d{sides}({detail}){('+'+str(mod)) if mod>0 else (str(mod) if mod<0 else '')} = {total}")
+                        await add_system_event(db, sess, "(ход не закончен)")
                         await broadcast_state(session_id)
                         continue
 
                     # adv/dis only meaningful for 1d20-ish but we allow any NdS as whole formula twice
-                    rolls_a = deps.roll_dice(n, sides)
-                    rolls_b = deps.roll_dice(n, sides)
+                    rolls_a = roll_dice(n, sides)
+                    rolls_b = roll_dice(n, sides)
                     tot_a = sum(rolls_a) + mod
                     tot_b = sum(rolls_b) + mod
                     chosen = max(tot_a, tot_b) if mode == "adv" else min(tot_a, tot_b)
@@ -1491,13 +1563,13 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                     dbb = ",".join(str(x) for x in rolls_b)
                     tag = "adv" if mode == "adv" else "dis"
                     pick = "большее" if mode == "adv" else "меньшее"
-                    await deps.add_system_event(
+                    await add_system_event(
                         db,
                         sess,
                         f"🎲 Игрок #{sp.join_order} ({tag}): {expr} → A: {n}d{sides}({da}){('+'+str(mod)) if mod>0 else (str(mod) if mod<0 else '')} = {tot_a}; "
                         f"B: {n}d{sides}({dbb}){('+'+str(mod)) if mod>0 else (str(mod) if mod<0 else '')} = {tot_b}; ✅ берём {pick} = {chosen}"
                     )
-                    await deps.add_system_event(db, sess, "(ход не закончен)")
+                    await add_system_event(db, sess, "(ход не закончен)")
                     await broadcast_state(session_id)
                     continue
 
@@ -1512,16 +1584,16 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                     if player.id != sess.current_player_id:
                         await ws_error("Not your turn.")
                         continue
-                    nxt = await deps.advance_turn(db, sess)
+                    nxt = await advance_turn(db, sess)
                     if not nxt:
                         await ws_error("No players")
                         continue
-                    await deps.add_system_event(db, sess, f"Игрок #{sp.join_order} пропустил ход. Следующий: #{nxt.join_order}.")
+                    await add_system_event(db, sess, f"Игрок #{sp.join_order} пропустил ход. Следующий: #{nxt.join_order}.")
                     await broadcast_state(session_id)
                     continue
 
                 # Normal SAY — ends turn
-                if deps._is_free_turns(sess):
+                if _is_free_turns(sess):
                     phase = _get_phase(sess)
                     if phase == "lore_pending":
                         await ws_error("Ждём вступительную историю...")
@@ -1533,24 +1605,24 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                         await ws_error("Сейчас нельзя отправлять действие.")
                         continue
 
-                    sps_active = await deps.list_session_players(db, sess, active_only=True)
+                    sps_active = await list_session_players(db, sess, active_only=True)
                     active_ids = {spx.player_id for spx in sps_active}
                     if player.id not in active_ids:
                         await ws_error("You are offline in this session", request_id=msg_request_id)
                         continue
-                    ready_sps = deps._ready_active_players(sess, sps_active)
+                    ready_sps = _ready_active_players(sess, sps_active)
                     ready_ids = {spx.player_id for spx in ready_sps}
                     if player.id not in ready_ids:
                         await ws_error("В этом раунде действие принимается только от READY игроков.")
                         continue
 
-                    round_actions = deps._get_round_actions(sess)
+                    round_actions = _get_round_actions(sess)
                     pid = str(player.id)
                     if pid in round_actions:
                         await ws_error("В этом раунде вы уже отправили действие.")
                         continue
 
-                    gm_action_text, _moved, _encounter_patch = await deps._build_player_gm_action_text(
+                    gm_action_text, _moved, _encounter_patch = await _build_player_gm_action_text(
                         db,
                         sess,
                         session_id,
@@ -1560,12 +1632,12 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                     round_actions[pid] = gm_action_text
                     settings_set(sess, "round_actions", round_actions)
                     current_zone = _get_pc_positions(sess).get(pid, "стартовая локация")
-                    new_zone = deps.infer_zone_from_action(text, current_zone)
+                    new_zone = infer_zone_from_action(text, current_zone)
                     _set_pc_zone(sess, player.id, new_zone)
-                    actor_label = await deps._event_actor_label(db, sess, player)
+                    actor_label = await _event_actor_label(db, sess, player)
                     payload = {
                         "type": "player_action",
-                        "actor_uid": deps._player_uid(player),
+                        "actor_uid": _player_uid(player),
                         "actor_player_id": str(player.id),
                         "join_order": int(sp.join_order or 0),
                         "raw_text": gm_action_text,
@@ -1576,7 +1648,7 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                         "turn_index": int(sess.turn_index or 0),
                         "combat_chat_action": combat_action,
                     }
-                    await deps.add_event(
+                    await add_event(
                         db,
                         sess,
                         f"{actor_label}: {text}",
@@ -1587,13 +1659,13 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
 
                     all_collected = bool(ready_sps) and all(str(spx.player_id) in round_actions for spx in ready_sps)
                     if all_collected:
-                        action_id = deps._new_action_id()
-                        deps._set_current_action_id(sess, action_id)
+                        action_id = _new_action_id()
+                        _set_current_action_id(sess, action_id)
                         _set_phase(sess, "gm_pending")
                         await db.commit()
-                        await deps.add_system_event(db, sess, "Мастер обрабатывает действия...")
+                        await add_system_event(db, sess, "Мастер обрабатывает действия...")
                         await broadcast_state(session_id)
-                        deps.asyncio.create_task(deps.gm_orchestrator.run_round_gm(session_id, action_id))
+                        asyncio.create_task(gm_orchestrator.run_round_gm(session_id, action_id))
                     else:
                         await broadcast_state(session_id)
                     continue
@@ -1608,13 +1680,13 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                     await ws_error("Not your turn.")
                     continue
 
-                actor_label = await deps._event_actor_label(db, sess, player)
+                actor_label = await _event_actor_label(db, sess, player)
                 pid = str(player.id)
                 phase = _get_phase(sess)
                 current_zone = _get_pc_positions(sess).get(pid, "стартовая локация")
-                new_zone = deps.infer_zone_from_action(text, current_zone)
+                new_zone = infer_zone_from_action(text, current_zone)
                 _set_pc_zone(sess, player.id, new_zone)
-                gm_action_text, _moved, encounter_patch = await deps._build_player_gm_action_text(
+                gm_action_text, _moved, encounter_patch = await _build_player_gm_action_text(
                     db,
                     sess,
                     session_id,
@@ -1623,35 +1695,35 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                 )
                 payload = {
                     "type": "player_action",
-                    "actor_uid": deps._player_uid(player),
+                    "actor_uid": _player_uid(player),
                     "actor_player_id": str(player.id),
                     "join_order": int(sp.join_order or 0),
                     "raw_text": gm_action_text,
-                    "mode": "free_turns" if deps._is_free_turns(sess) else "turns",
+                    "mode": "free_turns" if _is_free_turns(sess) else "turns",
                     "phase": phase,
                     "zone_before": current_zone,
                     "zone_after": new_zone,
                     "turn_index": int(sess.turn_index or 0),
                     "combat_chat_action": combat_action,
                 }
-                await deps.add_event(
+                await add_event(
                     db,
                     sess,
                     f"{actor_label}: {text}",
                     actor_player_id=player.id,
                     result_json=payload,
                 )
-                action_id = deps._new_action_id()
-                deps._set_current_action_id(sess, action_id)
+                action_id = _new_action_id()
+                _set_current_action_id(sess, action_id)
                 _set_phase(sess, "gm_pending")
                 sess.turn_started_at = None
                 await db.commit()
-                await deps.add_system_event(db, sess, "Мастер обрабатывает действие...")
+                await add_system_event(db, sess, "Мастер обрабатывает действие...")
                 await broadcast_state(session_id, combat_log_ui_patch=encounter_patch)
-                deps.asyncio.create_task(deps.gm_orchestrator.run_turn_gm(session_id, action_id))
+                asyncio.create_task(gm_orchestrator.run_turn_gm(session_id, action_id))
                 continue
 
-    except deps.WebSocketDisconnect:
+    except WebSocketDisconnect:
         manager.disconnect(session_id, ws)
     except Exception:
         manager.disconnect(session_id, ws)

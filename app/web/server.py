@@ -2390,3 +2390,38 @@ async def inactive_watcher():
             logger.exception("inactive_watcher iteration failed")
 
         await asyncio.sleep(INACTIVE_SCAN_PERIOD_SECONDS)
+
+# Re-export helpers extracted from server for compatibility.
+from app.web.ws_access import COMBAT_CLARIFY_TEXT, _combat_clarify_already_sent, _event_actor_label, _load_actor_context, _player_uid
+from app.web.ws_checks import SKILL_TO_ABILITY, _ability_mod_from_stats, _normalize_check_name, _skill_bonus_from_rank
+from app.web.ws_combat_prompting import (
+    START_INTENT_FALLBACK_TEXT,
+    _COMBAT_LOCK_PROMPT,
+    _build_combat_scene_facts_for_llm,
+    _combat_text_mentions_forbidden_gear,
+    _gender_to_pronouns,
+    _has_start_intent_sanitary_markers,
+    _looks_like_combat_drift,
+    _sanitize_gm_output,
+    _start_intent_text_needs_repair,
+)
+from app.web.ws_gameplay import STATE_COMMAND_ALIASES, _detect_chat_combat_action, _format_state_text_for_player, infer_zone_from_action
+from app.web.ws_turns import (
+    TURN_TIMEOUT_SECONDS,
+    _clear_current_action_id,
+    _clear_initiative,
+    _clear_paused_remaining,
+    _compute_remaining,
+    _get_paused_remaining,
+    _get_round_actions,
+    _is_free_turns,
+    _new_action_id,
+    _ready_active_players,
+    _remove_player_from_session_settings,
+    _set_current_action_id,
+    _set_kicked,
+    _set_paused_remaining,
+    advance_turn,
+    set_turn_to_order,
+    utcnow,
+)

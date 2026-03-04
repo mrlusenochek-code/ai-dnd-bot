@@ -21,6 +21,12 @@ def test_gm_orchestrator_has_no_server_deps_pattern() -> None:
     assert "deps." not in src
 
 
+def test_ws_handlers_has_no_server_deps_pattern() -> None:
+    src = (APP_WEB_DIR / "ws_handlers.py").read_text(encoding="utf-8")
+    assert "app.web.server" not in src
+    assert "deps." not in src
+
+
 def test_server_deps_gateway_is_limited() -> None:
     files_with_gateway: list[str] = []
     for path in APP_WEB_DIR.rglob("*.py"):
@@ -32,7 +38,6 @@ def test_server_deps_gateway_is_limited() -> None:
 
     allowed = {
         "web/state_builder.py",
-        "web/ws_handlers.py",
     }
     assert set(files_with_gateway).issubset(allowed)
     assert len(files_with_gateway) <= len(allowed)
