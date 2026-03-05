@@ -30,6 +30,7 @@ from app.web.session_lock import get_session_lock
 from app.web.session_state import _ensure_settings, _get_phase, _initialize_pc_positions, _set_phase, settings_get, settings_set
 from app.web.state_builder import _broadcast_state_unlocked, broadcast_state
 from app.web.utils import _clamp, as_int
+from app.web.ws_turns import utcnow
 
 logger = logging.getLogger("app.web.server")
 GM_CONTEXT_EVENTS = max(1, int(os.getenv("GM_CONTEXT_EVENTS", "20")))
@@ -99,7 +100,6 @@ async def run_turn_gm(session_id: str, expected_action_id: str) -> None:
         _is_free_turns,
         _load_actor_context,
         advance_turn,
-        utcnow,
     )
 
     tok_rid = request_id_var.set(_new_request_id())
@@ -407,7 +407,6 @@ async def run_round_gm(session_id: str, expected_action_id: str) -> None:
         _is_free_turns,
         _load_actor_context,
         _should_use_round_mode,
-        utcnow,
     )
 
     tok_rid = request_id_var.set(_new_request_id())
