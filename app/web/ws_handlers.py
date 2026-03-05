@@ -1,4 +1,5 @@
 import asyncio
+import importlib
 import json
 import logging
 import random
@@ -99,6 +100,12 @@ from app.web.ws_turns import (
 
 
 logger = logging.getLogger("app.web" ".server")
+
+
+def _resolve_build_player_gm_action_text():
+    # Lazy import to avoid server_impl <-> ws_handlers import cycle
+    server_mod = importlib.import_module("app.web" ".server")
+    return getattr(server_mod, "_build_player_gm_action_text")
 
 
 def _new_request_id() -> str:
@@ -1647,7 +1654,8 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                         await ws_error("В этом раунде вы уже отправили действие.")
                         continue
 
-                    gm_action_text, _moved, _encounter_patch = await _build_player_gm_action_text(
+                    build_player_gm_action_text = _resolve_build_player_gm_action_text()
+                    gm_action_text, _moved, _encounter_patch = await build_player_gm_action_text(
                         db,
                         sess,
                         session_id,
@@ -1711,7 +1719,8 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                 current_zone = _get_pc_positions(sess).get(pid, "стартовая локация")
                 new_zone = infer_zone_from_action(text, current_zone)
                 _set_pc_zone(sess, player.id, new_zone)
-                gm_action_text, _moved, encounter_patch = await _build_player_gm_action_text(
+                build_player_gm_action_text = _resolve_build_player_gm_action_text()
+                gm_action_text, _moved, encounter_patch = await build_player_gm_action_text(
                     db,
                     sess,
                     session_id,
