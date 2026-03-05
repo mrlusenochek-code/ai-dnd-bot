@@ -12,7 +12,7 @@ from sqlalchemy import delete, select
 
 import app.web.server as server_mod
 from app.db.connection import AsyncSessionLocal
-from app.db.models import Character, Event, Session, SessionPlayer
+from app.db.models import Character, Event, Session, SessionPlayer, Skill
 from app.web import gm_orchestrator
 from app.web.db_helpers import get_player_by_uid, get_session
 from app.web.session_state import _get_phase, _get_ready_map, settings_get
@@ -119,8 +119,12 @@ async def _cleanup_e2e_rows(title: str) -> None:
         session_ids = list(q_ids.scalars().all())
         if not session_ids:
             return
+        q_char_ids = await db.execute(select(Character.id).where(Character.session_id.in_(session_ids)))
+        character_ids = list(q_char_ids.scalars().all())
 
         await db.execute(delete(Event).where(Event.session_id.in_(session_ids)))
+        if character_ids:
+            await db.execute(delete(Skill).where(Skill.character_id.in_(character_ids)))
         await db.execute(delete(Character).where(Character.session_id.in_(session_ids)))
         await db.execute(delete(SessionPlayer).where(SessionPlayer.session_id.in_(session_ids)))
         await db.execute(delete(Session).where(Session.id.in_(session_ids)))
