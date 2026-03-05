@@ -105,6 +105,20 @@ def _new_request_id() -> str:
     return uuid.uuid4().hex
 
 
+def _lore_needs_finalize(sess: Any) -> bool:
+    lore_text = str(settings_get(sess, "lore_text", "") or "").strip()
+    lore_generated = bool(settings_get(sess, "lore_generated", False))
+    lore_posted = bool(settings_get(sess, "lore_posted", False))
+    return bool(lore_text) and lore_generated and not lore_posted
+
+
+def _kickoff_lore_finalize_if_needed(session_id: str, sess: Any) -> bool:
+    if not _lore_needs_finalize(sess):
+        return False
+    asyncio.create_task(gm_orchestrator.run_lore_generation(session_id))
+    return True
+
+
 async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
     async def ws_error(message: str, *, fatal: bool = False, request_id: Optional[str] = None) -> None:
         rid = request_id
@@ -763,7 +777,10 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
 
                 phase_now = _get_phase(sess)
                 if phase_now == "lore_pending":
-                    await ws_error("Ждём вступительную историю...")
+                    if _kickoff_lore_finalize_if_needed(session_id, sess):
+                        await ws_error("Публикую вступительную историю...")
+                    else:
+                        await ws_error("Ждём вступительную историю...")
                     continue
                 if phase_now == "gm_pending" and not combat_active:
                     await ws_error("Ждём ответа мастера...")
@@ -1601,7 +1618,10 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                 if _is_free_turns(sess):
                     phase = _get_phase(sess)
                     if phase == "lore_pending":
-                        await ws_error("Ждём вступительную историю...")
+                        if _kickoff_lore_finalize_if_needed(session_id, sess):
+                            await ws_error("Публикую вступительную историю...")
+                        else:
+                            await ws_error("Ждём вступительную историю...")
                         continue
                     if phase == "gm_pending":
                         await ws_error("Ждём ответа мастера...")
