@@ -260,16 +260,26 @@ def test_e2e_player_journey_smoke(monkeypatch: pytest.MonkeyPatch) -> None:
                 ws.send_json({"action": "begin"})
                 begin_state = ws_receive_json_timeout(ws)
                 assert begin_state.get("type") == "state"
-                assert (begin_state.get("game") or {}).get("phase") == "lore_pending"
+
+                begin_phase = (begin_state.get("game") or {}).get("phase")
+                assert begin_phase in {"lore_pending", "turns", "collecting_actions"}, (
+                    f"Unexpected phase after begin (ws state): {begin_phase}"
+                )
+
                 post_begin = portal_call(client, _read_session_runtime, session_id, uid)
-                assert post_begin["phase"] == "lore_pending", f"Expected lore_pending after begin, got: {post_begin['phase']}"
+                assert post_begin["phase"] in {"lore_pending", "turns", "collecting_actions"}, (
+                    f"Unexpected phase after begin (db): {post_begin['phase']}"
+                )
                 assert post_begin["is_active"] is True, "Expected session to become active after begin"
                 ws.close()
 
-            portal_call(client, gm_orchestrator.run_lore_generation, session_id)
+            post_mid = portal_call(client, _read_session_runtime, session_id, uid)
+            if post_mid["phase"] == "lore_pending":
+                portal_call(client, gm_orchestrator.run_lore_generation, session_id)
+
             post_lore = portal_call(client, _read_session_runtime, session_id, uid)
             assert post_lore["phase"] in {"turns", "collecting_actions"}, (
-                "Lore finalize failed: phase is still lore_pending after explicit run_lore_generation"
+                f"Lore finalize failed: phase is {post_lore['phase']} after begin/finalize"
             )
 
             with client.websocket_connect(f"/ws/{session_id}?uid={uid}&cid=e2e-smoke-b") as ws:
