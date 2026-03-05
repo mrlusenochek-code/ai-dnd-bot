@@ -8,11 +8,11 @@ from typing import Any
 
 import pytest
 from fastapi.testclient import TestClient
-from sqlalchemy import select
+from sqlalchemy import delete, select
 
 import app.web.server as server_mod
 from app.db.connection import AsyncSessionLocal
-from app.db.models import Event
+from app.db.models import Character, Event, Session, SessionPlayer
 from app.web import gm_orchestrator
 from app.web.db_helpers import get_player_by_uid, get_session
 from app.web.session_state import _get_phase, _get_ready_map, settings_get
@@ -113,6 +113,20 @@ async def _read_session_runtime(session_id: str, uid: int) -> dict[str, object]:
         }
 
 
+async def _cleanup_e2e_rows(title: str) -> None:
+    async with AsyncSessionLocal() as db:
+        q_ids = await db.execute(select(Session.id).where(Session.title == title))
+        session_ids = list(q_ids.scalars().all())
+        if not session_ids:
+            return
+
+        await db.execute(delete(Event).where(Event.session_id.in_(session_ids)))
+        await db.execute(delete(Character).where(Character.session_id.in_(session_ids)))
+        await db.execute(delete(SessionPlayer).where(SessionPlayer.session_id.in_(session_ids)))
+        await db.execute(delete(Session).where(Session.id.in_(session_ids)))
+        await db.commit()
+
+
 @pytest.mark.e2e
 def test_e2e_player_journey_smoke(monkeypatch: pytest.MonkeyPatch) -> None:
     random.seed(0)
@@ -162,6 +176,8 @@ def test_e2e_player_journey_smoke(monkeypatch: pytest.MonkeyPatch) -> None:
 
     def _flow() -> None:
         with TestClient(server_mod.app) as client:
+            portal_call(client, _cleanup_e2e_rows, "E2E Smoke")
+
             new_resp = client.post(
                 "/api/new",
                 json={"title": "E2E Smoke", "uid": uid, "name": name},
