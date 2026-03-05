@@ -28,3 +28,4 @@ def proficiency_bonus(level: int) -> int:
     # PHB: 1–4:+2, 5–8:+3, 9–12:+4, 13–16:+5, 17–20:+6
     lvl = max(1, int(level))
     return _clamp(2 + (lvl - 1) // 4, 2, 6)
+    
