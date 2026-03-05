@@ -25,4 +25,4 @@ def test_compute_ac_fallback_without_armor_or_shield() -> None:
     stats = {"dex": 70}
     inv: list[dict] = []
     equip_map: dict[str, str] = {}
-    assert compute_ac(stats=stats, inventory=inv, equip_map=equip_map) == 13
+    assert compute_ac(stats=stats, inventory=inv, equip_map=equip_map) == 12

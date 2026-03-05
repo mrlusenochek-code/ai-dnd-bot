@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import Any
-
+from app.rules.phb_math import ability_mod_from_stat100
 from app.rules.equipment_slots import EquipmentSlot
 from app.rules.item_catalog import ITEMS
 from app.rules.items import ArmorCategory, ItemDef
@@ -123,8 +123,8 @@ def compute_attack_profile(*, stats: dict, inventory: list[dict], equip_map: dic
 
 def compute_ac(*, stats: dict, inventory: list[dict], equip_map: dict[str, str]) -> int:
     dex = _safe_int(stats.get("dex", 50), 50) if isinstance(stats, dict) else 50
-    dex_mod = dex_mod_from_stat(dex)
-    ac = 12 + dex_mod
+    dex_mod = ability_mod_from_stat100(dex)
+    ac = 10 + dex_mod
 
     by_id: dict[str, dict[str, Any]] = {}
     for entry in inventory if isinstance(inventory, list) else []:
@@ -163,4 +163,4 @@ def compute_ac(*, stats: dict, inventory: list[dict], equip_map: dict[str, str])
     if shield_equip and shield_equip.grants_ac_bonus:
         ac += int(shield_equip.grants_ac_bonus)
 
-    return _clamp(ac, 10, 25)
+    return _clamp(ac, 1, 50)
