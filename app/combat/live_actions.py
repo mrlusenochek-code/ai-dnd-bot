@@ -118,6 +118,17 @@ def _spend_bonus_action_or_block(state: Any, actor: Any) -> dict[str, Any] | Non
     }
 
 
+def _spend_reaction_or_block(state: Any, actor: Any) -> dict[str, Any] | None:
+    if actor.reaction_available:
+        actor.reaction_available = False
+        return None
+    return {
+        "status": _combat_status(state),
+        "open": True,
+        "lines": [{"text": "Реакция недоступна: реакция уже потрачена.", "muted": True}],
+    }
+
+
 def _clamp_death_counter(value: int) -> int:
     return max(0, min(int(value), 3))
 
@@ -932,6 +943,156 @@ def handle_live_combat_action(
         if state is None:
             return None, "Combat is not active"
         lines.append({"text": f"Ход автоматически передан: {current_turn_label(state)}", "muted": True})
+        return (
+            {
+                "status": _combat_status(state),
+                "open": True,
+                "lines": lines,
+            },
+            None,
+        )
+
+    if action == "combat_opportunity_attack":
+        state = get_combat(session_id)
+        if state is None or not state.active:
+            return None, "Combat is not active"
+        if not state.order:
+            end_combat(session_id)
+            return (
+                {
+                    "status": "Бой завершён",
+                    "open": False,
+                    "lines": [{"text": "Бой завершён: целей не осталось.", "muted": True}],
+                },
+                None,
+            )
+
+        attacker_key = state.order[state.turn_index]
+        attacker = state.combatants.get(attacker_key)
+        if attacker is None:
+            return None, "Combat state is inconsistent"
+        blocked = _spend_reaction_or_block(state, attacker)
+        if blocked is not None:
+            return blocked, None
+
+        target = _first_living_opponent(state, attacker.side)
+        if target is None:
+            end_combat(session_id)
+            return (
+                {
+                    "status": "Бой завершён",
+                    "open": False,
+                    "lines": [{"text": "Бой завершён: целей не осталось.", "muted": True}],
+                },
+                None,
+            )
+
+        has_disadvantage = target.dodge_active
+        has_advantage = attacker.help_attack_advantage
+        d20_roll: int
+        attack_roll_repr: str
+        if has_advantage and not has_disadvantage:
+            d20_roll_adv_1 = random.randint(1, 20)
+            d20_roll_adv_2 = random.randint(1, 20)
+            d20_roll = max(d20_roll_adv_1, d20_roll_adv_2)
+            attack_roll_repr = f"d20({d20_roll_adv_1},{d20_roll_adv_2}) -> {d20_roll}"
+        elif has_disadvantage and not has_advantage:
+            d20_roll_dis_1 = random.randint(1, 20)
+            d20_roll_dis_2 = random.randint(1, 20)
+            d20_roll = min(d20_roll_dis_1, d20_roll_dis_2)
+            attack_roll_repr = f"d20({d20_roll_dis_1},{d20_roll_dis_2}) -> {d20_roll}"
+        else:
+            d20_roll = random.randint(1, 20)
+            attack_roll_repr = f"d20({d20_roll})"
+
+        stats = attacker.stats if isinstance(attacker.stats, dict) else {}
+        inventory = attacker.inventory if isinstance(attacker.inventory, list) else []
+        equip_map = attacker.equip if isinstance(attacker.equip, dict) else {}
+        profile = compute_attack_profile(stats=stats, inventory=inventory, equip_map=equip_map, level=attacker.level)
+        parsed = parse_dice(profile.damage_dice)
+        if parsed is None:
+            n, sides = 1, 6
+        else:
+            n, sides = parsed
+        damage_roll = sum(random.randint(1, sides) for _ in range(n))
+
+        resolution = resolve_attack_roll(
+            target_ac=target.ac,
+            d20_roll=d20_roll,
+            attack_bonus=profile.attack_bonus,
+            damage_roll=damage_roll,
+            damage_bonus=profile.damage_bonus,
+        )
+        attacker.help_attack_advantage = False
+        extra_outcome_lines: list[dict[str, Any]] = []
+        if resolution.is_hit:
+            pre_hp = target.hp_current
+            state = apply_damage(session_id, target.key, resolution.total_damage)
+            if state is None:
+                return None, "Combat is not active"
+            target = state.combatants.get(target.key, target)
+            if target.side == "pc":
+                if pre_hp > 0 and target.hp_current == 0:
+                    leftover = resolution.total_damage - pre_hp
+                    if leftover >= target.hp_max:
+                        target.is_dead = True
+                        target.is_stable = False
+                        extra_outcome_lines.append({"text": f"Мгновенная смерть: {target.name} погибает."})
+                elif pre_hp == 0 and not target.is_dead:
+                    fail_step = 2 if resolution.is_crit else 1
+                    target.death_failures = _clamp_death_counter(target.death_failures + fail_step)
+                    if target.death_failures >= 3:
+                        target.is_dead = True
+                        target.is_stable = False
+                        extra_outcome_lines.append({"text": f"Смерть: {target.name} погибает."})
+                    else:
+                        extra_outcome_lines.append({"text": "Смертельный урон при 0 HP: провал спасброска смерти."})
+
+        attack_line = (
+            f"Бросок атаки: {attack_roll_repr} + {resolution.attack_bonus} = "
+            f"{resolution.total_to_hit} vs AC {resolution.target_ac}"
+        )
+        if resolution.is_crit:
+            result_line = "Результат: критическое попадание"
+        elif resolution.is_hit:
+            result_line = "Результат: попадание"
+        else:
+            result_line = "Результат: промах"
+        if resolution.is_hit:
+            roll_damage = resolution.damage_roll * 2 if resolution.is_crit else resolution.damage_roll
+            damage_line = f"Урон: {roll_damage} + {resolution.damage_bonus} = {resolution.total_damage}"
+        else:
+            damage_line = "Урон: 0 (промах)"
+
+        lines: list[dict[str, Any]] = [
+            {"text": f"Атака возможности: {attacker.name} → {target.name}", "muted": True},
+            {"text": f"Оружие: {profile.damage_dice} {profile.damage_type}", "muted": True},
+            {"text": attack_line},
+            {"text": result_line},
+            {"text": damage_line},
+            {"text": f"{target.name}: HP {target.hp_current}/{target.hp_max}"},
+        ]
+        lines.extend(extra_outcome_lines)
+        if target.hp_current <= 0:
+            lines.append({"text": f"{target.name} повержен."})
+
+        side_pc_alive = _is_side_alive(state, "pc")
+        side_enemy_alive = _is_side_alive(state, "enemy")
+        if not side_pc_alive or not side_enemy_alive:
+            if not side_enemy_alive:
+                lines.append({"text": "Победа: противники повержены.", "muted": True})
+            if not side_pc_alive:
+                lines.append({"text": "Поражение: все герои выбыли.", "muted": True})
+            end_combat(session_id)
+            return (
+                {
+                    "status": "Бой завершён",
+                    "open": False,
+                    "lines": lines,
+                },
+                None,
+            )
+
         return (
             {
                 "status": _combat_status(state),
