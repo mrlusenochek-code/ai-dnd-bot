@@ -37,5 +37,9 @@ def advance_turn_in_state(state: CombatState) -> CombatState:
         current_combatant.dash_active = False
         current_combatant.disengage_active = False
         current_combatant.use_object_active = False
+        current_combatant.action_available = True
+        current_combatant.bonus_action_available = True
+        current_combatant.reaction_available = True
+        current_combatant.move_remaining = 30
 
     return state

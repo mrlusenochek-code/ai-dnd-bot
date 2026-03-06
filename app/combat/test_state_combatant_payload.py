@@ -46,6 +46,10 @@ class CombatantPayloadSerializationTests(unittest.TestCase):
             state.combatants["pc_1"].is_stable = True
             state.combatants["pc_1"].death_successes = 9
             state.combatants["pc_1"].death_failures = -3
+            state.combatants["pc_1"].action_available = False
+            state.combatants["pc_1"].bonus_action_available = False
+            state.combatants["pc_1"].reaction_available = False
+            state.combatants["pc_1"].move_remaining = 15
 
             payload = combat_state_to_dict(state)
             restored = combat_state_from_dict(payload)
@@ -59,6 +63,10 @@ class CombatantPayloadSerializationTests(unittest.TestCase):
 
             raw_combatant = payload["combatants"]["pc_1"]
             self.assertEqual(raw_combatant.get("level"), 5)
+            self.assertFalse(raw_combatant.get("action_available"))
+            self.assertFalse(raw_combatant.get("bonus_action_available"))
+            self.assertFalse(raw_combatant.get("reaction_available"))
+            self.assertEqual(raw_combatant.get("move_remaining"), 15)
             self.assertEqual(combatant.equip, {"main_hand": "sword_1", "slot": "shield_1"})
             self.assertIsInstance(combatant.stats, dict)
             assert combatant.stats is not None
@@ -74,6 +82,10 @@ class CombatantPayloadSerializationTests(unittest.TestCase):
             self.assertEqual(combatant.death_successes, 3)
             self.assertEqual(combatant.death_failures, 0)
             self.assertEqual(combatant.level, 5)
+            self.assertFalse(combatant.action_available)
+            self.assertFalse(combatant.bonus_action_available)
+            self.assertFalse(combatant.reaction_available)
+            self.assertEqual(combatant.move_remaining, 15)
         finally:
             end_combat(session_id)
 
@@ -98,6 +110,24 @@ class CombatantPayloadSerializationTests(unittest.TestCase):
         self.assertIsNotNone(combatant_bad_level)
         assert combatant_bad_level is not None
         self.assertEqual(combatant_bad_level.level, 1)
+
+    def test_combatant_from_dict_missing_turn_resources_defaults(self) -> None:
+        raw = {
+            "key": "pc_1",
+            "name": "Alice",
+            "side": "pc",
+            "hp_current": 12,
+            "hp_max": 12,
+            "ac": 14,
+            "initiative": 3,
+        }
+        combatant = combatant_from_dict(raw)
+        self.assertIsNotNone(combatant)
+        assert combatant is not None
+        self.assertTrue(combatant.action_available)
+        self.assertTrue(combatant.bonus_action_available)
+        self.assertTrue(combatant.reaction_available)
+        self.assertEqual(combatant.move_remaining, 30)
 
 
 if __name__ == "__main__":
