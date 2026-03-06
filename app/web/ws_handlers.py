@@ -63,7 +63,7 @@ from app.web.combat_bridge import (
     _generate_combat_narration,
     _merge_combat_patches,
 )
-from app.web.check_engine import roll_check
+from app.web.check_engine import build_check_result, roll_check
 from app.web.utils import _clamp, _short_text, as_int
 from app.web.ws_access import COMBAT_CLARIFY_TEXT, _combat_clarify_already_sent, _event_actor_label, _load_actor_context, _player_uid
 from app.web.ws_checks import SKILL_TO_ABILITY, _ability_mod_from_stats, _normalize_check_name, _skill_bonus_from_rank_and_level
@@ -1175,12 +1175,20 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                         "dis": "disadvantage",
                     }.get(mode, "normal")
                     ra, rb, roll = roll_check(mapped_mode)
-                    total = roll + mod
+                    check_payload = {
+                        "actor_uid": _player_uid(player),
+                        "kind": "ability" if key in CHAR_STAT_KEYS else "skill",
+                        "name": key,
+                        "dc": dc if dc is not None else 0,
+                        "mode": mapped_mode,
+                    }
+                    res = build_check_result(check_payload, mod=mod, roll_a=ra, roll_b=rb, roll=roll)
+                    total = int(res["total"])
                     rolls_text = str(roll) if rb is None else f"{ra}/{rb}->{roll}"
 
                     msg = f"[CHECK] {ch.name}: {key} = {rolls_text} + {mod:+d} => {total}"
                     if dc is not None:
-                        ok = total >= dc
+                        ok = bool(res["success"])
                         msg += f" (DC {dc}) {'SUCCESS' if ok else 'FAIL'}"
                     await add_system_event(db, sess, msg)
                     await broadcast_state(session_id)

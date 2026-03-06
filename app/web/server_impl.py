@@ -106,7 +106,7 @@ from app.web.regexes import (
 )
 from app.web import gm_orchestrator
 from app.web.combat_helpers import _combat_participant_line, _de_numberize_text, _hit_force_label, _hp_state_label
-from app.web.check_engine import roll_check as _roll_check
+from app.web.check_engine import build_check_result as _shared_build_check_result, roll_check as _roll_check
 from app.web.db_helpers import get_or_create_player_web, get_player_by_uid, get_session, list_session_players
 from app.web.gameplay_helpers import (
     CHAR_DEFAULT_STATS,
@@ -1447,25 +1447,7 @@ def _compute_check_mod(
 
 
 def _build_check_result(check: dict[str, Any], mod: int, roll_a: int, roll_b: Optional[int], roll: int) -> dict[str, Any]:
-    dc = max(0, as_int(check.get("dc"), 0))
-    total = roll + mod
-    result = {
-        "actor_uid": as_int(check.get("actor_uid"), 0),
-        "kind": _check_kind_for_name(check.get("kind"), _normalize_check_name(check.get("name"))),
-        "name": _normalize_check_name(check.get("name")),
-        "dc": dc,
-        "roll": roll,
-        "mod": mod,
-        "total": total,
-        "success": total >= dc if dc > 0 else True,
-        "mode": _normalize_check_mode(check.get("mode")),
-    }
-    if roll_b is not None:
-        result["roll_a"] = roll_a
-        result["roll_b"] = roll_b
-    if check.get("reason"):
-        result["reason"] = str(check.get("reason"))
-    return result
+    return _shared_build_check_result(check, mod=mod, roll_a=roll_a, roll_b=roll_b, roll=roll)
 
 
 def _build_actor_list_for_prompt(uid_map: dict[int, tuple[SessionPlayer, Player]], chars_by_uid: dict[int, Character]) -> str:
