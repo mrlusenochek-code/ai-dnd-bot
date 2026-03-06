@@ -88,6 +88,10 @@ class Character(Base):
     sta_max: Mapped[int] = mapped_column(Integer, default=10)
     sta: Mapped[int] = mapped_column(Integer, default=10)
 
+    hit_die: Mapped[int] = mapped_column(Integer, default=8, server_default=text("8"))
+    hit_dice_max: Mapped[int] = mapped_column(Integer, default=1, server_default=text("1"))
+    hit_dice_remaining: Mapped[int] = mapped_column(Integer, default=1, server_default=text("1"))
+
     luck_tokens: Mapped[int] = mapped_column(Integer, default=0)  # 0..50
     karma: Mapped[int] = mapped_column(Integer, default=0)        # -100..100
 

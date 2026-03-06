@@ -22,8 +22,13 @@ from app.combat.test_actions import handle_admin_combat_test_action
 from app.core.log_context import client_id_var, request_id_var, session_id_var, uid_var, ws_conn_id_var
 from app.db.connection import AsyncSessionLocal
 from app.db.models import Character, Player, SessionPlayer, Skill
-from app.rules.phb_rest import apply_long_rest, apply_short_rest
-from app.rules.phb_math import roll_initiative
+from app.rules.phb_rest import (
+    apply_long_rest,
+    apply_short_rest,
+    apply_short_rest_spend_hd,
+    long_rest_recover_hit_dice,
+)
+from app.rules.phb_math import ability_mod_from_stat100, roll_initiative
 from app.gm import combat_narration as gm_combat_narration
 from app.web import gm_orchestrator
 from app.web.db_helpers import get_or_create_player_web, get_session, list_session_players
@@ -952,7 +957,7 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                     await add_system_event(
                         db,
                         sess,
-                        "de" "ps.Character commands: char create <Name> [Class], me, hp <+N|-N|N>, sta <+N|-N|N>, rest|rest long|rest short, "
+                        "de" "ps.Character commands: char create <Name> [Class], me, hp <+N|-N|N>, sta <+N|-N|N>, rest|rest long|rest short|rest hd <N>, "
                         "stat <str|dex|con|int|wis|cha> <0..100>, check [adv|dis] <stat_or_skill> [dc N] (ручной бросок, опционально).",
                     )
                     await broadcast_state(session_id)
@@ -1008,20 +1013,27 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                     if not ch:
                         await ws_error("No character. Use: char create ...", request_id=msg_request_id)
                         continue
+                    old_hp = as_int(ch.hp, 0)
+                    old_sta = as_int(ch.sta, 0)
+                    hd_max = max(1, as_int(getattr(ch, "hit_dice_max", 1), 1))
+                    hd_before = max(0, min(as_int(getattr(ch, "hit_dice_remaining", hd_max), hd_max), hd_max))
                     hp, sta = apply_long_rest(
-                        hp=as_int(ch.hp, 0),
+                        hp=old_hp,
                         hp_max=as_int(ch.hp_max, 0),
-                        sta=as_int(ch.sta, 0),
+                        sta=old_sta,
                         sta_max=as_int(ch.sta_max, 0),
                     )
+                    hd_after = long_rest_recover_hit_dice(hd_max, hd_before)
                     ch.hp = hp
                     ch.sta = sta
+                    ch.hit_dice_remaining = hd_after
                     await db.commit()
                     await add_system_event(
                         db,
                         sess,
-                        f"[REST] {ch.name}: HP -> {int(ch.hp or 0)}/{int(ch.hp_max or 0)}, "
-                        f"STA -> {int(ch.sta or 0)}/{int(ch.sta_max or 0)}",
+                        f"[REST] long {ch.name}: HP {old_hp}->{int(ch.hp or 0)}/{int(ch.hp_max or 0)}, "
+                        f"STA {old_sta}->{int(ch.sta or 0)}/{int(ch.sta_max or 0)}, "
+                        f"HD {hd_before}->{hd_after}/{hd_max} (d{max(1, as_int(getattr(ch, 'hit_die', 8), 8))})",
                     )
                     await broadcast_state(session_id)
                     continue
@@ -1035,10 +1047,11 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                     if not ch:
                         await ws_error("No character. Use: char create ...", request_id=msg_request_id)
                         continue
+                    old_sta = as_int(ch.sta, 0)
                     hp, sta = apply_short_rest(
                         hp=as_int(ch.hp, 0),
                         hp_max=as_int(ch.hp_max, 0),
-                        sta=as_int(ch.sta, 0),
+                        sta=old_sta,
                         sta_max=as_int(ch.sta_max, 0),
                     )
                     ch.hp = hp
@@ -1047,8 +1060,56 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                     await add_system_event(
                         db,
                         sess,
-                        f"[REST] short {ch.name}: HP -> {int(ch.hp or 0)}/{int(ch.hp_max or 0)}, "
-                        f"STA -> {int(ch.sta or 0)}/{int(ch.sta_max or 0)}",
+                        f"[REST] short {ch.name}: STA {old_sta}->{int(ch.sta or 0)}/{int(ch.sta_max or 0)}",
+                    )
+                    await broadcast_state(session_id)
+                    continue
+
+                m_rest_hd = re.match(r"^rest\s+hd\s+(\d+)$", lower, re.IGNORECASE)
+                if m_rest_hd:
+                    combat_state_now = get_combat(session_id)
+                    if combat_state_now is not None and combat_state_now.active:
+                        await ws_error("Нельзя отдыхать во время боя", request_id=msg_request_id)
+                        continue
+                    ch = await get_character(db, sess.id, player.id)
+                    if not ch:
+                        await ws_error("No character. Use: char create ...", request_id=msg_request_id)
+                        continue
+                    requested = as_int(m_rest_hd.group(1), 0)
+                    if requested <= 0 or requested > 99:
+                        await ws_error("Usage: rest hd <N>, where N is 1..99", request_id=msg_request_id)
+                        continue
+
+                    hd_max = max(1, as_int(getattr(ch, "hit_dice_max", 1), 1))
+                    hd_before = max(0, min(as_int(getattr(ch, "hit_dice_remaining", hd_max), hd_max), hd_max))
+                    if hd_before <= 0:
+                        await ws_error("No hit dice remaining", request_id=msg_request_id)
+                        continue
+
+                    stats = ch.stats if isinstance(ch.stats, dict) else {}
+                    con_stat = as_int(stats.get("con"), 50) if isinstance(stats, dict) else 50
+                    con_mod = ability_mod_from_stat100(con_stat)
+                    hp_before = _clamp(as_int(ch.hp, 0), 0, max(1, as_int(ch.hp_max, 1)))
+
+                    hp_after, hd_after, heals = apply_short_rest_spend_hd(
+                        hp=hp_before,
+                        hp_max=as_int(ch.hp_max, 0),
+                        hit_die=max(1, as_int(getattr(ch, "hit_die", 8), 8)),
+                        hit_dice_remaining=hd_before,
+                        con_mod=con_mod,
+                        spend=requested,
+                    )
+
+                    ch.hp = hp_after
+                    ch.hit_dice_remaining = hd_after
+                    await db.commit()
+
+                    healed_total = max(0, hp_after - hp_before)
+                    await add_system_event(
+                        db,
+                        sess,
+                        f"[REST] hd x{requested} {ch.name}: +{healed_total} HP, "
+                        f"HD {hd_before}->{hd_after}/{hd_max}, rolls={heals}",
                     )
                     await broadcast_state(session_id)
                     continue
