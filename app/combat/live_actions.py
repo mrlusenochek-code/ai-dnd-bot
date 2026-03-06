@@ -13,7 +13,9 @@ from app.combat.state import (
     get_combat,
 )
 from app.rules.derived_stats import compute_attack_profile, parse_dice
+from app.rules.phb_math import ability_mod_from_stat100
 from app.rules.item_catalog import ITEMS
+from app.web.check_engine import roll_check
 
 
 def _is_alive(hp_current: int) -> bool:
@@ -686,12 +688,15 @@ def handle_live_combat_action(
         if attacker is None:
             return None, "Combat state is inconsistent"
 
-        roll = random.randint(1, 20)
+        _, _, roll = roll_check("normal")
+        dex = attacker.stats.get("dex", 50) if isinstance(attacker.stats, dict) else 50
+        dex_mod = ability_mod_from_stat100(dex)
         dc = 13
-        success = roll >= dc
+        total = roll + dex_mod
+        success = total >= dc
         lines: list[dict[str, Any]] = [
             {"text": f"Побег: {attacker.name} пытается выйти из боя", "muted": True},
-            {"text": f"Бросок побега: d20({roll}) vs DC {dc}", "muted": True},
+            {"text": f"Бросок побега: d20({roll}) + {dex_mod:+d} = {total} vs DC {dc}", "muted": True},
         ]
 
         if success:
@@ -913,14 +918,14 @@ def handle_live_combat_action(
                 None,
             )
 
-        roll = random.randint(1, 20)
+        _, _, roll = roll_check("normal")
         wis = actor.stats.get("wis", 50) if isinstance(actor.stats, dict) else 50
-        wis_mod = int((wis - 50) // 20)
+        wis_mod = ability_mod_from_stat100(wis)
         total = roll + wis_mod
 
         lines: list[dict[str, Any]] = [
             {"text": f"Стабилизация: {actor.name} пытается помочь {target.name}."},
-            {"text": f"Проверка Medicine: d20({roll}) + {wis_mod} = {total} vs DC 10"},
+            {"text": f"Проверка Medicine: d20({roll}) + {wis_mod:+d} = {total} vs DC 10"},
         ]
 
         if total >= 10:
