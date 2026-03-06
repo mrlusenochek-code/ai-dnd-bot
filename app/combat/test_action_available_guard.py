@@ -132,7 +132,8 @@ def test_combat_dash_grants_extra_movement() -> None:
         hp_max=10,
         ac=12,
         initiative=20,
-        move_remaining=30,
+        speed_ft=25,
+        move_remaining=25,
     )
     state.combatants["enemy_1"] = Combatant(
         key="enemy_1",
@@ -153,6 +154,6 @@ def test_combat_dash_grants_extra_movement() -> None:
 
         state_now = get_combat(session_id)
         assert state_now is not None
-        assert state_now.combatants["pc_1"].move_remaining == 60
+        assert state_now.combatants["pc_1"].move_remaining == 50
     finally:
         end_combat(session_id)

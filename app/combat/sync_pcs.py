@@ -28,6 +28,7 @@ def sync_pcs_from_chars(session_id: str, chars_by_uid: dict[int, Any]) -> None:
         hp_max = max(0, hp_max_raw)
         hp = _clamp(hp, 0, hp_max)
         level = _safe_int(getattr(ch, "level", 1), 1)
+        speed = _safe_int(getattr(ch, "speed_ft", 30), 30)
 
         stats = getattr(ch, "stats", {})
         dex_default = 50
@@ -62,6 +63,7 @@ def sync_pcs_from_chars(session_id: str, chars_by_uid: dict[int, Any]) -> None:
             ac=ac,
             initiative=0,
             level=level,
+            speed_ft=speed,
             stats=stats_payload,
             inventory=inventory_payload,
             equip=equip_payload,

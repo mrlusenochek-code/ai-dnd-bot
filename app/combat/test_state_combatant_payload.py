@@ -49,6 +49,7 @@ class CombatantPayloadSerializationTests(unittest.TestCase):
             state.combatants["pc_1"].action_available = False
             state.combatants["pc_1"].bonus_action_available = False
             state.combatants["pc_1"].reaction_available = False
+            state.combatants["pc_1"].speed_ft = 35
             state.combatants["pc_1"].move_remaining = 15
 
             payload = combat_state_to_dict(state)
@@ -66,6 +67,7 @@ class CombatantPayloadSerializationTests(unittest.TestCase):
             self.assertFalse(raw_combatant.get("action_available"))
             self.assertFalse(raw_combatant.get("bonus_action_available"))
             self.assertFalse(raw_combatant.get("reaction_available"))
+            self.assertEqual(raw_combatant.get("speed_ft"), 35)
             self.assertEqual(raw_combatant.get("move_remaining"), 15)
             self.assertEqual(combatant.equip, {"main_hand": "sword_1", "slot": "shield_1"})
             self.assertIsInstance(combatant.stats, dict)
@@ -85,6 +87,7 @@ class CombatantPayloadSerializationTests(unittest.TestCase):
             self.assertFalse(combatant.action_available)
             self.assertFalse(combatant.bonus_action_available)
             self.assertFalse(combatant.reaction_available)
+            self.assertEqual(combatant.speed_ft, 35)
             self.assertEqual(combatant.move_remaining, 15)
         finally:
             end_combat(session_id)
@@ -127,6 +130,7 @@ class CombatantPayloadSerializationTests(unittest.TestCase):
         self.assertTrue(combatant.action_available)
         self.assertTrue(combatant.bonus_action_available)
         self.assertTrue(combatant.reaction_available)
+        self.assertEqual(combatant.speed_ft, 30)
         self.assertEqual(combatant.move_remaining, 30)
 
 

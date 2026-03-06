@@ -40,6 +40,6 @@ def advance_turn_in_state(state: CombatState) -> CombatState:
         current_combatant.action_available = True
         current_combatant.bonus_action_available = True
         current_combatant.reaction_available = True
-        current_combatant.move_remaining = 30
+        current_combatant.move_remaining = current_combatant.speed_ft
 
     return state

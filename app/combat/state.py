@@ -25,6 +25,7 @@ class Combatant:
     action_available: bool = True
     bonus_action_available: bool = True
     reaction_available: bool = True
+    speed_ft: int = 30
     move_remaining: int = 30
     is_dead: bool = False
     is_stable: bool = False
@@ -187,6 +188,7 @@ def upsert_pc(
     ac: int,
     initiative: int = 0,
     level: int = 1,
+    speed_ft: int = 30,
     stats: dict[str, int] | None = None,
     inventory: list[dict[str, Any]] | None = None,
     equip: dict[str, str] | None = None,
@@ -204,6 +206,10 @@ def upsert_pc(
     ac_norm = max(0, int(ac))
     initiative_norm = int(initiative)
     level_norm = _normalize_level(level)
+    try:
+        speed_ft_norm = max(0, int(speed_ft))
+    except Exception:
+        speed_ft_norm = 30
     stats_norm = _sanitize_stats_payload(stats)
     inventory_norm = _sanitize_inventory_payload(inventory)
     equip_norm = _sanitize_equip_payload(equip)
@@ -215,6 +221,7 @@ def upsert_pc(
         existing.ac = ac_norm
         existing.initiative = initiative_norm
         existing.level = level_norm
+        existing.speed_ft = speed_ft_norm
         existing.side = "pc"
         existing.hp_current = max(0, min(existing.hp_current, hp_max_norm))
         existing.stats = stats_norm
@@ -230,6 +237,8 @@ def upsert_pc(
             ac=ac_norm,
             initiative=initiative_norm,
             level=level_norm,
+            speed_ft=speed_ft_norm,
+            move_remaining=speed_ft_norm,
             stats=stats_norm,
             inventory=inventory_norm,
             equip=equip_norm,
@@ -294,6 +303,7 @@ def combatant_to_dict(c: Combatant) -> dict[str, Any]:
         "action_available": bool(c.action_available),
         "bonus_action_available": bool(c.bonus_action_available),
         "reaction_available": bool(c.reaction_available),
+        "speed_ft": max(0, int(c.speed_ft)),
         "move_remaining": max(0, int(c.move_remaining)),
         "is_dead": bool(c.is_dead),
         "is_stable": bool(c.is_stable),
@@ -366,6 +376,12 @@ def combatant_from_dict(raw: Any) -> Combatant | None:
     death_failures_norm = max(0, min(death_failures, 3))
     raw_level = raw.get("level", 1)
     level_norm = _normalize_level(raw_level) if isinstance(raw_level, int) and not isinstance(raw_level, bool) else 1
+    raw_speed_ft = raw.get("speed_ft", 30)
+    speed_ft_norm = (
+        max(0, raw_speed_ft)
+        if isinstance(raw_speed_ft, int) and not isinstance(raw_speed_ft, bool)
+        else 30
+    )
     raw_move_remaining = raw.get("move_remaining", 30)
     move_remaining_norm = (
         max(0, raw_move_remaining)
@@ -389,6 +405,7 @@ def combatant_from_dict(raw: Any) -> Combatant | None:
         action_available=bool(raw.get("action_available", True)),
         bonus_action_available=bool(raw.get("bonus_action_available", True)),
         reaction_available=bool(raw.get("reaction_available", True)),
+        speed_ft=speed_ft_norm,
         move_remaining=move_remaining_norm,
         is_dead=bool(is_dead),
         is_stable=bool(is_stable),

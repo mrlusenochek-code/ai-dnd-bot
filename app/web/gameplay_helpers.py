@@ -311,6 +311,7 @@ async def create_character(
         hit_die=hit_die,
         hit_dice_max=hit_dice_max,
         hit_dice_remaining=hit_dice_remaining,
+        speed_ft=30,
         stats=(dict(stats) if isinstance(stats, dict) else dict(CHAR_DEFAULT_STATS)),
     )
     db.add(ch)

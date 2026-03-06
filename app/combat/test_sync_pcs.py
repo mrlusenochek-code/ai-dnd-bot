@@ -20,6 +20,7 @@ def test_sync_pcs_from_chars_non_dict_stats_uses_phb_fallback_ac(monkeypatch) ->
             hp=10,
             hp_max=10,
             level=1,
+            speed_ft=35,
             stats=None,
         )
     }
@@ -28,3 +29,4 @@ def test_sync_pcs_from_chars_non_dict_stats_uses_phb_fallback_ac(monkeypatch) ->
 
     assert len(calls) == 1
     assert calls[0]["ac"] == 10
+    assert calls[0]["speed_ft"] == 35
