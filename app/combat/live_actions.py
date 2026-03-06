@@ -410,7 +410,11 @@ def handle_live_combat_action(
             return blocked, None
 
         attacker.dash_active = True
-        lines: list[dict[str, Any]] = [{"text": f"Рывок: {attacker.name} (до следующего хода)", "muted": True}]
+        attacker.move_remaining += 30
+        lines: list[dict[str, Any]] = [
+            {"text": f"Рывок: {attacker.name} (до следующего хода)", "muted": True},
+            {"text": f"Движение: +30 (итого {attacker.move_remaining})", "muted": True},
+        ]
 
         state = advance_turn(session_id)
         if state is None:

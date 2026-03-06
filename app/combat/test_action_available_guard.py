@@ -119,3 +119,40 @@ def test_combat_help_spends_bonus_action() -> None:
         assert state_now.combatants["pc_1"].bonus_action_available is False
     finally:
         end_combat(session_id)
+
+
+def test_combat_dash_grants_extra_movement() -> None:
+    session_id = "test_combat_dash_grants_extra_movement"
+    state = start_combat(session_id)
+    state.combatants["pc_1"] = Combatant(
+        key="pc_1",
+        name="Герой",
+        side="pc",
+        hp_current=10,
+        hp_max=10,
+        ac=12,
+        initiative=20,
+        move_remaining=30,
+    )
+    state.combatants["enemy_1"] = Combatant(
+        key="enemy_1",
+        name="Гоблин",
+        side="enemy",
+        hp_current=10,
+        hp_max=10,
+        ac=12,
+        initiative=10,
+    )
+    state.order = ["pc_1", "enemy_1"]
+    state.turn_index = 0
+
+    try:
+        patch, err = handle_live_combat_action("combat_dash", session_id)
+        assert err is None
+        assert patch is not None
+
+        state_now = get_combat(session_id)
+        assert state_now is not None
+        assert state_now.combatants["pc_1"].move_remaining == 60
+    finally:
+        end_combat(session_id)
