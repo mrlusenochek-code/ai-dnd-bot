@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import Any
-from app.rules.phb_math import ability_mod_from_stat100
+from app.rules.phb_math import ability_mod_from_stat100, proficiency_bonus
 from app.rules.equipment_slots import EquipmentSlot
 from app.rules.item_catalog import ITEMS
 from app.rules.items import ArmorCategory, ItemDef
@@ -42,14 +42,6 @@ def _item_def_for_inventory_entry(entry: dict[str, Any]) -> ItemDef | None:
     return None
 
 
-def dex_mod_from_stat(dex: int) -> int:
-    return int((dex - 50) // 20)
-
-
-def stat_mod_from_stat(stat: int) -> int:
-    return int((stat - 50) // 20)
-
-
 def parse_dice(dice: str) -> tuple[int, int] | None:
     parts = str(dice or "").strip().lower().split("d")
     if len(parts) != 2:
@@ -62,11 +54,12 @@ def parse_dice(dice: str) -> tuple[int, int] | None:
     return n, m
 
 
-def compute_attack_profile(*, stats: dict, inventory: list[dict], equip_map: dict[str, str]) -> AttackProfile:
+def compute_attack_profile(*, stats: dict, inventory: list[dict], equip_map: dict[str, str], level: int | None = None) -> AttackProfile:
     str_stat = _safe_int(stats.get("str", 50), 50) if isinstance(stats, dict) else 50
     dex_stat = _safe_int(stats.get("dex", 50), 50) if isinstance(stats, dict) else 50
-    str_mod = stat_mod_from_stat(str_stat)
-    dex_mod = dex_mod_from_stat(dex_stat)
+    str_mod = ability_mod_from_stat100(str_stat)
+    dex_mod = ability_mod_from_stat100(dex_stat)
+    prof = proficiency_bonus(level or 1)
 
     by_id: dict[str, dict[str, Any]] = {}
     for entry in inventory if isinstance(inventory, list) else []:
@@ -100,8 +93,8 @@ def compute_attack_profile(*, stats: dict, inventory: list[dict], equip_map: dic
             stat_mod = max(str_mod, dex_mod)
         else:
             stat_mod = str_mod
-        attack_bonus = _clamp(3 + stat_mod, 0, 20)
-        damage_bonus = _clamp(2 + stat_mod, 0, 20)
+        attack_bonus = stat_mod + prof
+        damage_bonus = stat_mod
         return AttackProfile(
             attack_bonus=attack_bonus,
             damage_dice=weapon.damage_dice,
@@ -111,8 +104,8 @@ def compute_attack_profile(*, stats: dict, inventory: list[dict], equip_map: dic
             mastery=weapon.mastery,
         )
 
-    attack_bonus = _clamp(3 + str_mod, 0, 20)
-    damage_bonus = _clamp(2 + str_mod, 0, 20)
+    attack_bonus = str_mod + prof
+    damage_bonus = str_mod
     return AttackProfile(
         attack_bonus=attack_bonus,
         damage_dice="1d4",
