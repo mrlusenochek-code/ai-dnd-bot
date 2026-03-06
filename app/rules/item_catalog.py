@@ -104,6 +104,11 @@ ITEMS: dict[str, ItemDef] = {
         kind=ItemKind.weapon,
         equip=EquipSpec(
             allowed_slots=(EquipmentSlot.main_hand, EquipmentSlot.off_hand),
+            wear_group="weapon",
+            weapon=WeaponStats(
+                damage_dice="1d6",
+                damage_type="slashing",
+            ),
         ),
         description_ru="Обычный одноручный меч для базовых атак.",
     ),
@@ -113,6 +118,7 @@ ITEMS: dict[str, ItemDef] = {
         kind=ItemKind.shield,
         equip=EquipSpec(
             allowed_slots=(EquipmentSlot.off_hand,),
+            wear_group="shield",
             grants_ac_bonus=2,
         ),
         description_ru="Легкий щит из дерева.",
