@@ -1,7 +1,7 @@
 from typing import Any
 
 from app.gm import checks as gm_checks
-from app.rules.phb_math import ability_mod_from_stat100
+from app.rules.phb_math import ability_mod_from_stat100, proficiency_bonus
 from app.web.gameplay_helpers import CHAR_STAT_KEYS, _normalized_stats
 from app.web.utils import _clamp, as_int
 
@@ -42,9 +42,19 @@ def _ability_mod_from_stats(stats_raw: Any, stat_key: str) -> int:
     return ability_mod_from_stat100(val)
 
 
-def _skill_bonus_from_rank(rank_raw: Any) -> int:
+def _proficiency_bonus(level_raw: Any) -> int:
+    level = _clamp(as_int(level_raw, 1), 1, 20)
+    return proficiency_bonus(level)
+
+
+def _skill_bonus_from_rank_and_level(rank_raw: Any, level_raw: Any) -> int:
     rank = _clamp(as_int(rank_raw, 0), 0, 10)
-    return _clamp(rank // 2, 0, 5)
+    if rank < 1:
+        return 0
+    prof = _proficiency_bonus(level_raw)
+    if rank >= 4:
+        return 2 * prof
+    return prof
 
 
 def _normalize_check_name(raw_name: Any) -> str:

@@ -505,9 +505,10 @@ def _ability_mod_from_stats(stats_raw: Any, stat_key: str) -> int:
     return _ws_ability_mod_from_stats(stats_raw, stat_key)
 
 
-def _skill_bonus_from_rank(rank_raw: Any) -> int:
-    rank = _clamp(as_int(rank_raw, 0), 0, 10)
-    return _clamp(rank // 2, 0, 5)
+def _skill_bonus_from_rank_and_level(rank_raw: Any, level_raw: Any) -> int:
+    from app.web.ws_checks import _skill_bonus_from_rank_and_level as _ws_skill_bonus_from_rank_and_level
+
+    return _ws_skill_bonus_from_rank_and_level(rank_raw, level_raw)
 
 
 def _xp_to_next_skill_rank(rank: int) -> int:
@@ -1389,11 +1390,15 @@ async def _load_actor_context(
             chars_by_uid[uid] = ch
 
     skill_mods_by_char: dict[uuid.UUID, dict[str, int]] = {}
+    levels_by_char_id = {ch.id: ch.level for ch in chars}
     char_ids = [ch.id for ch in chars]
     if char_ids:
         q_skills = await db.execute(select(Skill).where(Skill.character_id.in_(char_ids)))
         for sk in q_skills.scalars().all():
-            skill_mods_by_char.setdefault(sk.character_id, {})[str(sk.skill_key or "").strip().lower()] = _skill_bonus_from_rank(sk.rank)
+            skill_mods_by_char.setdefault(sk.character_id, {})[str(sk.skill_key or "").strip().lower()] = _skill_bonus_from_rank_and_level(
+                sk.rank,
+                levels_by_char_id.get(sk.character_id),
+            )
     return uid_map, chars_by_uid, skill_mods_by_char
 
 
@@ -1874,7 +1879,7 @@ async def ws_room(ws: WebSocket, session_id: str):
 
 # Re-export helpers extracted from server for compatibility.
 from app.web.ws_access import COMBAT_CLARIFY_TEXT, _combat_clarify_already_sent, _event_actor_label, _load_actor_context, _player_uid
-from app.web.ws_checks import SKILL_TO_ABILITY, _ability_mod_from_stats, _normalize_check_name, _skill_bonus_from_rank
+from app.web.ws_checks import SKILL_TO_ABILITY, _ability_mod_from_stats, _normalize_check_name, _skill_bonus_from_rank_and_level
 from app.web.ws_combat_prompting import (
     START_INTENT_FALLBACK_TEXT,
     _COMBAT_LOCK_PROMPT,

@@ -7,7 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.db.models import Character, Event, Player, Session, SessionPlayer, Skill
 from app.web.db_helpers import list_session_players
 from app.web.gameplay_helpers import get_character
-from app.web.ws_checks import _skill_bonus_from_rank
+from app.web.ws_checks import _skill_bonus_from_rank_and_level
 
 
 COMBAT_CLARIFY_TEXT = "🧙 GM: Сейчас бой. Уточни: атака/уклон/помощь/рывок/отход/побег/предмет/конец хода.\nЧто делаете дальше?"
@@ -87,9 +87,13 @@ async def _load_actor_context(
             chars_by_uid[uid] = ch
 
     skill_mods_by_char: dict[uuid.UUID, dict[str, int]] = {}
+    levels_by_char_id = {ch.id: ch.level for ch in chars}
     char_ids = [ch.id for ch in chars]
     if char_ids:
         q_skills = await db.execute(select(Skill).where(Skill.character_id.in_(char_ids)))
         for sk in q_skills.scalars().all():
-            skill_mods_by_char.setdefault(sk.character_id, {})[str(sk.skill_key or "").strip().lower()] = _skill_bonus_from_rank(sk.rank)
+            skill_mods_by_char.setdefault(sk.character_id, {})[str(sk.skill_key or "").strip().lower()] = _skill_bonus_from_rank_and_level(
+                sk.rank,
+                levels_by_char_id.get(sk.character_id),
+            )
     return uid_map, chars_by_uid, skill_mods_by_char

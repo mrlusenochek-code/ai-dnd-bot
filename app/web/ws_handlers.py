@@ -64,7 +64,7 @@ from app.web.combat_bridge import (
 )
 from app.web.utils import _clamp, _short_text, as_int
 from app.web.ws_access import COMBAT_CLARIFY_TEXT, _combat_clarify_already_sent, _event_actor_label, _load_actor_context, _player_uid
-from app.web.ws_checks import SKILL_TO_ABILITY, _ability_mod_from_stats, _normalize_check_name, _skill_bonus_from_rank
+from app.web.ws_checks import SKILL_TO_ABILITY, _ability_mod_from_stats, _normalize_check_name, _skill_bonus_from_rank_and_level
 from app.web.ws_combat_prompting import (
     START_INTENT_FALLBACK_TEXT,
     _COMBAT_LOCK_PROMPT,
@@ -1133,7 +1133,7 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                         ability_key = SKILL_TO_ABILITY.get(candidate)
                         ability_mod = _ability_mod_from_stats(ch.stats, ability_key) if ability_key else 0
                         sk = skills_by_key.get(candidate)
-                        skill_bonus = _skill_bonus_from_rank(sk.rank) if sk else 0
+                        skill_bonus = _skill_bonus_from_rank_and_level(sk.rank, ch.level) if sk else 0
                         return ability_mod + skill_bonus
 
                     skills_by_key: dict[str, Skill] = {}
@@ -1164,7 +1164,7 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                         sk = q_skill.scalar_one_or_none()
                         ability_key = SKILL_TO_ABILITY.get(key)
                         ability_mod = _ability_mod_from_stats(ch.stats, ability_key) if ability_key else 0
-                        skill_bonus = _skill_bonus_from_rank(sk.rank) if sk else 0
+                        skill_bonus = _skill_bonus_from_rank_and_level(sk.rank, ch.level) if sk else 0
                         mod = ability_mod + skill_bonus
 
                     if mode == "roll":
