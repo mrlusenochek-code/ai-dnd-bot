@@ -34,7 +34,7 @@ def _build_state(session_id: str) -> None:
 def test_death_save_success_on_10(monkeypatch) -> None:
     session_id = "test_death_save_success_on_10"
     _build_state(session_id)
-    monkeypatch.setattr("app.combat.live_actions.random.randint", lambda _a, _b: 10)
+    monkeypatch.setattr("app.combat.live_actions.roll_check", lambda _mode: (10, None, 10))
 
     try:
         patch, err = handle_live_combat_action("combat_end_turn", session_id)
@@ -53,7 +53,7 @@ def test_death_save_success_on_10(monkeypatch) -> None:
 def test_death_save_double_fail_on_1(monkeypatch) -> None:
     session_id = "test_death_save_double_fail_on_1"
     _build_state(session_id)
-    monkeypatch.setattr("app.combat.live_actions.random.randint", lambda _a, _b: 1)
+    monkeypatch.setattr("app.combat.live_actions.roll_check", lambda _mode: (1, None, 1))
 
     try:
         patch, err = handle_live_combat_action("combat_end_turn", session_id)
@@ -71,7 +71,7 @@ def test_death_save_double_fail_on_1(monkeypatch) -> None:
 def test_death_save_nat20_returns_to_1_hp(monkeypatch) -> None:
     session_id = "test_death_save_nat20_returns_to_1_hp"
     _build_state(session_id)
-    monkeypatch.setattr("app.combat.live_actions.random.randint", lambda _a, _b: 20)
+    monkeypatch.setattr("app.combat.live_actions.roll_check", lambda _mode: (20, None, 20))
 
     try:
         patch, err = handle_live_combat_action("combat_end_turn", session_id)

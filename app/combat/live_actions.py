@@ -258,7 +258,7 @@ def _auto_resolve_zero_hp_turns(session_id: str, state: Any) -> dict[str, Any] |
                     lines.append({"text": f"Лечение: {heal_amount} HP"})
                     lines.append({"text": f"{current.name}: HP {current.hp_current}/{current.hp_max}"})
                 else:
-                    roll = random.randint(1, 20)
+                    _roll_a, _roll_b, roll = roll_check("normal")
                     lines.append({"text": f"Спасбросок смерти: d20({roll})"})
                     if roll == 20:
                         current.hp_current = 1
