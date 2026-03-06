@@ -96,6 +96,17 @@ def _combat_status(state: Any) -> str:
     return f"⚔ Бой • Раунд {state.round_no} • Ход: {current_turn_label(state)}"
 
 
+def _spend_action_or_block(state: Any, actor: Any) -> dict[str, Any] | None:
+    if actor.action_available:
+        actor.action_available = False
+        return None
+    return {
+        "status": _combat_status(state),
+        "open": True,
+        "lines": [{"text": "Действие недоступно: действие уже потрачено.", "muted": True}],
+    }
+
+
 def _clamp_death_counter(value: int) -> int:
     return max(0, min(int(value), 3))
 
@@ -333,6 +344,9 @@ def handle_live_combat_action(
         attacker = state.combatants.get(attacker_key)
         if attacker is None:
             return None, "Combat state is inconsistent"
+        blocked = _spend_action_or_block(state, attacker)
+        if blocked is not None:
+            return blocked, None
 
         attacker.dodge_active = True
         lines: list[dict[str, Any]] = [{"text": f"Уклонение: {attacker.name} (до следующего хода)", "muted": True}]
@@ -369,6 +383,9 @@ def handle_live_combat_action(
         attacker = state.combatants.get(attacker_key)
         if attacker is None:
             return None, "Combat state is inconsistent"
+        blocked = _spend_action_or_block(state, attacker)
+        if blocked is not None:
+            return blocked, None
 
         attacker.dash_active = True
         lines: list[dict[str, Any]] = [{"text": f"Рывок: {attacker.name} (до следующего хода)", "muted": True}]
@@ -405,6 +422,9 @@ def handle_live_combat_action(
         attacker = state.combatants.get(attacker_key)
         if attacker is None:
             return None, "Combat state is inconsistent"
+        blocked = _spend_action_or_block(state, attacker)
+        if blocked is not None:
+            return blocked, None
 
         attacker.disengage_active = True
         lines: list[dict[str, Any]] = [{"text": f"Отход: {attacker.name} (до следующего хода)", "muted": True}]
@@ -441,6 +461,9 @@ def handle_live_combat_action(
         attacker = state.combatants.get(attacker_key)
         if attacker is None:
             return None, "Combat state is inconsistent"
+        blocked = _spend_action_or_block(state, attacker)
+        if blocked is not None:
+            return blocked, None
 
         if attacker.side != "pc":
             lines: list[dict[str, Any]] = [
@@ -524,6 +547,9 @@ def handle_live_combat_action(
         actor = state.combatants.get(actor_key)
         if actor is None:
             return None, "Combat state is inconsistent"
+        blocked = _spend_action_or_block(state, actor)
+        if blocked is not None:
+            return blocked, None
 
         if actor.side != "pc":
             lines = [{"text": "Использовать предмет: недоступно.", "muted": True}]
@@ -649,6 +675,9 @@ def handle_live_combat_action(
         attacker = state.combatants.get(attacker_key)
         if attacker is None:
             return None, "Combat state is inconsistent"
+        blocked = _spend_action_or_block(state, attacker)
+        if blocked is not None:
+            return blocked, None
 
         attacker.help_attack_advantage = True
         lines: list[dict[str, Any]] = [
@@ -687,6 +716,9 @@ def handle_live_combat_action(
         attacker = state.combatants.get(attacker_key)
         if attacker is None:
             return None, "Combat state is inconsistent"
+        blocked = _spend_action_or_block(state, attacker)
+        if blocked is not None:
+            return blocked, None
 
         _, _, roll = roll_check("normal")
         dex = attacker.stats.get("dex", 50) if isinstance(attacker.stats, dict) else 50
@@ -763,6 +795,9 @@ def handle_live_combat_action(
         attacker = state.combatants.get(attacker_key)
         if attacker is None:
             return None, "Combat state is inconsistent"
+        blocked = _spend_action_or_block(state, attacker)
+        if blocked is not None:
+            return blocked, None
 
         target = _first_living_opponent(state, attacker.side)
         if target is None:
@@ -906,6 +941,9 @@ def handle_live_combat_action(
         actor = state.combatants.get(actor_key)
         if actor is None:
             return None, "Combat state is inconsistent"
+        blocked = _spend_action_or_block(state, actor)
+        if blocked is not None:
+            return blocked, None
 
         target = _first_downed_ally(state, actor)
         if target is None:
