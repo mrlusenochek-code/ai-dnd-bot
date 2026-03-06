@@ -14,6 +14,29 @@ def long_rest_recover_hit_dice(hit_dice_max: int, hit_dice_remaining: int) -> in
     return min(hd_max, hd_remaining + recovered)
 
 
+def sync_hit_dice_on_level_change(
+    *,
+    old_level: int,
+    new_level: int,
+    hit_dice_max: int,
+    hit_dice_remaining: int,
+) -> tuple[int, int]:
+    """
+    PHB: Hit Dice total equals level. When you gain a level, you gain one additional Hit Die.
+    We keep hit_dice_max stored, but it must track level.
+    - max = clamp(new_level, 1..20)
+    - remaining increases by (max - old_max) on level up
+    - remaining clamped to [0..max]
+    """
+    old_max = max(1, int(old_level))
+    new_max = max(1, int(new_level))
+    max_out = new_max
+    delta = new_max - old_max
+    remaining_out = int(hit_dice_remaining) + max(0, delta)
+    remaining_out = _clamp_int(remaining_out, 0, max_out)
+    return max_out, remaining_out
+
+
 def roll_hit_die(hit_die: int, con_mod: int, *, rng: random.Random | None = None) -> int:
     roller = rng or random
     die_size = max(1, int(hit_die))

@@ -8,6 +8,7 @@ from sqlalchemy import select
 from app.ai.gm import generate_from_prompt
 from app.db.models import Skill
 from app.gm import checks as gm_checks, contracts as gm_contracts, narration, sanitize as gm_sanitize
+from app.rules.phb_rest import sync_hit_dice_on_level_change
 
 ENTITY_TOKEN_RE = re.compile(r"\b(?:[А-ЯЁ][а-яё]{2,}|[A-Z][a-z]{2,})\b")
 ENTITY_SENTENCE_LEADING_SKIP = " \t\r\n\"'«»“”„-—–([{"
@@ -542,8 +543,17 @@ async def run_two_pass(
         if as_int_fn(ch.xp_total, 0) != new_xp_total:
             ch.xp_total = new_xp_total
             xp_changed = True
-        if as_int_fn(ch.level, 1) != new_level:
+        old_level = as_int_fn(ch.level, 1)
+        if old_level != new_level:
+            hd_max, hd_rem = sync_hit_dice_on_level_change(
+                old_level=old_level,
+                new_level=new_level,
+                hit_dice_max=as_int_fn(getattr(ch, "hit_dice_max", None), old_level),
+                hit_dice_remaining=as_int_fn(getattr(ch, "hit_dice_remaining", None), old_level),
+            )
             ch.level = new_level
+            ch.hit_dice_max = hd_max
+            ch.hit_dice_remaining = hd_rem
             xp_changed = True
         name = gm_checks._normalize_check_name(str(result.get("name") or ""))
         skill_key: Optional[str] = None
