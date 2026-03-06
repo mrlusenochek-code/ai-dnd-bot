@@ -22,7 +22,7 @@ from app.combat.test_actions import handle_admin_combat_test_action
 from app.core.log_context import client_id_var, request_id_var, session_id_var, uid_var, ws_conn_id_var
 from app.db.connection import AsyncSessionLocal
 from app.db.models import Character, Player, SessionPlayer, Skill
-from app.rules.phb_rest import apply_long_rest
+from app.rules.phb_rest import apply_long_rest, apply_short_rest
 from app.rules.phb_math import roll_initiative
 from app.gm import combat_narration as gm_combat_narration
 from app.web import gm_orchestrator
@@ -952,7 +952,7 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                     await add_system_event(
                         db,
                         sess,
-                        "de" "ps.Character commands: char create <Name> [Class], me, hp <+N|-N|N>, sta <+N|-N|N>, rest|rest long, "
+                        "de" "ps.Character commands: char create <Name> [Class], me, hp <+N|-N|N>, sta <+N|-N|N>, rest|rest long|rest short, "
                         "stat <str|dex|con|int|wis|cha> <0..100>, check [adv|dis] <stat_or_skill> [dc N] (ручной бросок, опционально).",
                     )
                     await broadcast_state(session_id)
@@ -1021,6 +1021,33 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                         db,
                         sess,
                         f"[REST] {ch.name}: HP -> {int(ch.hp or 0)}/{int(ch.hp_max or 0)}, "
+                        f"STA -> {int(ch.sta or 0)}/{int(ch.sta_max or 0)}",
+                    )
+                    await broadcast_state(session_id)
+                    continue
+
+                if lower == "rest short":
+                    combat_state_now = get_combat(session_id)
+                    if combat_state_now is not None and combat_state_now.active:
+                        await ws_error("Нельзя отдыхать во время боя", request_id=msg_request_id)
+                        continue
+                    ch = await get_character(db, sess.id, player.id)
+                    if not ch:
+                        await ws_error("No character. Use: char create ...", request_id=msg_request_id)
+                        continue
+                    hp, sta = apply_short_rest(
+                        hp=as_int(ch.hp, 0),
+                        hp_max=as_int(ch.hp_max, 0),
+                        sta=as_int(ch.sta, 0),
+                        sta_max=as_int(ch.sta_max, 0),
+                    )
+                    ch.hp = hp
+                    ch.sta = sta
+                    await db.commit()
+                    await add_system_event(
+                        db,
+                        sess,
+                        f"[REST] short {ch.name}: HP -> {int(ch.hp or 0)}/{int(ch.hp_max or 0)}, "
                         f"STA -> {int(ch.sta or 0)}/{int(ch.sta_max or 0)}",
                     )
                     await broadcast_state(session_id)

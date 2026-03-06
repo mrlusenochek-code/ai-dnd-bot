@@ -1,4 +1,4 @@
-from app.rules.phb_rest import apply_long_rest
+from app.rules.phb_rest import apply_long_rest, apply_short_rest
 
 
 def test_apply_long_rest_restores_to_max_values() -> None:
@@ -11,3 +11,9 @@ def test_apply_long_rest_normalizes_hp_max_to_min_one() -> None:
 
 def test_apply_long_rest_normalizes_sta_max_to_min_zero() -> None:
     assert apply_long_rest(hp=5, hp_max=10, sta=3, sta_max=-5) == (10, 0)
+
+
+def test_apply_short_rest_restores_only_sta_and_keeps_hp() -> None:
+    hp, sta = apply_short_rest(hp=3, hp_max=10, sta=1, sta_max=7)
+    assert (hp, sta) == (3, 7)
+    assert hp == 3
