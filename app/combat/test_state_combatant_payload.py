@@ -1,6 +1,7 @@
 import unittest
 
 from app.combat.state import (
+    combatant_from_dict,
     combat_state_from_dict,
     combat_state_to_dict,
     end_combat,
@@ -24,6 +25,7 @@ class CombatantPayloadSerializationTests(unittest.TestCase):
                 hp_max=12,
                 ac=14,
                 initiative=3,
+                level=5,
                 stats={"str": 11, "dex": 16, "foo": 99},
                 inventory=[
                     {
@@ -55,6 +57,8 @@ class CombatantPayloadSerializationTests(unittest.TestCase):
             self.assertIsNotNone(combatant)
             assert combatant is not None
 
+            raw_combatant = payload["combatants"]["pc_1"]
+            self.assertEqual(raw_combatant.get("level"), 5)
             self.assertEqual(combatant.equip, {"main_hand": "sword_1", "slot": "shield_1"})
             self.assertIsInstance(combatant.stats, dict)
             assert combatant.stats is not None
@@ -69,8 +73,31 @@ class CombatantPayloadSerializationTests(unittest.TestCase):
             self.assertTrue(combatant.is_stable)
             self.assertEqual(combatant.death_successes, 3)
             self.assertEqual(combatant.death_failures, 0)
+            self.assertEqual(combatant.level, 5)
         finally:
             end_combat(session_id)
+
+    def test_combatant_from_dict_missing_level_defaults_to_one(self) -> None:
+        raw = {
+            "key": "pc_1",
+            "name": "Alice",
+            "side": "pc",
+            "hp_current": 12,
+            "hp_max": 12,
+            "ac": 14,
+            "initiative": 3,
+        }
+        combatant = combatant_from_dict(raw)
+        self.assertIsNotNone(combatant)
+        assert combatant is not None
+        self.assertEqual(combatant.level, 1)
+
+        raw_with_bad_level = dict(raw)
+        raw_with_bad_level["level"] = "5"
+        combatant_bad_level = combatant_from_dict(raw_with_bad_level)
+        self.assertIsNotNone(combatant_bad_level)
+        assert combatant_bad_level is not None
+        self.assertEqual(combatant_bad_level.level, 1)
 
 
 if __name__ == "__main__":

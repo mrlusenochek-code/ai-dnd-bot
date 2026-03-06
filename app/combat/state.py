@@ -29,6 +29,7 @@ class Combatant:
     stats: dict[str, int] | None = None
     inventory: list[dict[str, Any]] | None = None
     equip: dict[str, str] | None = None
+    level: int = 1
 
 
 @dataclass
@@ -106,6 +107,14 @@ def _sanitize_equip_payload(value: Any) -> dict[str, str] | None:
     return out
 
 
+def _normalize_level(value: Any) -> int:
+    try:
+        level = int(value)
+    except Exception:
+        return 1
+    return max(1, min(level, 20))
+
+
 def start_combat(session_id: str, *, reason: str | None = None) -> CombatState:
     _ = reason
     state = CombatState(
@@ -154,6 +163,7 @@ def add_enemy(
         hp_max=hp_max,
         ac=max(0, int(ac)),
         initiative=0,
+        level=1,
     )
 
     from app.combat.turns import build_initiative_order
@@ -172,6 +182,7 @@ def upsert_pc(
     hp_max: int,
     ac: int,
     initiative: int = 0,
+    level: int = 1,
     stats: dict[str, int] | None = None,
     inventory: list[dict[str, Any]] | None = None,
     equip: dict[str, str] | None = None,
@@ -188,6 +199,7 @@ def upsert_pc(
     hp_norm = max(0, int(hp))
     ac_norm = max(0, int(ac))
     initiative_norm = int(initiative)
+    level_norm = _normalize_level(level)
     stats_norm = _sanitize_stats_payload(stats)
     inventory_norm = _sanitize_inventory_payload(inventory)
     equip_norm = _sanitize_equip_payload(equip)
@@ -198,6 +210,7 @@ def upsert_pc(
         existing.hp_max = hp_max_norm
         existing.ac = ac_norm
         existing.initiative = initiative_norm
+        existing.level = level_norm
         existing.side = "pc"
         existing.hp_current = max(0, min(existing.hp_current, hp_max_norm))
         existing.stats = stats_norm
@@ -212,6 +225,7 @@ def upsert_pc(
             hp_max=hp_max_norm,
             ac=ac_norm,
             initiative=initiative_norm,
+            level=level_norm,
             stats=stats_norm,
             inventory=inventory_norm,
             equip=equip_norm,
@@ -267,6 +281,7 @@ def combatant_to_dict(c: Combatant) -> dict[str, Any]:
         "hp_max": max(0, int(c.hp_max)),
         "ac": max(0, int(c.ac)),
         "initiative": int(c.initiative),
+        "level": _normalize_level(c.level),
         "dodge_active": bool(c.dodge_active),
         "dash_active": bool(c.dash_active),
         "disengage_active": bool(c.disengage_active),
@@ -341,6 +356,8 @@ def combatant_from_dict(raw: Any) -> Combatant | None:
     hp_current_norm = max(0, min(hp_current, hp_max_norm))
     death_successes_norm = max(0, min(death_successes, 3))
     death_failures_norm = max(0, min(death_failures, 3))
+    raw_level = raw.get("level", 1)
+    level_norm = _normalize_level(raw_level) if isinstance(raw_level, int) and not isinstance(raw_level, bool) else 1
 
     return Combatant(
         key=key,
@@ -362,6 +379,7 @@ def combatant_from_dict(raw: Any) -> Combatant | None:
         stats=_sanitize_stats_payload(raw.get("stats")),
         inventory=_sanitize_inventory_payload(raw.get("inventory")),
         equip=_sanitize_equip_payload(raw.get("equip")),
+        level=level_norm,
     )
 
 
