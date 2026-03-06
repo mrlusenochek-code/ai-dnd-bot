@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import random
+
 
 def _clamp(value: int, low: int, high: int) -> int:
     return max(low, min(high, value))
@@ -22,6 +24,11 @@ def ability_mod_from_score(score: int) -> int:
 
 def ability_mod_from_stat100(stat: int) -> int:
     return ability_mod_from_score(ability_score_from_stat100(stat))
+
+
+def roll_initiative(dex_stat100: int, *, rng=None) -> int:
+    roller = rng if rng is not None else random
+    return int(roller.randint(1, 20)) + ability_mod_from_stat100(dex_stat100)
 
 
 def proficiency_bonus(level: int) -> int:

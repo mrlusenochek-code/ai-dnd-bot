@@ -1,6 +1,8 @@
+import random
+
 import pytest
 
-from app.rules.phb_math import ability_mod_from_stat100
+from app.rules.phb_math import ability_mod_from_stat100, roll_initiative
 
 
 @pytest.mark.parametrize(
@@ -15,3 +17,13 @@ from app.rules.phb_math import ability_mod_from_stat100
 )
 def test_ability_mod_from_stat100_phb_mapping(stat: int, expected_mod: int) -> None:
     assert ability_mod_from_stat100(stat) == expected_mod
+
+
+def test_roll_initiative_neutral_dex_mod() -> None:
+    rng = random.Random(0)
+    assert roll_initiative(50, rng=rng) == 13
+
+
+def test_roll_initiative_positive_dex_mod() -> None:
+    rng = random.Random(0)
+    assert roll_initiative(70, rng=rng) == 15

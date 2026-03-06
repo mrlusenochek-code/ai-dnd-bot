@@ -22,6 +22,7 @@ from app.combat.test_actions import handle_admin_combat_test_action
 from app.core.log_context import client_id_var, request_id_var, session_id_var, uid_var, ws_conn_id_var
 from app.db.connection import AsyncSessionLocal
 from app.db.models import Character, Player, SessionPlayer, Skill
+from app.rules.phb_math import roll_initiative
 from app.gm import combat_narration as gm_combat_narration
 from app.web import gm_orchestrator
 from app.web.db_helpers import get_or_create_player_web, get_session, list_session_players
@@ -1335,8 +1336,24 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                         continue
 
                     if sub == "roll":
+                        chars_by_pid: dict[uuid.UUID, Character] = {}
+                        if uuid_ids:
+                            qc = await db.execute(
+                                select(Character).where(
+                                    Character.session_id == sess.id,
+                                    Character.player_id.in_(uuid_ids),
+                                )
+                            )
+                            chars_by_pid = {ch.player_id: ch for ch in qc.scalars().all()}
                         for spx in sps_active:
-                            val = random.randint(1, 20)
+                            ch = chars_by_pid.get(spx.player_id)
+                            dex = 50
+                            stats = ch.stats if ch is not None else None
+                            if isinstance(stats, dict):
+                                dex_raw = stats.get("dex", 50)
+                                if isinstance(dex_raw, int):
+                                    dex = int(dex_raw)
+                            val = roll_initiative(dex, rng=random)
                             _set_init_value(sess, spx.player_id, val)
                         await db.commit()
                         init_map = _get_init_map(sess)
@@ -1344,7 +1361,11 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                         for spx in sps_active:
                             nm = names.get(str(spx.player_id), str(spx.player_id))
                             lines.append(f"  #{spx.join_order} {nm}: {init_map.get(str(spx.player_id), 0)}")
-                        await add_system_event(db, sess, "Инициатива: всем брошено 1d20:\n" + "\n".join(lines))
+                        await add_system_event(
+                            db,
+                            sess,
+                            "Инициатива: всем брошено 1d20 + мод ЛОВ:\n" + "\n".join(lines),
+                        )
                         await broadcast_state(session_id)
                         continue
 
