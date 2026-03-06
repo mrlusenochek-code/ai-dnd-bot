@@ -4,6 +4,7 @@ from typing import Any
 
 from app.combat.state import upsert_pc
 from app.rules.derived_stats import compute_ac
+from app.rules.phb_math import ability_mod_from_stat100
 
 
 def _safe_int(value: Any, default: int) -> int:
@@ -50,7 +51,7 @@ def sync_pcs_from_chars(session_id: str, chars_by_uid: dict[int, Any]) -> None:
             ac = compute_ac(stats=stats, inventory=inventory, equip_map=equip_map)
         else:
             dex = dex_default
-            ac = _clamp(12 + int((dex - 50) // 20), 10, 18)
+            ac = 10 + ability_mod_from_stat100(dex)
 
         upsert_pc(
             session_id,
