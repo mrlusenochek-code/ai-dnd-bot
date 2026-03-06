@@ -63,6 +63,7 @@ from app.web.combat_bridge import (
     _generate_combat_narration,
     _merge_combat_patches,
 )
+from app.web.check_engine import roll_check
 from app.web.utils import _clamp, _short_text, as_int
 from app.web.ws_access import COMBAT_CLARIFY_TEXT, _combat_clarify_already_sent, _event_actor_label, _load_actor_context, _player_uid
 from app.web.ws_checks import SKILL_TO_ABILITY, _ability_mod_from_stats, _normalize_check_name, _skill_bonus_from_rank_and_level
@@ -1168,16 +1169,14 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                         skill_bonus = _skill_bonus_from_rank_and_level(sk.rank, ch.level) if sk else 0
                         mod = ability_mod + skill_bonus
 
-                    if mode == "roll":
-                        roll = random.randint(1, 20)
-                        total = roll + mod
-                        rolls_text = str(roll)
-                    else:
-                        ra = random.randint(1, 20)
-                        rb = random.randint(1, 20)
-                        roll = max(ra, rb) if mode == "adv" else min(ra, rb)
-                        total = roll + mod
-                        rolls_text = f"{ra}/{rb}->{roll}"
+                    mapped_mode = {
+                        "roll": "normal",
+                        "adv": "advantage",
+                        "dis": "disadvantage",
+                    }.get(mode, "normal")
+                    ra, rb, roll = roll_check(mapped_mode)
+                    total = roll + mod
+                    rolls_text = str(roll) if rb is None else f"{ra}/{rb}->{roll}"
 
                     msg = f"[CHECK] {ch.name}: {key} = {rolls_text} + {mod:+d} => {total}"
                     if dc is not None:

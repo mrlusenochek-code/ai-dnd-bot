@@ -106,6 +106,7 @@ from app.web.regexes import (
 )
 from app.web import gm_orchestrator
 from app.web.combat_helpers import _combat_participant_line, _de_numberize_text, _hit_force_label, _hp_state_label
+from app.web.check_engine import roll_check as _roll_check
 from app.web.db_helpers import get_or_create_player_web, get_player_by_uid, get_session, list_session_players
 from app.web.gameplay_helpers import (
     CHAR_DEFAULT_STATS,
@@ -1443,20 +1444,6 @@ def _compute_check_mod(
     ability_mod = _ability_mod_from_stats(character.stats, ability_key) if ability_key else 0
     skill_bonus = int(skill_mods.get(name, 0))
     return ability_mod + skill_bonus
-
-
-def _roll_check(mode: str) -> tuple[int, Optional[int], int]:
-    normalized = _normalize_check_mode(mode)
-    if normalized == "advantage":
-        r1 = random.randint(1, 20)
-        r2 = random.randint(1, 20)
-        return r1, r2, max(r1, r2)
-    if normalized == "disadvantage":
-        r1 = random.randint(1, 20)
-        r2 = random.randint(1, 20)
-        return r1, r2, min(r1, r2)
-    r = random.randint(1, 20)
-    return r, None, r
 
 
 def _build_check_result(check: dict[str, Any], mod: int, roll_a: int, roll_b: Optional[int], roll: int) -> dict[str, Any]:
