@@ -107,6 +107,17 @@ def _spend_action_or_block(state: Any, actor: Any) -> dict[str, Any] | None:
     }
 
 
+def _spend_bonus_action_or_block(state: Any, actor: Any) -> dict[str, Any] | None:
+    if actor.bonus_action_available:
+        actor.bonus_action_available = False
+        return None
+    return {
+        "status": _combat_status(state),
+        "open": True,
+        "lines": [{"text": "Бонусное действие недоступно: бонусное действие уже потрачено.", "muted": True}],
+    }
+
+
 def _clamp_death_counter(value: int) -> int:
     return max(0, min(int(value), 3))
 
@@ -675,7 +686,7 @@ def handle_live_combat_action(
         attacker = state.combatants.get(attacker_key)
         if attacker is None:
             return None, "Combat state is inconsistent"
-        blocked = _spend_action_or_block(state, attacker)
+        blocked = _spend_bonus_action_or_block(state, attacker)
         if blocked is not None:
             return blocked, None
 
