@@ -9,6 +9,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models import Character, Event, Player, Session, SessionPlayer, Skill
+from app.rules.phb_progression import class_hit_die
 from app.web.session_state import settings_get
 from app.web.utils import _clamp, as_int
 
@@ -292,17 +293,24 @@ async def create_character(
 ) -> Character:
     hp_max = max(1, hp_max)
     sta_max = max(1, sta_max)
+    level = 1
+    hit_die = class_hit_die(class_kit, class_skin)
+    hit_dice_max = level
+    hit_dice_remaining = hit_dice_max
     ch = Character(
         session_id=session_id,
         player_id=player_id,
         name=name,
         class_kit=class_kit,
         class_skin=class_skin,
-        level=1,
+        level=level,
         hp_max=hp_max,
         hp=hp_max,
         sta_max=sta_max,
         sta=sta_max,
+        hit_die=hit_die,
+        hit_dice_max=hit_dice_max,
+        hit_dice_remaining=hit_dice_remaining,
         stats=(dict(stats) if isinstance(stats, dict) else dict(CHAR_DEFAULT_STATS)),
     )
     db.add(ch)
