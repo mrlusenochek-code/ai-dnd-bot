@@ -500,9 +500,9 @@ def _player_uid(player: Optional[Player]) -> Optional[int]:
 
 
 def _ability_mod_from_stats(stats_raw: Any, stat_key: str) -> int:
-    stats = _normalized_stats(stats_raw)
-    val = stats.get(stat_key, 50)
-    return _clamp((val - 50) // 10, -5, 5)
+    from app.web.ws_checks import _ability_mod_from_stats as _ws_ability_mod_from_stats
+
+    return _ws_ability_mod_from_stats(stats_raw, stat_key)
 
 
 def _skill_bonus_from_rank(rank_raw: Any) -> int:
