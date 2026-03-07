@@ -474,6 +474,9 @@ def _build_race_features(selected_race: dict | None) -> dict[str, Any]:
     tool_profs: list[str] = []
     out_nat: dict[str, Any] | None = None
     out_nat_weapons: list[dict[str, Any]] = []
+    breath: dict[str, Any] = {}
+    movement: dict[str, Any] = {}
+    innate_spells: list[dict[str, Any]] = []
 
     for t in traits:
         if not isinstance(t, dict):
@@ -551,6 +554,39 @@ def _build_race_features(selected_race: dict | None) -> dict[str, Any]:
                     }
                 )
 
+        if mtype == "hold_breath":
+            duration = str(mech.get("duration") or "").strip()
+            if duration:
+                breath["hold"] = duration
+
+        if mtype == "amphibious":
+            breath["amphibious"] = True
+
+        if mtype == "ignore_difficult_terrain":
+            terrain = [str(x).strip() for x in _as_list(mech.get("terrain")) if str(x).strip()]
+            if terrain:
+                movement["ignore_difficult_terrain"] = terrain
+
+        if mtype == "innate_spellcasting":
+            ability = str(mech.get("ability") or "").strip().lower()
+            spells = _as_list(mech.get("spells"))
+            for spell in spells:
+                if not isinstance(spell, dict):
+                    continue
+                name = str(spell.get("name") or "").strip()
+                frequency = str(spell.get("frequency") or "").strip()
+                if not name:
+                    continue
+                spell_obj: dict[str, Any] = {
+                    "ability": ability,
+                    "level": as_int(spell.get("level"), 0),
+                    "name": name,
+                    "frequency": frequency,
+                }
+                if spell.get("min_level") is not None:
+                    spell_obj["min_level"] = as_int(spell.get("min_level"), 0)
+                innate_spells.append(spell_obj)
+
     out: dict[str, Any] = {
         "race_key": str(selected_race.get("key") or "").strip(),
         "size": size,
@@ -568,6 +604,9 @@ def _build_race_features(selected_race: dict | None) -> dict[str, Any]:
             "skills": sorted(set(skill_profs)),
             "tools": sorted(set(tool_profs)),
         },
+        "breath": breath,
+        "movement": movement,
+        "innate_spells": innate_spells,
     }
     return out
 
