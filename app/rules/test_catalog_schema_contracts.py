@@ -54,3 +54,31 @@ def test_artificer_exists_and_hit_die_8() -> None:
     artificer = next((item for item in CLASS_CATALOG if str(item.get("key") or "") == "artificer"), None)
     assert artificer is not None
     assert int(artificer.get("hit_die") or 0) == 8
+
+
+def test_dwarf_reference_schema_payload() -> None:
+    dwarf = next((item for item in RACE_CATALOG if str(item.get("key") or "") == "dwarf"), None)
+    assert dwarf is not None
+    assert int(dwarf.get("speed_ft") or 0) == 25
+
+    languages = set(dwarf.get("languages") or [])
+    assert "common" in languages
+    assert "dwarvish" in languages
+
+    asi = dwarf.get("asi") or []
+    assert any(item.get("stat") == "con" and int(item.get("bonus") or 0) == 2 for item in asi if isinstance(item, dict))
+
+    subraces = {str(item.get("key") or ""): item for item in (dwarf.get("subraces") or []) if isinstance(item, dict)}
+    assert "hill_dwarf" in subraces
+    assert "mountain_dwarf" in subraces
+
+    hill = subraces["hill_dwarf"]
+    hill_asi = hill.get("asi") or []
+    assert any(item.get("stat") == "wis" and int(item.get("bonus") or 0) == 1 for item in hill_asi if isinstance(item, dict))
+    hill_traits = {str(item.get("key") or ""): item for item in (hill.get("traits") or []) if isinstance(item, dict)}
+    assert "dwarven_toughness" in hill_traits
+    assert (hill_traits["dwarven_toughness"].get("mechanics") or {}).get("type") == "hp_scaling"
+
+    mountain = subraces["mountain_dwarf"]
+    mountain_asi = mountain.get("asi") or []
+    assert any(item.get("stat") == "str" and int(item.get("bonus") or 0) == 2 for item in mountain_asi if isinstance(item, dict))

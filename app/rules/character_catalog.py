@@ -60,7 +60,84 @@ BASE_CLASS_CATALOG: list[dict[str, Any]] = [
 BASE_RACE_CATALOG: list[dict[str, Any]] = [
     {"key": "human", "name": "Human", "name_ru": "Человек", "source": "PHB", "description_ru": "", "asi": [], "age": {}, "alignment": "", "size": "medium", "speed_ft": 30, "speed_notes_ru": "", "languages": [], "traits": [], "subraces": [], "tags": []},
     {"key": "dragonborn", "name": "Dragonborn", "name_ru": "Драконорождённый", "source": "PHB", "description_ru": "", "asi": [], "age": {}, "alignment": "", "size": "medium", "speed_ft": 30, "speed_notes_ru": "", "languages": [], "traits": [], "subraces": [], "tags": []},
-    {"key": "dwarf", "name": "Dwarf", "name_ru": "Дварф", "source": "PHB", "description_ru": "", "asi": [], "age": {}, "alignment": "", "size": "medium", "speed_ft": 25, "speed_notes_ru": "", "languages": [], "traits": [], "subraces": [], "tags": []},
+    {
+        "key": "dwarf",
+        "name": "Dwarf",
+        "name_ru": "Дварф",
+        "source": "PHB",
+        "description_ru": "Крепкий и выносливый народ, привыкший к подземным залам и камню.",
+        "asi": [{"stat": "con", "bonus": 2}],
+        "age": {},
+        "alignment": "",
+        "size": "medium",
+        "speed_ft": 25,
+        "speed_notes_ru": "Ношение тяжёлых доспехов не снижает скорость.",
+        "languages": ["common", "dwarvish"],
+        "traits": [
+            {
+                "key": "darkvision",
+                "name_ru": "Тёмное зрение",
+                "text_ru": "Видит в темноте на ограничённой дистанции.",
+                "mechanics": {"type": "sense", "name": "darkvision", "range_ft": 60},
+            },
+            {
+                "key": "dwarven_resilience",
+                "name_ru": "Дварфская стойкость",
+                "text_ru": "Устойчив к яду и лучше сопротивляется его эффектам.",
+                "mechanics": {"saves_advantage": ["poison"], "resistances": ["poison"]},
+            },
+            {
+                "key": "dwarven_combat_training",
+                "name_ru": "Дварфская боевая выучка",
+                "text_ru": "Обучен традиционному оружию дварфов.",
+                "mechanics": {
+                    "type": "proficiency",
+                    "weapons": ["battleaxe", "handaxe", "light_hammer", "warhammer"],
+                },
+            },
+            {
+                "key": "tool_proficiency",
+                "name_ru": "Владение инструментами",
+                "text_ru": "Выбирает один ремесленный набор дварфов.",
+                "mechanics": {"choose": 1, "from": ["smith_tools", "brewer_supplies", "mason_tools"]},
+            },
+            {
+                "key": "stonecunning",
+                "name_ru": "Знание камня",
+                "text_ru": "Особо хорошо разбирается в истории и происхождении каменной кладки.",
+                "mechanics": {"type": "skill_bonus", "skill": "history", "context": "stonework", "proficiency_multiplier": 2},
+            },
+        ],
+        "subraces": [
+            {
+                "key": "hill_dwarf",
+                "name_ru": "Холмовой дварф",
+                "asi": [{"stat": "wis", "bonus": 1}],
+                "traits": [
+                    {
+                        "key": "dwarven_toughness",
+                        "name_ru": "Дварфская живучесть",
+                        "text_ru": "Дополнительная живучесть увеличивает максимальные хиты.",
+                        "mechanics": {"type": "hp_scaling", "base_bonus": 1, "per_level_bonus": 1},
+                    }
+                ],
+            },
+            {
+                "key": "mountain_dwarf",
+                "name_ru": "Горный дварф",
+                "asi": [{"stat": "str", "bonus": 2}],
+                "traits": [
+                    {
+                        "key": "dwarf_armor_training",
+                        "name_ru": "Дварфская доспешная выучка",
+                        "text_ru": "Владеет лёгкими и средними доспехами.",
+                        "mechanics": {"type": "proficiency", "armor": ["light", "medium"]},
+                    }
+                ],
+            },
+        ],
+        "tags": [],
+    },
     {"key": "elf", "name": "Elf", "name_ru": "Эльф", "source": "PHB", "description_ru": "", "asi": [], "age": {}, "alignment": "", "size": "medium", "speed_ft": 30, "speed_notes_ru": "", "languages": [], "traits": [], "subraces": [], "tags": []},
     {"key": "gnome", "name": "Gnome", "name_ru": "Гном", "source": "PHB", "description_ru": "", "asi": [], "age": {}, "alignment": "", "size": "small", "speed_ft": 25, "speed_notes_ru": "", "languages": [], "traits": [], "subraces": [], "tags": []},
     {"key": "half_elf", "name": "Half-Elf", "name_ru": "Полуэльф", "source": "PHB", "description_ru": "", "asi": [], "age": {}, "alignment": "", "size": "medium", "speed_ft": 30, "speed_notes_ru": "", "languages": [], "traits": [], "subraces": [], "tags": []},

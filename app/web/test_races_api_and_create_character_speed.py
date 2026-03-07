@@ -50,3 +50,5 @@ def test_api_races_nonempty() -> None:
     payload = json.loads(resp.body)
     races = payload.get("races") or []
     assert races
+    race_ids = {str(item.get("id") or "") for item in races if isinstance(item, dict)}
+    assert "dwarf" in race_ids
