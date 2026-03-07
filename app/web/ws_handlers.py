@@ -192,6 +192,22 @@ def _apply_innate_spell_usage(ch: Character, spell_key: str) -> tuple[Optional[s
     return display_name, None, changed
 
 
+def _reset_innate_spell_uses(ch: Character) -> bool:
+    race_features = getattr(ch, "race_features", None)
+    rf = dict(race_features) if isinstance(race_features, dict) else {}
+    runtime_raw = rf.get("runtime")
+    runtime = dict(runtime_raw) if isinstance(runtime_raw, dict) else {}
+    if "innate_spell_uses" not in runtime:
+        return False
+    runtime.pop("innate_spell_uses", None)
+    if runtime:
+        rf["runtime"] = runtime
+    else:
+        rf.pop("runtime", None)
+    ch.race_features = rf
+    return True
+
+
 async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
     async def ws_error(message: str, *, fatal: bool = False, request_id: Optional[str] = None) -> None:
         rid = request_id
@@ -931,6 +947,9 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                         pass
                     elif (lower.startswith("gm ") or lower.startswith("gm:")) and is_admin_user:
                         pass
+                    elif combat_action == "rest_long":
+                        await ws_error("Сейчас бой, отдых невозможен.", request_id=msg_request_id)
+                        continue
                     elif combat_action:
                         innate_spell_key = _detect_innate_spell_key(text) if combat_action == "combat_innate_spell" else None
                         actor_label = await _event_actor_label(db, sess, player)
@@ -1084,6 +1103,20 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                         continue
 
                 # OOC (any time, no turn)
+                if combat_action == "rest_long":
+                    ch = await get_character(db, sess.id, player.id)
+                    if not ch:
+                        await ws_error("No character. Use: char create ...", request_id=msg_request_id)
+                        continue
+                    changed = _reset_innate_spell_uses(ch)
+                    if changed:
+                        flag_modified(ch, "race_features")
+                    await db.commit()
+                    await add_system_event(db, sess, "Долгий отдых: врождённые заклинания восстановлены.")
+                    await broadcast_state(session_id)
+                    continue
+
+                # OOC (any time, no turn)
                 if lower.startswith("ooc ") or cmdline.startswith("//"):
                     msg = cmdline[4:].strip() if lower.startswith("ooc ") else cmdline[2:].strip()
                     await add_event(db, sess, f"[OOC] {player.display_name} (#{sp.join_order}): {msg}")
@@ -1189,6 +1222,8 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                     ch.hp = hp
                     ch.sta = sta
                     ch.hit_dice_remaining = hd_after
+                    if _reset_innate_spell_uses(ch):
+                        flag_modified(ch, "race_features")
                     await db.commit()
                     await add_system_event(
                         db,
@@ -1746,6 +1781,10 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                     )
                     await db.commit()
                     await broadcast_state(session_id)
+
+                    if combat_action == "rest_long":
+                        await ws_error("Сейчас бой, отдых невозможен.")
+                        continue
 
                     if combat_action:
                         player_uid = _player_uid(player)
