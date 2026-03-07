@@ -182,6 +182,7 @@ def _maybe_restore_combat_state(sess: Session, session_id: str) -> None:
 
 
 async def build_state(db: AsyncSession, sess: Session) -> dict:
+    session_id = str(sess.id)
     all_sps = await list_session_players(db, sess, active_only=False)
     kicked = _get_kicked(sess)
     all_sps = [sp for sp in all_sps if str(sp.player_id) not in kicked]
@@ -256,6 +257,7 @@ async def build_state(db: AsyncSession, sess: Session) -> dict:
     actions_total = len(round_participants)
     actions_done = sum(1 for sp in round_participants if str(sp.player_id) in round_actions)
     positions = _get_pc_positions(sess)
+    combat_snapshot = snapshot_combat_state(session_id)
     players_payload = []
     for sp in all_sps:
         pl = players_by_id.get(sp.player_id)
@@ -324,6 +326,7 @@ async def build_state(db: AsyncSession, sess: Session) -> dict:
             "actions_total": actions_total,
             "pc_positions": pc_positions,
         },
+        "combat": combat_snapshot if isinstance(combat_snapshot, dict) else None,
     }
 
 

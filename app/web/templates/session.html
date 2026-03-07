@@ -687,6 +687,32 @@ function openCharacterModal(){
   const featChoiceRu = featChoices.length
     ? (featsNameRuByKey[featChoices[0]] || featChoices[0])
     : "";
+  const combatState = (lastState && typeof lastState.combat === "object" && lastState.combat) ? lastState.combat : null;
+  const combatants = (combatState && typeof combatState.combatants === "object" && combatState.combatants) ? combatState.combatants : {};
+  const myCombatantKey = me && me.uid !== null && me.uid !== undefined ? (`pc_${String(me.uid)}`) : "";
+  const myCombatant = myCombatantKey && combatants ? combatants[myCombatantKey] : null;
+  const hasActiveCombatant = !!(combatState && combatState.active && myCombatant && typeof myCombatant === "object");
+  const combatModeRaw = hasActiveCombatant ? String(myCombatant.movement_mode || "").trim().toLowerCase() : "";
+  const combatModeRuMap = {
+    "walk": "ходьба",
+    "fly": "полёт",
+    "swim": "плавание",
+    "climb": "лазание",
+  };
+  const combatModeRu = combatModeRaw ? (combatModeRuMap[combatModeRaw] || combatModeRaw) : "";
+  const combatMoveSpeeds = hasActiveCombatant && myCombatant.movement_speeds && typeof myCombatant.movement_speeds === "object"
+    ? myCombatant.movement_speeds
+    : {};
+  const combatSpeedParts = [];
+  const modeOrder = ["walk", "fly", "swim", "climb"];
+  for(const modeKey of modeOrder){
+    const rawValue = combatMoveSpeeds[modeKey];
+    const modeSpeed = Number.isFinite(Number(rawValue)) ? Number(rawValue) : NaN;
+    if(!Number.isFinite(modeSpeed) || modeSpeed <= 0) continue;
+    const modeLabel = combatModeRuMap[modeKey] || modeKey;
+    combatSpeedParts.push(`${modeLabel} ${modeSpeed}`);
+  }
+  const combatSpeedsText = combatSpeedParts.join(", ");
 
   const speedParts = [];
   const statsObj = (ch && typeof ch.stats === "object" && ch.stats) ? ch.stats : {};
@@ -752,6 +778,12 @@ function openCharacterModal(){
   if(speedText){
     details.push(`<div class="char-line"><strong>Скорость:</strong> ${escapeHtml(speedText)}</div>`);
   }
+  if(hasActiveCombatant && combatModeRu){
+    details.push(`<div class="char-line"><strong>Режим движения:</strong> ${escapeHtml(combatModeRu)}</div>`);
+  }
+  if(hasActiveCombatant && combatSpeedsText){
+    details.push(`<div class="char-line"><strong>Скорости (боевые):</strong> ${escapeHtml(combatSpeedsText)}</div>`);
+  }
   if(darkvisionFt !== null){
     details.push(`<div class="char-line"><strong>Тёмное зрение:</strong> ${escapeHtml(String(darkvisionFt))} фт</div>`);
   }
@@ -800,6 +832,8 @@ function openCharacterModal(){
   }
   copyLines.push(`Зона: ${zone}`);
   if(speedText) copyLines.push(`Скорость: ${speedText}`);
+  if(hasActiveCombatant && combatModeRu) copyLines.push(`Режим движения: ${combatModeRu}`);
+  if(hasActiveCombatant && combatSpeedsText) copyLines.push(`Скорости (боевые): ${combatSpeedsText}`);
   if(darkvisionFt !== null) copyLines.push(`Тёмное зрение: ${darkvisionFt} фт`);
   if(natArmorText) copyLines.push(`Природный доспех: ${natArmorText}`);
   if(langsRu.length) copyLines.push(`Языки: ${langsRu.join(", ")}`);
