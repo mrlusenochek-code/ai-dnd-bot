@@ -234,6 +234,32 @@ def test_aasimar_reference_schema_payload() -> None:
     assert "fly_speed_ft" not in fallen_mech
 
 
+def test_vedalken_reference_schema_payload() -> None:
+    vedalken = next((item for item in RACE_CATALOG if str(item.get("key") or "") == "vedalken"), None)
+    assert vedalken is not None
+    assert str(vedalken.get("size") or "") == "medium"
+    assert int(vedalken.get("speed_ft") or 0) == 30
+
+    asi = vedalken.get("asi") or []
+    assert any(item.get("stat") == "int" and int(item.get("bonus") or 0) == 2 for item in asi if isinstance(item, dict))
+    assert any(item.get("stat") == "wis" and int(item.get("bonus") or 0) == 1 for item in asi if isinstance(item, dict))
+
+    languages = set(vedalken.get("languages") or [])
+    assert "common" in languages
+    assert "vedalken" in languages
+
+    traits = {str(item.get("key") or ""): item for item in (vedalken.get("traits") or []) if isinstance(item, dict)}
+    assert "vedalken_dispassion" in traits
+    assert "tireless_precision" in traits
+    assert "partially_amphibious" in traits
+    assert "extra_language" in traits
+
+    precision_mechanics = (traits["tireless_precision"].get("mechanics") or {})
+    assert str(precision_mechanics.get("bonus_die") or "") == "1d4"
+    skill_choices = precision_mechanics.get("choose_skill_from") or []
+    assert skill_choices == ["performance", "history", "sleight_of_hand", "arcana", "medicine", "investigation"]
+
+
 def test_dragonborn_reference_schema_payload() -> None:
     dragonborn = next((item for item in RACE_CATALOG if str(item.get("key") or "") == "dragonborn"), None)
     assert dragonborn is not None

@@ -65,11 +65,13 @@ def test_api_races_nonempty() -> None:
     assert "half_orc" in race_ids
     assert "halfling" in race_ids
     assert "tiefling" in race_ids
+    assert "vedalken" in race_ids
     assert race_names.get("human") == "Человек"
     assert race_names.get("aasimar") == "Аасимар"
     assert race_names.get("aarakocra") == "Ааракокра"
     assert race_names.get("genasi") == "Дженази"
     assert race_names.get("goliath") == "Голиаф"
+    assert race_names.get("vedalken") == "Ведалкен"
 
 
 def test_api_classes_contains_barbarian() -> None:
