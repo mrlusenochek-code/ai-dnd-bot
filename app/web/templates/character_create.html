@@ -96,6 +96,14 @@
         <select id="subraceId"></select>
       </div>
 
+      <div id="raceChoices" style="display:none;">
+        <label>Стартовые выборы</label>
+        <div id="choiceLangRow">
+          <label>Доп. язык (обязательно)</label>
+          <select id="choiceLang1"></select>
+        </div>
+      </div>
+
       <label>Или своя раса (опционально)</label>
       <input id="customRace" placeholder="Half-Orc"/>
 
@@ -159,8 +167,40 @@
 <script>
 const SESSION_ID = "{{ session_id }}";
 const STAT_KEYS = ["str","dex","con","int","wis","cha"];
+const LANGUAGE_LABELS_RU = {
+  "common": "Общий",
+  "dwarvish": "Дварфийский",
+  "elvish": "Эльфийский",
+  "halfling": "Полуросличий",
+  "gnomish": "Гномий",
+  "orc": "Орочий",
+  "draconic": "Драконий",
+  "goblin": "Гоблинский",
+  "infernal": "Инфернальный",
+  "celestial": "Небесный",
+  "giant": "Великаний",
+  "primordial": "Первичный",
+  "auran": "Ауран",
+  "aquan": "Акван",
+  "terran": "Терран",
+  "ignan": "Игнан",
+  "abyssal": "Бездонный",
+  "sylvan": "Сильван",
+  "undercommon": "Подобщий",
+  "deep_speech": "Глубинная речь",
+  "thieves_cant": "Воровской жаргон",
+  "gith": "Гит",
+  "quori": "Кворийский",
+  "leonin": "Леонинский",
+  "tabaxi": "Табаксийский",
+  "vedalken": "Ведалкенский",
+  "aarakocra": "Ааракокранский",
+  "loxodon": "Локсодонский",
+  "minotaur": "Минотаврийский"
+};
 let classes = [];
 let races = [];
+let raceChoiceState = { languageRequired: false };
 function _sortByNameRu(a, b){
   const aName = String((a && (a.name_ru || a.name)) || "").trim();
   const bName = String((b && (b.name_ru || b.name)) || "").trim();
@@ -356,6 +396,135 @@ function setSubraceItems(listEl, subraces){
   }
 }
 
+function normalizeLanguageKey(value){
+  return String(value || "").trim().toLowerCase();
+}
+
+function buildLanguageOptions(allowedKeys){
+  const rawKeys = Array.isArray(allowedKeys) ? allowedKeys : [];
+  const normalized = rawKeys.map(normalizeLanguageKey).filter(Boolean);
+  const uniqAllowed = Array.from(new Set(normalized));
+  const keys = uniqAllowed.length > 0 ? uniqAllowed : Object.keys(LANGUAGE_LABELS_RU);
+  return keys
+    .map((k) => ({ key: k, label: LANGUAGE_LABELS_RU[k] || k }))
+    .sort((a, b) => String(a.label).localeCompare(String(b.label), "ru", { sensitivity: "base" }));
+}
+
+function getCurrentRaceContext(raceId){
+  const selectedRaceId = String(raceId || (document.getElementById("raceId") ? document.getElementById("raceId").value : "") || "").trim();
+  const race = races.find(x => x && x.id === selectedRaceId) || null;
+  const details = race && race.details ? race.details : {};
+  const raceSubs = race && Array.isArray(race.subraces) ? race.subraces : [];
+  const detailSubs = Array.isArray(details.subraces) ? details.subraces : [];
+  const subraces = raceSubs.length > 0 ? raceSubs : detailSubs;
+  const selectedSubraceId = String((document.getElementById("subraceId") ? document.getElementById("subraceId").value : "") || "").trim().toLowerCase();
+  const selectedSubrace = subraces.find((sr) => {
+    if(!sr || typeof sr !== "object") return false;
+    return String(sr.key || "").trim().toLowerCase() === selectedSubraceId;
+  }) || null;
+  const baseTraits = Array.isArray(details.traits) ? details.traits.filter(Boolean) : [];
+  const subTraits = selectedSubrace && Array.isArray(selectedSubrace.traits) ? selectedSubrace.traits.filter(Boolean) : [];
+  const raceKey = String((race && race.id) || "").trim().toLowerCase();
+  const subraceKey = String((selectedSubrace && selectedSubrace.key) || "").trim().toLowerCase();
+  const effectiveTraits = (raceKey === "human" && subraceKey === "variant_human")
+    ? subTraits
+    : (selectedSubrace ? [...baseTraits, ...subTraits] : baseTraits);
+
+  return { race, details, subraces, selectedSubrace, effectiveTraits };
+}
+
+function getLanguageChoiceConfig(traits){
+  const out = { required: false, allowAny: false, allowedKeys: [] };
+  const items = Array.isArray(traits) ? traits : [];
+
+  for(const t of items){
+    if(!t || typeof t !== "object") continue;
+    const mech = (t.mechanics && typeof t.mechanics === "object") ? t.mechanics : {};
+    const mtype = String(mech.type || "").trim().toLowerCase();
+    const countRaw = Number(mech.count ?? mech.choose ?? 1);
+    const count = Number.isFinite(countRaw) ? countRaw : 1;
+    if(count <= 0) continue;
+
+    if(mtype === "choose_language"){
+      out.required = true;
+      out.allowAny = true;
+      continue;
+    }
+    if(mtype !== "language_choice" && mtype !== "choice"){
+      continue;
+    }
+
+    const from = mech.from;
+    if(Array.isArray(from)){
+      const vals = from.map(normalizeLanguageKey).filter(Boolean);
+      if(vals.includes("any") || vals.includes("any_language")){
+        out.required = true;
+        out.allowAny = true;
+      }else if(vals.length > 0){
+        out.required = true;
+        out.allowedKeys.push(...vals);
+      }
+      continue;
+    }
+
+    const fromKey = normalizeLanguageKey(from);
+    if(fromKey === "any" || fromKey === "any_language" || !fromKey){
+      out.required = true;
+      out.allowAny = true;
+    }else{
+      out.required = true;
+      out.allowedKeys.push(fromKey);
+    }
+  }
+
+  return out;
+}
+
+function renderRaceChoices(){
+  const block = document.getElementById("raceChoices");
+  const langRow = document.getElementById("choiceLangRow");
+  const langSel = document.getElementById("choiceLang1");
+  if(!block || !langRow || !langSel) return;
+
+  const ctx = getCurrentRaceContext();
+  const cfg = getLanguageChoiceConfig(ctx.effectiveTraits);
+  const needsLanguage = !!cfg.required;
+  raceChoiceState = { languageRequired: needsLanguage };
+
+  if(!needsLanguage){
+    block.style.display = "none";
+    langRow.style.display = "none";
+    langSel.disabled = true;
+    langSel.required = false;
+    langSel.value = "";
+    return;
+  }
+
+  const prev = String(langSel.value || "");
+  langSel.innerHTML = "";
+
+  const first = document.createElement("option");
+  first.value = "";
+  first.textContent = "(выберите язык)";
+  langSel.appendChild(first);
+
+  const options = buildLanguageOptions(cfg.allowAny ? [] : cfg.allowedKeys);
+  for(const item of options){
+    const opt = document.createElement("option");
+    opt.value = item.key;
+    opt.textContent = item.label;
+    langSel.appendChild(opt);
+  }
+
+  const keepPrev = Array.from(langSel.options).some(o => String(o.value) === prev);
+  langSel.value = keepPrev ? prev : "";
+
+  block.style.display = "";
+  langRow.style.display = "";
+  langSel.disabled = false;
+  langSel.required = true;
+}
+
 function renderSubraceSelect(race, details){
   const row = document.getElementById("subraceRow");
   const sel = document.getElementById("subraceId");
@@ -388,6 +557,10 @@ function renderSubraceSelect(race, details){
   const hasOptions = sel.options.length > 1;
   row.style.display = hasOptions ? "" : "none";
   sel.disabled = !hasOptions;
+  sel.onchange = () => {
+    const raceSel = document.getElementById("raceId");
+    renderRaceDetails(raceSel ? raceSel.value : "");
+  };
 
   if(!hasOptions){
     sel.value = "";
@@ -404,19 +577,19 @@ function renderRaceDetails(raceId){
   const textEl = document.getElementById("raceText");
   const traitsEl = document.getElementById("raceTraits");
   const subracesEl = document.getElementById("raceSubraces");
-  const race = races.find(x => x && x.id === raceId) || null;
-  const details = race && race.details ? race.details : {};
-  const raceSubs = race && Array.isArray(race.subraces) ? race.subraces : [];
-  const detailSubs = Array.isArray(details.subraces) ? details.subraces : [];
-  const subraces = raceSubs.length > 0 ? raceSubs : detailSubs;
-  renderSubraceSelect(race, details);
+  const before = getCurrentRaceContext(raceId);
+  renderSubraceSelect(before.race, before.details);
+  const ctx = getCurrentRaceContext(raceId);
+  const race = ctx.race;
+  const details = ctx.details;
+  const subraces = ctx.subraces;
   const title = (details.name_ru || (race ? race.name : "") || raceId || "Раса");
   const description = (details.description_ru || details.notes_ru || "Описание будет добавлено позже.");
   titleEl.textContent = String(title);
   textEl.textContent = String(description);
 
-  const traits = Array.isArray(details.traits)
-    ? details.traits.map(t => {
+  const traits = Array.isArray(ctx.effectiveTraits)
+    ? ctx.effectiveTraits.map(t => {
         if(!t) return null;
         const name = String(t.name_ru || t.name || t.key || "").trim();
         const summary = String(t.summary_ru || t.summary || "").trim();
@@ -426,6 +599,7 @@ function renderRaceDetails(raceId){
     : [];
   setListItems(traitsEl, traits);
   setSubraceItems(subracesEl, subraces);
+  renderRaceChoices();
 }
 function renderClassDetails(classId){
   const titleEl = document.getElementById("classTitle");
@@ -523,6 +697,12 @@ async function createHero(){
     setMessage("Имя персонажа обязательно", false);
     return;
   }
+  const choiceLangEl = document.getElementById("choiceLang1");
+  const choiceLang = String(choiceLangEl ? choiceLangEl.value : "").trim().toLowerCase();
+  if(raceChoiceState.languageRequired && !choiceLang){
+    setMessage("Выбери доп. язык в блоке «Стартовые выборы».", false);
+    return;
+  }
   const payload = {
     session_id: SESSION_ID,
     uid: getUID(),
@@ -537,6 +717,9 @@ async function createHero(){
     race: "",
     description: (document.getElementById("desc").value || "").trim(),
   };
+  if(choiceLang){
+    payload.race_choices = { languages: [choiceLang] };
+  }
   const r = await fetch("/api/character/create", {
     method:"POST",
     headers:{"Content-Type":"application/json"},

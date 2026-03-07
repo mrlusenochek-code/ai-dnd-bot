@@ -541,10 +541,19 @@ async def api_character_create(payload: dict):
     race_id = str(payload.get("race_id") or "").strip().lower()
     subrace_id = str(payload.get("subrace_id") or "").strip().lower()
     custom_race = str(payload.get("custom_race") or "").strip()
+    race_choices_payload = payload.get("race_choices")
     stats_in = payload.get("stats")
     meta_gender = str(payload.get("gender") or "").strip()[:40]
     meta_race = str(payload.get("race") or "").strip()[:60]
     meta_description = str(payload.get("description") or "").strip()[:1000]
+    race_choice_languages: list[str] = []
+    if isinstance(race_choices_payload, dict):
+        raw_langs = race_choices_payload.get("languages")
+        raw_langs_list = raw_langs if isinstance(raw_langs, list) else []
+        for item in raw_langs_list:
+            lang = str(item or "").strip().lower()
+            if lang and lang not in race_choice_languages:
+                race_choice_languages.append(lang)
 
     if uid <= 0:
         raise HTTPException(status_code=400, detail="Bad uid")
@@ -660,6 +669,19 @@ async def api_character_create(payload: dict):
                 "key": str(selected_subrace.get("key") or "").strip(),
                 "name_ru": str(selected_subrace.get("name_ru") or selected_subrace.get("name") or "").strip(),
             }
+        if isinstance(race_features, dict) and race_choice_languages:
+            base_langs = race_features.get("languages")
+            base_langs_list = base_langs if isinstance(base_langs, list) else []
+            merged_langs: list[str] = []
+            for item in [*base_langs_list, *race_choice_languages]:
+                lang = str(item or "").strip().lower()
+                if lang and lang not in merged_langs:
+                    merged_langs.append(lang)
+            race_features["languages"] = merged_langs
+            choices = race_features.get("choices")
+            choices_dict = choices if isinstance(choices, dict) else {}
+            choices_dict["languages"] = list(race_choice_languages)
+            race_features["choices"] = choices_dict
         walk_speed = as_int(((race_features.get("speeds") or {}) if isinstance(race_features, dict) else {}).get("walk_ft"), 30)
         if not meta_race:
             meta_race = race_skin
