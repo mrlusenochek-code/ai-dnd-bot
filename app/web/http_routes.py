@@ -539,6 +539,7 @@ async def api_character_create(payload: dict):
     class_id = str(payload.get("class_id") or "").strip().lower()
     custom_class = str(payload.get("custom_class") or "").strip()
     race_id = str(payload.get("race_id") or "").strip().lower()
+    subrace_id = str(payload.get("subrace_id") or "").strip().lower()
     custom_race = str(payload.get("custom_race") or "").strip()
     stats_in = payload.get("stats")
     meta_gender = str(payload.get("gender") or "").strip()[:40]
@@ -589,17 +590,71 @@ async def api_character_create(payload: dict):
         class_skin = class_name[:60]
 
         selected_race = resolve_race(race_id) if race_id else None
+        selected_subrace: dict[str, Any] | None = None
+        effective_race: dict[str, Any] | None = selected_race
+
+        if isinstance(selected_race, dict) and subrace_id:
+            subs = selected_race.get("subraces")
+            subs_list = subs if isinstance(subs, list) else []
+            for sr in subs_list:
+                if not isinstance(sr, dict):
+                    continue
+                k = str(sr.get("key") or "").strip().lower()
+                if k and k == subrace_id:
+                    selected_subrace = sr
+                    break
+
+            if selected_subrace is not None:
+                eff = dict(selected_race)
+                base_traits = eff.get("traits")
+                base_traits_list = base_traits if isinstance(base_traits, list) else []
+                sub_traits = selected_subrace.get("traits")
+                sub_traits_list = sub_traits if isinstance(sub_traits, list) else []
+                eff["traits"] = [*base_traits_list, *sub_traits_list]
+
+                base_lang = eff.get("languages")
+                base_lang_list = base_lang if isinstance(base_lang, list) else []
+                sub_lang = selected_subrace.get("languages")
+                sub_lang_list = sub_lang if isinstance(sub_lang, list) else []
+                merged: list[str] = []
+                for x in [*base_lang_list, *sub_lang_list]:
+                    xs = str(x).strip()
+                    if xs and xs not in merged:
+                        merged.append(xs)
+                eff["languages"] = merged
+
+                # allow simple overrides
+                if selected_subrace.get("speed_ft") is not None:
+                    eff["speed_ft"] = selected_subrace.get("speed_ft")
+                if selected_subrace.get("size") is not None:
+                    eff["size"] = selected_subrace.get("size")
+
+                effective_race = eff
+
         if selected_race is not None:
-            # When a preset race is selected, keep mechanics by race id.
+            # When a preset race is selected, keep mechanics by base race id.
             race_kit = str(selected_race.get("key") or "human").strip()[:40]
-            race_skin = (
-                custom_race
-                or str(selected_race.get("name_ru") or selected_race.get("name") or "Human")
-            ).strip()[:60]
+            if custom_race:
+                race_skin = custom_race.strip()[:60]
+            elif selected_subrace is not None:
+                race_skin = str(
+                    selected_subrace.get("name_ru")
+                    or selected_subrace.get("name")
+                    or selected_subrace.get("key")
+                    or (selected_race.get("name_ru") or selected_race.get("name") or "Human")
+                ).strip()[:60]
+            else:
+                race_skin = str(selected_race.get("name_ru") or selected_race.get("name") or "Human").strip()[:60]
         else:
             race_skin = (custom_race or "Human").strip()[:60]
             race_kit = (custom_race.strip().lower().replace(" ", "_") if custom_race else "human")[:40]
-        race_features = _build_race_features(selected_race)
+
+        race_features = _build_race_features(effective_race)
+        if isinstance(race_features, dict) and selected_subrace is not None:
+            race_features["subrace"] = {
+                "key": str(selected_subrace.get("key") or "").strip(),
+                "name_ru": str(selected_subrace.get("name_ru") or selected_subrace.get("name") or "").strip(),
+            }
         walk_speed = as_int(((race_features.get("speeds") or {}) if isinstance(race_features, dict) else {}).get("walk_ft"), 30)
         if not meta_race:
             meta_race = race_skin

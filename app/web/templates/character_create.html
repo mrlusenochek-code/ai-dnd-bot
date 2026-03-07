@@ -91,6 +91,11 @@
       <label>Раса (preset)</label>
       <select id="raceId"></select>
 
+      <div id="subraceRow" style="display:none;">
+        <label>Подраса / разновидность</label>
+        <select id="subraceId"></select>
+      </div>
+
       <label>Или своя раса (опционально)</label>
       <input id="customRace" placeholder="Half-Orc"/>
 
@@ -350,6 +355,48 @@ function setSubraceItems(listEl, subraces){
     listEl.appendChild(li);
   }
 }
+
+function renderSubraceSelect(details){
+  const row = document.getElementById("subraceRow");
+  const sel = document.getElementById("subraceId");
+  if(!row || !sel) return;
+
+  const subs = Array.isArray(details && details.subraces) ? details.subraces.filter(Boolean) : [];
+  const prev = String(sel.value || "");
+
+  sel.innerHTML = "";
+
+  const opt0 = document.createElement("option");
+  opt0.value = "";
+  opt0.textContent = "(нет)";
+  sel.appendChild(opt0);
+
+  for(const sr of subs){
+    if(!sr) continue;
+    if(typeof sr === "string") continue;
+    const key = String(sr.key || "").trim();
+    if(!key) continue;
+    const name = String(sr.name_ru || sr.name || sr.key || "Подраса").trim();
+    const opt = document.createElement("option");
+    opt.value = key;
+    opt.textContent = name;
+    sel.appendChild(opt);
+  }
+
+  const hasOptions = sel.options.length > 1;
+  row.style.display = hasOptions ? "" : "none";
+  sel.disabled = !hasOptions;
+
+  if(!hasOptions){
+    sel.value = "";
+    return;
+  }
+
+  // try to keep previous choice if still valid
+  const ok = Array.from(sel.options).some(o => String(o.value) === prev);
+  sel.value = ok ? prev : "";
+}
+
 function renderRaceDetails(raceId){
   const titleEl = document.getElementById("raceTitle");
   const textEl = document.getElementById("raceText");
@@ -357,6 +404,7 @@ function renderRaceDetails(raceId){
   const subracesEl = document.getElementById("raceSubraces");
   const race = races.find(x => x && x.id === raceId) || null;
   const details = race && race.details ? race.details : {};
+  renderSubraceSelect(details);
   const title = (details.name_ru || (race ? race.name : "") || raceId || "Раса");
   const description = (details.description_ru || details.notes_ru || "Описание будет добавлено позже.");
   titleEl.textContent = String(title);
@@ -477,6 +525,7 @@ async function createHero(){
     class_id: classId,
     custom_class: customClass,
     race_id: (document.getElementById("raceId").value || "").trim(),
+    subrace_id: (document.getElementById("subraceId") ? (document.getElementById("subraceId").value || "").trim() : ""),
     custom_race: (document.getElementById("customRace").value || "").trim(),
     stats,
     gender: (document.getElementById("gender").value || "").trim(),
