@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import Any
 
 from app.combat.state import upsert_pc
-from app.rules.derived_stats import compute_ac, fly_speed_available_by_armor
+from app.rules.derived_stats import compute_ac, effective_walk_speed_ft, fly_speed_available_by_armor
 from app.rules.phb_math import ability_mod_from_stat100
 
 
@@ -65,6 +65,13 @@ def sync_pcs_from_chars(session_id: str, chars_by_uid: dict[int, Any]) -> None:
         else:
             dex = dex_default
             ac = 10 + ability_mod_from_stat100(dex)
+
+        movement_speeds["walk"] = effective_walk_speed_ft(
+            speed,
+            inventory=inventory,
+            equip_map=equip_map,
+            race_features=rf if isinstance(rf, dict) else None,
+        )
 
         swim_ft = max(0, _safe_int((rf_speeds or {}).get("swim_ft"), 0))
         if swim_ft > 0:

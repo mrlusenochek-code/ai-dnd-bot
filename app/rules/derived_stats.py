@@ -87,6 +87,28 @@ def fly_speed_available_by_armor(*, race_features: dict | None, inventory: list[
     return True, armor_cat
 
 
+def effective_walk_speed_ft(
+    base_speed_ft: int,
+    *,
+    inventory: list[dict],
+    equip_map: dict[str, str],
+    race_features: dict | None,
+) -> int:
+    base = max(0, _safe_int(base_speed_ft, 30))
+    armor_cat = equipped_armor_category(inventory=inventory, equip_map=equip_map)
+    if armor_cat != "heavy":
+        return base
+
+    rf = race_features if isinstance(race_features, dict) else {}
+    movement = rf.get("movement") if isinstance(rf.get("movement"), dict) else {}
+    if bool(movement.get("ignore_heavy_armor_speed_penalty")):
+        return base
+
+    if base == 25:
+        return 15
+    return base
+
+
 def parse_dice(dice: str) -> tuple[int, int] | None:
     parts = str(dice or "").strip().lower().split("d")
     if len(parts) != 2:
