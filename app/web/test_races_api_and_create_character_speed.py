@@ -52,6 +52,7 @@ def test_api_races_nonempty() -> None:
     assert races
     race_ids = {str(item.get("id") or "") for item in races if isinstance(item, dict)}
     assert "dwarf" in race_ids
+    assert "elf" in race_ids
 
 
 def test_api_classes_contains_barbarian() -> None:

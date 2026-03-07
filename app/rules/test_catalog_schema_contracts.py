@@ -101,3 +101,29 @@ def test_barbarian_reference_schema_payload() -> None:
     subclasses = {str(item.get("key") or ""): item for item in (barbarian.get("subclasses") or []) if isinstance(item, dict)}
     assert "berserker" in subclasses
     assert "totem_warrior" in subclasses
+
+
+def test_elf_reference_schema_payload() -> None:
+    elf = next((item for item in RACE_CATALOG if str(item.get("key") or "") == "elf"), None)
+    assert elf is not None
+    assert int(elf.get("speed_ft") or 0) == 30
+
+    languages = set(elf.get("languages") or [])
+    assert "common" in languages
+    assert "elvish" in languages
+
+    asi = elf.get("asi") or []
+    assert any(item.get("stat") == "dex" and int(item.get("bonus") or 0) == 2 for item in asi if isinstance(item, dict))
+
+    subraces = {str(item.get("key") or ""): item for item in (elf.get("subraces") or []) if isinstance(item, dict)}
+    assert "high_elf" in subraces
+    assert "wood_elf" in subraces
+    assert "drow" in subraces
+
+    wood_elf = subraces["wood_elf"]
+    assert int(wood_elf.get("speed_ft") or 0) == 35
+
+    drow = subraces["drow"]
+    drow_traits = {str(item.get("key") or ""): item for item in (drow.get("traits") or []) if isinstance(item, dict)}
+    assert "superior_darkvision_120" in drow_traits
+    assert "sunlight_sensitivity" in drow_traits
