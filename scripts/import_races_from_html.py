@@ -1,21 +1,32 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 
+import ast
+import copy
 import html
-import json
 import os
+import pprint
 import re
 from pathlib import Path
 from typing import Any
 
-from app.rules.catalog_loader import load_catalogs
-from app.rules.character_catalog import BASE_CLASS_CATALOG, BASE_RACE_CATALOG
+from app.rules.catalog_schema import normalize_race
+from app.rules.character_catalog import BASE_RACE_CATALOG
 
 DEFAULT_CATALOG_SOURCE_DIR = "/home/lus/code/game_resources/catalog_source"
-DEFAULT_PRIVATE_DATA_DIR = "./data_private"
-GENERATED_RACES_FILE = "races_generated.json"
 SOURCE_LABEL = "game_resources/catalog_source"
 NOTES_LABEL_RU = "Импортировано автоматически, требует ревью"
+MERGE_FIELDS: tuple[str, ...] = (
+    "name_ru",
+    "size",
+    "speed_ft",
+    "languages",
+    "asi",
+    "traits",
+    "subraces",
+    "notes_ru",
+    "source",
+)
 
 STAT_ALIASES: list[tuple[str, str]] = [
     ("str", r"сил"),
@@ -304,19 +315,99 @@ def _build_race_payload(page_html: str, race_id: str) -> dict[str, Any]:
     return race
 
 
-def _write_json(path: Path, payload: list[dict[str, Any]]) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+def _repo_root() -> Path:
+    return Path(__file__).resolve().parents[1]
 
 
-def _existing_race_ids() -> set[str]:
-    _classes, races = load_catalogs(base_classes=BASE_CLASS_CATALOG, base_races=BASE_RACE_CATALOG)
-    ids: set[str] = set()
-    for race in races:
-        key = _slug(race.get("key") or race.get("id"))
-        if key:
-            ids.add(key)
-    return ids
+def _canonical_catalog_path() -> Path:
+    return _repo_root() / "app" / "rules" / "character_catalog.py"
+
+
+def _normalize_imported_race(raw: dict[str, Any]) -> dict[str, Any] | None:
+    normalized = normalize_race(raw)
+    if not normalized:
+        return None
+
+    race_id = str(normalized.get("key") or "").strip()
+    normalized["name_ru"] = str(raw.get("name_ru") or normalized.get("name_ru") or race_id).strip() or race_id
+    normalized["notes_ru"] = str(raw.get("notes_ru") or NOTES_LABEL_RU).strip() or NOTES_LABEL_RU
+    normalized["source"] = str(raw.get("source") or normalized.get("source") or SOURCE_LABEL).strip() or SOURCE_LABEL
+    return normalized
+
+
+def _merge_canonical_races(
+    *,
+    canonical: list[dict[str, Any]],
+    imported: list[dict[str, Any]],
+) -> tuple[list[dict[str, Any]], int, int]:
+    merged = [copy.deepcopy(item) for item in canonical if isinstance(item, dict)]
+    by_key: dict[str, int] = {}
+    for idx, race in enumerate(merged):
+        race_key = _slug(race.get("key") or race.get("id"))
+        if race_key and race_key not in by_key:
+            by_key[race_key] = idx
+
+    updated = 0
+    added = 0
+    for race in imported:
+        race_key = _slug(race.get("key") or race.get("id"))
+        if not race_key:
+            continue
+        if race_key in by_key:
+            current = merged[by_key[race_key]]
+            for field in MERGE_FIELDS:
+                if field == "name_ru":
+                    current[field] = str(race.get(field) or race_key).strip() or race_key
+                else:
+                    current[field] = copy.deepcopy(race.get(field))
+            updated += 1
+            continue
+
+        new_item = copy.deepcopy(race)
+        new_item["key"] = race_key
+        new_item["name_ru"] = str(new_item.get("name_ru") or race_key).strip() or race_key
+        merged.append(new_item)
+        by_key[race_key] = len(merged) - 1
+        added += 1
+
+    return merged, updated, added
+
+
+def _render_race_catalog_block(races: list[dict[str, Any]]) -> str:
+    payload = pprint.pformat(races, width=120, sort_dicts=False)
+    return f"BASE_RACE_CATALOG: list[dict[str, Any]] = {payload}"
+
+
+def _replace_base_race_catalog(path: Path, races: list[dict[str, Any]]) -> None:
+    source = path.read_text(encoding="utf-8")
+    tree = ast.parse(source, filename=str(path))
+    lines = source.splitlines(keepends=True)
+    block_start: int | None = None
+    block_end: int | None = None
+
+    for node in tree.body:
+        target_name: str | None = None
+        if isinstance(node, ast.Assign):
+            for tgt in node.targets:
+                if isinstance(tgt, ast.Name) and tgt.id == "BASE_RACE_CATALOG":
+                    target_name = "BASE_RACE_CATALOG"
+                    break
+        elif isinstance(node, ast.AnnAssign):
+            if isinstance(node.target, ast.Name) and node.target.id == "BASE_RACE_CATALOG":
+                target_name = "BASE_RACE_CATALOG"
+
+        if target_name:
+            block_start = node.lineno - 1
+            block_end = node.end_lineno
+            break
+
+    if block_start is None or block_end is None:
+        raise RuntimeError(f"BASE_RACE_CATALOG not found in {path}")
+
+    replacement = _render_race_catalog_block(races)
+    replacement_lines = [line + "\n" for line in replacement.splitlines()]
+    new_lines = lines[:block_start] + replacement_lines + lines[block_end:]
+    path.write_text("".join(new_lines), encoding="utf-8")
 
 
 def _iter_race_html_dirs(source_root: Path) -> list[Path]:
@@ -334,52 +425,34 @@ def _iter_race_html_dirs(source_root: Path) -> list[Path]:
 
 def main() -> int:
     source_dir = Path(os.getenv("CATALOG_SOURCE_DIR", DEFAULT_CATALOG_SOURCE_DIR)).expanduser()
-    private_dir = Path(os.getenv("DNDSU_PRIVATE_DATA_DIR", DEFAULT_PRIVATE_DATA_DIR)).expanduser()
-    output_path = private_dir / GENERATED_RACES_FILE
+    catalog_path = _canonical_catalog_path()
 
     if not source_dir.is_dir():
         print(f"Catalog source dir not found: {source_dir}")
         return 1
 
-    existing_ids = _existing_race_ids()
-
-    # If generated file already exists, allow regenerating those ids in-place.
-    if output_path.exists() and output_path.is_file():
-        try:
-            existing_generated = json.loads(output_path.read_text(encoding="utf-8"))
-            if isinstance(existing_generated, list):
-                for item in existing_generated:
-                    if not isinstance(item, dict):
-                        continue
-                    rid = _slug(item.get("id") or item.get("key"))
-                    if rid:
-                        existing_ids.discard(rid)
-        except (OSError, json.JSONDecodeError):
-            pass
-
     imported: list[dict[str, Any]] = []
-    skipped = 0
 
     for article_dir in _iter_race_html_dirs(source_dir):
         race_id = _entry_id_from_dir(article_dir)
         if not race_id:
             continue
-        if race_id in existing_ids:
-            skipped += 1
-            continue
         page_html = _read_text(article_dir / "index.html")
         if not page_html:
             continue
-        race = _build_race_payload(page_html, race_id)
-        if not str(race.get("name_ru") or "").strip():
-            race["name_ru"] = race_id
-        imported.append(race)
+        race_raw = _build_race_payload(page_html, race_id)
+        race = _normalize_imported_race(race_raw)
+        if race:
+            imported.append(race)
 
-    imported.sort(key=lambda item: str(item.get("id") or item.get("key") or ""))
-    _write_json(output_path, imported)
+    imported.sort(key=lambda item: str(item.get("key") or ""))
+    merged, updated, added = _merge_canonical_races(canonical=BASE_RACE_CATALOG, imported=imported)
+    _replace_base_race_catalog(catalog_path, merged)
 
-    print(f"Generated races: {len(imported)} -> {output_path}")
-    print(f"Skipped existing ids: {skipped}")
+    print(f"Imported races from HTML: {len(imported)}")
+    print(f"Updated existing races:   {updated}")
+    print(f"Added new races:         {added}")
+    print(f"Canonical catalog path:  {catalog_path}")
     return 0
 
 

@@ -64,8 +64,8 @@ def test_api_races_names_are_ru_when_available() -> None:
         if not isinstance(details, dict):
             continue
         name_ru = str(details.get("name_ru") or "").strip()
-        if name_ru:
-            assert str(race.get("name") or "") == name_ru
+        assert name_ru
+        assert str(race.get("name") or "") == name_ru
 
 
 def test_api_classes_contains_barbarian() -> None:

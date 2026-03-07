@@ -13,6 +13,7 @@ DEFAULT_PRIVATE_DATA_DIR = "./data_private"
 PRIVATE_RACES_FILE = "dndsu_races.json"
 PRIVATE_GENERATED_RACES_FILE = "races_generated.json"
 PRIVATE_CLASSES_FILE = "dndsu_classes.json"
+CATALOG_ENABLE_PRIVATE_ENV = "CATALOG_ENABLE_PRIVATE"
 
 
 def _slug(value: Any) -> str:
@@ -21,6 +22,11 @@ def _slug(value: Any) -> str:
 
 def _private_data_dir() -> Path:
     return Path(os.getenv("DNDSU_PRIVATE_DATA_DIR", DEFAULT_PRIVATE_DATA_DIR)).expanduser()
+
+
+def _private_enabled() -> bool:
+    raw = str(os.getenv(CATALOG_ENABLE_PRIVATE_ENV, "0") or "").strip().lower()
+    return raw in {"1", "true", "yes", "on"}
 
 
 def _load_private_catalog(filename: str) -> list[dict[str, Any]]:
@@ -67,34 +73,35 @@ def load_catalogs(
         race_keys[key] = len(merged_races)
         merged_races.append(normalized)
 
-    for raw in _load_private_catalog(PRIVATE_CLASSES_FILE):
-        normalized = normalize_class(raw)
-        if not normalized:
-            continue
-        key = normalized["key"]
-        if key in class_keys:
-            continue
-        class_keys[key] = len(merged_classes)
-        merged_classes.append(normalized)
+    if _private_enabled():
+        for raw in _load_private_catalog(PRIVATE_CLASSES_FILE):
+            normalized = normalize_class(raw)
+            if not normalized:
+                continue
+            key = normalized["key"]
+            if key in class_keys:
+                continue
+            class_keys[key] = len(merged_classes)
+            merged_classes.append(normalized)
 
-    for raw in _load_private_catalog(PRIVATE_RACES_FILE):
-        normalized = normalize_race(raw)
-        if not normalized:
-            continue
-        key = normalized["key"]
-        if key in race_keys:
-            continue
-        race_keys[key] = len(merged_races)
-        merged_races.append(normalized)
+        for raw in _load_private_catalog(PRIVATE_RACES_FILE):
+            normalized = normalize_race(raw)
+            if not normalized:
+                continue
+            key = normalized["key"]
+            if key in race_keys:
+                continue
+            race_keys[key] = len(merged_races)
+            merged_races.append(normalized)
 
-    for raw in _load_private_catalog(PRIVATE_GENERATED_RACES_FILE):
-        normalized = normalize_race(raw)
-        if not normalized:
-            continue
-        key = normalized["key"]
-        if key in race_keys:
-            continue
-        race_keys[key] = len(merged_races)
-        merged_races.append(normalized)
+        for raw in _load_private_catalog(PRIVATE_GENERATED_RACES_FILE):
+            normalized = normalize_race(raw)
+            if not normalized:
+                continue
+            key = normalized["key"]
+            if key in race_keys:
+                continue
+            race_keys[key] = len(merged_races)
+            merged_races.append(normalized)
 
     return merged_classes, merged_races
