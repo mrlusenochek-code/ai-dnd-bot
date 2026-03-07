@@ -114,10 +114,30 @@ def compute_attack_profile(*, stats: dict, inventory: list[dict], equip_map: dic
     )
 
 
-def compute_ac(*, stats: dict, inventory: list[dict], equip_map: dict[str, str]) -> int:
+def compute_ac(*, stats: dict, inventory: list[dict], equip_map: dict[str, str], race_features: dict | None = None) -> int:
     dex = _safe_int(stats.get("dex", 50), 50) if isinstance(stats, dict) else 50
     dex_mod = ability_mod_from_stat100(dex)
     ac = 10 + dex_mod
+    # Natural armor from race (stored in Character.race_features)
+    nat = (race_features or {}).get("natural_armor") if isinstance(race_features, dict) else None
+    nat_ac_base: int | None = None
+    nat_no_armor_stack = False
+    if isinstance(nat, dict):
+        nat_no_armor_stack = bool(nat.get("no_armor_stack"))
+        if nat.get("ac") is not None:
+            nat_ac_base = _safe_int(nat.get("ac"), None)  # type: ignore[arg-type]
+        elif nat.get("ac_formula"):
+            # Supported formulas: "13 + dex_mod", "12 + con_mod"
+            formula = str(nat.get("ac_formula") or "").strip().lower().replace(" ", "")
+            if formula in ("13+dex_mod", "13+dexmod"):
+                nat_ac_base = 13 + dex_mod
+            elif formula in ("12+con_mod", "12+conmod"):
+                con = _safe_int(stats.get("con", 50), 50) if isinstance(stats, dict) else 50
+                con_mod = ability_mod_from_stat100(con)
+                nat_ac_base = 12 + con_mod
+
+    if isinstance(nat_ac_base, int):
+        ac = max(ac, nat_ac_base)
 
     by_id: dict[str, dict[str, Any]] = {}
     for entry in inventory if isinstance(inventory, list) else []:
@@ -138,6 +158,9 @@ def compute_ac(*, stats: dict, inventory: list[dict], equip_map: dict[str, str])
     armor_def = _item_def_for_inventory_entry(armor_entry) if armor_entry else None
     armor_equip = armor_def.equip if armor_def else None
     if armor_equip and armor_equip.base_ac is not None:
+        # If race natural armor does not stack with worn armor, ignore it.
+        if nat_no_armor_stack:
+            nat_ac_base = None
         armor_base_ac = int(armor_equip.base_ac)
         armor_category = armor_equip.armor_category
         if armor_category in (ArmorCategory.light, ArmorCategory.clothing):

@@ -49,7 +49,12 @@ def sync_pcs_from_chars(session_id: str, chars_by_uid: dict[int, Any]) -> None:
                 if isinstance(value, int):
                     stats_payload[key] = value
 
-            ac = compute_ac(stats=stats, inventory=inventory, equip_map=equip_map)
+            ac = compute_ac(
+                stats=stats,
+                inventory=inventory,
+                equip_map=equip_map,
+                race_features=getattr(ch, "race_features", None),
+            )
         else:
             dex = dex_default
             ac = 10 + ability_mod_from_stat100(dex)

@@ -168,7 +168,12 @@ def _build_combat_start_preamble_lines(
             stats = _normalized_stats(character.stats)
             equip_map = _character_equip_from_stats(character.stats)
             inv = _character_inventory_from_stats(character.stats)
-            ac = compute_ac(stats=character.stats, inventory=inv, equip_map=equip_map)
+            ac = compute_ac(
+                stats=character.stats,
+                inventory=inv,
+                equip_map=equip_map,
+                race_features=getattr(character, "race_features", None),
+            )
             hp_max = max(1, as_int(character.hp_max, hp_max))
             hp_cur = _clamp(as_int(character.hp, hp_cur), 0, hp_max)
 
