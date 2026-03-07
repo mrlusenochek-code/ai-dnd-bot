@@ -47,3 +47,11 @@ cd ~/code/ai-dnd-bot
 - Если переменная не задана, включится dev-fallback на SQLite: `sqlite+aiosqlite:///./dev.db`.
 - Фоновые watcher-задачи (`timer_watcher` и `inactive_watcher`) по умолчанию включены.
 - Чтобы отключить их для локальной разработки/отладки, установите `ENABLE_WATCHERS=0` в `.env`.
+
+## Приватный каталог dnd.su
+- `DNDSU_DATA_DIR=/home/lus/downloads/dndsu-full/dnd.su`
+- `DNDSU_PRIVATE_DATA_DIR=./data_private`
+- Импорт локальных рас/классов в приватные JSON:
+```bash
+python scripts/import_dndsu_catalog.py
+```

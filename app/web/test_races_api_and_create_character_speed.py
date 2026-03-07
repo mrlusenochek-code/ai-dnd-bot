@@ -22,7 +22,7 @@ class _FakeDb:
         return None
 
 
-def test_create_character_sets_speed_from_race_kit() -> None:
+def test_create_character_speed_from_race() -> None:
     db = _FakeDb()
 
     async def _run():
@@ -42,7 +42,7 @@ def test_create_character_sets_speed_from_race_kit() -> None:
     assert int(ch.speed_ft) == 25
 
 
-def test_api_races_returns_non_empty_list() -> None:
+def test_api_races_nonempty() -> None:
     async def _run():
         return await api_races()
 

@@ -456,13 +456,13 @@ async def api_character_create(payload: dict):
         class_skin = class_name[:60]
 
         selected_race = resolve_race(race_id) if race_id else None
-        race_name = custom_race or (selected_race.get("name") if selected_race else "Human")
-        race_kit = (
-            custom_race[:40]
-            if custom_race
-            else str((selected_race or {}).get("key") or "human").strip()[:40]
-        )
-        race_skin = race_name[:60]
+        if selected_race is not None:
+            # When a preset race is selected, keep mechanics by race id.
+            race_kit = str(selected_race.get("key") or "human").strip()[:40]
+            race_skin = (custom_race or str(selected_race.get("name") or "Human")).strip()[:60]
+        else:
+            race_skin = (custom_race or "Human").strip()[:60]
+            race_kit = (custom_race.strip().lower().replace(" ", "_") if custom_race else "human")[:40]
         if not meta_race:
             meta_race = race_skin
         stats_preset_key = class_id if CLASS_PRESETS.get(class_id) else selected_class_key
