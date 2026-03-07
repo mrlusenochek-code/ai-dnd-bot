@@ -454,6 +454,7 @@ def _build_race_features(selected_race: dict | None) -> dict[str, Any]:
     immune_cond: list[str] = []
     skill_profs: list[str] = []
     tool_profs: list[str] = []
+    out_nat: dict[str, Any] | None = None
 
     for t in traits:
         if not isinstance(t, dict):
@@ -493,12 +494,30 @@ def _build_race_features(selected_race: dict | None) -> dict[str, Any]:
         if mtype == "tool_proficiency_choice":
             tool_profs.append("choose_any_tools")
 
+        if mtype == "natural_armor":
+            # Supports either fixed AC or formula in mechanics
+            nat_obj: dict[str, Any] = {}
+            ac_fixed = mech.get("ac")
+            if ac_fixed is not None:
+                nat_obj["ac"] = max(0, as_int(ac_fixed, 0))
+            ac_formula = str(mech.get("ac_formula") or "").strip()
+            if ac_formula:
+                nat_obj["ac_formula"] = ac_formula
+            if mech.get("no_armor_stack") is not None:
+                nat_obj["no_armor_stack"] = bool(mech.get("no_armor_stack"))
+            if mech.get("shield_applies") is not None:
+                nat_obj["shield_applies"] = bool(mech.get("shield_applies"))
+            # only set if we actually found something useful
+            if nat_obj:
+                out_nat = nat_obj
+
     out: dict[str, Any] = {
         "race_key": str(selected_race.get("key") or "").strip(),
         "size": size,
         "languages": [str(x) for x in languages if str(x)],
         "speeds": speeds,
         "senses": senses,
+        "natural_armor": out_nat or {},
         "resistances": sorted(set(resist)),
         "immunities": {
             "damage": sorted(set(immune_damage)),
