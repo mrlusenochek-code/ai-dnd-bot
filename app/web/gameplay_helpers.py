@@ -9,7 +9,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models import Character, Event, Player, Session, SessionPlayer, Skill
-from app.rules.character_catalog import race_speed_ft_by_catalog
+from app.rules.character_catalog import race_speed_ft_by_catalog, resolve_race
 from app.rules.phb_progression import class_hit_die
 from app.web.session_state import settings_get
 from app.web.utils import _clamp, as_int
@@ -216,6 +216,31 @@ def _character_meta_from_stats(stats_raw: Any) -> dict[str, str]:
     }
 
 
+def _display_race(ch: Character, meta: dict[str, str]) -> str:
+    # 1) что пользователь/система уже положили в meta
+    current = str((meta or {}).get("race") or "").strip()
+    if not current:
+        current = str(getattr(ch, "race_skin", "") or "").strip()
+
+    # 2) если это пресетная раса и current выглядит как английское имя — покажем name_ru
+    race_key = str(getattr(ch, "race_kit", "") or "").strip().lower()
+    if not race_key:
+        return current
+
+    rr = resolve_race(race_key)
+    if not isinstance(rr, dict):
+        return current
+
+    name_ru = str(rr.get("name_ru") or "").strip()
+    name_en = str(rr.get("name") or "").strip()
+    skin = str(getattr(ch, "race_skin", "") or "").strip()
+
+    if name_ru and (current == name_en or skin == name_en or current == skin == name_en):
+        return name_ru
+
+    return current
+
+
 def _put_character_meta_into_stats(stats_raw: Any, *, gender: str, race: str, description: str) -> dict[str, Any]:
     stats = dict(stats_raw) if isinstance(stats_raw, dict) else {}
     stats["_meta"] = {
@@ -266,7 +291,7 @@ def _char_to_payload(ch: Optional[Character]) -> Optional[dict]:
         "sta_max": int(ch.sta_max or 0),
         "stats": _normalized_stats(ch.stats),
         "gender": meta["gender"],
-        "race": meta["race"],
+        "race": _display_race(ch, meta),
         "description": meta["description"],
     }
 
