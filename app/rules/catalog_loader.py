@@ -11,6 +11,7 @@ from app.rules.catalog_schema import normalize_class, normalize_race
 
 DEFAULT_PRIVATE_DATA_DIR = "./data_private"
 PRIVATE_RACES_FILE = "dndsu_races.json"
+PRIVATE_GENERATED_RACES_FILE = "races_generated.json"
 PRIVATE_CLASSES_FILE = "dndsu_classes.json"
 
 
@@ -77,6 +78,16 @@ def load_catalogs(
         merged_classes.append(normalized)
 
     for raw in _load_private_catalog(PRIVATE_RACES_FILE):
+        normalized = normalize_race(raw)
+        if not normalized:
+            continue
+        key = normalized["key"]
+        if key in race_keys:
+            continue
+        race_keys[key] = len(merged_races)
+        merged_races.append(normalized)
+
+    for raw in _load_private_catalog(PRIVATE_GENERATED_RACES_FILE):
         normalized = normalize_race(raw)
         if not normalized:
             continue

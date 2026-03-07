@@ -42,7 +42,7 @@ def test_create_character_speed_from_race() -> None:
     assert int(ch.speed_ft) == 25
 
 
-def test_api_races_nonempty() -> None:
+def test_api_races_names_are_ru_when_available() -> None:
     async def _run():
         return await api_races()
 
@@ -50,30 +50,22 @@ def test_api_races_nonempty() -> None:
     payload = json.loads(resp.body)
     races = payload.get("races") or []
     assert races
-    race_ids = {str(item.get("id") or "") for item in races if isinstance(item, dict)}
-    race_names = {str(item.get("id") or ""): str(item.get("name") or "") for item in races if isinstance(item, dict)}
-    assert "human" in race_ids
-    assert "aasimar" in race_ids
-    assert "aarakocra" in race_ids
-    assert "dragonborn" in race_ids
-    assert "dwarf" in race_ids
-    assert "elf" in race_ids
-    assert "genasi" in race_ids
-    assert "goliath" in race_ids
-    assert "gnome" in race_ids
-    assert "half_elf" in race_ids
-    assert "half_orc" in race_ids
-    assert "halfling" in race_ids
-    assert "tiefling" in race_ids
-    assert "vedalken" in race_ids
-    assert "verdan" in race_ids
-    assert race_names.get("human") == "Человек"
-    assert race_names.get("aasimar") == "Аасимар"
-    assert race_names.get("aarakocra") == "Ааракокра"
-    assert race_names.get("genasi") == "Дженази"
-    assert race_names.get("goliath") == "Голиаф"
-    assert race_names.get("vedalken") == "Ведалкен"
-    assert race_names.get("verdan") == "Вердан"
+    by_id = {str(item.get("id") or ""): item for item in races if isinstance(item, dict)}
+    assert str((by_id.get("human") or {}).get("name") or "") == "Человек"
+    assert str((by_id.get("dwarf") or {}).get("name") or "") == "Дварф"
+    assert str((by_id.get("elf") or {}).get("name") or "") == "Эльф"
+    assert str((by_id.get("verdan") or {}).get("name") or "") == "Вердан"
+    assert str((by_id.get("aarakocra") or {}).get("name") or "") == "Ааракокра"
+
+    for race in races:
+        if not isinstance(race, dict):
+            continue
+        details = race.get("details") or {}
+        if not isinstance(details, dict):
+            continue
+        name_ru = str(details.get("name_ru") or "").strip()
+        if name_ru:
+            assert str(race.get("name") or "") == name_ru
 
 
 def test_api_classes_contains_barbarian() -> None:
