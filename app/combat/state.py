@@ -40,6 +40,9 @@ class Combatant:
     equip: dict[str, str] | None = None
     race_features: dict[str, Any] | None = None
     level: int = 1
+    last_damage_taken: int = 0
+    last_damage_taken_round: int = 0
+    last_damage_taken_source: str | None = None
 
 
 @dataclass
@@ -323,7 +326,7 @@ def upsert_pc(
     return state
 
 
-def apply_damage(session_id: str, combatant_key: str, damage: int) -> CombatState | None:
+def apply_damage(session_id: str, combatant_key: str, damage: int, *, source: str | None = None) -> CombatState | None:
     state = get_combat(session_id)
     if state is None or not state.active:
         return None
@@ -332,7 +335,12 @@ def apply_damage(session_id: str, combatant_key: str, damage: int) -> CombatStat
     if combatant is None:
         return None
 
-    combatant.hp_current = max(0, combatant.hp_current - max(0, int(damage)))
+    damage_input = max(0, int(damage))
+    damage_applied = min(max(0, int(combatant.hp_current)), damage_input)
+    combatant.last_damage_taken = damage_applied
+    combatant.last_damage_taken_round = max(1, int(state.round_no))
+    combatant.last_damage_taken_source = str(source or "").strip() or None
+    combatant.hp_current = max(0, combatant.hp_current - damage_applied)
     return state
 
 
@@ -385,6 +393,9 @@ def combatant_to_dict(c: Combatant) -> dict[str, Any]:
         "is_stable": bool(c.is_stable),
         "death_successes": max(0, min(int(c.death_successes), 3)),
         "death_failures": max(0, min(int(c.death_failures), 3)),
+        "last_damage_taken": max(0, int(c.last_damage_taken)),
+        "last_damage_taken_round": max(0, int(c.last_damage_taken_round)),
+        "last_damage_taken_source": str(c.last_damage_taken_source).strip() if isinstance(c.last_damage_taken_source, str) else None,
     }
     stats = _sanitize_stats_payload(c.stats)
     if stats is not None:
@@ -435,6 +446,9 @@ def combatant_from_dict(raw: Any) -> Combatant | None:
     is_stable = raw.get("is_stable", False)
     death_successes = raw.get("death_successes", 0)
     death_failures = raw.get("death_failures", 0)
+    last_damage_taken = raw.get("last_damage_taken", 0)
+    last_damage_taken_round = raw.get("last_damage_taken_round", 0)
+    last_damage_taken_source = raw.get("last_damage_taken_source")
 
     if not isinstance(key, str) or not key:
         return None
@@ -447,6 +461,12 @@ def combatant_from_dict(raw: Any) -> Combatant | None:
     if not isinstance(ac, int) or not isinstance(initiative, int):
         return None
     if not isinstance(death_successes, int) or not isinstance(death_failures, int):
+        return None
+    if not isinstance(last_damage_taken, int) or isinstance(last_damage_taken, bool):
+        return None
+    if not isinstance(last_damage_taken_round, int) or isinstance(last_damage_taken_round, bool):
+        return None
+    if last_damage_taken_source is not None and not isinstance(last_damage_taken_source, str):
         return None
 
     hp_max_norm = max(0, hp_max)
@@ -513,6 +533,9 @@ def combatant_from_dict(raw: Any) -> Combatant | None:
         equip=_sanitize_equip_payload(raw.get("equip")),
         race_features=_sanitize_race_features_payload(raw.get("race_features")),
         level=level_norm,
+        last_damage_taken=max(0, int(last_damage_taken)),
+        last_damage_taken_round=max(0, int(last_damage_taken_round)),
+        last_damage_taken_source=(str(last_damage_taken_source).strip() or None) if isinstance(last_damage_taken_source, str) else None,
     )
 
 

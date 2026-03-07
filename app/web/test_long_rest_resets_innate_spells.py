@@ -31,7 +31,7 @@ def test_long_rest_reset_reenables_innate_spell_with_long_rest_limit() -> None:
     assert second_err is not None
     assert second_changed is False
 
-    reset_changed = ws_handlers._reset_innate_spell_uses(ch)
+    reset_changed = ws_handlers._reset_racial_rest_uses(ch)
     assert reset_changed is True
     runtime_after_reset = (ch.race_features or {}).get("runtime") or {}
     assert "innate_spell_uses" not in runtime_after_reset

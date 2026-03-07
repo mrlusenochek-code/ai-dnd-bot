@@ -148,6 +148,76 @@ def _movement_budget_for_actor(actor: Any) -> tuple[int, int]:
     return move_speed_ft, move_remaining_ft
 
 
+def handle_live_combat_reaction(
+    action: str, session_id: str, actor_key: str
+) -> tuple[Optional[dict[str, Any]], Optional[str]]:
+    state = get_combat(session_id)
+    if state is None or not state.active:
+        return None, "Combat is not active"
+    if action != "combat_stone_endurance":
+        return None, "Unknown combat reaction"
+
+    actor = state.combatants.get(actor_key)
+    if actor is None:
+        return None, "Combatant not found"
+    if actor.side != "pc":
+        return None, "Реакция доступна только персонажу игрока."
+    if not bool(getattr(actor, "reaction_available", True)):
+        return None, "Реакция недоступна: реакция уже потрачена."
+
+    race_features = actor.race_features if isinstance(actor.race_features, dict) else {}
+    features = race_features.get("features") if isinstance(race_features.get("features"), dict) else {}
+    stone_endurance = (
+        features.get("stone_endurance")
+        if isinstance(features, dict) and isinstance(features.get("stone_endurance"), dict)
+        else None
+    )
+    if stone_endurance is None:
+        return None, "Каменная выносливость недоступна."
+
+    runtime_raw = race_features.get("runtime")
+    runtime = dict(runtime_raw) if isinstance(runtime_raw, dict) else {}
+    if bool(runtime.get("stone_endurance_used", False)):
+        return None, "Каменная выносливость уже использована до короткого/долгого отдыха."
+
+    last_damage = max(0, int(getattr(actor, "last_damage_taken", 0)))
+    last_damage_round = max(0, int(getattr(actor, "last_damage_taken_round", 0)))
+    if last_damage <= 0 or last_damage_round != max(1, int(state.round_no)):
+        return None, "Нет свежего полученного урона для применения реакции."
+
+    stats = actor.stats if isinstance(actor.stats, dict) else {}
+    con_raw = stats.get("con", 50)
+    con_score = int(con_raw) if isinstance(con_raw, int) and not isinstance(con_raw, bool) else 50
+    con_mod = ability_mod_from_stat100(con_score)
+    roll = random.randint(1, 12)
+    reduction = max(0, roll + con_mod)
+    actual_reduction = min(reduction, last_damage)
+
+    actor.hp_current = min(max(0, int(actor.hp_max)), max(0, int(actor.hp_current)) + actual_reduction)
+    actor.reaction_available = False
+    runtime["stone_endurance_used"] = True
+    race_features["runtime"] = runtime
+    actor.race_features = race_features
+
+    return (
+        {
+            "status": _combat_status(state),
+            "open": True,
+            "lines": [
+                {
+                    "text": (
+                        "Каменная выносливость: снижает урон на "
+                        f"{actual_reduction} ({roll}+{con_mod})."
+                    )
+                },
+                {"text": f"HP восстановлено: +{actual_reduction}."},
+                {"text": f"{actor.name}: HP {actor.hp_current}/{actor.hp_max}"},
+            ],
+        },
+        None,
+    )
+
+
 def parse_heal_dice(expr: str) -> tuple[int, int, int] | None:
     match = re.fullmatch(r"\s*(\d+)[dD](\d+)(?:\+(\d+))?\s*", expr)
     if match is None:
@@ -1006,7 +1076,7 @@ def handle_live_combat_action(
         extra_outcome_lines: list[dict[str, Any]] = []
         if resolution.is_hit:
             pre_hp = target.hp_current
-            state = apply_damage(session_id, target.key, resolution.total_damage)
+            state = apply_damage(session_id, target.key, resolution.total_damage, source=attacker.key)
             if state is None:
                 return None, "Combat is not active"
             target = state.combatants.get(target.key, target)
@@ -1166,7 +1236,7 @@ def handle_live_combat_action(
         extra_outcome_lines: list[dict[str, Any]] = []
         if resolution.is_hit:
             pre_hp = target.hp_current
-            state = apply_damage(session_id, target.key, resolution.total_damage)
+            state = apply_damage(session_id, target.key, resolution.total_damage, source=attacker.key)
             if state is None:
                 return None, "Combat is not active"
             target = state.combatants.get(target.key, target)

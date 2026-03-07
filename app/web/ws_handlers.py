@@ -15,7 +15,7 @@ from sqlalchemy.orm.attributes import flag_modified
 from app.ai.gm import generate_from_prompt
 from app.combat.apply_machine import apply_combat_machine_commands
 from app.combat.combat_narration_facts import extract_combat_narration_facts
-from app.combat.live_actions import handle_live_combat_action
+from app.combat.live_actions import handle_live_combat_action, handle_live_combat_reaction
 from app.combat.state import current_turn_label, end_combat, get_combat
 from app.combat.sync_pcs import sync_pcs_from_chars
 from app.combat.test_actions import handle_admin_combat_test_action
@@ -192,19 +192,52 @@ def _apply_innate_spell_usage(ch: Character, spell_key: str) -> tuple[Optional[s
     return display_name, None, changed
 
 
-def _reset_innate_spell_uses(ch: Character) -> bool:
+def _reset_racial_rest_uses(ch: Character) -> bool:
     race_features = getattr(ch, "race_features", None)
     rf = dict(race_features) if isinstance(race_features, dict) else {}
     runtime_raw = rf.get("runtime")
     runtime = dict(runtime_raw) if isinstance(runtime_raw, dict) else {}
-    if "innate_spell_uses" not in runtime:
+    changed = False
+    if "innate_spell_uses" in runtime:
+        runtime.pop("innate_spell_uses", None)
+        changed = True
+    if "stone_endurance_used" in runtime:
+        runtime.pop("stone_endurance_used", None)
+        changed = True
+    if not changed:
         return False
-    runtime.pop("innate_spell_uses", None)
     if runtime:
         rf["runtime"] = runtime
     else:
         rf.pop("runtime", None)
     ch.race_features = rf
+    return True
+
+
+def _reset_combatant_racial_rest_uses(session_id: str, actor_key: str) -> bool:
+    state = get_combat(session_id)
+    if state is None or not state.active:
+        return False
+    actor = state.combatants.get(actor_key)
+    if actor is None:
+        return False
+    race_features = actor.race_features if isinstance(actor.race_features, dict) else {}
+    runtime_raw = race_features.get("runtime")
+    runtime = dict(runtime_raw) if isinstance(runtime_raw, dict) else {}
+    changed = False
+    if "innate_spell_uses" in runtime:
+        runtime.pop("innate_spell_uses", None)
+        changed = True
+    if "stone_endurance_used" in runtime:
+        runtime.pop("stone_endurance_used", None)
+        changed = True
+    if not changed:
+        return False
+    if runtime:
+        race_features["runtime"] = runtime
+    else:
+        race_features.pop("runtime", None)
+    actor.race_features = race_features
     return True
 
 
@@ -959,7 +992,11 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                             f"{actor_label}: {text}",
                             actor_player_id=player.id,
                             result_json={
-                                "type": "combat_innate_spell" if combat_action == "combat_innate_spell" else "player_action",
+                                "type": (
+                                    "combat_innate_spell"
+                                    if combat_action == "combat_innate_spell"
+                                    else ("combat_stone_endurance" if combat_action == "combat_stone_endurance" else "player_action")
+                                ),
                                 "raw_text": text,
                                 "combat_chat_action": combat_action,
                                 "spell_key": innate_spell_key,
@@ -969,6 +1006,18 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
 
                         player_uid = _player_uid(player)
                         player_key = f"pc_{player_uid}" if player_uid is not None else ""
+                        if combat_action == "combat_stone_endurance":
+                            combat_patch, combat_err = handle_live_combat_reaction(
+                                "combat_stone_endurance",
+                                session_id,
+                                player_key,
+                            )
+                            if combat_err:
+                                await ws_error(combat_err, request_id=msg_request_id)
+                                continue
+                            if combat_patch:
+                                await _broadcast_state_unlocked(session_id, combat_log_ui_patch=combat_patch)
+                            continue
                         turn_key: Optional[str] = None
                         if combat_state and combat_state.order and 0 <= combat_state.turn_index < len(combat_state.order):
                             turn_key = combat_state.order[combat_state.turn_index]
@@ -1097,20 +1146,23 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                         continue
                     else:
                         await ws_error(
-                            "Combat Lock: в бою доступны только боевые команды (атака/конец хода/уклон/движение/рывок/отход/взлёт/приземление/помощь/побег) или OOC.",
+                            "Combat Lock: в бою доступны только боевые команды (атака/конец хода/уклон/движение/рывок/отход/взлёт/приземление/помощь/побег/каменная выносливость) или OOC.",
                             request_id=msg_request_id,
                         )
                         continue
 
                 # OOC (any time, no turn)
-                if combat_action == "rest_long":
+                if combat_action == "rest_long" and lower not in {"rest", "rest long"}:
                     ch = await get_character(db, sess.id, player.id)
                     if not ch:
                         await ws_error("No character. Use: char create ...", request_id=msg_request_id)
                         continue
-                    changed = _reset_innate_spell_uses(ch)
+                    changed = _reset_racial_rest_uses(ch)
                     if changed:
                         flag_modified(ch, "race_features")
+                    player_uid = _player_uid(player)
+                    player_key = f"pc_{player_uid}" if player_uid is not None else ""
+                    _reset_combatant_racial_rest_uses(session_id, player_key)
                     await db.commit()
                     await add_system_event(db, sess, "Долгий отдых: врождённые заклинания восстановлены.")
                     await broadcast_state(session_id)
@@ -1222,8 +1274,11 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                     ch.hp = hp
                     ch.sta = sta
                     ch.hit_dice_remaining = hd_after
-                    if _reset_innate_spell_uses(ch):
+                    if _reset_racial_rest_uses(ch):
                         flag_modified(ch, "race_features")
+                    player_uid = _player_uid(player)
+                    player_key = f"pc_{player_uid}" if player_uid is not None else ""
+                    _reset_combatant_racial_rest_uses(session_id, player_key)
                     await db.commit()
                     await add_system_event(
                         db,
@@ -1253,6 +1308,11 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                     )
                     ch.hp = hp
                     ch.sta = sta
+                    if _reset_racial_rest_uses(ch):
+                        flag_modified(ch, "race_features")
+                    player_uid = _player_uid(player)
+                    player_key = f"pc_{player_uid}" if player_uid is not None else ""
+                    _reset_combatant_racial_rest_uses(session_id, player_key)
                     await db.commit()
                     await add_system_event(
                         db,
@@ -1759,7 +1819,11 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                     current_zone = _get_pc_positions(sess).get(pid, "стартовая локация")
                     new_zone_preview = current_zone
                     payload = {
-                        "type": "combat_innate_spell" if combat_action == "combat_innate_spell" else "player_action",
+                        "type": (
+                            "combat_innate_spell"
+                            if combat_action == "combat_innate_spell"
+                            else ("combat_stone_endurance" if combat_action == "combat_stone_endurance" else "player_action")
+                        ),
                         "actor_uid": _player_uid(player),
                         "actor_player_id": str(player.id),
                         "join_order": int(sp.join_order or 0),
@@ -1789,6 +1853,18 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                     if combat_action:
                         player_uid = _player_uid(player)
                         player_key = f"pc_{player_uid}" if player_uid is not None else ""
+                        if combat_action == "combat_stone_endurance":
+                            combat_patch, combat_err = handle_live_combat_reaction(
+                                "combat_stone_endurance",
+                                session_id,
+                                player_key,
+                            )
+                            if combat_err:
+                                await ws_error(combat_err)
+                                continue
+                            if combat_patch:
+                                await broadcast_state(session_id, combat_log_ui_patch=combat_patch)
+                            continue
                         turn_key: Optional[str] = None
                         if combat_state and combat_state.order and 0 <= combat_state.turn_index < len(combat_state.order):
                             turn_key = combat_state.order[combat_state.turn_index]
