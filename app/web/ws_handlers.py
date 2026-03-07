@@ -518,6 +518,8 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                     "combat_dodge",
                     "combat_dash",
                     "combat_disengage",
+                    "combat_takeoff",
+                    "combat_land",
                     "combat_escape",
                     "combat_use_object",
                     "combat_help",
@@ -978,7 +980,7 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                         continue
                     else:
                         await ws_error(
-                            "Combat Lock: в бою доступны только боевые команды (атака/конец хода/уклон/рывок/отход/помощь/побег) или OOC.",
+                            "Combat Lock: в бою доступны только боевые команды (атака/конец хода/уклон/рывок/отход/взлёт/приземление/помощь/побег) или OOC.",
                             request_id=msg_request_id,
                         )
                         continue

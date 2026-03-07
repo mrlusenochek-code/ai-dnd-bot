@@ -347,6 +347,71 @@ def handle_live_combat_action(
             None,
         )
 
+    if action == "combat_takeoff":
+        state = get_combat(session_id)
+        if state is None or not state.active:
+            return None, "Combat is not active"
+        if not state.order:
+            end_combat(session_id)
+            return (
+                {
+                    "status": "Бой завершён",
+                    "open": False,
+                    "lines": [{"text": "Бой завершён: целей не осталось.", "muted": True}],
+                },
+                None,
+            )
+
+        actor_key = state.order[state.turn_index]
+        actor = state.combatants.get(actor_key)
+        if actor is None:
+            return None, "Combat state is inconsistent"
+
+        movement_speeds = actor.movement_speeds if isinstance(actor.movement_speeds, dict) else {}
+        fly_speed = int(movement_speeds.get("fly", 0)) if isinstance(movement_speeds.get("fly", 0), int) else 0
+        if fly_speed <= 0:
+            return None, "Полёт недоступен (броня/нет крыльев)"
+
+        actor.movement_mode = "fly"
+        return (
+            {
+                "status": _combat_status(state),
+                "open": True,
+                "lines": [{"text": f"{actor.name} взлетает."}],
+            },
+            None,
+        )
+
+    if action == "combat_land":
+        state = get_combat(session_id)
+        if state is None or not state.active:
+            return None, "Combat is not active"
+        if not state.order:
+            end_combat(session_id)
+            return (
+                {
+                    "status": "Бой завершён",
+                    "open": False,
+                    "lines": [{"text": "Бой завершён: целей не осталось.", "muted": True}],
+                },
+                None,
+            )
+
+        actor_key = state.order[state.turn_index]
+        actor = state.combatants.get(actor_key)
+        if actor is None:
+            return None, "Combat state is inconsistent"
+
+        actor.movement_mode = "walk"
+        return (
+            {
+                "status": _combat_status(state),
+                "open": True,
+                "lines": [{"text": f"{actor.name} приземляется."}],
+            },
+            None,
+        )
+
     if action == "combat_dodge":
         state = get_combat(session_id)
         if state is None or not state.active:

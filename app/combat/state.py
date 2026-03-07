@@ -27,6 +27,7 @@ class Combatant:
     reaction_available: bool = True
     speed_ft: int = 30
     movement_speeds: dict[str, int] = field(default_factory=dict)
+    movement_mode: str = "walk"
     move_remaining: int = 30
     is_dead: bool = False
     is_stable: bool = False
@@ -133,6 +134,13 @@ def _sanitize_movement_speeds_payload(value: Any) -> dict[str, int] | None:
     return out
 
 
+def _sanitize_movement_mode(value: Any) -> str | None:
+    if not isinstance(value, str):
+        return None
+    mode = value.strip().lower()
+    return mode or None
+
+
 def _normalize_level(value: Any) -> int:
     try:
         level = int(value)
@@ -215,6 +223,7 @@ def upsert_pc(
     equip: dict[str, str] | None = None,
     race_features: dict[str, Any] | None = None,
     movement_speeds: dict[str, int] | None = None,
+    movement_mode: str | None = None,
 ) -> CombatState | None:
     state = get_combat(session_id)
     if state is None or not state.active:
@@ -238,6 +247,7 @@ def upsert_pc(
     equip_norm = _sanitize_equip_payload(equip)
     race_features_norm = _sanitize_race_features_payload(race_features)
     movement_speeds_norm = _sanitize_movement_speeds_payload(movement_speeds)
+    movement_mode_norm = _sanitize_movement_mode(movement_mode)
 
     existing = state.combatants.get(pc_key)
     if existing is not None:
@@ -255,6 +265,10 @@ def upsert_pc(
         existing.race_features = race_features_norm
         if movement_speeds_norm is not None:
             existing.movement_speeds = movement_speeds_norm
+        if movement_mode_norm is not None:
+            existing.movement_mode = movement_mode_norm
+        elif not _sanitize_movement_mode(existing.movement_mode):
+            existing.movement_mode = "walk"
     else:
         state.combatants[pc_key] = Combatant(
             key=pc_key,
@@ -267,6 +281,7 @@ def upsert_pc(
             level=level_norm,
             speed_ft=speed_ft_norm,
             movement_speeds=movement_speeds_norm or {},
+            movement_mode=movement_mode_norm or "walk",
             move_remaining=speed_ft_norm,
             stats=stats_norm,
             inventory=inventory_norm,
@@ -335,6 +350,7 @@ def combatant_to_dict(c: Combatant) -> dict[str, Any]:
         "reaction_available": bool(c.reaction_available),
         "speed_ft": max(0, int(c.speed_ft)),
         "movement_speeds": _sanitize_movement_speeds_payload(c.movement_speeds) or {},
+        "movement_mode": _sanitize_movement_mode(c.movement_mode) or "walk",
         "move_remaining": max(0, int(c.move_remaining)),
         "is_dead": bool(c.is_dead),
         "is_stable": bool(c.is_stable),
@@ -423,6 +439,7 @@ def combatant_from_dict(raw: Any) -> Combatant | None:
         else 30
     )
     movement_speeds_norm = _sanitize_movement_speeds_payload(raw.get("movement_speeds")) or {}
+    movement_mode_norm = _sanitize_movement_mode(raw.get("movement_mode")) or "walk"
 
     return Combatant(
         key=key,
@@ -442,6 +459,7 @@ def combatant_from_dict(raw: Any) -> Combatant | None:
         reaction_available=bool(raw.get("reaction_available", True)),
         speed_ft=speed_ft_norm,
         movement_speeds=movement_speeds_norm,
+        movement_mode=movement_mode_norm,
         move_remaining=move_remaining_norm,
         is_dead=bool(is_dead),
         is_stable=bool(is_stable),
