@@ -86,6 +86,13 @@ CHAT_COMBAT_ACTION_PATTERNS: list[tuple[str, re.Pattern[str]]] = [
             re.IGNORECASE,
         ),
     ),
+    (
+        "combat_breath_weapon",
+        re.compile(
+            r"(оружи\w+\s+дыхани\w+|выдыха\w+|дыш\w+\s+(?:огн|плам|молн|кисл|яд|холод)|breath\s+weapon)",
+            re.IGNORECASE,
+        ),
+    ),
     ("combat_use_object", re.compile(r"(использую|применяю|активирую|включаю|поджигаю|зажигаю|пью|выпиваю|нажимаю|достаю|зелье|флакон|свиток|факел|рычаг|кнопк)", re.IGNORECASE)),
     (
         "tortle_shell_in",

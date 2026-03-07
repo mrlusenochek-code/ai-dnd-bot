@@ -13,7 +13,7 @@ from app.combat.state import (
     get_combat,
 )
 from app.rules.derived_stats import compute_attack_profile, parse_dice
-from app.rules.phb_math import ability_mod_from_stat100
+from app.rules.phb_math import ability_mod_from_stat100, proficiency_bonus
 from app.rules.item_catalog import ITEMS
 from app.web.check_engine import roll_check
 
@@ -117,6 +117,37 @@ def _aasimar_bonus_damage_for_hit(actor: Any) -> tuple[int, str]:
     bonus = level
     actor.bonus_damage_used_this_turn = True
     return bonus, damage_type
+
+
+def _breath_weapon_dice_for_level(progression: list[dict[str, Any]], level: int) -> str:
+    lvl = max(1, int(level))
+    out = "2d6"
+    for step in progression:
+        if not isinstance(step, dict):
+            continue
+        level_from = max(1, int(step.get("level_from") or 1))
+        dice = str(step.get("dice") or "").strip().lower()
+        if not dice:
+            continue
+        if lvl >= level_from:
+            out = dice
+    return out
+
+
+def _breath_area_text(area: dict[str, Any]) -> str:
+    shape = str(area.get("shape") or "").strip().lower()
+    if shape == "cone":
+        cone_ft = max(0, int(area.get("cone_ft") or 0))
+        if cone_ft > 0:
+            return f"конус {cone_ft} фт"
+    if shape == "line":
+        line_ft = max(0, int(area.get("line_ft") or 0))
+        width_ft = max(0, int(area.get("line_width_ft") or 0))
+        if line_ft > 0 and width_ft > 0:
+            return f"линия {line_ft}x{width_ft} фт"
+        if line_ft > 0:
+            return f"линия {line_ft} фт"
+    return shape or "область"
 
 
 def _spend_action_or_block(state: Any, actor: Any) -> dict[str, Any] | None:
@@ -1152,6 +1183,147 @@ def handle_live_combat_action(
             {"text": f"{target.name}: HP {target.hp_current}/{target.hp_max}"},
         ]
         lines.extend(extra_outcome_lines)
+        if target.hp_current <= 0:
+            lines.append({"text": f"{target.name} повержен."})
+
+        side_pc_alive = _is_side_alive(state, "pc")
+        side_enemy_alive = _is_side_alive(state, "enemy")
+        if not side_pc_alive or not side_enemy_alive:
+            if not side_enemy_alive:
+                lines.append({"text": "Победа: противники повержены.", "muted": True})
+            if not side_pc_alive:
+                lines.append({"text": "Поражение: все герои выбыли.", "muted": True})
+            end_combat(session_id)
+            return (
+                {
+                    "status": "Бой завершён",
+                    "open": False,
+                    "lines": lines,
+                },
+                None,
+            )
+
+        state = advance_turn(session_id)
+        if state is None:
+            return None, "Combat is not active"
+        lines.append({"text": f"Ход автоматически передан: {current_turn_label(state)}", "muted": True})
+        return (
+            {
+                "status": _combat_status(state),
+                "open": True,
+                "lines": lines,
+            },
+            None,
+        )
+
+    if action == "combat_breath_weapon":
+        state = get_combat(session_id)
+        if state is None or not state.active:
+            return None, "Combat is not active"
+        if not state.order:
+            end_combat(session_id)
+            return (
+                {
+                    "status": "Бой завершён",
+                    "open": False,
+                    "lines": [{"text": "Бой завершён: целей не осталось.", "muted": True}],
+                },
+                None,
+            )
+
+        attacker_key = state.order[state.turn_index]
+        attacker = state.combatants.get(attacker_key)
+        if attacker is None:
+            return None, "Combat state is inconsistent"
+        blocked = _spend_action_or_block(state, attacker)
+        if blocked is not None:
+            return blocked, None
+        if attacker.side != "pc":
+            return None, "Оружие дыхания доступно только персонажу игрока."
+
+        race_features = attacker.race_features if isinstance(attacker.race_features, dict) else {}
+        features_raw = race_features.get("features")
+        features = features_raw if isinstance(features_raw, dict) else {}
+        breath_weapon_raw = features.get("breath_weapon")
+        breath_weapon = breath_weapon_raw if isinstance(breath_weapon_raw, dict) else {}
+        if not breath_weapon:
+            return None, "Оружие дыхания недоступно."
+
+        runtime_raw = race_features.get("runtime")
+        runtime = dict(runtime_raw) if isinstance(runtime_raw, dict) else {}
+        if bool(runtime.get("breath_weapon_used")):
+            return None, "Оружие дыхания уже использовано до короткого/долгого отдыха."
+
+        target = _first_living_opponent(state, attacker.side)
+        if target is None:
+            end_combat(session_id)
+            return (
+                {
+                    "status": "Бой завершён",
+                    "open": False,
+                    "lines": [{"text": "Бой завершён: целей не осталось.", "muted": True}],
+                },
+                None,
+            )
+
+        progression_raw = breath_weapon.get("damage_progression")
+        progression = progression_raw if isinstance(progression_raw, list) else []
+        damage_dice = _breath_weapon_dice_for_level(progression, getattr(attacker, "level", 1))
+        parsed = parse_dice(damage_dice)
+        if parsed is None:
+            n, sides = 2, 6
+        else:
+            n, sides = parsed
+        rolls = [random.randint(1, sides) for _ in range(max(1, n))]
+        base_damage = sum(rolls)
+
+        attacker_stats = attacker.stats if isinstance(attacker.stats, dict) else {}
+        con_stat = int(attacker_stats.get("con", 50)) if isinstance(attacker_stats.get("con"), int) else 50
+        con_mod = ability_mod_from_stat100(con_stat)
+        prof = proficiency_bonus(max(1, int(getattr(attacker, "level", 1) or 1)))
+        dc = 8 + con_mod + prof
+
+        save_ability = str(breath_weapon.get("save_ability") or "").strip().lower()
+        target_stats = target.stats if isinstance(target.stats, dict) else {}
+        if save_ability and isinstance(target_stats.get(save_ability), int):
+            save_mod = ability_mod_from_stat100(int(target_stats.get(save_ability)))
+        else:
+            save_mod = 0
+        save_roll = random.randint(1, 20)
+        save_total = save_roll + save_mod
+        save_success = save_total >= dc
+
+        final_damage = base_damage // 2 if save_success else base_damage
+        state = apply_damage(session_id, target.key, final_damage, source=attacker.key)
+        if state is None:
+            return None, "Combat is not active"
+        target = state.combatants.get(target.key, target)
+
+        runtime["breath_weapon_used"] = True
+        race_features["runtime"] = runtime
+        attacker.race_features = race_features
+
+        damage_type = str(breath_weapon.get("damage_type") or "").strip().lower() or "energy"
+        area_raw = breath_weapon.get("area")
+        area = area_raw if isinstance(area_raw, dict) else {}
+        area_text = _breath_area_text(area)
+        lines: list[dict[str, Any]] = [
+            {"text": f"Оружие дыхания: {damage_type} ({area_text})"},
+            {"text": f"Сл спасброска: DC {dc} (8 + CON mod + PROF)"},
+            {
+                "text": (
+                    f"Спасбросок врага: d20({save_roll}) + {save_mod:+d} = {save_total} "
+                    f"→ {'SUCCESS' if save_success else 'FAIL'}"
+                )
+            },
+            {
+                "text": (
+                    f"Урон: {damage_dice} = {rolls} → "
+                    f"{'half' if save_success else 'full'} = {final_damage}"
+                )
+            },
+            {"text": f"HP врага: {target.hp_current}/{target.hp_max}"},
+        ]
         if target.hp_current <= 0:
             lines.append({"text": f"{target.name} повержен."})
 

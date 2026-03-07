@@ -531,6 +531,9 @@ def _reset_racial_rest_uses(ch: Character) -> bool:
     if "breathe_underwater_until_iso" in runtime:
         runtime.pop("breathe_underwater_until_iso", None)
         changed = True
+    if "breath_weapon_used" in runtime:
+        runtime.pop("breath_weapon_used", None)
+        changed = True
     if not changed:
         return False
     if runtime:
@@ -575,6 +578,9 @@ def _reset_combatant_racial_rest_uses(session_id: str, actor_key: str) -> bool:
         changed = True
     if "breathe_underwater_until_iso" in runtime:
         runtime.pop("breathe_underwater_until_iso", None)
+        changed = True
+    if "breath_weapon_used" in runtime:
+        runtime.pop("breath_weapon_used", None)
         changed = True
     if not changed:
         return False
@@ -1349,7 +1355,15 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                                             else (
                                                 "combat_aasimar_transform"
                                                 if combat_action == "combat_aasimar_transform"
-                                                else ("breathe_underwater" if combat_action == "breathe_underwater" else "player_action")
+                                                else (
+                                                    "breathe_underwater"
+                                                    if combat_action == "breathe_underwater"
+                                                    else (
+                                                        "combat_breath_weapon"
+                                                        if combat_action == "combat_breath_weapon"
+                                                        else "player_action"
+                                                    )
+                                                )
                                             )
                                         )
                                     )
@@ -1559,10 +1573,15 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                         continue
                     else:
                         await ws_error(
-                            "Combat Lock: в бою доступны только боевые команды (атака/конец хода/уклон/движение/рывок/отход/взлёт/приземление/помощь/побег/каменная выносливость/исцеляющие руки/небесное преобразование/подводное дыхание) или OOC.",
+                            "Combat Lock: в бою доступны только боевые команды (атака/конец хода/уклон/движение/рывок/отход/взлёт/приземление/помощь/побег/каменная выносливость/исцеляющие руки/небесное преобразование/подводное дыхание/оружие дыхания) или OOC.",
                             request_id=msg_request_id,
                         )
                         continue
+
+                # OOC (any time, no turn)
+                if combat_action == "combat_breath_weapon":
+                    await ws_error("Оружие дыхания можно применить только в бою.", request_id=msg_request_id)
+                    continue
 
                 # OOC (any time, no turn)
                 if combat_action == "breathe_underwater":
@@ -2491,7 +2510,15 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                                     else (
                                         "combat_aasimar_transform"
                                         if combat_action == "combat_aasimar_transform"
-                                        else ("breathe_underwater" if combat_action == "breathe_underwater" else "player_action")
+                                        else (
+                                            "breathe_underwater"
+                                            if combat_action == "breathe_underwater"
+                                            else (
+                                                "combat_breath_weapon"
+                                                if combat_action == "combat_breath_weapon"
+                                                else "player_action"
+                                            )
+                                        )
                                     )
                                 )
                             )
@@ -2766,6 +2793,10 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                         f"{actor_name} исцеляет себя прикосновением: +{max(0, int(healed_hp or 0))} HP (Исцеляющие руки).",
                     )
                     await broadcast_state(session_id)
+                    continue
+
+                if combat_action == "combat_breath_weapon":
+                    await ws_error("Оружие дыхания можно применить только в бою.")
                     continue
 
                 if combat_action == "breathe_underwater":
