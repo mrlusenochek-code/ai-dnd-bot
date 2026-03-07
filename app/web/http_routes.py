@@ -546,6 +546,19 @@ def _build_race_features(selected_race: dict | None) -> dict[str, Any]:
             if sk:
                 skill_profs.append(sk)
 
+        if mtype == "telepathy":
+            telepathy: dict[str, Any] = {}
+            range_ft = as_int(mech.get("range_ft"), 0)
+            if range_ft > 0:
+                telepathy["range_ft"] = range_ft
+            if mech.get("requires_target_language") is not None:
+                telepathy["requires_target_language"] = bool(mech.get("requires_target_language"))
+            bandwidth = str(mech.get("bandwidth") or "").strip().lower()
+            if bandwidth:
+                telepathy["bandwidth"] = bandwidth
+            if telepathy:
+                senses["telepathy"] = telepathy
+
         if mtype == "tool_proficiency_choice":
             tool_profs.append("choose_any_tools")
 
@@ -627,6 +640,12 @@ def _build_race_features(selected_race: dict | None) -> dict[str, Any]:
         if mtype == "aasimar_transformation":
             features["aasimar_transformation"] = dict(mech)
 
+        if mtype == "hit_dice_reroll":
+            features["hit_dice_reroll"] = dict(mech)
+
+        if mtype == "size_change":
+            features["size_change"] = dict(mech)
+
         if mtype == "innate_spellcasting":
             ability = str(mech.get("ability") or "").strip().lower()
             spells = _as_list(mech.get("spells"))
@@ -650,6 +669,15 @@ def _build_race_features(selected_race: dict | None) -> dict[str, Any]:
         if mtype == "saving_throw_advantage":
             abilities = []
             for item in _as_list(mech.get("abilities")):
+                ability = str(item or "").strip().lower()
+                if ability in allowed_save_abilities and ability not in abilities:
+                    abilities.append(ability)
+            if abilities:
+                saves["advantage"] = abilities
+
+        if mtype == "save_advantage":
+            abilities = []
+            for item in _as_list(mech.get("saves")):
                 ability = str(item or "").strip().lower()
                 if ability in allowed_save_abilities and ability not in abilities:
                     abilities.append(ability)

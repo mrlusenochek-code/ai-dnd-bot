@@ -652,7 +652,16 @@ function openCharacterModal(){
   const saveAdvantagesRu = saveAdvantages
     .map((k) => _ABILITY_SHORT_RU[k] || k)
     .filter(Boolean);
+  const telepathicInsightText = saveAdvantagesRu.length
+    ? `Телепатическая проницательность: преим. спасброски: ${saveAdvantagesRu.join(", ")}`
+    : "";
   const senses = (rf.senses && typeof rf.senses === "object") ? rf.senses : {};
+  const telepathy = (senses.telepathy && typeof senses.telepathy === "object") ? senses.telepathy : null;
+  const telepathyRangeFt = telepathy && Number.isFinite(Number(telepathy.range_ft)) ? Number(telepathy.range_ft) : null;
+  const telepathyNeedsLanguage = !!(telepathy && telepathy.requires_target_language === true);
+  const telepathyText = telepathyRangeFt !== null
+    ? `Телепатия: ${telepathyRangeFt} фт${telepathyNeedsLanguage ? ", цель должна знать язык" : ""}`
+    : "";
   const speeds = (rf.speeds && typeof rf.speeds === "object") ? rf.speeds : {};
   const natArmor = (rf.natural_armor && typeof rf.natural_armor === "object") ? rf.natural_armor : {};
   const carry = (rf.carry && typeof rf.carry === "object") ? rf.carry : {};
@@ -671,6 +680,20 @@ function openCharacterModal(){
     ? `Подводное дыхание: 1 час (1/дл отдых)${breatheUnderwaterUntilText ? `, активно до ${breatheUnderwaterUntilText}` : ""}`
     : "";
   const raceFeaturesMeta = (rf.features && typeof rf.features === "object") ? rf.features : {};
+  const hitDiceReroll = (raceFeaturesMeta.hit_dice_reroll && typeof raceFeaturesMeta.hit_dice_reroll === "object")
+    ? raceFeaturesMeta.hit_dice_reroll
+    : null;
+  const sizeChange = (raceFeaturesMeta.size_change && typeof raceFeaturesMeta.size_change === "object")
+    ? raceFeaturesMeta.size_change
+    : null;
+  const blackBloodText = hitDiceReroll ? "Чёрная исцеляющая кровь: переброс 1–2 на Костях Хитов при коротком отдыхе" : "";
+  const growthAtLevel = sizeChange
+    ? (Number.isFinite(Number(sizeChange.level_from)) ? Number(sizeChange.level_from) : (Number.isFinite(Number(sizeChange.at_level)) ? Number(sizeChange.at_level) : null))
+    : null;
+  const growthToSize = sizeChange ? String(sizeChange.to || sizeChange.size || "").trim().toLowerCase() : "";
+  const growthSpurtText = sizeChange
+    ? `Скачок роста: на ${growthAtLevel !== null ? growthAtLevel : 5} ур. размер становится Средним`
+    : "";
   const stoneEndurance = (raceFeaturesMeta.stone_endurance && typeof raceFeaturesMeta.stone_endurance === "object")
     ? raceFeaturesMeta.stone_endurance
     : null;
@@ -895,6 +918,17 @@ function openCharacterModal(){
 
   const speedText = speedParts.join(", ");
   const darkvisionFt = Number.isFinite(Number(senses.darkvision_ft)) ? Number(senses.darkvision_ft) : null;
+  const baseSize = String(rf.size || "").trim().toLowerCase();
+  const chLevelNum = Number.isFinite(Number(ch.level)) ? Number(ch.level) : 1;
+  const effectiveSize = (sizeChange && growthToSize && growthAtLevel !== null && chLevelNum >= growthAtLevel)
+    ? growthToSize
+    : baseSize;
+  const SIZE_RU = {
+    "small": "Маленький",
+    "medium": "Средний",
+    "large": "Большой",
+  };
+  const effectiveSizeRu = effectiveSize ? (SIZE_RU[effectiveSize] || effectiveSize) : "";
 
   let natArmorText = "";
   if(Number.isFinite(Number(natArmor.ac))) {
@@ -915,6 +949,9 @@ function openCharacterModal(){
   }
   if(String(ch.race || "").trim()){
     details.push(`<div class="char-line"><strong>Раса:</strong> ${escapeHtml(ch.race)}</div>`);
+  }
+  if(effectiveSizeRu){
+    details.push(`<div class="char-line"><strong>Размер:</strong> ${escapeHtml(effectiveSizeRu)}</div>`);
   }
   if(speedText){
     details.push(`<div class="char-line"><strong>Скорость:</strong> ${escapeHtml(speedText)}</div>`);
@@ -942,6 +979,18 @@ function openCharacterModal(){
   }
   if(stoneEndurance){
     details.push("<div class=\"char-line\"><strong>Каменная выносливость:</strong> реакция, 1/к/дл отдых: снижает урон (1d12 + мод. Тел)</div>");
+  }
+  if(telepathyText){
+    details.push(`<div class="char-line"><strong>Телепатия:</strong> ${escapeHtml(telepathyText.replace(/^Телепатия:\s*/, ""))}</div>`);
+  }
+  if(blackBloodText){
+    details.push(`<div class="char-line"><strong>Чёрная исцеляющая кровь:</strong> ${escapeHtml(blackBloodText.replace(/^Чёрная исцеляющая кровь:\s*/, ""))}</div>`);
+  }
+  if(telepathicInsightText){
+    details.push(`<div class="char-line"><strong>Телепатическая проницательность:</strong> ${escapeHtml(telepathicInsightText.replace(/^Телепатическая проницательность:\s*/, ""))}</div>`);
+  }
+  if(growthSpurtText){
+    details.push(`<div class="char-line"><strong>Скачок роста:</strong> ${escapeHtml(growthSpurtText.replace(/^Скачок роста:\s*/, ""))}</div>`);
   }
   if(breatheUnderwaterText){
     details.push(`<div class="char-line"><strong>Подводное дыхание:</strong> ${escapeHtml(breatheUnderwaterText.replace(/^Подводное дыхание:\s*/, ""))}</div>`);
@@ -998,6 +1047,7 @@ function openCharacterModal(){
   if(gender || race){
     copyLines.push(`Пол/Раса: ${gender || "—"} / ${race || "—"}`);
   }
+  if(effectiveSizeRu) copyLines.push(`Размер: ${effectiveSizeRu}`);
   copyLines.push(`Зона: ${zone}`);
   if(speedText) copyLines.push(`Скорость: ${speedText}`);
   if(hasActiveCombatant && combatModeRu) copyLines.push(`Режим движения: ${combatModeRu}`);
@@ -1008,6 +1058,10 @@ function openCharacterModal(){
   if(resistancesRu.length) copyLines.push(`Сопротивления: ${resistancesRu.join(", ")}`);
   if(carry.powerful_build === true) copyLines.push("Мощное телосложение: считается на 1 размер больше для переноски/толкания/тяги/подъёма");
   if(stoneEndurance) copyLines.push("Каменная выносливость: реакция, 1/к/дл отдых: снижает урон (1d12 + мод. Тел)");
+  if(telepathyText) copyLines.push(telepathyText);
+  if(blackBloodText) copyLines.push(blackBloodText);
+  if(telepathicInsightText) copyLines.push(telepathicInsightText);
+  if(growthSpurtText) copyLines.push(growthSpurtText);
   if(breatheUnderwaterText) copyLines.push(breatheUnderwaterText);
   if(healingHandsText) copyLines.push(healingHandsText);
   if(aasimarTransformationText) copyLines.push(aasimarTransformationText);
