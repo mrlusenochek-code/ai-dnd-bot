@@ -133,6 +133,21 @@ def _clamp_death_counter(value: int) -> int:
     return max(0, min(int(value), 3))
 
 
+def _movement_budget_for_actor(actor: Any) -> tuple[int, int]:
+    speed_ft = max(0, int(getattr(actor, "speed_ft", 30)))
+    move_speed_ft = max(0, int(getattr(actor, "move_speed_ft", speed_ft)))
+    move_remaining_ft = max(0, int(getattr(actor, "move_remaining_ft", move_speed_ft)))
+    legacy_remaining = max(0, int(getattr(actor, "move_remaining", move_remaining_ft)))
+
+    # Backward compatibility for tests/old snapshots that only filled legacy move_remaining/speed_ft.
+    if move_speed_ft == 30 and speed_ft != 30:
+        move_speed_ft = speed_ft
+    if move_remaining_ft == max(0, int(getattr(actor, "move_speed_ft", 30))) and legacy_remaining != move_remaining_ft:
+        move_remaining_ft = legacy_remaining
+
+    return move_speed_ft, move_remaining_ft
+
+
 def parse_heal_dice(expr: str) -> tuple[int, int, int] | None:
     match = re.fullmatch(r"\s*(\d+)[dD](\d+)(?:\+(\d+))?\s*", expr)
     if match is None:
@@ -321,7 +336,7 @@ def _auto_resolve_zero_hp_turns(session_id: str, state: Any) -> dict[str, Any] |
 
 
 def handle_live_combat_action(
-    action: str, session_id: str
+    action: str, session_id: str, *, distance_ft: int | None = None
 ) -> tuple[Optional[dict[str, Any]], Optional[str]]:
     state = get_combat(session_id)
     if state is not None and state.active:
@@ -475,10 +490,13 @@ def handle_live_combat_action(
             return blocked, None
 
         attacker.dash_active = True
-        attacker.move_remaining += attacker.speed_ft
+        base_move_speed, remaining_ft = _movement_budget_for_actor(attacker)
+        attacker.move_speed_ft = base_move_speed
+        attacker.move_remaining_ft = remaining_ft + base_move_speed
+        attacker.move_remaining = attacker.move_remaining_ft
         lines: list[dict[str, Any]] = [
             {"text": f"Рывок: {attacker.name} (до следующего хода)", "muted": True},
-            {"text": f"Движение: +{attacker.speed_ft} (итого {attacker.move_remaining})", "muted": True},
+            {"text": f"Движение: +{base_move_speed} (итого {attacker.move_remaining_ft})", "muted": True},
         ]
 
         state = advance_turn(session_id)
@@ -490,6 +508,46 @@ def handle_live_combat_action(
                 "status": _combat_status(state),
                 "open": True,
                 "lines": lines,
+            },
+            None,
+        )
+
+    if action == "combat_move":
+        state = get_combat(session_id)
+        if state is None or not state.active:
+            return None, "Combat is not active"
+        if not state.order:
+            end_combat(session_id)
+            return (
+                {
+                    "status": "Бой завершён",
+                    "open": False,
+                    "lines": [{"text": "Бой завершён: целей не осталось.", "muted": True}],
+                },
+                None,
+            )
+
+        mover_key = state.order[state.turn_index]
+        mover = state.combatants.get(mover_key)
+        if mover is None:
+            return None, "Combat state is inconsistent"
+
+        dist = int(distance_ft) if isinstance(distance_ft, int) and not isinstance(distance_ft, bool) else 0
+        if dist <= 0:
+            return None, "Укажи расстояние перемещения в футах (больше 0)."
+
+        _mode_speed, remaining = _movement_budget_for_actor(mover)
+        mover.move_speed_ft = _mode_speed
+        if dist > remaining:
+            return None, f"Недостаточно перемещения: осталось {remaining} фт."
+
+        mover.move_remaining_ft = remaining - dist
+        mover.move_remaining = mover.move_remaining_ft
+        return (
+            {
+                "status": _combat_status(state),
+                "open": True,
+                "lines": [{"text": f"{mover.name} перемещается на {dist} фт (осталось {mover.move_remaining_ft} фт)."}],
             },
             None,
         )

@@ -28,6 +28,8 @@ class Combatant:
     speed_ft: int = 30
     movement_speeds: dict[str, int] = field(default_factory=dict)
     movement_mode: str = "walk"
+    move_speed_ft: int = 30
+    move_remaining_ft: int = 30
     move_remaining: int = 30
     is_dead: bool = False
     is_stable: bool = False
@@ -141,6 +143,17 @@ def _sanitize_movement_mode(value: Any) -> str | None:
     return mode or None
 
 
+def _resolve_mode_speed(*, speed_ft: int, movement_speeds: dict[str, int] | None, movement_mode: str | None) -> int:
+    base_speed = max(0, int(speed_ft))
+    speeds = movement_speeds if isinstance(movement_speeds, dict) else {}
+    mode = _sanitize_movement_mode(movement_mode) or "walk"
+    mode_speed_raw = speeds.get(mode)
+    mode_speed = mode_speed_raw if isinstance(mode_speed_raw, int) and not isinstance(mode_speed_raw, bool) else None
+    if mode_speed is None:
+        return base_speed
+    return max(0, int(mode_speed))
+
+
 def _normalize_level(value: Any) -> int:
     try:
         level = int(value)
@@ -248,6 +261,11 @@ def upsert_pc(
     race_features_norm = _sanitize_race_features_payload(race_features)
     movement_speeds_norm = _sanitize_movement_speeds_payload(movement_speeds)
     movement_mode_norm = _sanitize_movement_mode(movement_mode)
+    move_speed_ft_norm = _resolve_mode_speed(
+        speed_ft=speed_ft_norm,
+        movement_speeds=movement_speeds_norm,
+        movement_mode=movement_mode_norm or "walk",
+    )
 
     existing = state.combatants.get(pc_key)
     if existing is not None:
@@ -269,6 +287,13 @@ def upsert_pc(
             existing.movement_mode = movement_mode_norm
         elif not _sanitize_movement_mode(existing.movement_mode):
             existing.movement_mode = "walk"
+        resolved_mode_speed = _resolve_mode_speed(
+            speed_ft=speed_ft_norm,
+            movement_speeds=existing.movement_speeds,
+            movement_mode=existing.movement_mode,
+        )
+        existing.move_speed_ft = resolved_mode_speed
+        existing.move_remaining_ft = min(max(0, int(existing.move_remaining_ft)), resolved_mode_speed)
     else:
         state.combatants[pc_key] = Combatant(
             key=pc_key,
@@ -282,6 +307,8 @@ def upsert_pc(
             speed_ft=speed_ft_norm,
             movement_speeds=movement_speeds_norm or {},
             movement_mode=movement_mode_norm or "walk",
+            move_speed_ft=move_speed_ft_norm,
+            move_remaining_ft=move_speed_ft_norm,
             move_remaining=speed_ft_norm,
             stats=stats_norm,
             inventory=inventory_norm,
@@ -351,6 +378,8 @@ def combatant_to_dict(c: Combatant) -> dict[str, Any]:
         "speed_ft": max(0, int(c.speed_ft)),
         "movement_speeds": _sanitize_movement_speeds_payload(c.movement_speeds) or {},
         "movement_mode": _sanitize_movement_mode(c.movement_mode) or "walk",
+        "move_speed_ft": max(0, int(c.move_speed_ft)),
+        "move_remaining_ft": max(0, int(c.move_remaining_ft)),
         "move_remaining": max(0, int(c.move_remaining)),
         "is_dead": bool(c.is_dead),
         "is_stable": bool(c.is_stable),
@@ -440,6 +469,18 @@ def combatant_from_dict(raw: Any) -> Combatant | None:
     )
     movement_speeds_norm = _sanitize_movement_speeds_payload(raw.get("movement_speeds")) or {}
     movement_mode_norm = _sanitize_movement_mode(raw.get("movement_mode")) or "walk"
+    raw_move_speed_ft = raw.get("move_speed_ft")
+    move_speed_ft_norm = (
+        max(0, int(raw_move_speed_ft))
+        if isinstance(raw_move_speed_ft, int) and not isinstance(raw_move_speed_ft, bool)
+        else _resolve_mode_speed(speed_ft=speed_ft_norm, movement_speeds=movement_speeds_norm, movement_mode=movement_mode_norm)
+    )
+    raw_move_remaining_ft = raw.get("move_remaining_ft")
+    move_remaining_ft_norm = (
+        max(0, int(raw_move_remaining_ft))
+        if isinstance(raw_move_remaining_ft, int) and not isinstance(raw_move_remaining_ft, bool)
+        else move_speed_ft_norm
+    )
 
     return Combatant(
         key=key,
@@ -460,6 +501,8 @@ def combatant_from_dict(raw: Any) -> Combatant | None:
         speed_ft=speed_ft_norm,
         movement_speeds=movement_speeds_norm,
         movement_mode=movement_mode_norm,
+        move_speed_ft=move_speed_ft_norm,
+        move_remaining_ft=move_remaining_ft_norm,
         move_remaining=move_remaining_norm,
         is_dead=bool(is_dead),
         is_stable=bool(is_stable),

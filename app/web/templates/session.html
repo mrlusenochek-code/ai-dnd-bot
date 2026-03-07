@@ -703,6 +703,8 @@ function openCharacterModal(){
   const combatMoveSpeeds = hasActiveCombatant && myCombatant.movement_speeds && typeof myCombatant.movement_speeds === "object"
     ? myCombatant.movement_speeds
     : {};
+  const moveSpeedFt = hasActiveCombatant && Number.isFinite(Number(myCombatant.move_speed_ft)) ? Number(myCombatant.move_speed_ft) : null;
+  const moveRemainingFt = hasActiveCombatant && Number.isFinite(Number(myCombatant.move_remaining_ft)) ? Number(myCombatant.move_remaining_ft) : null;
   const combatSpeedParts = [];
   const modeOrder = ["walk", "fly", "swim", "climb"];
   for(const modeKey of modeOrder){
@@ -784,6 +786,9 @@ function openCharacterModal(){
   if(hasActiveCombatant && combatSpeedsText){
     details.push(`<div class="char-line"><strong>Скорости (боевые):</strong> ${escapeHtml(combatSpeedsText)}</div>`);
   }
+  if(hasActiveCombatant && moveSpeedFt !== null && moveRemainingFt !== null){
+    details.push(`<div class="char-line"><strong>Перемещение:</strong> осталось ${escapeHtml(String(moveRemainingFt))} фт из ${escapeHtml(String(moveSpeedFt))} фт</div>`);
+  }
   if(darkvisionFt !== null){
     details.push(`<div class="char-line"><strong>Тёмное зрение:</strong> ${escapeHtml(String(darkvisionFt))} фт</div>`);
   }
@@ -834,6 +839,7 @@ function openCharacterModal(){
   if(speedText) copyLines.push(`Скорость: ${speedText}`);
   if(hasActiveCombatant && combatModeRu) copyLines.push(`Режим движения: ${combatModeRu}`);
   if(hasActiveCombatant && combatSpeedsText) copyLines.push(`Скорости (боевые): ${combatSpeedsText}`);
+  if(hasActiveCombatant && moveSpeedFt !== null && moveRemainingFt !== null) copyLines.push(`Перемещение: осталось ${moveRemainingFt} фт из ${moveSpeedFt} фт`);
   if(darkvisionFt !== null) copyLines.push(`Тёмное зрение: ${darkvisionFt} фт`);
   if(natArmorText) copyLines.push(`Природный доспех: ${natArmorText}`);
   if(langsRu.length) copyLines.push(`Языки: ${langsRu.join(", ")}`);

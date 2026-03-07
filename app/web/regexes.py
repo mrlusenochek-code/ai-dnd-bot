@@ -25,6 +25,7 @@ CHAT_COMBAT_ACTION_PATTERNS: list[tuple[str, re.Pattern[str]]] = [
         ),
     ),
     ("combat_dash", re.compile(r"(рывок|спринт|\bбегу\b(?!\s+(?:прочь|из\s+боя|с\s+боя))|мчусь|ускоряюсь|ринул|бросаюсь вперед|стремглав|сокращаю дистанц)", re.IGNORECASE)),
+    ("combat_move", re.compile(r"(двигаюсь\s+\d+|перемещаюсь\s+на\s+\d+|иду\s+\d+\s*(?:фт|фут(?:ов|а)?)?)", re.IGNORECASE)),
     ("combat_disengage", re.compile(r"(отхож|отход|отступ|отступаю|вырываюсь|разрыв дистанц|разрыва[юл]|разорва[лю]|отпрыг|отскоч|дисенгейдж)", re.IGNORECASE)),
     (
         "combat_takeoff",
@@ -54,6 +55,10 @@ CHAT_COMBAT_ACTION_PATTERNS: list[tuple[str, re.Pattern[str]]] = [
 COMBAT_MECHANICS_EVENT_RE = re.compile(
     r"(?:@@|🎲|Бросок атаки|Результат:|Урон:|:\s*HP\s+\d+/\d+|vs AC|Раунд\s+\d+|Ход автоматически передан)",
     flags=re.IGNORECASE,
+)
+COMBAT_MOVE_DISTANCE_RE = re.compile(
+    r"(?:двигаюсь\s+|перемещаюсь\s+на\s+|иду\s+)(\d+)(?:\s*(?:фт|фут(?:ов|а)?))?",
+    re.IGNORECASE,
 )
 ZONE_MOVE_RE = re.compile(
     r"\b(?:иду|пойду|направляюсь|отправляюсь|захожу|вхожу|перехожу|возвращаюсь)\b"

@@ -40,6 +40,17 @@ def advance_turn_in_state(state: CombatState) -> CombatState:
         current_combatant.action_available = True
         current_combatant.bonus_action_available = True
         current_combatant.reaction_available = True
-        current_combatant.move_remaining = current_combatant.speed_ft
+        mode = str(getattr(current_combatant, "movement_mode", "") or "walk").strip().lower() or "walk"
+        speeds = current_combatant.movement_speeds if isinstance(current_combatant.movement_speeds, dict) else {}
+        mode_speed_raw = speeds.get(mode)
+        mode_speed = (
+            max(0, int(mode_speed_raw))
+            if isinstance(mode_speed_raw, int) and not isinstance(mode_speed_raw, bool)
+            else max(0, int(current_combatant.speed_ft))
+        )
+        current_combatant.move_speed_ft = mode_speed
+        current_combatant.move_remaining_ft = mode_speed
+        # legacy field, keep in sync
+        current_combatant.move_remaining = mode_speed
 
     return state

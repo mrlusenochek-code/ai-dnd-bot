@@ -85,6 +85,7 @@ from app.web.ws_combat_prompting import (
     _start_intent_text_needs_repair,
 )
 from app.web.ws_gameplay import STATE_COMMAND_ALIASES, _detect_chat_combat_action, _format_state_text_for_player, infer_zone_from_action
+from app.web.regexes import COMBAT_MOVE_DISTANCE_RE
 from app.web.ws_manager import manager
 from app.web.ws_turns import (
     TURN_TIMEOUT_SECONDS,
@@ -517,6 +518,7 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                     "combat_end_turn",
                     "combat_dodge",
                     "combat_dash",
+                    "combat_move",
                     "combat_disengage",
                     "combat_takeoff",
                     "combat_land",
@@ -900,7 +902,15 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
 
                         all_patches: list[dict[str, Any]] = []
                         async with lock:
-                            combat_patch, combat_err = handle_live_combat_action(combat_action, session_id)
+                            move_distance_ft: Optional[int] = None
+                            if combat_action == "combat_move":
+                                m_dist = COMBAT_MOVE_DISTANCE_RE.search(cmdline)
+                                move_distance_ft = as_int(m_dist.group(1), 0) if m_dist else 0
+                            combat_patch, combat_err = handle_live_combat_action(
+                                combat_action,
+                                session_id,
+                                distance_ft=move_distance_ft,
+                            )
                             if combat_err:
                                 await ws_error(combat_err, request_id=msg_request_id)
                                 continue
@@ -980,7 +990,7 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                         continue
                     else:
                         await ws_error(
-                            "Combat Lock: в бою доступны только боевые команды (атака/конец хода/уклон/рывок/отход/взлёт/приземление/помощь/побег) или OOC.",
+                            "Combat Lock: в бою доступны только боевые команды (атака/конец хода/уклон/движение/рывок/отход/взлёт/приземление/помощь/побег) или OOC.",
                             request_id=msg_request_id,
                         )
                         continue
@@ -1661,7 +1671,15 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
 
                         all_patches: list[dict[str, Any]] = []
                         outcome_summary: list[str] = []
-                        combat_patch, combat_err = handle_live_combat_action(combat_action, session_id)
+                        move_distance_ft: Optional[int] = None
+                        if combat_action == "combat_move":
+                            m_dist = COMBAT_MOVE_DISTANCE_RE.search(cmdline)
+                            move_distance_ft = as_int(m_dist.group(1), 0) if m_dist else 0
+                        combat_patch, combat_err = handle_live_combat_action(
+                            combat_action,
+                            session_id,
+                            distance_ft=move_distance_ft,
+                        )
                         if combat_err:
                             await ws_error(combat_err)
                             continue
