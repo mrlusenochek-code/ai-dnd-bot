@@ -65,6 +65,13 @@ CHAT_COMBAT_ACTION_PATTERNS: list[tuple[str, re.Pattern[str]]] = [
         "combat_stone_endurance",
         re.compile(r"(каменн\w*\s+вынослив\w*|stone\s+endurance|снижаю\s+урон)", re.IGNORECASE),
     ),
+    (
+        "combat_healing_hands",
+        re.compile(
+            r"(исцеляющ\w*\s+рук\w*|healing\s+hands|лечу\s+прикосновением|исцеляю\s+прикосновением)",
+            re.IGNORECASE,
+        ),
+    ),
     ("combat_use_object", re.compile(r"(использую|применяю|активирую|включаю|поджигаю|зажигаю|пью|выпиваю|нажимаю|достаю|зелье|флакон|свиток|факел|рычаг|кнопк)", re.IGNORECASE)),
     (
         "tortle_shell_in",

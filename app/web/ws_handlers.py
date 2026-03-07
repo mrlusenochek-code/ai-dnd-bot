@@ -192,6 +192,84 @@ def _apply_innate_spell_usage(ch: Character, spell_key: str) -> tuple[Optional[s
     return display_name, None, changed
 
 
+def _apply_healing_hands_usage(ch: Character) -> tuple[Optional[int], Optional[str], bool]:
+    race_features = getattr(ch, "race_features", None)
+    rf = dict(race_features) if isinstance(race_features, dict) else {}
+    features_raw = rf.get("features")
+    features = dict(features_raw) if isinstance(features_raw, dict) else {}
+    healing_raw = features.get("healing_hands")
+    healing = dict(healing_raw) if isinstance(healing_raw, dict) else {}
+    if not healing:
+        return None, "Исцеляющие руки недоступны вашей расе.", False
+
+    runtime_raw = rf.get("runtime")
+    runtime = dict(runtime_raw) if isinstance(runtime_raw, dict) else {}
+    uses = str(healing.get("uses") or "").strip().lower()
+    uses_max = max(1, as_int(healing.get("uses_max"), 1))
+    changed = False
+    if uses == "per_long_rest":
+        if bool(runtime.get("healing_hands_used")):
+            return None, "Исцеляющие руки уже использованы до долгого отдыха.", False
+        if uses_max <= 1:
+            runtime["healing_hands_used"] = True
+            changed = True
+
+    level = max(1, as_int(getattr(ch, "level", 1), 1))
+    amount_raw = healing.get("amount")
+    amount_key = str(amount_raw or "").strip().lower()
+    heal = level if amount_key == "level" else max(1, as_int(amount_raw, 1))
+
+    hp_before = max(0, as_int(getattr(ch, "hp", 0), 0))
+    hp_max = max(0, as_int(getattr(ch, "hp_max", 0), 0))
+    hp_after = min(hp_max, hp_before + heal)
+    ch.hp = hp_after
+
+    if changed:
+        rf["runtime"] = runtime
+        ch.race_features = rf
+
+    return max(0, hp_after - hp_before), None, changed
+
+
+def _apply_healing_hands_in_combat(
+    session_id: str,
+    actor_key: str,
+    ch: Character,
+) -> tuple[Optional[dict[str, Any]], Optional[str], bool]:
+    state = get_combat(session_id)
+    if state is None or not state.active:
+        return None, "Combat is not active", False
+    if not state.order or state.turn_index < 0 or state.turn_index >= len(state.order):
+        return None, "Combat state is inconsistent", False
+    turn_key = state.order[state.turn_index]
+    if turn_key != actor_key:
+        return None, f"Сейчас ходит {current_turn_label(state)}. Дождись своего хода.", False
+
+    actor = state.combatants.get(actor_key)
+    if actor is None:
+        return None, "Боец не найден.", False
+    if not bool(getattr(actor, "action_available", True)):
+        return None, "Действие недоступно: действие уже потрачено.", False
+
+    healed_hp, heal_err, changed = _apply_healing_hands_usage(ch)
+    if heal_err:
+        return None, heal_err, False
+
+    actor.action_available = False
+    actor_hp_max = max(0, int(getattr(actor, "hp_max", 0)))
+    actor.hp_current = min(actor_hp_max, max(0, as_int(getattr(ch, "hp", actor.hp_current), actor.hp_current)))
+
+    caster_name = str(getattr(ch, "name", "") or getattr(actor, "name", "") or "Персонаж").strip() or "Персонаж"
+    patch = {
+        "status": f"⚔ Бой • Раунд {state.round_no} • Ход: {current_turn_label(state)}",
+        "open": True,
+        "lines": [
+            {"text": f"{caster_name} исцеляет себя прикосновением: +{max(0, int(healed_hp or 0))} HP (Исцеляющие руки)."},
+        ],
+    }
+    return patch, None, changed
+
+
 def _reset_racial_rest_uses(ch: Character) -> bool:
     race_features = getattr(ch, "race_features", None)
     rf = dict(race_features) if isinstance(race_features, dict) else {}
@@ -203,6 +281,9 @@ def _reset_racial_rest_uses(ch: Character) -> bool:
         changed = True
     if "stone_endurance_used" in runtime:
         runtime.pop("stone_endurance_used", None)
+        changed = True
+    if "healing_hands_used" in runtime:
+        runtime.pop("healing_hands_used", None)
         changed = True
     if not changed:
         return False
@@ -230,6 +311,9 @@ def _reset_combatant_racial_rest_uses(session_id: str, actor_key: str) -> bool:
         changed = True
     if "stone_endurance_used" in runtime:
         runtime.pop("stone_endurance_used", None)
+        changed = True
+    if "healing_hands_used" in runtime:
+        runtime.pop("healing_hands_used", None)
         changed = True
     if not changed:
         return False
@@ -995,7 +1079,11 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                                 "type": (
                                     "combat_innate_spell"
                                     if combat_action == "combat_innate_spell"
-                                    else ("combat_stone_endurance" if combat_action == "combat_stone_endurance" else "player_action")
+                                    else (
+                                        "combat_stone_endurance"
+                                        if combat_action == "combat_stone_endurance"
+                                        else ("combat_healing_hands" if combat_action == "combat_healing_hands" else "player_action")
+                                    )
                                 ),
                                 "raw_text": text,
                                 "combat_chat_action": combat_action,
@@ -1054,6 +1142,22 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                                 ],
                             }
                             await _broadcast_state_unlocked(session_id, combat_log_ui_patch=patch)
+                            continue
+
+                        if combat_action == "combat_healing_hands":
+                            ch = await get_character(db, sess.id, player.id)
+                            if not ch:
+                                await ws_error("Персонаж не найден.", request_id=msg_request_id)
+                                continue
+                            combat_patch, healing_err, changed = _apply_healing_hands_in_combat(session_id, player_key, ch)
+                            if healing_err:
+                                await ws_error(healing_err, request_id=msg_request_id)
+                                continue
+                            if changed:
+                                flag_modified(ch, "race_features")
+                            await db.commit()
+                            if combat_patch:
+                                await _broadcast_state_unlocked(session_id, combat_log_ui_patch=combat_patch)
                             continue
 
                         all_patches: list[dict[str, Any]] = []
@@ -1146,10 +1250,32 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                         continue
                     else:
                         await ws_error(
-                            "Combat Lock: в бою доступны только боевые команды (атака/конец хода/уклон/движение/рывок/отход/взлёт/приземление/помощь/побег/каменная выносливость) или OOC.",
+                            "Combat Lock: в бою доступны только боевые команды (атака/конец хода/уклон/движение/рывок/отход/взлёт/приземление/помощь/побег/каменная выносливость/исцеляющие руки) или OOC.",
                             request_id=msg_request_id,
                         )
                         continue
+
+                # OOC (any time, no turn)
+                if combat_action == "combat_healing_hands":
+                    ch = await get_character(db, sess.id, player.id)
+                    if not ch:
+                        await ws_error("No character. Use: char create ...", request_id=msg_request_id)
+                        continue
+                    healed_hp, healing_err, changed = _apply_healing_hands_usage(ch)
+                    if healing_err:
+                        await ws_error(healing_err, request_id=msg_request_id)
+                        continue
+                    if changed:
+                        flag_modified(ch, "race_features")
+                    await db.commit()
+                    actor_name = str(getattr(ch, "name", "") or player.display_name).strip() or player.display_name
+                    await add_system_event(
+                        db,
+                        sess,
+                        f"{actor_name} исцеляет себя прикосновением: +{max(0, int(healed_hp or 0))} HP (Исцеляющие руки).",
+                    )
+                    await broadcast_state(session_id)
+                    continue
 
                 # OOC (any time, no turn)
                 if combat_action == "rest_long" and lower not in {"rest", "rest long"}:
@@ -1822,7 +1948,11 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                         "type": (
                             "combat_innate_spell"
                             if combat_action == "combat_innate_spell"
-                            else ("combat_stone_endurance" if combat_action == "combat_stone_endurance" else "player_action")
+                            else (
+                                "combat_stone_endurance"
+                                if combat_action == "combat_stone_endurance"
+                                else ("combat_healing_hands" if combat_action == "combat_healing_hands" else "player_action")
+                            )
                         ),
                         "actor_uid": _player_uid(player),
                         "actor_player_id": str(player.id),
@@ -1901,6 +2031,22 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                                 ],
                             }
                             await broadcast_state(session_id, combat_log_ui_patch=patch)
+                            continue
+
+                        if combat_action == "combat_healing_hands":
+                            ch = await get_character(db, sess.id, player.id)
+                            if not ch:
+                                await ws_error("Персонаж не найден.")
+                                continue
+                            combat_patch, healing_err, changed = _apply_healing_hands_in_combat(session_id, player_key, ch)
+                            if healing_err:
+                                await ws_error(healing_err)
+                                continue
+                            if changed:
+                                flag_modified(ch, "race_features")
+                            await db.commit()
+                            if combat_patch:
+                                await broadcast_state(session_id, combat_log_ui_patch=combat_patch)
                             continue
 
                         all_patches: list[dict[str, Any]] = []
@@ -2017,6 +2163,27 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                             },
                         )
                         await broadcast_state(session_id)
+                    continue
+
+                if combat_action == "combat_healing_hands":
+                    ch = await get_character(db, sess.id, player.id)
+                    if not ch:
+                        await ws_error("No character. Use: char create ...")
+                        continue
+                    healed_hp, healing_err, changed = _apply_healing_hands_usage(ch)
+                    if healing_err:
+                        await ws_error(healing_err)
+                        continue
+                    if changed:
+                        flag_modified(ch, "race_features")
+                    await db.commit()
+                    actor_name = str(getattr(ch, "name", "") or player.display_name).strip() or player.display_name
+                    await add_system_event(
+                        db,
+                        sess,
+                        f"{actor_name} исцеляет себя прикосновением: +{max(0, int(healed_hp or 0))} HP (Исцеляющие руки).",
+                    )
+                    await broadcast_state(session_id)
                     continue
 
                 # DICE (must be started, not paused, your turn) — does NOT end turn
