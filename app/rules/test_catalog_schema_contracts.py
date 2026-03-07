@@ -188,6 +188,52 @@ def test_goliath_reference_schema_payload() -> None:
     assert "athletics_proficiency" in traits
 
 
+def test_aasimar_reference_schema_payload() -> None:
+    aasimar = next((item for item in RACE_CATALOG if str(item.get("key") or "") == "aasimar"), None)
+    assert aasimar is not None
+    assert str(aasimar.get("size") or "") == "medium"
+    assert int(aasimar.get("speed_ft") or 0) == 30
+
+    traits = {str(item.get("key") or ""): item for item in (aasimar.get("traits") or []) if isinstance(item, dict)}
+    assert "darkvision_60" in traits
+    assert "celestial_resistance" in traits
+    assert "healing_hands" in traits
+    assert "light_cantrip" in traits
+
+    subraces = {str(item.get("key") or ""): item for item in (aasimar.get("subraces") or []) if isinstance(item, dict)}
+    assert "aasimar_protector" in subraces
+    assert "aasimar_scourge" in subraces
+    assert "aasimar_fallen" in subraces
+
+    protector = subraces["aasimar_protector"]
+    protector_asi = protector.get("asi") or []
+    assert any(item.get("stat") == "wis" and int(item.get("bonus") or 0) == 1 for item in protector_asi if isinstance(item, dict))
+    protector_traits = {str(item.get("key") or ""): item for item in (protector.get("traits") or []) if isinstance(item, dict)}
+    protector_mech = (protector_traits["radiant_soul"].get("mechanics") or {})
+    assert int(protector_mech.get("fly_speed_ft") or 0) == 30
+
+    scourge = subraces["aasimar_scourge"]
+    scourge_asi = scourge.get("asi") or []
+    assert any(item.get("stat") == "con" and int(item.get("bonus") or 0) == 1 for item in scourge_asi if isinstance(item, dict))
+    scourge_traits = {str(item.get("key") or ""): item for item in (scourge.get("traits") or []) if isinstance(item, dict)}
+    scourge_mech = (scourge_traits["radiant_consumption"].get("mechanics") or {})
+    aura = scourge_mech.get("end_of_turn_aura_damage") or {}
+    light = scourge_mech.get("light_emission") or {}
+    assert int(aura.get("radius_ft") or 0) == 10
+    assert str(aura.get("amount") or "") == "ceil(level/2)"
+    assert int(light.get("bright_ft") or 0) == 10
+    assert int(light.get("dim_ft") or 0) == 10
+
+    fallen = subraces["aasimar_fallen"]
+    fallen_asi = fallen.get("asi") or []
+    assert any(item.get("stat") == "str" and int(item.get("bonus") or 0) == 1 for item in fallen_asi if isinstance(item, dict))
+    fallen_traits = {str(item.get("key") or ""): item for item in (fallen.get("traits") or []) if isinstance(item, dict)}
+    fallen_mech = (fallen_traits["necrotic_shroud"].get("mechanics") or {})
+    fear = fallen_mech.get("fear_on_transform") or {}
+    assert str(fear.get("dc_formula") or "") == "8 + proficiency_bonus + cha_mod"
+    assert "fly_speed_ft" not in fallen_mech
+
+
 def test_dragonborn_reference_schema_payload() -> None:
     dragonborn = next((item for item in RACE_CATALOG if str(item.get("key") or "") == "dragonborn"), None)
     assert dragonborn is not None

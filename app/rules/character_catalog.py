@@ -468,6 +468,123 @@ BASE_RACE_CATALOG: list[dict[str, Any]] = [
         "tags": [],
     },
     {
+        "key": "aasimar",
+        "name": "Aasimar",
+        "name_ru": "Аасимар",
+        "source": "VGM",
+        "description_ru": "Потомки небесной крови с врождённым светом и целительной силой.",
+        "asi": [{"stat": "cha", "bonus": 2}],
+        "age": {},
+        "alignment": "",
+        "size": "medium",
+        "speed_ft": 30,
+        "speed_notes_ru": "",
+        "languages": ["common", "celestial"],
+        "traits": [
+            {
+                "key": "darkvision_60",
+                "name_ru": "Тёмное зрение",
+                "summary_ru": "Тёмное зрение 60 футов.",
+                "mechanics": {"type": "darkvision", "range_ft": 60},
+            },
+            {
+                "key": "celestial_resistance",
+                "name_ru": "Небесная устойчивость",
+                "summary_ru": "Сопротивление некротическому урону и урону излучением.",
+                "mechanics": {"type": "damage_resistances", "damage_types": ["radiant", "necrotic"]},
+            },
+            {
+                "key": "healing_hands",
+                "name_ru": "Исцеляющие руки",
+                "summary_ru": "Действием восстанавливает хиты в размере уровня персонажа (1/длительный отдых).",
+                "mechanics": {"type": "healing_hands", "action_cost": "action", "heal_amount": "level", "uses": "per_long_rest", "uses_max": 1},
+            },
+            {
+                "key": "light_cantrip",
+                "name_ru": "Свет",
+                "summary_ru": "Знает заговор light (базовая характеристика заклинаний — Харизма).",
+                "mechanics": {"type": "spell_grants", "casting_ability": "cha", "grants": [{"kind": "cantrip", "spell": "light", "min_level": 1}]},
+            },
+        ],
+        "subraces": [
+            {
+                "key": "aasimar_protector",
+                "name_ru": "Аасимар-защитник",
+                "asi": [{"stat": "wis", "bonus": 1}],
+                "traits": [
+                    {
+                        "key": "radiant_soul",
+                        "name_ru": "Сияющая душа",
+                        "summary_ru": "С 3 уровня: действием на 1 минуту получает полёт 30 футов и 1 раз за ход добавляет к урону излучением величину уровня (1/длительный отдых).",
+                        "mechanics": {
+                            "type": "transformation",
+                            "min_level": 3,
+                            "action_cost": "action",
+                            "duration_rounds": 10,
+                            "uses": "per_long_rest",
+                            "uses_max": 1,
+                            "fly_speed_ft": 30,
+                            "bonus_damage": {"type": "radiant", "amount": "level", "limit": "once_per_turn"},
+                        },
+                    }
+                ],
+            },
+            {
+                "key": "aasimar_scourge",
+                "name_ru": "Аасимар-каратель",
+                "asi": [{"stat": "con", "bonus": 1}],
+                "traits": [
+                    {
+                        "key": "radiant_consumption",
+                        "name_ru": "Лучистое поглощение",
+                        "summary_ru": "С 3 уровня: действием на 1 минуту испускает свет и в конце хода наносит лучистый урон в ауре 10 футов (включая себя), а также 1 раз за ход добавляет к урону излучением величину уровня (1/длительный отдых).",
+                        "mechanics": {
+                            "type": "transformation",
+                            "min_level": 3,
+                            "action_cost": "action",
+                            "duration_rounds": 10,
+                            "uses": "per_long_rest",
+                            "uses_max": 1,
+                            "light_emission": {"bright_ft": 10, "dim_ft": 10},
+                            "end_of_turn_aura_damage": {"type": "radiant", "radius_ft": 10, "amount": "ceil(level/2)", "targets": "self_and_creatures"},
+                            "bonus_damage": {"type": "radiant", "amount": "level", "limit": "once_per_turn"},
+                        },
+                    }
+                ],
+            },
+            {
+                "key": "aasimar_fallen",
+                "name_ru": "Падший аасимар",
+                "asi": [{"stat": "str", "bonus": 1}],
+                "traits": [
+                    {
+                        "key": "necrotic_shroud",
+                        "name_ru": "Некротический покров",
+                        "summary_ru": "С 3 уровня: действием на 1 минуту вызывает ужас в радиусе 10 футов (Спасбросок Харизмы, СЛ 8 + бонус мастерства + модификатор Харизмы) и 1 раз за ход добавляет к урону некротический урон, равный уровню (1/длительный отдых). Крылья не дают полёт.",
+                        "mechanics": {
+                            "type": "transformation",
+                            "min_level": 3,
+                            "action_cost": "action",
+                            "duration_rounds": 10,
+                            "uses": "per_long_rest",
+                            "uses_max": 1,
+                            "fear_on_transform": {
+                                "radius_ft": 10,
+                                "save_ability": "cha",
+                                "dc_formula": "8 + proficiency_bonus + cha_mod",
+                                "duration": "until_end_of_your_next_turn",
+                            },
+                            "bonus_damage": {"type": "necrotic", "amount": "level", "limit": "once_per_turn"},
+                            "wings_grant_flight": False,
+                        },
+                    }
+                ],
+            },
+        ],
+        "notes_ru": "Смена разновидности обычно требует согласия Мастера.",
+        "tags": [],
+    },
+    {
         "key": "dragonborn",
         "name": "Dragonborn",
         "name_ru": "Драконорождённый",
