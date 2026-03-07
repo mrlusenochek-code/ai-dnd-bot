@@ -46,6 +46,10 @@
     .race-section b{display:block; margin-bottom:4px;}
     .race-list{margin:0; padding-left:18px;}
     .race-list li{margin:2px 0;}
+    .race-list li b{display:block;}
+    .race-list li .muted{display:block; margin-top:2px; font-size:12px; line-height:1.25;}
+    .race-list details summary{cursor:pointer;}
+    .race-list details{margin-top:2px;}
     @media (max-width: 1200px){
       .grid{grid-template-columns:1fr 1fr;}
       .right-col{grid-column:1 / -1;} /* Class+Stats уезжают на строку ниже, но остаются рядом */
@@ -235,9 +239,9 @@ function resetStats(){
 function goSession(){
   location.href = "/s/" + SESSION_ID;
 }
-function setListItems(listEl, names){
+function setListItems(listEl, items){
   listEl.innerHTML = "";
-  const values = Array.isArray(names) ? names.filter(Boolean) : [];
+  const values = Array.isArray(items) ? items.filter(Boolean) : [];
   if(values.length === 0){
     const li = document.createElement("li");
     li.className = "muted";
@@ -245,9 +249,95 @@ function setListItems(listEl, names){
     listEl.appendChild(li);
     return;
   }
-  for(const name of values){
+
+  for(const it of values){
     const li = document.createElement("li");
-    li.textContent = String(name);
+
+    // строка — как раньше
+    if(typeof it === "string"){
+      li.textContent = it;
+      listEl.appendChild(li);
+      continue;
+    }
+
+    // объект {name, summary}
+    const name = String(it.name || it.title || it.key || "").trim();
+    const summary = String(it.summary || "").trim();
+
+    if(name){
+      const b = document.createElement("b");
+      b.textContent = name;
+      li.appendChild(b);
+    }
+    if(summary){
+      const d = document.createElement("div");
+      d.className = "muted";
+      d.textContent = summary;
+      li.appendChild(d);
+    }
+
+    // fallback
+    if(!name && !summary){
+      li.textContent = String(it);
+    }
+
+    listEl.appendChild(li);
+  }
+}
+function setSubraceItems(listEl, subraces){
+  listEl.innerHTML = "";
+  const values = Array.isArray(subraces) ? subraces.filter(Boolean) : [];
+  if(values.length === 0){
+    const li = document.createElement("li");
+    li.className = "muted";
+    li.textContent = "Нет данных";
+    listEl.appendChild(li);
+    return;
+  }
+
+  for(const s of values){
+    const li = document.createElement("li");
+
+    // если подраса пришла строкой — просто печатаем
+    if(typeof s === "string"){
+      li.textContent = s;
+      listEl.appendChild(li);
+      continue;
+    }
+
+    const name = String(s.name_ru || s.name || s.key || "").trim() || "Подраса";
+    const traits = Array.isArray(s.traits) ? s.traits : [];
+
+    // нет trait'ов — просто имя
+    if(traits.length === 0){
+      li.textContent = name;
+      listEl.appendChild(li);
+      continue;
+    }
+
+    // есть traits — делаем раскрывашку
+    const det = document.createElement("details");
+    const sum = document.createElement("summary");
+    sum.textContent = name;
+    det.appendChild(sum);
+
+    const ul = document.createElement("ul");
+    ul.className = "race-list";
+
+    const traitItems = traits
+      .map(t => {
+        if(!t) return null;
+        const tName = String(t.name_ru || t.name || t.key || "").trim();
+        const tSummary = String(t.summary_ru || t.summary || "").trim();
+        if(!tName && !tSummary) return null;
+        return {name: tName || t.key || "Особенность", summary: tSummary};
+      })
+      .filter(Boolean);
+
+    setListItems(ul, traitItems);
+    det.appendChild(ul);
+
+    li.appendChild(det);
     listEl.appendChild(li);
   }
 }
@@ -264,14 +354,16 @@ function renderRaceDetails(raceId){
   textEl.textContent = String(description);
 
   const traits = Array.isArray(details.traits)
-    ? details.traits.map(t => (t && (t.name_ru || t.key)) ? String(t.name_ru || t.key) : "").filter(Boolean)
+    ? details.traits.map(t => {
+        if(!t) return null;
+        const name = String(t.name_ru || t.name || t.key || "").trim();
+        const summary = String(t.summary_ru || t.summary || "").trim();
+        if(!name && !summary) return null;
+        return {name: name || String(t.key || "Особенность"), summary};
+      }).filter(Boolean)
     : [];
-  const subraces = Array.isArray(details.subraces)
-    ? details.subraces.map(s => (s && (s.name_ru || s.key)) ? String(s.name_ru || s.key) : "").filter(Boolean)
-    : [];
-
   setListItems(traitsEl, traits);
-  setListItems(subracesEl, subraces);
+  setSubraceItems(subracesEl, details.subraces || []);
 }
 function renderClassDetails(classId){
   const titleEl = document.getElementById("classTitle");
