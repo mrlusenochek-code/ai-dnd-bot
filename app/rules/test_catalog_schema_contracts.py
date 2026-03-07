@@ -116,6 +116,57 @@ def test_aarakocra_reference_schema_payload() -> None:
     assert "heavy" in restrictions
 
 
+def test_genasi_reference_schema_payload() -> None:
+    genasi = next((item for item in RACE_CATALOG if str(item.get("key") or "") == "genasi"), None)
+    assert genasi is not None
+    assert str(genasi.get("size") or "") == "medium"
+    assert int(genasi.get("speed_ft") or 0) == 30
+
+    asi = genasi.get("asi") or []
+    assert any(item.get("stat") == "con" and int(item.get("bonus") or 0) == 2 for item in asi if isinstance(item, dict))
+
+    languages = set(genasi.get("languages") or [])
+    assert "common" in languages
+    assert "primordial" in languages
+
+    subraces = {str(item.get("key") or ""): item for item in (genasi.get("subraces") or []) if isinstance(item, dict)}
+    assert "air_genasi" in subraces
+    assert "earth_genasi" in subraces
+    assert "fire_genasi" in subraces
+    assert "water_genasi" in subraces
+
+    air_genasi = subraces["air_genasi"]
+    air_asi = air_genasi.get("asi") or []
+    assert any(item.get("stat") == "dex" and int(item.get("bonus") or 0) == 1 for item in air_asi if isinstance(item, dict))
+    air_traits = {str(item.get("key") or ""): item for item in (air_genasi.get("traits") or []) if isinstance(item, dict)}
+    assert "unending_breath" in air_traits
+    assert "mingle_with_the_wind" in air_traits
+
+    earth_genasi = subraces["earth_genasi"]
+    earth_asi = earth_genasi.get("asi") or []
+    assert any(item.get("stat") == "str" and int(item.get("bonus") or 0) == 1 for item in earth_asi if isinstance(item, dict))
+    earth_traits = {str(item.get("key") or ""): item for item in (earth_genasi.get("traits") or []) if isinstance(item, dict)}
+    assert "earth_walk" in earth_traits
+    assert "merge_with_stone" in earth_traits
+
+    fire_genasi = subraces["fire_genasi"]
+    fire_asi = fire_genasi.get("asi") or []
+    assert any(item.get("stat") == "int" and int(item.get("bonus") or 0) == 1 for item in fire_asi if isinstance(item, dict))
+    fire_traits = {str(item.get("key") or ""): item for item in (fire_genasi.get("traits") or []) if isinstance(item, dict)}
+    assert "darkvision_60_red" in fire_traits
+    assert "fire_resistance" in fire_traits
+    assert "reach_to_the_blaze" in fire_traits
+
+    water_genasi = subraces["water_genasi"]
+    water_asi = water_genasi.get("asi") or []
+    assert any(item.get("stat") == "wis" and int(item.get("bonus") or 0) == 1 for item in water_asi if isinstance(item, dict))
+    water_traits = {str(item.get("key") or ""): item for item in (water_genasi.get("traits") or []) if isinstance(item, dict)}
+    assert "acid_resistance" in water_traits
+    assert "amphibious" in water_traits
+    assert "swim_speed" in water_traits
+    assert "call_to_the_wave" in water_traits
+
+
 def test_dragonborn_reference_schema_payload() -> None:
     dragonborn = next((item for item in RACE_CATALOG if str(item.get("key") or "") == "dragonborn"), None)
     assert dragonborn is not None

@@ -250,6 +250,166 @@ BASE_RACE_CATALOG: list[dict[str, Any]] = [
         "tags": [],
     },
     {
+        "key": "genasi",
+        "name": "Genasi",
+        "name_ru": "Дженази",
+        "source": "PotA",
+        "description_ru": "Народ с наследием стихийных планов.",
+        "asi": [{"stat": "con", "bonus": 2, "delta": 2}],
+        "age": {},
+        "alignment": "",
+        "size": "medium",
+        "speed_ft": 30,
+        "speed_notes_ru": "",
+        "languages": ["common", "primordial"],
+        "traits": [],
+        "subraces": [
+            {
+                "key": "air_genasi",
+                "name_ru": "Дженази воздуха",
+                "asi": [{"stat": "dex", "bonus": 1, "delta": 1}],
+                "traits": [
+                    {
+                        "key": "unending_breath",
+                        "name_ru": "Бесконечное дыхание",
+                        "summary_ru": "Может задерживать дыхание неограниченно долго.",
+                        "mechanics": {"type": "hold_breath_indefinitely"},
+                    },
+                    {
+                        "key": "mingle_with_the_wind",
+                        "name_ru": "Слияние с ветром",
+                        "summary_ru": "Заклинание levitate 1/длительный отдых без материальных компонентов (Хар-ка: Телосложение).",
+                        "mechanics": {
+                            "type": "spell_grants",
+                            "casting_ability": "con",
+                            "grants": [
+                                {
+                                    "kind": "spell",
+                                    "spell": "levitate",
+                                    "min_level": 1,
+                                    "uses": "per_long_rest",
+                                    "uses_max": 1,
+                                    "material_components_required": False,
+                                }
+                            ],
+                        },
+                    },
+                ],
+            },
+            {
+                "key": "earth_genasi",
+                "name_ru": "Дженази земли",
+                "asi": [{"stat": "str", "bonus": 1, "delta": 1}],
+                "traits": [
+                    {
+                        "key": "earth_walk",
+                        "name_ru": "Шаг земли",
+                        "summary_ru": "Игнорирует дополнительную стоимость труднопроходимой местности из земли и камня.",
+                        "mechanics": {"type": "ignore_difficult_terrain_cost", "surfaces": ["earth", "stone"]},
+                    },
+                    {
+                        "key": "merge_with_stone",
+                        "name_ru": "Слияние с камнем",
+                        "summary_ru": "Заклинание pass_without_trace 1/длительный отдых (Хар-ка: Телосложение).",
+                        "mechanics": {
+                            "type": "spell_grants",
+                            "casting_ability": "con",
+                            "grants": [{"kind": "spell", "spell": "pass_without_trace", "min_level": 1, "uses": "per_long_rest", "uses_max": 1}],
+                        },
+                    },
+                ],
+            },
+            {
+                "key": "fire_genasi",
+                "name_ru": "Дженази огня",
+                "asi": [{"stat": "int", "bonus": 1, "delta": 1}],
+                "traits": [
+                    {
+                        "key": "darkvision_60_red",
+                        "name_ru": "Тёмное зрение",
+                        "summary_ru": "Тёмное зрение 60 футов; в темноте видит оттенки красного.",
+                        "mechanics": {"type": "darkvision", "range_ft": 60, "note": "red_tones_only_in_darkness"},
+                    },
+                    {
+                        "key": "fire_resistance",
+                        "name_ru": "Сопротивление огню",
+                        "summary_ru": "Сопротивление урону огнём.",
+                        "mechanics": {"type": "damage_resistance", "damage_type": "fire"},
+                    },
+                    {
+                        "key": "reach_to_the_blaze",
+                        "name_ru": "Тяга к пламени",
+                        "summary_ru": "Всегда знает produce_flame; с 3 уровня — burning_hands 1/длительный отдых (уровень 1, Хар-ка: Телосложение).",
+                        "mechanics": {
+                            "type": "spell_grants",
+                            "casting_ability": "con",
+                            "grants": [
+                                {"kind": "cantrip", "spell": "produce_flame", "min_level": 1},
+                                {
+                                    "kind": "spell",
+                                    "spell": "burning_hands",
+                                    "spell_level": 1,
+                                    "cast_as_level": 1,
+                                    "min_level": 3,
+                                    "uses": "per_long_rest",
+                                    "uses_max": 1,
+                                },
+                            ],
+                        },
+                    },
+                ],
+            },
+            {
+                "key": "water_genasi",
+                "name_ru": "Дженази воды",
+                "asi": [{"stat": "wis", "bonus": 1, "delta": 1}],
+                "traits": [
+                    {
+                        "key": "acid_resistance",
+                        "name_ru": "Сопротивление кислоте",
+                        "summary_ru": "Сопротивление урону кислотой.",
+                        "mechanics": {"type": "damage_resistance", "damage_type": "acid"},
+                    },
+                    {
+                        "key": "amphibious",
+                        "name_ru": "Амфибия",
+                        "summary_ru": "Может дышать воздухом и под водой.",
+                        "mechanics": {"type": "amphibious"},
+                    },
+                    {
+                        "key": "swim_speed",
+                        "name_ru": "Скорость плавания",
+                        "summary_ru": "Скорость плавания 30 футов.",
+                        "mechanics": {"type": "swim_speed", "swim_speed_ft": 30},
+                    },
+                    {
+                        "key": "call_to_the_wave",
+                        "name_ru": "Зов волны",
+                        "summary_ru": "Всегда знает shape_water; с 3 уровня — create_or_destroy_water 1/длительный отдых (уровень 2, Хар-ка: Телосложение).",
+                        "mechanics": {
+                            "type": "spell_grants",
+                            "casting_ability": "con",
+                            "grants": [
+                                {"kind": "cantrip", "spell": "shape_water", "min_level": 1},
+                                {
+                                    "kind": "spell",
+                                    "spell": "create_or_destroy_water",
+                                    "spell_level": 1,
+                                    "cast_as_level": 2,
+                                    "min_level": 3,
+                                    "uses": "per_long_rest",
+                                    "uses_max": 1,
+                                },
+                            ],
+                        },
+                    },
+                ],
+            },
+        ],
+        "notes_ru": "Reference-каркас PotA; механики как placeholders.",
+        "tags": [],
+    },
+    {
         "key": "dragonborn",
         "name": "Dragonborn",
         "name_ru": "Драконорождённый",
