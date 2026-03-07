@@ -82,3 +82,22 @@ def test_dwarf_reference_schema_payload() -> None:
     mountain = subraces["mountain_dwarf"]
     mountain_asi = mountain.get("asi") or []
     assert any(item.get("stat") == "str" and int(item.get("bonus") or 0) == 2 for item in mountain_asi if isinstance(item, dict))
+
+
+def test_barbarian_reference_schema_payload() -> None:
+    barbarian = next((item for item in CLASS_CATALOG if str(item.get("key") or "") == "barbarian"), None)
+    assert barbarian is not None
+    assert int(barbarian.get("hit_die") or 0) == 12
+    assert set(barbarian.get("saving_throws") or []) == {"str", "con"}
+
+    levels = barbarian.get("features_by_level") or {}
+    assert isinstance(levels, dict)
+    for level in (1, 2, 3, 5, 20):
+        assert level in levels
+
+    lvl3 = {str(item.get("key") or ""): item for item in (levels.get(3) or []) if isinstance(item, dict)}
+    assert "primal_path" in lvl3
+
+    subclasses = {str(item.get("key") or ""): item for item in (barbarian.get("subclasses") or []) if isinstance(item, dict)}
+    assert "berserker" in subclasses
+    assert "totem_warrior" in subclasses

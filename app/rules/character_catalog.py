@@ -39,7 +39,94 @@ PHB_RACE_KEYS: tuple[str, ...] = (
 
 
 BASE_CLASS_CATALOG: list[dict[str, Any]] = [
-    {"key": "barbarian", "name": "Barbarian", "name_ru": "Варвар", "source": "PHB", "description_ru": "", "hit_die": 12, "primary_abilities": [], "saving_throws": [], "proficiencies": {}, "skill_choices": {}, "starting_equipment": [], "features_by_level": {}, "subclasses": [], "spellcasting": {}, "spell_lists": {}, "tags": []},
+    {
+        "key": "barbarian",
+        "name": "Barbarian",
+        "name_ru": "Варвар",
+        "source": "PHB",
+        "description_ru": "Неистовый воин, полагающийся на ярость, стойкость и грубую силу.",
+        "hit_die": 12,
+        "primary_abilities": ["str"],
+        "saving_throws": ["str", "con"],
+        "proficiencies": {
+            "armor": ["light", "medium", "shields"],
+            "weapons": ["simple", "martial"],
+            "tools": [],
+            "skills_choose": {
+                "count": 2,
+                "from": ["athletics", "intimidation", "nature", "perception", "survival", "animal_handling"],
+            },
+        },
+        "skill_choices": {},
+        "starting_equipment": [
+            {
+                "key": "phb_barbarian_starting_equipment",
+                "name_ru": "Стартовое снаряжение варвара",
+                "summary_ru": "TODO: PHB equipment choices",
+            }
+        ],
+        "features_by_level": {
+            1: [
+                {"key": "rage", "name_ru": "Ярость", "summary_ru": "В бою усиливает урон и выживаемость.", "mechanics": {}},
+                {"key": "unarmored_defense", "name_ru": "Защита без доспехов", "summary_ru": "КД рассчитывается от Телосложения и Ловкости.", "mechanics": {}},
+            ],
+            2: [
+                {"key": "reckless_attack", "name_ru": "Безрассудная атака", "summary_ru": "Можно атаковать агрессивно, повышая шанс попадания ценой защиты.", "mechanics": {}},
+                {"key": "danger_sense", "name_ru": "Чувство опасности", "summary_ru": "Лучше избегает видимых угроз и ловушек.", "mechanics": {}},
+            ],
+            3: [
+                {"key": "primal_path", "name_ru": "Путь дикости", "summary_ru": "Выбор подкласса варвара.", "mechanics": {"type": "subclass_choice"}},
+            ],
+            4: [{"key": "asi", "name_ru": "Увеличение характеристик", "summary_ru": "Улучшение характеристик или выбор таланта.", "mechanics": {}}],
+            5: [
+                {"key": "extra_attack", "name_ru": "Дополнительная атака", "summary_ru": "Совершает больше атак действием.", "mechanics": {}},
+                {"key": "fast_movement", "name_ru": "Быстрое передвижение", "summary_ru": "Увеличивает скорость передвижения.", "mechanics": {}},
+            ],
+            6: [{"key": "path_feature_6", "name_ru": "Особенность пути (6)", "summary_ru": "Классовая особенность выбранного пути на 6 уровне.", "mechanics": {}}],
+            7: [{"key": "feral_instinct", "name_ru": "Звериный инстинкт", "summary_ru": "Быстрее реагирует на начало схватки.", "mechanics": {}}],
+            8: [{"key": "asi", "name_ru": "Увеличение характеристик", "summary_ru": "Улучшение характеристик или выбор таланта.", "mechanics": {}}],
+            9: [{"key": "brutal_critical_1", "name_ru": "Жестокий критический удар (1)", "summary_ru": "Критические удары наносят больше урона.", "mechanics": {}}],
+            10: [{"key": "path_feature_10", "name_ru": "Особенность пути (10)", "summary_ru": "Классовая особенность выбранного пути на 10 уровне.", "mechanics": {}}],
+            11: [{"key": "relentless_rage", "name_ru": "Неукротимая ярость", "summary_ru": "Может удержаться на ногах после тяжёлого удара.", "mechanics": {}}],
+            12: [{"key": "asi", "name_ru": "Увеличение характеристик", "summary_ru": "Улучшение характеристик или выбор таланта.", "mechanics": {}}],
+            13: [{"key": "brutal_critical_2", "name_ru": "Жестокий критический удар (2)", "summary_ru": "Критические удары становятся ещё опаснее.", "mechanics": {}}],
+            14: [{"key": "path_feature_14", "name_ru": "Особенность пути (14)", "summary_ru": "Классовая особенность выбранного пути на 14 уровне.", "mechanics": {}}],
+            15: [{"key": "persistent_rage", "name_ru": "Постоянная ярость", "summary_ru": "Ярость удерживается дольше в сражении.", "mechanics": {}}],
+            16: [{"key": "asi", "name_ru": "Увеличение характеристик", "summary_ru": "Улучшение характеристик или выбор таланта.", "mechanics": {}}],
+            17: [{"key": "brutal_critical_3", "name_ru": "Жестокий критический удар (3)", "summary_ru": "Максимальная ступень усиления критических ударов.", "mechanics": {}}],
+            18: [{"key": "indomitable_might", "name_ru": "Несокрушимая мощь", "summary_ru": "Чистая сила помогает в проверках даже при плохом броске.", "mechanics": {}}],
+            19: [{"key": "asi", "name_ru": "Увеличение характеристик", "summary_ru": "Улучшение характеристик или выбор таланта.", "mechanics": {}}],
+            20: [{"key": "primal_champion", "name_ru": "Первобытный чемпион", "summary_ru": "Пик физической мощи и выносливости варвара.", "mechanics": {}}],
+        },
+        "subclasses": [
+            {
+                "key": "berserker",
+                "name_ru": "Путь берсерка",
+                "features_by_level": {
+                    3: [{"key": "frenzy", "name_ru": "Исступление", "summary_ru": "В ярости сражается с предельной агрессией.", "mechanics": {}}],
+                    6: [{"key": "mindless_rage", "name_ru": "Безумная ярость", "summary_ru": "Ярость помогает игнорировать ментальные помехи.", "mechanics": {}}],
+                    10: [{"key": "intimidating_presence", "name_ru": "Пугающее присутствие", "summary_ru": "Давит на врагов одним присутствием.", "mechanics": {}}],
+                    14: [{"key": "retaliation", "name_ru": "Возмездие", "summary_ru": "Отвечает ударом на вражескую атаку.", "mechanics": {}}],
+                },
+            },
+            {
+                "key": "totem_warrior",
+                "name_ru": "Путь тотемного воина",
+                "features_by_level": {
+                    3: [
+                        {"key": "spirit_seeker", "name_ru": "Искатель духов", "summary_ru": "Осваивает ритуалы общения с духами природы.", "mechanics": {}},
+                        {"key": "totem_spirit", "name_ru": "Дух тотема", "summary_ru": "Выбирает духа-покровителя, меняющего стиль боя.", "mechanics": {}},
+                    ],
+                    6: [{"key": "aspect_of_beast", "name_ru": "Аспект зверя", "summary_ru": "Получает дополнительную особенность выбранного тотема.", "mechanics": {}}],
+                    10: [{"key": "commune_with_nature", "name_ru": "Единение с природой", "summary_ru": "Лучше чувствует окружающую местность и духов.", "mechanics": {}}],
+                    14: [{"key": "totemic_attunement", "name_ru": "Тотемное единение", "summary_ru": "Высшая форма связи с тотемом в бою.", "mechanics": {}}],
+                },
+            },
+        ],
+        "spellcasting": {},
+        "spell_lists": {},
+        "tags": [],
+    },
     {"key": "bard", "name": "Bard", "name_ru": "Бард", "source": "PHB", "description_ru": "", "hit_die": 8, "primary_abilities": [], "saving_throws": [], "proficiencies": {}, "skill_choices": {}, "starting_equipment": [], "features_by_level": {}, "subclasses": [], "spellcasting": {}, "spell_lists": {}, "tags": []},
     {"key": "cleric", "name": "Cleric", "name_ru": "Жрец", "source": "PHB", "description_ru": "", "hit_die": 8, "primary_abilities": [], "saving_throws": [], "proficiencies": {}, "skill_choices": {}, "starting_equipment": [], "features_by_level": {}, "subclasses": [], "spellcasting": {}, "spell_lists": {}, "tags": []},
     {"key": "druid", "name": "Druid", "name_ru": "Друид", "source": "PHB", "description_ru": "", "hit_die": 8, "primary_abilities": [], "saving_throws": [], "proficiencies": {}, "skill_choices": {}, "starting_equipment": [], "features_by_level": {}, "subclasses": [], "spellcasting": {}, "spell_lists": {}, "tags": []},

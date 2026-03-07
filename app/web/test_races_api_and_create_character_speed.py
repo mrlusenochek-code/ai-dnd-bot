@@ -5,7 +5,7 @@ import json
 import uuid
 
 from app.web.gameplay_helpers import create_character
-from app.web.http_routes import api_races
+from app.web.http_routes import api_classes, api_races
 
 
 class _FakeDb:
@@ -52,3 +52,14 @@ def test_api_races_nonempty() -> None:
     assert races
     race_ids = {str(item.get("id") or "") for item in races if isinstance(item, dict)}
     assert "dwarf" in race_ids
+
+
+def test_api_classes_contains_barbarian() -> None:
+    async def _run():
+        return await api_classes()
+
+    resp = asyncio.run(_run())
+    payload = json.loads(resp.body)
+    classes = payload.get("classes") or []
+    class_ids = {str(item.get("id") or "") for item in classes if isinstance(item, dict)}
+    assert "barbarian" in class_ids
