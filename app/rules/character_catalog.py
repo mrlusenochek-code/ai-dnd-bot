@@ -176,7 +176,7 @@ BASE_RACE_CATALOG: list[dict[str, Any]] = [
         "subraces": [
             {
                 "key": "variant_human",
-                "name_ru": "Человек (вариант)",
+                "name_ru": "Человек (альтернативные особенности)",
                 "asi": [],
                 "traits": [
                     {
