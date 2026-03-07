@@ -848,7 +848,7 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                             if not is_active_now:
                                 msg = "Ты уже вне панциря."
                             else:
-                                rf2["runtime"] = {"active": False}
+                                rf2.pop("runtime", None)
                                 ch.race_features = rf2
                                 await db.commit()
                                 msg = "Ты вылезаешь из панциря: эффекты панциря сняты."
