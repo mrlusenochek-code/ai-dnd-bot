@@ -354,7 +354,69 @@ BASE_RACE_CATALOG: list[dict[str, Any]] = [
     {"key": "gnome", "name": "Gnome", "name_ru": "Гном", "source": "PHB", "description_ru": "", "asi": [], "age": {}, "alignment": "", "size": "small", "speed_ft": 25, "speed_notes_ru": "", "languages": [], "traits": [], "subraces": [], "tags": []},
     {"key": "half_elf", "name": "Half-Elf", "name_ru": "Полуэльф", "source": "PHB", "description_ru": "", "asi": [], "age": {}, "alignment": "", "size": "medium", "speed_ft": 30, "speed_notes_ru": "", "languages": [], "traits": [], "subraces": [], "tags": []},
     {"key": "half_orc", "name": "Half-Orc", "name_ru": "Полуорк", "source": "PHB", "description_ru": "", "asi": [], "age": {}, "alignment": "", "size": "medium", "speed_ft": 30, "speed_notes_ru": "", "languages": [], "traits": [], "subraces": [], "tags": []},
-    {"key": "halfling", "name": "Halfling", "name_ru": "Полурослик", "source": "PHB", "description_ru": "", "asi": [], "age": {}, "alignment": "", "size": "small", "speed_ft": 25, "speed_notes_ru": "", "languages": [], "traits": [], "subraces": [], "tags": []},
+    {
+        "key": "halfling",
+        "name": "Halfling",
+        "name_ru": "Полурослик",
+        "source": "PHB",
+        "description_ru": "Невысокий и ловкий народ, ценящий удачу, смелость и скрытность.",
+        "asi": [{"stat": "dex", "bonus": 2}],
+        "age": {},
+        "alignment": "",
+        "size": "small",
+        "speed_ft": 25,
+        "speed_notes_ru": "",
+        "languages": ["common", "halfling"],
+        "traits": [
+            {
+                "key": "lucky",
+                "name_ru": "Везучий",
+                "summary_ru": "Перебрасывает d20 при выпадении 1 на атаке, проверке или спасброске.",
+                "mechanics": {"type": "reroll_ones", "scope": ["attack", "check", "save"], "note": "PHB Lucky placeholder"},
+            },
+            {
+                "key": "brave",
+                "name_ru": "Храбрый",
+                "summary_ru": "Имеет преимущество на спасброски от испуга.",
+                "mechanics": {"type": "save_advantage", "vs": "frightened"},
+            },
+            {
+                "key": "halfling_nimbleness",
+                "name_ru": "Проворство полурослика",
+                "summary_ru": "Может проходить через пространство существ большего размера.",
+                "mechanics": {"type": "move_through_larger_creatures"},
+            },
+        ],
+        "subraces": [
+            {
+                "key": "lightfoot",
+                "name_ru": "Легконогий",
+                "asi": [{"stat": "cha", "bonus": 1}],
+                "traits": [
+                    {
+                        "key": "naturally_stealthy",
+                        "name_ru": "Природная скрытность",
+                        "summary_ru": "Может скрыться, если заслонён существом на 1 размер больше.",
+                        "mechanics": {"type": "hide_with_larger_cover"},
+                    }
+                ],
+            },
+            {
+                "key": "stout",
+                "name_ru": "Коренастый",
+                "asi": [{"stat": "con", "bonus": 1}],
+                "traits": [
+                    {
+                        "key": "stout_resilience",
+                        "name_ru": "Коренастая стойкость",
+                        "summary_ru": "Преимущество на спасброски от яда и сопротивление урону ядом.",
+                        "mechanics": {"type": "poison_resilience", "save_advantage": True, "damage_resistance": True},
+                    }
+                ],
+            },
+        ],
+        "tags": [],
+    },
     {"key": "tiefling", "name": "Tiefling", "name_ru": "Тифлинг", "source": "PHB", "description_ru": "", "asi": [], "age": {}, "alignment": "", "size": "medium", "speed_ft": 30, "speed_notes_ru": "", "languages": [], "traits": [], "subraces": [], "tags": []},
 ]
 

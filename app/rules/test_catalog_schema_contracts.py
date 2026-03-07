@@ -127,3 +127,30 @@ def test_elf_reference_schema_payload() -> None:
     drow_traits = {str(item.get("key") or ""): item for item in (drow.get("traits") or []) if isinstance(item, dict)}
     assert "superior_darkvision_120" in drow_traits
     assert "sunlight_sensitivity" in drow_traits
+
+
+def test_halfling_reference_schema_payload() -> None:
+    halfling = next((item for item in RACE_CATALOG if str(item.get("key") or "") == "halfling"), None)
+    assert halfling is not None
+    assert str(halfling.get("size") or "") == "small"
+    assert int(halfling.get("speed_ft") or 0) == 25
+
+    asi = halfling.get("asi") or []
+    assert any(item.get("stat") == "dex" and int(item.get("bonus") or 0) == 2 for item in asi if isinstance(item, dict))
+
+    traits = {str(item.get("key") or ""): item for item in (halfling.get("traits") or []) if isinstance(item, dict)}
+    assert "lucky" in traits
+    assert "brave" in traits
+    assert "halfling_nimbleness" in traits
+
+    subraces = {str(item.get("key") or ""): item for item in (halfling.get("subraces") or []) if isinstance(item, dict)}
+    assert "lightfoot" in subraces
+    assert "stout" in subraces
+
+    lightfoot = subraces["lightfoot"]
+    lightfoot_asi = lightfoot.get("asi") or []
+    assert any(item.get("stat") == "cha" and int(item.get("bonus") or 0) == 1 for item in lightfoot_asi if isinstance(item, dict))
+
+    stout = subraces["stout"]
+    stout_asi = stout.get("asi") or []
+    assert any(item.get("stat") == "con" and int(item.get("bonus") or 0) == 1 for item in stout_asi if isinstance(item, dict))
