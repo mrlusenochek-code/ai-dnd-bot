@@ -270,6 +270,88 @@ def _apply_healing_hands_in_combat(
     return patch, None, changed
 
 
+def _apply_aasimar_transformation_usage(ch: Character) -> tuple[Optional[dict[str, Any]], Optional[str], bool]:
+    race_features = getattr(ch, "race_features", None)
+    rf = dict(race_features) if isinstance(race_features, dict) else {}
+    features_raw = rf.get("features")
+    features = dict(features_raw) if isinstance(features_raw, dict) else {}
+    transform_raw = features.get("aasimar_transformation")
+    transform = dict(transform_raw) if isinstance(transform_raw, dict) else {}
+    if not transform:
+        return None, "Небесное преобразование недоступно вашей расе.", False
+
+    required_level = max(0, as_int(transform.get("min_level"), 0))
+    current_level = max(1, as_int(getattr(ch, "level", 1), 1))
+    if required_level > current_level:
+        return None, f"Небесное преобразование доступно с {required_level} уровня.", False
+
+    runtime_raw = rf.get("runtime")
+    runtime = dict(runtime_raw) if isinstance(runtime_raw, dict) else {}
+    uses = str(transform.get("uses") or "").strip().lower()
+    uses_max = max(1, as_int(transform.get("uses_max"), 1))
+    if uses == "per_long_rest" and uses_max <= 1 and bool(runtime.get("aasimar_transform_used")):
+        return None, "Небесное преобразование уже использовано до долгого отдыха.", False
+
+    kind = str(transform.get("kind") or "").strip().lower()
+    rounds_left = 10
+    if uses == "per_long_rest" and uses_max <= 1:
+        runtime["aasimar_transform_used"] = True
+    runtime["aasimar_transformation"] = {
+        "active": True,
+        "kind": kind,
+        "rounds_left": rounds_left,
+    }
+    if kind == "protector":
+        fly_speed_ft = max(0, as_int(transform.get("fly_speed_ft"), 30))
+        runtime["fly_speed_ft"] = fly_speed_ft
+    else:
+        runtime.pop("fly_speed_ft", None)
+    rf["runtime"] = runtime
+    ch.race_features = rf
+    return dict(runtime.get("aasimar_transformation") or {}), None, True
+
+
+def _apply_aasimar_transformation_in_combat(
+    session_id: str,
+    actor_key: str,
+    ch: Character,
+) -> tuple[Optional[dict[str, Any]], Optional[str], bool]:
+    state = get_combat(session_id)
+    if state is None or not state.active:
+        return None, "Combat is not active", False
+    if not state.order or state.turn_index < 0 or state.turn_index >= len(state.order):
+        return None, "Combat state is inconsistent", False
+    turn_key = state.order[state.turn_index]
+    if turn_key != actor_key:
+        return None, f"Сейчас ходит {current_turn_label(state)}. Дождись своего хода.", False
+
+    actor = state.combatants.get(actor_key)
+    if actor is None:
+        return None, "Боец не найден.", False
+    if not bool(getattr(actor, "action_available", True)):
+        return None, "Действие недоступно: действие уже потрачено.", False
+
+    transform_runtime, transform_err, changed = _apply_aasimar_transformation_usage(ch)
+    if transform_err:
+        return None, transform_err, False
+
+    actor.action_available = False
+    actor.race_features = dict(getattr(ch, "race_features", {}) or {})
+
+    caster_name = str(getattr(ch, "name", "") or getattr(actor, "name", "") or "Персонаж").strip() or "Персонаж"
+    kind = str((transform_runtime or {}).get("kind") or "").strip().lower()
+    kind_ru = {"protector": "Защитник", "scourge": "Карающий", "fallen": "Падший"}.get(kind, kind or "—")
+    rounds_left = max(0, as_int((transform_runtime or {}).get("rounds_left"), 0))
+    patch = {
+        "status": f"⚔ Бой • Раунд {state.round_no} • Ход: {current_turn_label(state)}",
+        "open": True,
+        "lines": [
+            {"text": f"{caster_name} активирует Небесное преобразование ({kind_ru}) на {rounds_left} ходов."},
+        ],
+    }
+    return patch, None, changed
+
+
 def _reset_racial_rest_uses(ch: Character) -> bool:
     race_features = getattr(ch, "race_features", None)
     rf = dict(race_features) if isinstance(race_features, dict) else {}
@@ -284,6 +366,15 @@ def _reset_racial_rest_uses(ch: Character) -> bool:
         changed = True
     if "healing_hands_used" in runtime:
         runtime.pop("healing_hands_used", None)
+        changed = True
+    if "aasimar_transform_used" in runtime:
+        runtime.pop("aasimar_transform_used", None)
+        changed = True
+    if "aasimar_transformation" in runtime:
+        runtime.pop("aasimar_transformation", None)
+        changed = True
+    if "fly_speed_ft" in runtime:
+        runtime.pop("fly_speed_ft", None)
         changed = True
     if not changed:
         return False
@@ -314,6 +405,15 @@ def _reset_combatant_racial_rest_uses(session_id: str, actor_key: str) -> bool:
         changed = True
     if "healing_hands_used" in runtime:
         runtime.pop("healing_hands_used", None)
+        changed = True
+    if "aasimar_transform_used" in runtime:
+        runtime.pop("aasimar_transform_used", None)
+        changed = True
+    if "aasimar_transformation" in runtime:
+        runtime.pop("aasimar_transformation", None)
+        changed = True
+    if "fly_speed_ft" in runtime:
+        runtime.pop("fly_speed_ft", None)
         changed = True
     if not changed:
         return False
@@ -1082,7 +1182,11 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                                     else (
                                         "combat_stone_endurance"
                                         if combat_action == "combat_stone_endurance"
-                                        else ("combat_healing_hands" if combat_action == "combat_healing_hands" else "player_action")
+                                        else (
+                                            "combat_healing_hands"
+                                            if combat_action == "combat_healing_hands"
+                                            else ("combat_aasimar_transform" if combat_action == "combat_aasimar_transform" else "player_action")
+                                        )
                                     )
                                 ),
                                 "raw_text": text,
@@ -1156,6 +1260,24 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                             if changed:
                                 flag_modified(ch, "race_features")
                             await db.commit()
+                            if combat_patch:
+                                await _broadcast_state_unlocked(session_id, combat_log_ui_patch=combat_patch)
+                            continue
+
+                        if combat_action == "combat_aasimar_transform":
+                            ch = await get_character(db, sess.id, player.id)
+                            if not ch:
+                                await ws_error("Персонаж не найден.", request_id=msg_request_id)
+                                continue
+                            combat_patch, transform_err, changed = _apply_aasimar_transformation_in_combat(session_id, player_key, ch)
+                            if transform_err:
+                                await ws_error(transform_err, request_id=msg_request_id)
+                                continue
+                            if changed:
+                                flag_modified(ch, "race_features")
+                            await db.commit()
+                            _uid_map, chars_by_uid, _ = await _load_actor_context(db, sess)
+                            sync_pcs_from_chars(session_id, chars_by_uid)
                             if combat_patch:
                                 await _broadcast_state_unlocked(session_id, combat_log_ui_patch=combat_patch)
                             continue
@@ -1250,10 +1372,38 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                         continue
                     else:
                         await ws_error(
-                            "Combat Lock: в бою доступны только боевые команды (атака/конец хода/уклон/движение/рывок/отход/взлёт/приземление/помощь/побег/каменная выносливость/исцеляющие руки) или OOC.",
+                            "Combat Lock: в бою доступны только боевые команды (атака/конец хода/уклон/движение/рывок/отход/взлёт/приземление/помощь/побег/каменная выносливость/исцеляющие руки/небесное преобразование) или OOC.",
                             request_id=msg_request_id,
                         )
                         continue
+
+                # OOC (any time, no turn)
+                if combat_action == "combat_aasimar_transform":
+                    ch = await get_character(db, sess.id, player.id)
+                    if not ch:
+                        await ws_error("No character. Use: char create ...", request_id=msg_request_id)
+                        continue
+                    transform_runtime, transform_err, changed = _apply_aasimar_transformation_usage(ch)
+                    if transform_err:
+                        await ws_error(transform_err, request_id=msg_request_id)
+                        continue
+                    if changed:
+                        flag_modified(ch, "race_features")
+                    await db.commit()
+                    combat_now = get_combat(session_id)
+                    if combat_now is not None and combat_now.active:
+                        _uid_map, chars_by_uid, _ = await _load_actor_context(db, sess)
+                        sync_pcs_from_chars(session_id, chars_by_uid)
+                    actor_name = str(getattr(ch, "name", "") or player.display_name).strip() or player.display_name
+                    kind = str((transform_runtime or {}).get("kind") or "").strip().lower()
+                    kind_ru = {"protector": "Защитник", "scourge": "Карающий", "fallen": "Падший"}.get(kind, kind or "—")
+                    await add_system_event(
+                        db,
+                        sess,
+                        f"{actor_name} активирует Небесное преобразование ({kind_ru}) на 10 ходов.",
+                    )
+                    await broadcast_state(session_id)
+                    continue
 
                 # OOC (any time, no turn)
                 if combat_action == "combat_healing_hands":
@@ -1951,7 +2101,11 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                             else (
                                 "combat_stone_endurance"
                                 if combat_action == "combat_stone_endurance"
-                                else ("combat_healing_hands" if combat_action == "combat_healing_hands" else "player_action")
+                                else (
+                                    "combat_healing_hands"
+                                    if combat_action == "combat_healing_hands"
+                                    else ("combat_aasimar_transform" if combat_action == "combat_aasimar_transform" else "player_action")
+                                )
                             )
                         ),
                         "actor_uid": _player_uid(player),
@@ -2045,6 +2199,24 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                             if changed:
                                 flag_modified(ch, "race_features")
                             await db.commit()
+                            if combat_patch:
+                                await broadcast_state(session_id, combat_log_ui_patch=combat_patch)
+                            continue
+
+                        if combat_action == "combat_aasimar_transform":
+                            ch = await get_character(db, sess.id, player.id)
+                            if not ch:
+                                await ws_error("Персонаж не найден.")
+                                continue
+                            combat_patch, transform_err, changed = _apply_aasimar_transformation_in_combat(session_id, player_key, ch)
+                            if transform_err:
+                                await ws_error(transform_err)
+                                continue
+                            if changed:
+                                flag_modified(ch, "race_features")
+                            await db.commit()
+                            _uid_map, chars_by_uid, _ = await _load_actor_context(db, sess)
+                            sync_pcs_from_chars(session_id, chars_by_uid)
                             if combat_patch:
                                 await broadcast_state(session_id, combat_log_ui_patch=combat_patch)
                             continue
@@ -2182,6 +2354,33 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                         db,
                         sess,
                         f"{actor_name} исцеляет себя прикосновением: +{max(0, int(healed_hp or 0))} HP (Исцеляющие руки).",
+                    )
+                    await broadcast_state(session_id)
+                    continue
+
+                if combat_action == "combat_aasimar_transform":
+                    ch = await get_character(db, sess.id, player.id)
+                    if not ch:
+                        await ws_error("No character. Use: char create ...")
+                        continue
+                    transform_runtime, transform_err, changed = _apply_aasimar_transformation_usage(ch)
+                    if transform_err:
+                        await ws_error(transform_err)
+                        continue
+                    if changed:
+                        flag_modified(ch, "race_features")
+                    await db.commit()
+                    combat_now = get_combat(session_id)
+                    if combat_now is not None and combat_now.active:
+                        _uid_map, chars_by_uid, _ = await _load_actor_context(db, sess)
+                        sync_pcs_from_chars(session_id, chars_by_uid)
+                    actor_name = str(getattr(ch, "name", "") or player.display_name).strip() or player.display_name
+                    kind = str((transform_runtime or {}).get("kind") or "").strip().lower()
+                    kind_ru = {"protector": "Защитник", "scourge": "Карающий", "fallen": "Падший"}.get(kind, kind or "—")
+                    await add_system_event(
+                        db,
+                        sess,
+                        f"{actor_name} активирует Небесное преобразование ({kind_ru}) на 10 ходов.",
                     )
                     await broadcast_state(session_id)
                     continue

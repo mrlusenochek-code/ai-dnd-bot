@@ -26,6 +26,29 @@ def advance_turn_in_state(state: CombatState) -> CombatState:
     if state.turn_index < 0 or state.turn_index >= len(state.order):
         state.turn_index = 0
 
+    ending_key = state.order[state.turn_index]
+    ending_combatant = state.combatants.get(ending_key)
+    if ending_combatant is not None and str(getattr(ending_combatant, "side", "")).lower() == "pc":
+        race_features = ending_combatant.race_features if isinstance(ending_combatant.race_features, dict) else {}
+        runtime_raw = race_features.get("runtime")
+        runtime = dict(runtime_raw) if isinstance(runtime_raw, dict) else {}
+        transform_raw = runtime.get("aasimar_transformation")
+        transform = dict(transform_raw) if isinstance(transform_raw, dict) else {}
+        if bool(transform.get("active")):
+            rounds_left = max(0, int(transform.get("rounds_left") or 0))
+            if rounds_left > 0:
+                rounds_left -= 1
+            transform["rounds_left"] = rounds_left
+            if rounds_left <= 0:
+                transform["active"] = False
+                runtime.pop("fly_speed_ft", None)
+            runtime["aasimar_transformation"] = transform
+            if runtime:
+                race_features["runtime"] = runtime
+            else:
+                race_features.pop("runtime", None)
+            ending_combatant.race_features = race_features
+
     state.turn_index = (state.turn_index + 1) % len(state.order)
     if state.turn_index == 0:
         state.round_no += 1

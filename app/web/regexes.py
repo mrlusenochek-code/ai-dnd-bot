@@ -72,6 +72,13 @@ CHAT_COMBAT_ACTION_PATTERNS: list[tuple[str, re.Pattern[str]]] = [
             re.IGNORECASE,
         ),
     ),
+    (
+        "combat_aasimar_transform",
+        re.compile(
+            r"(преобразуюс|раскрываю\s+крыл|сияющ|поглощение\s+сияния|некротическ(?:ий|ого)\s+покров|radiant\s+soul|radiant\s+consumption|necrotic\s+shroud)",
+            re.IGNORECASE,
+        ),
+    ),
     ("combat_use_object", re.compile(r"(использую|применяю|активирую|включаю|поджигаю|зажигаю|пью|выпиваю|нажимаю|достаю|зелье|флакон|свиток|факел|рычаг|кнопк)", re.IGNORECASE)),
     (
         "tortle_shell_in",

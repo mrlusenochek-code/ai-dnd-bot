@@ -81,6 +81,13 @@ def sync_pcs_from_chars(session_id: str, chars_by_uid: dict[int, Any]) -> None:
             )
             movement_speeds["fly"] = fly_ft if fly_available else 0
 
+        runtime_transform = runtime.get("aasimar_transformation") if isinstance(runtime, dict) else None
+        runtime_transform_obj = dict(runtime_transform) if isinstance(runtime_transform, dict) else {}
+        runtime_kind = str(runtime_transform_obj.get("kind") or "").strip().lower()
+        runtime_active = bool(runtime_transform_obj.get("active"))
+        if runtime_active and runtime_kind == "protector":
+            movement_speeds["fly"] = max(30, max(0, _safe_int(movement_speeds.get("fly"), 0)))
+
         if isinstance(override, int) and not isinstance(override, bool):
             speed = max(0, int(override))
             movement_speeds = {
