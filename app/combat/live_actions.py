@@ -96,6 +96,29 @@ def _combat_status(state: Any) -> str:
     return f"⚔ Бой • Раунд {state.round_no} • Ход: {current_turn_label(state)}"
 
 
+def _aasimar_bonus_damage_for_hit(actor: Any) -> tuple[int, str]:
+    if str(getattr(actor, "side", "")).lower() != "pc":
+        return 0, ""
+    if bool(getattr(actor, "bonus_damage_used_this_turn", False)):
+        return 0, ""
+    race_features = getattr(actor, "race_features", None)
+    rf = race_features if isinstance(race_features, dict) else {}
+    runtime_raw = rf.get("runtime")
+    runtime = runtime_raw if isinstance(runtime_raw, dict) else {}
+    transform_raw = runtime.get("aasimar_transformation")
+    transform = transform_raw if isinstance(transform_raw, dict) else {}
+    if not bool(transform.get("active")):
+        return 0, ""
+    kind = str(transform.get("kind") or "").strip().lower()
+    if kind not in {"protector", "fallen"}:
+        return 0, ""
+    damage_type = "radiant" if kind == "protector" else "necrotic"
+    level = max(1, int(getattr(actor, "level", 1) or 1))
+    bonus = level
+    actor.bonus_damage_used_this_turn = True
+    return bonus, damage_type
+
+
 def _spend_action_or_block(state: Any, actor: Any) -> dict[str, Any] | None:
     if actor.action_available:
         actor.action_available = False
@@ -1074,15 +1097,22 @@ def handle_live_combat_action(
         )
         attacker.help_attack_advantage = False
         extra_outcome_lines: list[dict[str, Any]] = []
+        total_damage = int(resolution.total_damage)
         if resolution.is_hit:
+            bonus_damage, bonus_damage_type = _aasimar_bonus_damage_for_hit(attacker)
+            if bonus_damage > 0:
+                total_damage += bonus_damage
+                extra_outcome_lines.append(
+                    {"text": f"Доп. урон трансформации: +{bonus_damage} {bonus_damage_type} (1/ход).", "muted": True}
+                )
             pre_hp = target.hp_current
-            state = apply_damage(session_id, target.key, resolution.total_damage, source=attacker.key)
+            state = apply_damage(session_id, target.key, total_damage, source=attacker.key)
             if state is None:
                 return None, "Combat is not active"
             target = state.combatants.get(target.key, target)
             if target.side == "pc":
                 if pre_hp > 0 and target.hp_current == 0:
-                    leftover = resolution.total_damage - pre_hp
+                    leftover = total_damage - pre_hp
                     if leftover >= target.hp_max:
                         target.is_dead = True
                         target.is_stable = False
@@ -1109,7 +1139,7 @@ def handle_live_combat_action(
             result_line = "Результат: промах"
         if resolution.is_hit:
             roll_damage = resolution.damage_roll * 2 if resolution.is_crit else resolution.damage_roll
-            damage_line = f"Урон: {roll_damage} + {resolution.damage_bonus} = {resolution.total_damage}"
+            damage_line = f"Урон: {roll_damage} + {resolution.damage_bonus} = {total_damage}"
         else:
             damage_line = "Урон: 0 (промах)"
 
@@ -1234,15 +1264,22 @@ def handle_live_combat_action(
         )
         attacker.help_attack_advantage = False
         extra_outcome_lines: list[dict[str, Any]] = []
+        total_damage = int(resolution.total_damage)
         if resolution.is_hit:
+            bonus_damage, bonus_damage_type = _aasimar_bonus_damage_for_hit(attacker)
+            if bonus_damage > 0:
+                total_damage += bonus_damage
+                extra_outcome_lines.append(
+                    {"text": f"Доп. урон трансформации: +{bonus_damage} {bonus_damage_type} (1/ход).", "muted": True}
+                )
             pre_hp = target.hp_current
-            state = apply_damage(session_id, target.key, resolution.total_damage, source=attacker.key)
+            state = apply_damage(session_id, target.key, total_damage, source=attacker.key)
             if state is None:
                 return None, "Combat is not active"
             target = state.combatants.get(target.key, target)
             if target.side == "pc":
                 if pre_hp > 0 and target.hp_current == 0:
-                    leftover = resolution.total_damage - pre_hp
+                    leftover = total_damage - pre_hp
                     if leftover >= target.hp_max:
                         target.is_dead = True
                         target.is_stable = False
@@ -1269,7 +1306,7 @@ def handle_live_combat_action(
             result_line = "Результат: промах"
         if resolution.is_hit:
             roll_damage = resolution.damage_roll * 2 if resolution.is_crit else resolution.damage_roll
-            damage_line = f"Урон: {roll_damage} + {resolution.damage_bonus} = {resolution.total_damage}"
+            damage_line = f"Урон: {roll_damage} + {resolution.damage_bonus} = {total_damage}"
         else:
             damage_line = "Урон: 0 (промах)"
 

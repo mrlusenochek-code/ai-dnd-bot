@@ -22,6 +22,7 @@ class Combatant:
     disengage_active: bool = False
     use_object_active: bool = False
     help_attack_advantage: bool = False
+    bonus_damage_used_this_turn: bool = False
     action_available: bool = True
     bonus_action_available: bool = True
     reaction_available: bool = True
@@ -380,6 +381,7 @@ def combatant_to_dict(c: Combatant) -> dict[str, Any]:
         "disengage_active": bool(c.disengage_active),
         "use_object_active": bool(c.use_object_active),
         "help_attack_advantage": bool(c.help_attack_advantage),
+        "bonus_damage_used_this_turn": bool(c.bonus_damage_used_this_turn),
         "action_available": bool(c.action_available),
         "bonus_action_available": bool(c.bonus_action_available),
         "reaction_available": bool(c.reaction_available),
@@ -515,6 +517,7 @@ def combatant_from_dict(raw: Any) -> Combatant | None:
         disengage_active=bool(raw.get("disengage_active", False)),
         use_object_active=bool(raw.get("use_object_active", False)),
         help_attack_advantage=bool(raw.get("help_attack_advantage", False)),
+        bonus_damage_used_this_turn=bool(raw.get("bonus_damage_used_this_turn", False)),
         action_available=bool(raw.get("action_available", True)),
         bonus_action_available=bool(raw.get("bonus_action_available", True)),
         reaction_available=bool(raw.get("reaction_available", True)),
