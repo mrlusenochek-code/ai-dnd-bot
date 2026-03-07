@@ -9,6 +9,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models import Character, Event, Player, Session, SessionPlayer, Skill
+from app.rules.character_catalog import race_speed_ft_by_catalog
 from app.rules.phb_progression import class_hit_die
 from app.web.session_state import settings_get
 from app.web.utils import _clamp, as_int
@@ -255,6 +256,8 @@ def _char_to_payload(ch: Optional[Character]) -> Optional[dict]:
         "name": ch.name,
         "class_kit": ch.class_kit,
         "class_skin": ch.class_skin,
+        "race_kit": str(getattr(ch, "race_kit", "") or "").strip(),
+        "race_skin": str(getattr(ch, "race_skin", "") or "").strip(),
         "level": int(ch.level or 1),
         "xp_total": int(ch.xp_total or 0),
         "hp": int(ch.hp or 0),
@@ -287,6 +290,8 @@ async def create_character(
     name: str,
     class_kit: str = "Adventurer",
     class_skin: str = "Adventurer",
+    race_kit: str = "human",
+    race_skin: str = "Human",
     hp_max: int = 20,
     sta_max: int = 10,
     stats: Optional[dict[str, int]] = None,
@@ -295,6 +300,7 @@ async def create_character(
     sta_max = max(1, sta_max)
     level = 1
     hit_die = class_hit_die(class_kit, class_skin)
+    speed_ft = race_speed_ft_by_catalog(race_kit, race_skin)
     hit_dice_max = level
     hit_dice_remaining = hit_dice_max
     ch = Character(
@@ -303,6 +309,8 @@ async def create_character(
         name=name,
         class_kit=class_kit,
         class_skin=class_skin,
+        race_kit=race_kit,
+        race_skin=race_skin,
         level=level,
         hp_max=hp_max,
         hp=hp_max,
@@ -311,7 +319,7 @@ async def create_character(
         hit_die=hit_die,
         hit_dice_max=hit_dice_max,
         hit_dice_remaining=hit_dice_remaining,
-        speed_ft=30,
+        speed_ft=speed_ft,
         stats=(dict(stats) if isinstance(stats, dict) else dict(CHAR_DEFAULT_STATS)),
     )
     db.add(ch)

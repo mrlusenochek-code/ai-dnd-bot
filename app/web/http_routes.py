@@ -12,6 +12,7 @@ from sqlalchemy import select
 from app.ai.gm import generate_lore
 from app.db.connection import AsyncSessionLocal
 from app.db.models import Session, SessionPlayer
+from app.rules.character_catalog import CLASS_CATALOG, RACE_CATALOG, resolve_class, resolve_race
 from app.web.db_helpers import get_or_create_player_web, get_player_by_uid, get_session
 from app.web.gameplay_helpers import (
     CLASS_PRESETS,
@@ -200,18 +201,48 @@ async def api_join(payload: dict):
 @router.get("/api/classes")
 async def api_classes():
     items = []
-    for class_id, preset in CLASS_PRESETS.items():
-        stats = _resolve_character_stats(class_id, None)
+    for class_item in CLASS_CATALOG:
+        class_id = str(class_item.get("key") or "").strip().lower()
+        if not class_id:
+            continue
+        preset = CLASS_PRESETS.get(class_id) or {}
+        stats = _resolve_character_stats(class_id if preset else None, None)
         items.append(
             {
                 "id": class_id,
-                "name": preset.get("display_name") or class_id,
+                "name": class_item.get("name") or preset.get("display_name") or class_id,
+                "source": class_item.get("source") or "custom",
+                "hit_die": max(1, as_int(class_item.get("hit_die"), 8)),
+                "speed_ft": max(0, as_int(class_item.get("speed_ft"), 30)),
+                "subclasses": list(class_item.get("subclasses") or []),
+                "level_progression": dict(class_item.get("level_progression") or {}),
+                "spell_lists": list(class_item.get("spell_lists") or []),
                 "hp_max": max(1, as_int(preset.get("hp_max"), 20)),
                 "sta_max": max(1, as_int(preset.get("sta_max"), 10)),
                 "stats": stats,
             }
         )
     return JSONResponse({"classes": items})
+
+
+@router.get("/api/races")
+async def api_races():
+    items = []
+    for race_item in RACE_CATALOG:
+        race_id = str(race_item.get("key") or "").strip().lower()
+        if not race_id:
+            continue
+        items.append(
+            {
+                "id": race_id,
+                "name": race_item.get("name") or race_id,
+                "source": race_item.get("source") or "custom",
+                "speed_ft": max(0, as_int(race_item.get("speed_ft"), 30)),
+                "hit_die": max(1, as_int(race_item.get("hit_die"), 8)),
+                "subraces": list(race_item.get("subraces") or []),
+            }
+        )
+    return JSONResponse({"races": items})
 
 
 @router.get("/api/story/get")
@@ -374,6 +405,8 @@ async def api_character_create(payload: dict):
     char_name = str(payload.get("name") or "").strip()
     class_id = str(payload.get("class_id") or "").strip().lower()
     custom_class = str(payload.get("custom_class") or "").strip()
+    race_id = str(payload.get("race_id") or "").strip().lower()
+    custom_race = str(payload.get("custom_race") or "").strip()
     stats_in = payload.get("stats")
     meta_gender = str(payload.get("gender") or "").strip()[:40]
     meta_race = str(payload.get("race") or "").strip()[:60]
@@ -406,9 +439,34 @@ async def api_character_create(payload: dict):
         if existing:
             return JSONResponse({"detail": "Character already exists"}, status_code=409)
 
-        selected_preset = CLASS_PRESETS.get(class_id) if class_id else None
-        class_name = custom_class or (selected_preset.get("display_name") if selected_preset else "Adventurer")
-        stats = _resolve_character_stats(class_id if selected_preset else None, stats_in)
+        selected_class = resolve_class(class_id) if class_id else None
+        selected_class_key = str((selected_class or {}).get("key") or "").strip().lower()
+        selected_preset = (
+            CLASS_PRESETS.get(class_id)
+            or CLASS_PRESETS.get(selected_class_key)
+            if class_id
+            else None
+        )
+        class_name = custom_class or (selected_class.get("name") if selected_class else "Adventurer")
+        class_kit = (
+            custom_class[:40]
+            if custom_class
+            else str((selected_class or {}).get("key") or class_name).strip()[:40]
+        )
+        class_skin = class_name[:60]
+
+        selected_race = resolve_race(race_id) if race_id else None
+        race_name = custom_race or (selected_race.get("name") if selected_race else "Human")
+        race_kit = (
+            custom_race[:40]
+            if custom_race
+            else str((selected_race or {}).get("key") or "human").strip()[:40]
+        )
+        race_skin = race_name[:60]
+        if not meta_race:
+            meta_race = race_skin
+        stats_preset_key = class_id if CLASS_PRESETS.get(class_id) else selected_class_key
+        stats = _resolve_character_stats(stats_preset_key if selected_preset else None, stats_in)
         stats = _put_character_meta_into_stats(
             stats,
             gender=meta_gender,
@@ -425,8 +483,10 @@ async def api_character_create(payload: dict):
             sess.id,
             player.id,
             name=char_name[:80],
-            class_kit=class_name[:40],
-            class_skin=class_name[:60],
+            class_kit=class_kit,
+            class_skin=class_skin,
+            race_kit=race_kit,
+            race_skin=race_skin,
             hp_max=hp_max,
             sta_max=sta_max,
             stats=stats,

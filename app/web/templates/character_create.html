@@ -39,8 +39,11 @@
       <label>Пол (опционально)</label>
       <input id="gender" placeholder="Ж"/>
 
-      <label>Раса (опционально)</label>
-      <input id="race" placeholder="Человек"/>
+      <label>Раса (preset)</label>
+      <select id="raceId"></select>
+
+      <label>Или своя раса (опционально)</label>
+      <input id="customRace" placeholder="Half-Orc"/>
 
       <label>Описание (опционально)</label>
       <textarea id="desc" placeholder="Короткая биография"></textarea>
@@ -67,6 +70,7 @@
 const SESSION_ID = "{{ session_id }}";
 const STAT_KEYS = ["str","dex","con","int","wis","cha"];
 let classes = [];
+let races = [];
 let currentPreset = null;
 let stats = {str:50,dex:50,con:50,int:50,wis:50,cha:50};
 
@@ -180,6 +184,19 @@ async function loadClasses(){
   currentPreset = classes[0] || null;
   resetStats();
 }
+async function loadRaces(){
+  const r = await fetch("/api/races");
+  const data = await r.json();
+  races = data.races || [];
+  const sel = document.getElementById("raceId");
+  sel.innerHTML = "";
+  for(const it of races){
+    const opt = document.createElement("option");
+    opt.value = it.id;
+    opt.textContent = `${it.name} (${it.speed_ft} ft)`;
+    sel.appendChild(opt);
+  }
+}
 async function createHero(){
   const name = (document.getElementById("charName").value || "").trim();
   const classId = (document.getElementById("classId").value || "").trim();
@@ -194,9 +211,11 @@ async function createHero(){
     name,
     class_id: classId,
     custom_class: customClass,
+    race_id: (document.getElementById("raceId").value || "").trim(),
+    custom_race: (document.getElementById("customRace").value || "").trim(),
     stats,
     gender: (document.getElementById("gender").value || "").trim(),
-    race: (document.getElementById("race").value || "").trim(),
+    race: "",
     description: (document.getElementById("desc").value || "").trim(),
   };
   const r = await fetch("/api/character/create", {
@@ -229,6 +248,7 @@ async function init(){
       return;
     }
     await loadClasses();
+    await loadRaces();
     setMessage("Заполни данные и нажми Create Hero.", true);
   }catch(e){
     setMessage(String(e.message || e), false);

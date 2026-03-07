@@ -78,6 +78,8 @@ class Character(Base):
     name: Mapped[str] = mapped_column(String(80))
     class_kit: Mapped[str] = mapped_column(String(40))      # механика: Fighter/Guardian/...
     class_skin: Mapped[str] = mapped_column(String(60))     # лор-название под сеттинг
+    race_kit: Mapped[str] = mapped_column(String(40), default="human", server_default=text("'human'"))
+    race_skin: Mapped[str] = mapped_column(String(60), default="Human", server_default=text("'Human'"))
 
     level: Mapped[int] = mapped_column(Integer, default=1)
     xp_total: Mapped[int] = mapped_column(Integer, default=0)
