@@ -76,7 +76,27 @@
     </div>
 
     <div class="card">
-      <h3 style="margin-top:0;">Статы</h3>
+      <div id="classPanel" class="race-panel">
+        <h3 id="classTitle">Класс</h3>
+        <p id="classText" class="race-text">Описание будет добавлено позже.</p>
+
+        <div class="race-section">
+          <b>Основные характеристики</b>
+          <ul id="classAbilities" class="race-list"></ul>
+        </div>
+
+        <div class="race-section">
+          <b>Спасброски</b>
+          <ul id="classSaves" class="race-list"></ul>
+        </div>
+
+        <div class="race-section">
+          <b>Архетипы</b>
+          <ul id="classSubclasses" class="race-list"></ul>
+        </div>
+      </div>
+
+      <h3 style="margin-top:12px;">Статы</h3>
       <div class="muted">Available points: <b id="pointsLeft">20</b></div>
       <div id="statsBox"></div>
       <div class="row">
@@ -212,6 +232,40 @@ function renderRaceDetails(raceId){
   setListItems(traitsEl, traits);
   setListItems(subracesEl, subraces);
 }
+function renderClassDetails(classId){
+  const titleEl = document.getElementById("classTitle");
+  const textEl = document.getElementById("classText");
+  const abilitiesEl = document.getElementById("classAbilities");
+  const savesEl = document.getElementById("classSaves");
+  const subclassesEl = document.getElementById("classSubclasses");
+
+  const cls = classes.find(x => x.id === classId) || null;
+  const details = (cls && cls.details) ? cls.details : {};
+
+  const title = (details.name_ru || (cls ? cls.name : "") || classId || "Класс");
+  const description = (details.description_ru || "Описание будет добавлено позже.");
+
+  titleEl.textContent = String(title);
+  textEl.textContent = String(description);
+
+  const abilities = Array.isArray(details.primary_abilities)
+    ? details.primary_abilities.map(x => String(x)).filter(Boolean)
+    : [];
+  const saves = Array.isArray(details.saving_throws)
+    ? details.saving_throws.map(x => String(x)).filter(Boolean)
+    : [];
+  const subclasses = Array.isArray(cls && cls.subclasses)
+    ? cls.subclasses.map(x => {
+        if(!x) return "";
+        if(typeof x === "string") return x;
+        return String(x.name_ru || x.name || x.key || "");
+      }).filter(Boolean)
+    : [];
+
+  setListItems(abilitiesEl, abilities);
+  setListItems(savesEl, saves);
+  setListItems(subclassesEl, subclasses);
+}
 async function ensureJoined(){
   const r = await fetch("/api/join", {
     method:"POST",
@@ -226,21 +280,28 @@ async function ensureJoined(){
 async function loadClasses(){
   const r = await fetch("/api/classes");
   const data = await r.json();
+
   classes = data.classes || [];
+
   const sel = document.getElementById("classId");
   sel.innerHTML = "";
+
   for(const it of classes){
     const opt = document.createElement("option");
     opt.value = it.id;
     opt.textContent = `${it.name} (HP ${it.hp_max}, STA ${it.sta_max})`;
     sel.appendChild(opt);
   }
+
   sel.onchange = () => {
     currentPreset = classes.find(x => x.id === sel.value) || null;
     resetStats();
+    renderClassDetails(sel.value);
   };
+
   currentPreset = classes[0] || null;
   resetStats();
+  renderClassDetails(sel.value || (classes[0] && classes[0].id) || "");
 }
 async function loadRaces(){
   const r = await fetch("/api/races");
