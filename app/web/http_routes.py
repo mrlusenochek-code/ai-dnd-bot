@@ -748,6 +748,7 @@ async def api_character_create(payload: dict):
     race_choice_feats: list[str] = []
     race_choice_tp_skill = ""
     race_choice_tp_tool = ""
+    race_choice_draconic_ancestry = ""
     if isinstance(race_choices_payload, dict):
         raw_langs = race_choices_payload.get("languages")
         raw_langs_list = raw_langs if isinstance(raw_langs, list) else []
@@ -829,6 +830,7 @@ async def api_character_create(payload: dict):
         if isinstance(raw_tp, dict):
             race_choice_tp_skill = str(raw_tp.get("skill") or "").strip().lower()
             race_choice_tp_tool = str(raw_tp.get("tool") or "").strip().lower()
+        race_choice_draconic_ancestry = str(race_choices_payload.get("draconic_ancestry") or "").strip().lower()
 
     if uid <= 0:
         raise HTTPException(status_code=400, detail="Bad uid")
@@ -930,6 +932,8 @@ async def api_character_create(payload: dict):
                 effective_race = eff
 
         tireless_precision_skills: list[str] = []
+        draconic_ancestry_options: list[dict[str, Any]] = []
+        breath_weapon_mechanics: dict[str, Any] = {}
         if isinstance(effective_race, dict):
             effective_traits = effective_race.get("traits")
             effective_traits_list = effective_traits if isinstance(effective_traits, list) else []
@@ -941,6 +945,26 @@ async def api_character_create(payload: dict):
                     continue
                 mtype = str(mech.get("type") or "").strip().lower()
                 if mtype != "tireless_precision":
+                    if mtype == "choose_draconic_ancestry":
+                        options = mech.get("options")
+                        options_list = options if isinstance(options, list) else []
+                        for option in options_list:
+                            if not isinstance(option, dict):
+                                continue
+                            ancestry_key = str(option.get("key") or "").strip().lower()
+                            damage_type = str(option.get("damage_type") or "").strip().lower()
+                            breath = option.get("breath")
+                            breath_obj = dict(breath) if isinstance(breath, dict) else {}
+                            if ancestry_key:
+                                draconic_ancestry_options.append(
+                                    {
+                                        "key": ancestry_key,
+                                        "damage_type": damage_type,
+                                        "breath": breath_obj,
+                                    }
+                                )
+                    elif mtype == "breath_weapon":
+                        breath_weapon_mechanics = dict(mech)
                     continue
                 for item in (mech.get("choose_skill_from") if isinstance(mech.get("choose_skill_from"), list) else []):
                     skill_key = str(item or "").strip().lower()
@@ -956,6 +980,17 @@ async def api_character_create(payload: dict):
             raise HTTPException(status_code=400, detail=f"Invalid Tireless Precision tool: {race_choice_tp_tool}")
         if not tireless_precision_required and (race_choice_tp_skill or race_choice_tp_tool):
             raise HTTPException(status_code=400, detail="Tireless Precision is not available for selected race")
+
+        ancestry_by_key = {
+            str(item.get("key") or "").strip().lower(): item for item in draconic_ancestry_options if isinstance(item, dict)
+        }
+        ancestry_required = bool(ancestry_by_key)
+        if ancestry_required and not race_choice_draconic_ancestry:
+            raise HTTPException(status_code=400, detail="Draconic ancestry choice is required")
+        if race_choice_draconic_ancestry and race_choice_draconic_ancestry not in ancestry_by_key:
+            raise HTTPException(status_code=400, detail=f"Invalid draconic ancestry choice: {race_choice_draconic_ancestry}")
+        if not ancestry_required and race_choice_draconic_ancestry:
+            raise HTTPException(status_code=400, detail="Draconic ancestry is not available for selected race")
 
         if selected_race is not None:
             # When a preset race is selected, keep mechanics by base race id.
@@ -1023,6 +1058,51 @@ async def api_character_create(payload: dict):
                 "tools": [race_choice_tp_tool],
             }
             race_features["bonuses"] = bonuses_dict
+        if isinstance(race_features, dict) and race_choice_draconic_ancestry:
+            ancestry = ancestry_by_key.get(race_choice_draconic_ancestry) or {}
+            damage_type = str(ancestry.get("damage_type") or "").strip().lower()
+            breath = ancestry.get("breath")
+            breath_obj: dict[str, Any] = dict(breath) if isinstance(breath, dict) else {}
+
+            choice_payload = {
+                "key": race_choice_draconic_ancestry,
+                "damage_type": damage_type,
+                "breath": breath_obj,
+            }
+            choices_dict["draconic_ancestry"] = choice_payload
+
+            resistances = race_features.get("resistances")
+            resistances_list = resistances if isinstance(resistances, list) else []
+            merged_resistances: list[str] = []
+            for item in [*resistances_list, damage_type]:
+                dt = str(item or "").strip().lower()
+                if dt and dt not in merged_resistances:
+                    merged_resistances.append(dt)
+            race_features["resistances"] = merged_resistances
+
+            area: dict[str, Any] = {}
+            shape = str(breath_obj.get("shape") or "").strip().lower()
+            if shape:
+                area["shape"] = shape
+            if breath_obj.get("cone_ft") is not None:
+                area["cone_ft"] = max(0, as_int(breath_obj.get("cone_ft"), 0))
+            if breath_obj.get("line_ft") is not None:
+                area["line_ft"] = max(0, as_int(breath_obj.get("line_ft"), 0))
+            if breath_obj.get("line_width_ft") is not None:
+                area["line_width_ft"] = max(0, as_int(breath_obj.get("line_width_ft"), 0))
+
+            breath_weapon = {
+                "dc_formula": str(breath_weapon_mechanics.get("dc_formula") or "").strip(),
+                "damage_progression": list(breath_weapon_mechanics.get("damage_progression") or []),
+                "recharge": str(breath_weapon_mechanics.get("recharge") or "").strip().lower(),
+                "damage_type": damage_type,
+                "area": area,
+                "save_ability": str(breath_obj.get("save") or "").strip().lower(),
+            }
+            features_raw = race_features.get("features")
+            features_dict: dict[str, Any] = features_raw if isinstance(features_raw, dict) else {}
+            features_dict["breath_weapon"] = breath_weapon
+            race_features["features"] = features_dict
         if isinstance(race_features, dict) and choices_dict:
             race_features["choices"] = choices_dict
         walk_speed = as_int(((race_features.get("speeds") or {}) if isinstance(race_features, dict) else {}).get("walk_ft"), 30)

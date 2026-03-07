@@ -127,6 +127,10 @@
             <select id="choiceVedalkenTool"></select>
           </div>
         </div>
+        <div id="choiceAncestryRow" style="display:none;">
+          <label>Драконье наследие (обязательно)</label>
+          <select id="choiceAncestry"></select>
+        </div>
       </div>
 
       <label>Класс (preset)</label>
@@ -296,6 +300,25 @@ const TIRELESS_TOOL_KEYS = [
   "weavers_tools",
   "woodcarvers_tools",
 ];
+const DRACONIC_ANCESTRY_RU = {
+  "white": "Белый",
+  "silver": "Серебряный",
+  "green": "Зелёный",
+  "blue": "Синий",
+  "bronze": "Бронзовый",
+  "black": "Чёрный",
+  "copper": "Медный",
+  "red": "Красный",
+  "gold": "Золотой",
+  "brass": "Латунный",
+};
+const DAMAGE_TYPE_RU = {
+  "cold": "Холод",
+  "poison": "Яд",
+  "lightning": "Молния",
+  "acid": "Кислота",
+  "fire": "Огонь",
+};
 let featsCatalog = [];
 let classes = [];
 let races = [];
@@ -307,6 +330,8 @@ let raceChoiceState = {
   featRequired: false,
   vedalkenRequired: false,
   vedalkenSkills: [],
+  ancestryRequired: false,
+  ancestryOptions: [],
 };
 function _sortByNameRu(a, b){
   const aName = String((a && (a.name_ru || a.name)) || "").trim();
@@ -668,6 +693,36 @@ function getTirelessPrecisionChoiceConfig(traits){
   return out;
 }
 
+function getDraconicAncestryChoiceConfig(traits){
+  const out = { required: false, options: [] };
+  const items = Array.isArray(traits) ? traits : [];
+  for(const t of items){
+    if(!t || typeof t !== "object") continue;
+    const mech = (t.mechanics && typeof t.mechanics === "object") ? t.mechanics : {};
+    if(String(mech.type || "").trim().toLowerCase() !== "choose_draconic_ancestry"){
+      continue;
+    }
+    const options = Array.isArray(mech.options) ? mech.options : [];
+    const normalized = [];
+    for(const item of options){
+      if(!item || typeof item !== "object") continue;
+      const key = String(item.key || "").trim().toLowerCase();
+      const damageType = String(item.damage_type || "").trim().toLowerCase();
+      const breath = (item.breath && typeof item.breath === "object") ? item.breath : {};
+      const shape = String(breath.shape || "").trim().toLowerCase();
+      const coneFt = Number.isFinite(Number(breath.cone_ft)) ? Number(breath.cone_ft) : null;
+      const lineFt = Number.isFinite(Number(breath.line_ft)) ? Number(breath.line_ft) : null;
+      const lineWidthFt = Number.isFinite(Number(breath.line_width_ft)) ? Number(breath.line_width_ft) : null;
+      if(!key) continue;
+      normalized.push({ key, damageType, shape, coneFt, lineFt, lineWidthFt });
+    }
+    out.required = normalized.length > 0;
+    out.options = normalized;
+    return out;
+  }
+  return out;
+}
+
 function fillAsiSelect(sel, prev){
   if(!sel) return;
   const prevValue = String(prev || "");
@@ -777,6 +832,41 @@ function fillTirelessToolSelect(sel, prev){
   sel.value = keepPrev ? prevValue : "";
 }
 
+function fillAncestrySelect(sel, options, prev){
+  if(!sel) return;
+  const prevValue = String(prev || "");
+  const items = Array.isArray(options) ? options : [];
+  sel.innerHTML = "";
+  const first = document.createElement("option");
+  first.value = "";
+  first.textContent = "(выберите наследие)";
+  sel.appendChild(first);
+  for(const item of items){
+    const key = String(item.key || "").trim().toLowerCase();
+    if(!key) continue;
+    const colorRu = DRACONIC_ANCESTRY_RU[key] || key;
+    const damageRu = DAMAGE_TYPE_RU[String(item.damageType || "").trim().toLowerCase()] || String(item.damageType || "урон");
+    const shape = String(item.shape || "").trim().toLowerCase();
+    let areaText = "";
+    if(shape === "cone" && item.coneFt !== null){
+      areaText = `конус ${item.coneFt} фт`;
+    }else if(shape === "line" && item.lineFt !== null){
+      const width = item.lineWidthFt !== null ? `×${item.lineWidthFt}` : "";
+      areaText = `линия ${item.lineFt}${width} фт`;
+    }else if(shape){
+      areaText = shape;
+    }else{
+      areaText = "дыхание";
+    }
+    const opt = document.createElement("option");
+    opt.value = key;
+    opt.textContent = `${colorRu} — ${damageRu}, ${areaText}`;
+    sel.appendChild(opt);
+  }
+  const keepPrev = Array.from(sel.options).some(o => String(o.value) === prevValue);
+  sel.value = keepPrev ? prevValue : "";
+}
+
 function renderRaceChoices(){
   const block = document.getElementById("raceChoices");
   const langRow = document.getElementById("choiceLangRow");
@@ -791,7 +881,9 @@ function renderRaceChoices(){
   const vedRow = document.getElementById("choiceVedalkenRow");
   const vedSkillSel = document.getElementById("choiceVedalkenSkill");
   const vedToolSel = document.getElementById("choiceVedalkenTool");
-  if(!block || !langRow || !langSel || !asiRow || !asiSel1 || !asiSel2 || !skillRow || !skillSel || !featRow || !featSel || !vedRow || !vedSkillSel || !vedToolSel) return;
+  const ancestryRow = document.getElementById("choiceAncestryRow");
+  const ancestrySel = document.getElementById("choiceAncestry");
+  if(!block || !langRow || !langSel || !asiRow || !asiSel1 || !asiSel2 || !skillRow || !skillSel || !featRow || !featSel || !vedRow || !vedSkillSel || !vedToolSel || !ancestryRow || !ancestrySel) return;
 
   const ctx = getCurrentRaceContext();
   const langCfg = getLanguageChoiceConfig(ctx.effectiveTraits);
@@ -799,11 +891,13 @@ function renderRaceChoices(){
   const skillCfg = getSkillChoiceConfig(ctx.effectiveTraits);
   const featCfg = getFeatChoiceConfig(ctx.effectiveTraits);
   const vedCfg = getTirelessPrecisionChoiceConfig(ctx.effectiveTraits);
+  const ancestryCfg = getDraconicAncestryChoiceConfig(ctx.effectiveTraits);
   const needsLanguage = !!langCfg.required;
   const needsAsi = !!asiCfg.required;
   const needsSkill = !!skillCfg.required;
   const needsFeat = !!featCfg.required;
   const needsVedalken = !!vedCfg.required;
+  const needsAncestry = !!ancestryCfg.required;
   raceChoiceState = {
     languageRequired: needsLanguage,
     asiRequired: needsAsi,
@@ -812,9 +906,11 @@ function renderRaceChoices(){
     featRequired: needsFeat,
     vedalkenRequired: needsVedalken,
     vedalkenSkills: Array.isArray(vedCfg.skills) ? vedCfg.skills.slice() : [],
+    ancestryRequired: needsAncestry,
+    ancestryOptions: Array.isArray(ancestryCfg.options) ? ancestryCfg.options.slice() : [],
   };
 
-  if(!needsLanguage && !needsAsi && !needsSkill && !needsFeat && !needsVedalken){
+  if(!needsLanguage && !needsAsi && !needsSkill && !needsFeat && !needsVedalken && !needsAncestry){
     block.style.display = "none";
     langRow.style.display = "none";
     asiRow.style.display = "none";
@@ -842,6 +938,10 @@ function renderRaceChoices(){
     vedToolSel.disabled = true;
     vedToolSel.required = false;
     vedToolSel.value = "";
+    ancestryRow.style.display = "none";
+    ancestrySel.disabled = true;
+    ancestrySel.required = false;
+    ancestrySel.value = "";
     return;
   }
 
@@ -936,6 +1036,19 @@ function renderRaceChoices(){
     vedToolSel.disabled = true;
     vedToolSel.required = false;
     vedToolSel.value = "";
+  }
+
+  if(needsAncestry){
+    const prev = String(ancestrySel.value || "");
+    fillAncestrySelect(ancestrySel, ancestryCfg.options, prev);
+    ancestryRow.style.display = "";
+    ancestrySel.disabled = false;
+    ancestrySel.required = true;
+  }else{
+    ancestryRow.style.display = "none";
+    ancestrySel.disabled = true;
+    ancestrySel.required = false;
+    ancestrySel.value = "";
   }
 
   block.style.display = "";
@@ -1173,6 +1286,12 @@ async function createHero(){
       return;
     }
   }
+  const choiceAncestryEl = document.getElementById("choiceAncestry");
+  const choiceAncestry = String(choiceAncestryEl ? choiceAncestryEl.value : "").trim().toLowerCase();
+  if(raceChoiceState.ancestryRequired && !choiceAncestry){
+    setMessage("Выбери «Драконье наследие» в блоке «Стартовые выборы».", false);
+    return;
+  }
   const payload = {
     session_id: SESSION_ID,
     uid: getUID(),
@@ -1208,6 +1327,9 @@ async function createHero(){
       skill: choiceVedSkill,
       tool: choiceVedTool,
     };
+  }
+  if(choiceAncestry){
+    raceChoices.draconic_ancestry = choiceAncestry;
   }
   if(Object.keys(raceChoices).length > 0){
     payload.race_choices = raceChoices;

@@ -680,6 +680,9 @@ function openCharacterModal(){
     ? `Подводное дыхание: 1 час (1/дл отдых)${breatheUnderwaterUntilText ? `, активно до ${breatheUnderwaterUntilText}` : ""}`
     : "";
   const raceFeaturesMeta = (rf.features && typeof rf.features === "object") ? rf.features : {};
+  const breathWeapon = (raceFeaturesMeta.breath_weapon && typeof raceFeaturesMeta.breath_weapon === "object")
+    ? raceFeaturesMeta.breath_weapon
+    : null;
   const hitDiceReroll = (raceFeaturesMeta.hit_dice_reroll && typeof raceFeaturesMeta.hit_dice_reroll === "object")
     ? raceFeaturesMeta.hit_dice_reroll
     : null;
@@ -803,6 +806,26 @@ function openCharacterModal(){
     "piercing": "Колющий",
     "slashing": "Рубящий"
   };
+  const _SAVE_ABILITY_RU = {
+    "dex": "ЛОВ",
+    "con": "ТЕЛ",
+    "str": "СИЛ",
+    "int": "ИНТ",
+    "wis": "МУД",
+    "cha": "ХАР",
+  };
+  const _DRACONIC_COLOR_RU = {
+    "white": "Белый",
+    "silver": "Серебряный",
+    "green": "Зелёный",
+    "blue": "Синий",
+    "bronze": "Бронзовый",
+    "black": "Чёрный",
+    "copper": "Медный",
+    "red": "Красный",
+    "gold": "Золотой",
+    "brass": "Латунный",
+  };
   const resistancesRu = resistances
     .map((k) => _DAMAGE_RU[String(k || "").trim().toLowerCase()] || String(k || ""))
     .filter(Boolean);
@@ -813,6 +836,9 @@ function openCharacterModal(){
   const choices = (rf.choices && typeof rf.choices === "object") ? rf.choices : {};
   const tirelessChoice = (choices.tireless_precision && typeof choices.tireless_precision === "object")
     ? choices.tireless_precision
+    : {};
+  const draconicChoice = (choices.draconic_ancestry && typeof choices.draconic_ancestry === "object")
+    ? choices.draconic_ancestry
     : {};
   const tirelessSkillKey = String(tirelessChoice.skill || "").trim().toLowerCase();
   const tirelessToolKey = String(tirelessChoice.tool || "").trim().toLowerCase();
@@ -844,6 +870,44 @@ function openCharacterModal(){
   const tirelessToolRu = tirelessToolKey ? (TOOL_LABELS_RU[tirelessToolKey] || tirelessToolKey) : "";
   const tirelessPrecisionText = (tirelessSkillRu && tirelessToolRu)
     ? `Неустанная скрупулёзность: навык ${tirelessSkillRu}, инструмент ${tirelessToolRu}, бонус 1d4`
+    : "";
+  const draconicKey = String(draconicChoice.key || "").trim().toLowerCase();
+  const draconicDamage = String(draconicChoice.damage_type || "").trim().toLowerCase();
+  const draconicBreath = (draconicChoice.breath && typeof draconicChoice.breath === "object") ? draconicChoice.breath : {};
+  const draconicColorRu = draconicKey ? (_DRACONIC_COLOR_RU[draconicKey] || draconicKey) : "";
+  const draconicDamageRu = draconicDamage ? (_DAMAGE_RU[draconicDamage] || draconicDamage) : "";
+  const draconicShape = String(draconicBreath.shape || "").trim().toLowerCase();
+  let draconicAreaText = "";
+  if(draconicShape === "cone"){
+    const coneFt = Number.isFinite(Number(draconicBreath.cone_ft)) ? Number(draconicBreath.cone_ft) : 15;
+    draconicAreaText = `конус ${coneFt} фт`;
+  }else if(draconicShape === "line"){
+    const lineFt = Number.isFinite(Number(draconicBreath.line_ft)) ? Number(draconicBreath.line_ft) : 30;
+    const lineWidthFt = Number.isFinite(Number(draconicBreath.line_width_ft)) ? Number(draconicBreath.line_width_ft) : 5;
+    draconicAreaText = `линия ${lineFt}×${lineWidthFt} фт`;
+  }
+  const draconicSaveAbility = String(draconicBreath.save || "").trim().toLowerCase();
+  const draconicSaveRu = draconicSaveAbility ? (_SAVE_ABILITY_RU[draconicSaveAbility] || draconicSaveAbility.toUpperCase()) : "";
+  const draconicAncestryText = (draconicColorRu && draconicDamageRu && draconicAreaText && draconicSaveRu)
+    ? `Драконье наследие: ${draconicColorRu} — ${draconicDamageRu}, дыхание ${draconicAreaText}, спасбросок ${draconicSaveRu}`
+    : "";
+  const breathProgression = breathWeapon && Array.isArray(breathWeapon.damage_progression) ? breathWeapon.damage_progression : [];
+  const chLevel = Number.isFinite(Number(ch.level)) ? Number(ch.level) : 1;
+  let breathDice = "";
+  for(const step of breathProgression){
+    if(!step || typeof step !== "object") continue;
+    const fromLevel = Number.isFinite(Number(step.level_from)) ? Number(step.level_from) : 1;
+    const dice = String(step.dice || "").trim().toLowerCase();
+    if(!dice) continue;
+    if(chLevel >= fromLevel){
+      breathDice = dice;
+    }
+  }
+  const breathDiceRu = breathDice ? breathDice.replace(/d/gi, "к") : "";
+  const breathRecharge = breathWeapon ? String(breathWeapon.recharge || "").trim().toLowerCase() : "";
+  const breathRechargeRu = (breathRecharge === "short_or_long_rest") ? "короткий/длительный отдых" : (breathRecharge || "—");
+  const breathWeaponText = breathWeapon
+    ? `Оружие дыхания: урон ${breathDiceRu || "—"}, перезарядка: ${breathRechargeRu}`
     : "";
   const featChoices = Array.isArray(choices.feats) ? choices.feats.map(x => String(x).trim().toLowerCase()).filter(Boolean) : [];
   const featChoiceRu = featChoices.length
@@ -989,6 +1053,12 @@ function openCharacterModal(){
   if(telepathicInsightText){
     details.push(`<div class="char-line"><strong>Телепатическая проницательность:</strong> ${escapeHtml(telepathicInsightText.replace(/^Телепатическая проницательность:\s*/, ""))}</div>`);
   }
+  if(draconicAncestryText){
+    details.push(`<div class="char-line"><strong>Драконье наследие:</strong> ${escapeHtml(draconicAncestryText.replace(/^Драконье наследие:\s*/, ""))}</div>`);
+  }
+  if(breathWeaponText){
+    details.push(`<div class="char-line"><strong>Оружие дыхания:</strong> ${escapeHtml(breathWeaponText.replace(/^Оружие дыхания:\s*/, ""))}</div>`);
+  }
   if(growthSpurtText){
     details.push(`<div class="char-line"><strong>Скачок роста:</strong> ${escapeHtml(growthSpurtText.replace(/^Скачок роста:\s*/, ""))}</div>`);
   }
@@ -1061,6 +1131,8 @@ function openCharacterModal(){
   if(telepathyText) copyLines.push(telepathyText);
   if(blackBloodText) copyLines.push(blackBloodText);
   if(telepathicInsightText) copyLines.push(telepathicInsightText);
+  if(draconicAncestryText) copyLines.push(draconicAncestryText);
+  if(breathWeaponText) copyLines.push(breathWeaponText);
   if(growthSpurtText) copyLines.push(growthSpurtText);
   if(breatheUnderwaterText) copyLines.push(breatheUnderwaterText);
   if(healingHandsText) copyLines.push(healingHandsText);
