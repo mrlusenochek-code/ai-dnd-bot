@@ -89,6 +89,31 @@ def test_human_reference_schema_payload() -> None:
     assert "extra_language" in variant_traits
 
 
+def test_dragonborn_reference_schema_payload() -> None:
+    dragonborn = next((item for item in RACE_CATALOG if str(item.get("key") or "") == "dragonborn"), None)
+    assert dragonborn is not None
+    assert str(dragonborn.get("size") or "") == "medium"
+    assert int(dragonborn.get("speed_ft") or 0) == 30
+
+    asi = dragonborn.get("asi") or []
+    assert any(item.get("stat") == "str" and int(item.get("bonus") or 0) == 2 for item in asi if isinstance(item, dict))
+    assert any(item.get("stat") == "cha" and int(item.get("bonus") or 0) == 1 for item in asi if isinstance(item, dict))
+
+    languages = set(dragonborn.get("languages") or [])
+    assert "common" in languages
+    assert "draconic" in languages
+
+    traits = {str(item.get("key") or ""): item for item in (dragonborn.get("traits") or []) if isinstance(item, dict)}
+    assert "draconic_ancestry" in traits
+    assert "breath_weapon" in traits
+    assert "damage_resistance" in traits
+
+    ancestry_options = ((traits["draconic_ancestry"].get("mechanics") or {}).get("options") or [])
+    ancestry_keys = {str(item.get("key") or "") for item in ancestry_options if isinstance(item, dict)}
+    assert len(ancestry_keys) == 10
+    assert ancestry_keys == {"red", "green", "blue", "black", "white", "gold", "silver", "bronze", "copper", "brass"}
+
+
 def test_dwarf_reference_schema_payload() -> None:
     dwarf = next((item for item in RACE_CATALOG if str(item.get("key") or "") == "dwarf"), None)
     assert dwarf is not None
