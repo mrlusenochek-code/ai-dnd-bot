@@ -52,6 +52,13 @@ CHAT_COMBAT_ACTION_PATTERNS: list[tuple[str, re.Pattern[str]]] = [
         re.compile(r"(долг(?:ий|ого)\s+отдых|long\s+rest|сплю\s+всю\s+ночь|отдыхаю\s+до\s+утра)", re.IGNORECASE),
     ),
     (
+        "breathe_underwater",
+        re.compile(
+            r"(дышу\s+под\s+водой|ныряю|задерживаю\s+дыхание\s+под\s+водой|breathe\s+underwater)",
+            re.IGNORECASE,
+        ),
+    ),
+    (
         "combat_innate_spell",
         re.compile(
             r"(?:кастую|колдую|накладываю|использую\s+заклинание|заклинание|"

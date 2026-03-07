@@ -5,7 +5,7 @@ import logging
 import random
 import re
 import uuid
-from datetime import timedelta
+from datetime import datetime, timedelta
 from typing import Any, Optional
 
 from fastapi import WebSocket, WebSocketDisconnect
@@ -257,6 +257,46 @@ def _apply_innate_spell_usage(ch: Character, spell_key: str) -> tuple[Optional[s
     return display_name, None, changed
 
 
+def _parse_iso_datetime(raw_value: Any) -> Optional[datetime]:
+    txt = str(raw_value or "").strip()
+    if not txt:
+        return None
+    try:
+        return datetime.fromisoformat(txt.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+
+
+def _apply_breathe_underwater_usage(ch: Character, *, now: Optional[datetime] = None) -> tuple[Optional[str], Optional[str], Optional[str], bool]:
+    race_features = getattr(ch, "race_features", None)
+    rf = dict(race_features) if isinstance(race_features, dict) else {}
+    breath_raw = rf.get("breath")
+    breath = dict(breath_raw) if isinstance(breath_raw, dict) else {}
+    underwater_raw = breath.get("underwater")
+    underwater = dict(underwater_raw) if isinstance(underwater_raw, dict) else {}
+    if not underwater:
+        return None, None, "Подводное дыхание недоступно вашей расе.", False
+
+    uses = str(underwater.get("uses") or "").strip().lower()
+    duration_seconds = max(1, as_int(underwater.get("duration_seconds"), 3600))
+    now_dt = now if isinstance(now, datetime) else utcnow()
+
+    runtime_raw = rf.get("runtime")
+    runtime = dict(runtime_raw) if isinstance(runtime_raw, dict) else {}
+    if uses == "per_long_rest" and bool(runtime.get("breathe_underwater_used")):
+        until_dt = _parse_iso_datetime(runtime.get("breathe_underwater_until_iso"))
+        if isinstance(until_dt, datetime) and until_dt > now_dt:
+            return None, None, f"Подводное дыхание уже активно до {until_dt.astimezone().strftime('%H:%M')}.", False
+        return None, None, "Подводное дыхание уже использовано до долгого отдыха.", False
+
+    until_dt = now_dt + timedelta(seconds=duration_seconds)
+    runtime["breathe_underwater_used"] = True
+    runtime["breathe_underwater_until_iso"] = until_dt.isoformat()
+    rf["runtime"] = runtime
+    ch.race_features = rf
+    return until_dt.isoformat(), until_dt.astimezone().strftime("%H:%M"), None, True
+
+
 def _apply_healing_hands_usage(ch: Character) -> tuple[Optional[int], Optional[str], bool]:
     race_features = getattr(ch, "race_features", None)
     rf = dict(race_features) if isinstance(race_features, dict) else {}
@@ -441,6 +481,12 @@ def _reset_racial_rest_uses(ch: Character) -> bool:
     if "fly_speed_ft" in runtime:
         runtime.pop("fly_speed_ft", None)
         changed = True
+    if "breathe_underwater_used" in runtime:
+        runtime.pop("breathe_underwater_used", None)
+        changed = True
+    if "breathe_underwater_until_iso" in runtime:
+        runtime.pop("breathe_underwater_until_iso", None)
+        changed = True
     if not changed:
         return False
     if runtime:
@@ -479,6 +525,12 @@ def _reset_combatant_racial_rest_uses(session_id: str, actor_key: str) -> bool:
         changed = True
     if "fly_speed_ft" in runtime:
         runtime.pop("fly_speed_ft", None)
+        changed = True
+    if "breathe_underwater_used" in runtime:
+        runtime.pop("breathe_underwater_used", None)
+        changed = True
+    if "breathe_underwater_until_iso" in runtime:
+        runtime.pop("breathe_underwater_until_iso", None)
         changed = True
     if not changed:
         return False
@@ -1250,7 +1302,11 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                                         else (
                                             "combat_healing_hands"
                                             if combat_action == "combat_healing_hands"
-                                            else ("combat_aasimar_transform" if combat_action == "combat_aasimar_transform" else "player_action")
+                                            else (
+                                                "combat_aasimar_transform"
+                                                if combat_action == "combat_aasimar_transform"
+                                                else ("breathe_underwater" if combat_action == "breathe_underwater" else "player_action")
+                                            )
                                         )
                                     )
                                 ),
@@ -1274,6 +1330,28 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                                 continue
                             if combat_patch:
                                 await _broadcast_state_unlocked(session_id, combat_log_ui_patch=combat_patch)
+                            continue
+                        if combat_action == "breathe_underwater":
+                            ch = await get_character(db, sess.id, player.id)
+                            if not ch:
+                                await ws_error("Персонаж не найден.", request_id=msg_request_id)
+                                continue
+                            _until_iso, until_hhmm, breathe_err, changed = _apply_breathe_underwater_usage(ch)
+                            if breathe_err:
+                                await ws_error(breathe_err, request_id=msg_request_id)
+                                continue
+                            if changed:
+                                flag_modified(ch, "race_features")
+                                await db.commit()
+                            _uid_map, chars_by_uid, _ = await _load_actor_context(db, sess)
+                            sync_pcs_from_chars(session_id, chars_by_uid)
+                            actor_name = str(getattr(ch, "name", "") or player.display_name).strip() or player.display_name
+                            await add_system_event(
+                                db,
+                                sess,
+                                f"{actor_name} может дышать под водой 1 час (до {until_hhmm}).",
+                            )
+                            await broadcast_state(session_id)
                             continue
                         turn_key: Optional[str] = None
                         if combat_state and combat_state.order and 0 <= combat_state.turn_index < len(combat_state.order):
@@ -1437,10 +1515,36 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                         continue
                     else:
                         await ws_error(
-                            "Combat Lock: в бою доступны только боевые команды (атака/конец хода/уклон/движение/рывок/отход/взлёт/приземление/помощь/побег/каменная выносливость/исцеляющие руки/небесное преобразование) или OOC.",
+                            "Combat Lock: в бою доступны только боевые команды (атака/конец хода/уклон/движение/рывок/отход/взлёт/приземление/помощь/побег/каменная выносливость/исцеляющие руки/небесное преобразование/подводное дыхание) или OOC.",
                             request_id=msg_request_id,
                         )
                         continue
+
+                # OOC (any time, no turn)
+                if combat_action == "breathe_underwater":
+                    ch = await get_character(db, sess.id, player.id)
+                    if not ch:
+                        await ws_error("No character. Use: char create ...", request_id=msg_request_id)
+                        continue
+                    _until_iso, until_hhmm, breathe_err, changed = _apply_breathe_underwater_usage(ch)
+                    if breathe_err:
+                        await ws_error(breathe_err, request_id=msg_request_id)
+                        continue
+                    if changed:
+                        flag_modified(ch, "race_features")
+                    await db.commit()
+                    combat_now = get_combat(session_id)
+                    if combat_now is not None and combat_now.active:
+                        _uid_map, chars_by_uid, _ = await _load_actor_context(db, sess)
+                        sync_pcs_from_chars(session_id, chars_by_uid)
+                    actor_name = str(getattr(ch, "name", "") or player.display_name).strip() or player.display_name
+                    await add_system_event(
+                        db,
+                        sess,
+                        f"{actor_name} может дышать под водой 1 час (до {until_hhmm}).",
+                    )
+                    await broadcast_state(session_id)
+                    continue
 
                 # OOC (any time, no turn)
                 if combat_action == "combat_aasimar_transform":
@@ -2337,7 +2441,11 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                                 else (
                                     "combat_healing_hands"
                                     if combat_action == "combat_healing_hands"
-                                    else ("combat_aasimar_transform" if combat_action == "combat_aasimar_transform" else "player_action")
+                                    else (
+                                        "combat_aasimar_transform"
+                                        if combat_action == "combat_aasimar_transform"
+                                        else ("breathe_underwater" if combat_action == "breathe_underwater" else "player_action")
+                                    )
                                 )
                             )
                         ),
@@ -2381,6 +2489,28 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                                 continue
                             if combat_patch:
                                 await broadcast_state(session_id, combat_log_ui_patch=combat_patch)
+                            continue
+                        if combat_action == "breathe_underwater":
+                            ch = await get_character(db, sess.id, player.id)
+                            if not ch:
+                                await ws_error("Персонаж не найден.")
+                                continue
+                            _until_iso, until_hhmm, breathe_err, changed = _apply_breathe_underwater_usage(ch)
+                            if breathe_err:
+                                await ws_error(breathe_err)
+                                continue
+                            if changed:
+                                flag_modified(ch, "race_features")
+                                await db.commit()
+                            _uid_map, chars_by_uid, _ = await _load_actor_context(db, sess)
+                            sync_pcs_from_chars(session_id, chars_by_uid)
+                            actor_name = str(getattr(ch, "name", "") or player.display_name).strip() or player.display_name
+                            await add_system_event(
+                                db,
+                                sess,
+                                f"{actor_name} может дышать под водой 1 час (до {until_hhmm}).",
+                            )
+                            await broadcast_state(session_id)
                             continue
                         turn_key: Optional[str] = None
                         if combat_state and combat_state.order and 0 <= combat_state.turn_index < len(combat_state.order):
@@ -2587,6 +2717,31 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                         db,
                         sess,
                         f"{actor_name} исцеляет себя прикосновением: +{max(0, int(healed_hp or 0))} HP (Исцеляющие руки).",
+                    )
+                    await broadcast_state(session_id)
+                    continue
+
+                if combat_action == "breathe_underwater":
+                    ch = await get_character(db, sess.id, player.id)
+                    if not ch:
+                        await ws_error("No character. Use: char create ...")
+                        continue
+                    _until_iso, until_hhmm, breathe_err, changed = _apply_breathe_underwater_usage(ch)
+                    if breathe_err:
+                        await ws_error(breathe_err)
+                        continue
+                    if changed:
+                        flag_modified(ch, "race_features")
+                    await db.commit()
+                    combat_now = get_combat(session_id)
+                    if combat_now is not None and combat_now.active:
+                        _uid_map, chars_by_uid, _ = await _load_actor_context(db, sess)
+                        sync_pcs_from_chars(session_id, chars_by_uid)
+                    actor_name = str(getattr(ch, "name", "") or player.display_name).strip() or player.display_name
+                    await add_system_event(
+                        db,
+                        sess,
+                        f"{actor_name} может дышать под водой 1 час (до {until_hhmm}).",
                     )
                     await broadcast_state(session_id)
                     continue

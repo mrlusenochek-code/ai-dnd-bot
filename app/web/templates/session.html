@@ -656,6 +656,20 @@ function openCharacterModal(){
   const speeds = (rf.speeds && typeof rf.speeds === "object") ? rf.speeds : {};
   const natArmor = (rf.natural_armor && typeof rf.natural_armor === "object") ? rf.natural_armor : {};
   const carry = (rf.carry && typeof rf.carry === "object") ? rf.carry : {};
+  const breath = (rf.breath && typeof rf.breath === "object") ? rf.breath : {};
+  const runtime = (rf.runtime && typeof rf.runtime === "object") ? rf.runtime : {};
+  const breathUnderwater = (breath.underwater && typeof breath.underwater === "object") ? breath.underwater : null;
+  const breatheUnderwaterUntilIso = String(runtime.breathe_underwater_until_iso || "").trim();
+  let breatheUnderwaterUntilText = "";
+  if(breatheUnderwaterUntilIso){
+    const dt = new Date(breatheUnderwaterUntilIso);
+    if(!Number.isNaN(dt.getTime())){
+      breatheUnderwaterUntilText = dt.toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit" });
+    }
+  }
+  const breatheUnderwaterText = breathUnderwater
+    ? `Подводное дыхание: 1 час (1/дл отдых)${breatheUnderwaterUntilText ? `, активно до ${breatheUnderwaterUntilText}` : ""}`
+    : "";
   const raceFeaturesMeta = (rf.features && typeof rf.features === "object") ? rf.features : {};
   const stoneEndurance = (raceFeaturesMeta.stone_endurance && typeof raceFeaturesMeta.stone_endurance === "object")
     ? raceFeaturesMeta.stone_endurance
@@ -929,6 +943,9 @@ function openCharacterModal(){
   if(stoneEndurance){
     details.push("<div class=\"char-line\"><strong>Каменная выносливость:</strong> реакция, 1/к/дл отдых: снижает урон (1d12 + мод. Тел)</div>");
   }
+  if(breatheUnderwaterText){
+    details.push(`<div class="char-line"><strong>Подводное дыхание:</strong> ${escapeHtml(breatheUnderwaterText.replace(/^Подводное дыхание:\s*/, ""))}</div>`);
+  }
   if(healingHandsText){
     details.push(`<div class="char-line"><strong>Исцеляющие руки:</strong> ${escapeHtml(healingHandsText.replace(/^Исцеляющие руки:\s*/, ""))}</div>`);
   }
@@ -991,6 +1008,7 @@ function openCharacterModal(){
   if(resistancesRu.length) copyLines.push(`Сопротивления: ${resistancesRu.join(", ")}`);
   if(carry.powerful_build === true) copyLines.push("Мощное телосложение: считается на 1 размер больше для переноски/толкания/тяги/подъёма");
   if(stoneEndurance) copyLines.push("Каменная выносливость: реакция, 1/к/дл отдых: снижает урон (1d12 + мод. Тел)");
+  if(breatheUnderwaterText) copyLines.push(breatheUnderwaterText);
   if(healingHandsText) copyLines.push(healingHandsText);
   if(aasimarTransformationText) copyLines.push(aasimarTransformationText);
   if(tirelessPrecisionText) copyLines.push(tirelessPrecisionText);

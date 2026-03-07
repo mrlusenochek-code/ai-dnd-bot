@@ -595,6 +595,17 @@ def _build_race_features(selected_race: dict | None) -> dict[str, Any]:
         if mtype == "amphibious":
             breath["amphibious"] = True
 
+        if mtype == "breathe_underwater":
+            underwater: dict[str, Any] = {}
+            duration_seconds = as_int(mech.get("duration_seconds"), 0)
+            if duration_seconds > 0:
+                underwater["duration_seconds"] = duration_seconds
+            uses = str(mech.get("uses") or "").strip().lower()
+            if uses:
+                underwater["uses"] = uses
+            if underwater:
+                breath["underwater"] = underwater
+
         if mtype == "ignore_difficult_terrain":
             terrain = [str(x).strip() for x in _as_list(mech.get("terrain")) if str(x).strip()]
             if terrain:
