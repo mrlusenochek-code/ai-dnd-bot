@@ -260,6 +260,33 @@ def test_vedalken_reference_schema_payload() -> None:
     assert skill_choices == ["performance", "history", "sleight_of_hand", "arcana", "medicine", "investigation"]
 
 
+def test_verdan_reference_schema_payload() -> None:
+    verdan = next((item for item in RACE_CATALOG if str(item.get("key") or "") == "verdan"), None)
+    assert verdan is not None
+    assert str(verdan.get("size") or "") == "small"
+    assert int(verdan.get("speed_ft") or 0) == 30
+
+    asi = verdan.get("asi") or []
+    assert any(item.get("stat") == "cha" and int(item.get("bonus") or 0) == 2 for item in asi if isinstance(item, dict))
+    assert any(item.get("stat") == "con" and int(item.get("bonus") or 0) == 1 for item in asi if isinstance(item, dict))
+
+    languages = set(verdan.get("languages") or [])
+    assert "common" in languages
+    assert "goblin" in languages
+
+    traits = {str(item.get("key") or ""): item for item in (verdan.get("traits") or []) if isinstance(item, dict)}
+    assert "black_blood_healing" in traits
+    assert "limited_telepathy" in traits
+    assert "persuasive" in traits
+    assert "telepathic_insight" in traits
+    assert "extra_language" in traits
+    assert "growth_spurt" in traits
+
+    growth_mechanics = traits["growth_spurt"].get("mechanics") or {}
+    assert int(growth_mechanics.get("level_from") or 0) == 5
+    assert str(growth_mechanics.get("size") or "") == "medium"
+
+
 def test_dragonborn_reference_schema_payload() -> None:
     dragonborn = next((item for item in RACE_CATALOG if str(item.get("key") or "") == "dragonborn"), None)
     assert dragonborn is not None
