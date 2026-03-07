@@ -256,6 +256,7 @@ async def api_races():
                     "name_ru": race_item.get("name_ru") or race_id,
                     "name_en": race_item.get("name") or race_id,
                     "description_ru": race_item.get("description_ru") or "",
+                    "notes_ru": race_item.get("notes_ru") or "",
                     "asi": list(race_item.get("asi") or []),
                     "age": dict(race_item.get("age") or {}),
                     "alignment": race_item.get("alignment") or "",

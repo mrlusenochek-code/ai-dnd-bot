@@ -18,6 +18,13 @@
     .msg{margin-top:10px; font-size:14px;}
     .err{color:#ab2638;}
     .ok{color:#14631e;}
+    .race-panel{margin-top:12px; border:1px solid #e1e5ee; border-radius:10px; padding:12px; background:#f9fbff;}
+    .race-panel h3{margin:0 0 6px 0; font-size:18px;}
+    .race-text{margin:0; color:#2d3550; line-height:1.35;}
+    .race-section{margin-top:10px;}
+    .race-section b{display:block; margin-bottom:4px;}
+    .race-list{margin:0; padding-left:18px;}
+    .race-list li{margin:2px 0;}
     @media (max-width: 760px){ .grid{grid-template-columns:1fr;} }
   </style>
 </head>
@@ -30,6 +37,25 @@
       <label>Имя персонажа</label>
       <input id="charName" placeholder="Алена"/>
 
+      <label>Раса (preset)</label>
+      <select id="raceId"></select>
+
+      <label>Или своя раса (опционально)</label>
+      <input id="customRace" placeholder="Half-Orc"/>
+
+      <div id="racePanel" class="race-panel">
+        <h3 id="raceTitle">Раса</h3>
+        <p id="raceText" class="race-text">Описание будет добавлено позже.</p>
+        <div class="race-section">
+          <b>Особенности</b>
+          <ul id="raceTraits" class="race-list"></ul>
+        </div>
+        <div class="race-section">
+          <b>Разновидности</b>
+          <ul id="raceSubraces" class="race-list"></ul>
+        </div>
+      </div>
+
       <label>Класс (preset)</label>
       <select id="classId"></select>
 
@@ -38,12 +64,6 @@
 
       <label>Пол (опционально)</label>
       <input id="gender" placeholder="Ж"/>
-
-      <label>Раса (preset)</label>
-      <select id="raceId"></select>
-
-      <label>Или своя раса (опционально)</label>
-      <input id="customRace" placeholder="Half-Orc"/>
 
       <label>Описание (опционально)</label>
       <textarea id="desc" placeholder="Короткая биография"></textarea>
@@ -154,6 +174,44 @@ function resetStats(){
 function goSession(){
   location.href = "/s/" + SESSION_ID;
 }
+function setListItems(listEl, names){
+  listEl.innerHTML = "";
+  const values = Array.isArray(names) ? names.filter(Boolean) : [];
+  if(values.length === 0){
+    const li = document.createElement("li");
+    li.className = "muted";
+    li.textContent = "Нет данных";
+    listEl.appendChild(li);
+    return;
+  }
+  for(const name of values){
+    const li = document.createElement("li");
+    li.textContent = String(name);
+    listEl.appendChild(li);
+  }
+}
+function renderRaceDetails(raceId){
+  const titleEl = document.getElementById("raceTitle");
+  const textEl = document.getElementById("raceText");
+  const traitsEl = document.getElementById("raceTraits");
+  const subracesEl = document.getElementById("raceSubraces");
+  const race = races.find(x => x && x.id === raceId) || null;
+  const details = race && race.details ? race.details : {};
+  const title = (details.name_ru || (race ? race.name : "") || raceId || "Раса");
+  const description = (details.description_ru || details.notes_ru || "Описание будет добавлено позже.");
+  titleEl.textContent = String(title);
+  textEl.textContent = String(description);
+
+  const traits = Array.isArray(details.traits)
+    ? details.traits.map(t => (t && (t.name_ru || t.key)) ? String(t.name_ru || t.key) : "").filter(Boolean)
+    : [];
+  const subraces = Array.isArray(details.subraces)
+    ? details.subraces.map(s => (s && (s.name_ru || s.key)) ? String(s.name_ru || s.key) : "").filter(Boolean)
+    : [];
+
+  setListItems(traitsEl, traits);
+  setListItems(subracesEl, subraces);
+}
 async function ensureJoined(){
   const r = await fetch("/api/join", {
     method:"POST",
@@ -196,6 +254,8 @@ async function loadRaces(){
     opt.textContent = `${it.name} (${it.speed_ft} ft)`;
     sel.appendChild(opt);
   }
+  sel.onchange = () => renderRaceDetails(sel.value);
+  renderRaceDetails(sel.value || (races[0] && races[0].id) || "");
 }
 async function createHero(){
   const name = (document.getElementById("charName").value || "").trim();
