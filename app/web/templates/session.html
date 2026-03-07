@@ -617,6 +617,34 @@ function openCharacterModal(){
   const skillsHtml = skillsLines.length > 0
     ? `<ul class='char-list'>${skillsLines.map((line) => `<li>${escapeHtml(line)}</li>`).join("")}</ul>`
     : "—";
+  const rf = (ch && typeof ch.race_features === "object" && ch.race_features) ? ch.race_features : {};
+  const senses = (rf.senses && typeof rf.senses === "object") ? rf.senses : {};
+  const speeds = (rf.speeds && typeof rf.speeds === "object") ? rf.speeds : {};
+  const natArmor = (rf.natural_armor && typeof rf.natural_armor === "object") ? rf.natural_armor : {};
+  const langs = Array.isArray(rf.languages) ? rf.languages.map(x => String(x)).filter(Boolean) : [];
+
+  const prof = (rf.proficiencies && typeof rf.proficiencies === "object") ? rf.proficiencies : {};
+  const profSkills = Array.isArray(prof.skills) ? prof.skills.map(x => String(x)).filter(Boolean) : [];
+  const profTools = Array.isArray(prof.tools) ? prof.tools.map(x => String(x)).filter(Boolean) : [];
+
+  const speedParts = [];
+  if(Number.isFinite(Number(speeds.walk_ft))) speedParts.push(`ходьба ${Number(speeds.walk_ft)} фт`);
+  if(Number.isFinite(Number(speeds.swim_ft))) speedParts.push(`плавание ${Number(speeds.swim_ft)} фт`);
+  if(Number.isFinite(Number(speeds.climb_ft))) speedParts.push(`лазание ${Number(speeds.climb_ft)} фт`);
+  if(Number.isFinite(Number(speeds.fly_ft))) speedParts.push(`полёт ${Number(speeds.fly_ft)} фт`);
+
+  const speedText = speedParts.join(", ");
+  const darkvisionFt = Number.isFinite(Number(senses.darkvision_ft)) ? Number(senses.darkvision_ft) : null;
+
+  let natArmorText = "";
+  if(Number.isFinite(Number(natArmor.ac))) {
+    natArmorText = `КД ${Number(natArmor.ac)}`;
+  } else if(String(natArmor.ac_formula || "").trim()) {
+    natArmorText = String(natArmor.ac_formula).trim();
+  }
+  if(natArmorText && natArmor.no_armor_stack === true){
+    natArmorText += " (не стакается с бронёй)";
+  }
   const details = [];
   details.push(`<div class="char-line"><strong>Имя:</strong> ${escapeHtml(ch.name || "—")}</div>`);
   details.push(`<div class="char-line"><strong>Класс:</strong> ${escapeHtml(klass)}</div>`);
@@ -627,6 +655,24 @@ function openCharacterModal(){
   }
   if(String(ch.race || "").trim()){
     details.push(`<div class="char-line"><strong>Раса:</strong> ${escapeHtml(ch.race)}</div>`);
+  }
+  if(speedText){
+    details.push(`<div class="char-line"><strong>Скорость:</strong> ${escapeHtml(speedText)}</div>`);
+  }
+  if(darkvisionFt !== null){
+    details.push(`<div class="char-line"><strong>Тёмное зрение:</strong> ${escapeHtml(String(darkvisionFt))} фт</div>`);
+  }
+  if(natArmorText){
+    details.push(`<div class="char-line"><strong>Природный доспех:</strong> ${escapeHtml(natArmorText)}</div>`);
+  }
+  if(langs.length){
+    details.push(`<div class="char-line"><strong>Языки:</strong> ${escapeHtml(langs.join(", "))}</div>`);
+  }
+  if(profSkills.length){
+    details.push(`<div class="char-line"><strong>Проф. навыков (раса):</strong> ${escapeHtml(profSkills.join(", "))}</div>`);
+  }
+  if(profTools.length){
+    details.push(`<div class="char-line"><strong>Проф. инструментов (раса):</strong> ${escapeHtml(profTools.join(", "))}</div>`);
   }
   details.push(`<div class="char-line"><strong>Зона:</strong> ${escapeHtml(zone)}</div>`);
   if(String(ch.description || "").trim()){
@@ -657,6 +703,12 @@ function openCharacterModal(){
     copyLines.push(`Пол/Раса: ${gender || "—"} / ${race || "—"}`);
   }
   copyLines.push(`Зона: ${zone}`);
+  if(speedText) copyLines.push(`Скорость: ${speedText}`);
+  if(darkvisionFt !== null) copyLines.push(`Тёмное зрение: ${darkvisionFt} фт`);
+  if(natArmorText) copyLines.push(`Природный доспех: ${natArmorText}`);
+  if(langs.length) copyLines.push(`Языки: ${langs.join(", ")}`);
+  if(profSkills.length) copyLines.push(`Проф. навыков (раса): ${profSkills.join(", ")}`);
+  if(profTools.length) copyLines.push(`Проф. инструментов (раса): ${profTools.join(", ")}`);
   copyLines.push(`HP/STA: ${String(ch.hp ?? "—")}/${String(ch.hp_max ?? "—")} | ${String(ch.sta ?? "—")}/${String(ch.sta_max ?? "—")}`);
   copyLines.push(`Прогресс уровня: XP ${xpTotal}/${nextLevelTotal}, до след. ${toNextLevel}`);
   copyLines.push(`Инвентарь: ${getInventoryText(ch.inventory)}`);
