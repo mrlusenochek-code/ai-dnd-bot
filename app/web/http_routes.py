@@ -13,6 +13,7 @@ from app.ai.gm import generate_lore
 from app.db.connection import AsyncSessionLocal
 from app.db.models import Session, SessionPlayer
 from app.rules.character_catalog import CLASS_CATALOG, RACE_CATALOG, resolve_class, resolve_race
+from app.rules.feats_catalog import FEATS_CATALOG
 from app.web.db_helpers import get_or_create_player_web, get_player_by_uid, get_session
 from app.web.gameplay_helpers import (
     CLASS_PRESETS,
@@ -269,6 +270,23 @@ async def api_races():
             }
         )
     return JSONResponse({"races": items})
+
+
+@router.get("/api/feats")
+async def api_feats():
+    items = []
+    for feat_item in FEATS_CATALOG:
+        key = str(feat_item.get("key") or "").strip().lower()
+        if not key:
+            continue
+        items.append(
+            {
+                "key": key,
+                "name_ru": str(feat_item.get("name_ru") or key).strip(),
+                "summary_ru": str(feat_item.get("summary_ru") or "").strip(),
+            }
+        )
+    return JSONResponse({"feats": items})
 
 
 @router.get("/api/story/get")
@@ -549,6 +567,7 @@ async def api_character_create(payload: dict):
     race_choice_languages: list[str] = []
     race_choice_asi: list[dict[str, Any]] = []
     race_choice_skills: list[str] = []
+    race_choice_feats: list[str] = []
     if isinstance(race_choices_payload, dict):
         raw_langs = race_choices_payload.get("languages")
         raw_langs_list = raw_langs if isinstance(raw_langs, list) else []
@@ -606,6 +625,26 @@ async def api_character_create(payload: dict):
                 continue
             seen_skill_keys.add(skill)
             race_choice_skills.append(skill)
+        raw_feats = race_choices_payload.get("feats")
+        raw_feats_list = raw_feats if isinstance(raw_feats, list) else []
+        allowed_feat_keys = {
+            str(item.get("key") or "").strip().lower()
+            for item in FEATS_CATALOG
+            if isinstance(item, dict) and str(item.get("key") or "").strip()
+        }
+        seen_feat_keys: set[str] = set()
+        for item in raw_feats_list:
+            feat = str(item or "").strip().lower()
+            if not feat:
+                continue
+            if feat not in allowed_feat_keys:
+                raise HTTPException(status_code=400, detail=f"Invalid feat choice: {feat}")
+            if feat in seen_feat_keys:
+                continue
+            seen_feat_keys.add(feat)
+            race_choice_feats.append(feat)
+        if len(race_choice_feats) > 1:
+            raise HTTPException(status_code=400, detail="Only one feat choice is allowed")
 
     if uid <= 0:
         raise HTTPException(status_code=400, detail="Bad uid")
@@ -748,6 +787,8 @@ async def api_character_create(payload: dict):
             prof_dict["skills"] = merged_skills
             race_features["proficiencies"] = prof_dict
             choices_dict["skills"] = list(race_choice_skills)
+        if isinstance(race_features, dict) and race_choice_feats:
+            choices_dict["feats"] = list(race_choice_feats)
         if isinstance(race_features, dict) and choices_dict:
             race_features["choices"] = choices_dict
         walk_speed = as_int(((race_features.get("speeds") or {}) if isinstance(race_features, dict) else {}).get("walk_ft"), 30)

@@ -183,6 +183,7 @@ let heartbeatInt = null;
 let manualLeave = false;
 let charModalCopyText = "";
 let charModalToastTimer = null;
+let featsNameRuByKey = {};
 
 let lastState = null;
 let uiCtx = {
@@ -424,6 +425,24 @@ function getSkillNameRu(key){
   if(!fallback) return "Skill";
   return fallback.charAt(0).toUpperCase() + fallback.slice(1);
 }
+async function loadFeatsCatalog(){
+  try{
+    const r = await fetch("/api/feats");
+    const data = await r.json();
+    const items = Array.isArray(data && data.feats) ? data.feats : [];
+    const nextMap = {};
+    for(const raw of items){
+      if(!raw || typeof raw !== "object") continue;
+      const key = String(raw.key || "").trim().toLowerCase();
+      if(!key) continue;
+      const nameRu = String(raw.name_ru || key).trim();
+      nextMap[key] = nameRu || key;
+    }
+    featsNameRuByKey = nextMap;
+  }catch(_e){
+    featsNameRuByKey = {};
+  }
+}
 function prettyStatValue(ch, keys){
   const stats = (ch && typeof ch.stats === "object" && ch.stats) ? ch.stats : {};
   for(const key of keys){
@@ -663,6 +682,11 @@ function openCharacterModal(){
   const prof = (rf.proficiencies && typeof rf.proficiencies === "object") ? rf.proficiencies : {};
   const profSkills = Array.isArray(prof.skills) ? prof.skills.map(x => String(x)).filter(Boolean) : [];
   const profTools = Array.isArray(prof.tools) ? prof.tools.map(x => String(x)).filter(Boolean) : [];
+  const choices = (rf.choices && typeof rf.choices === "object") ? rf.choices : {};
+  const featChoices = Array.isArray(choices.feats) ? choices.feats.map(x => String(x).trim().toLowerCase()).filter(Boolean) : [];
+  const featChoiceRu = featChoices.length
+    ? (featsNameRuByKey[featChoices[0]] || featChoices[0])
+    : "";
 
   const speedParts = [];
   if(Number.isFinite(Number(speeds.walk_ft))) speedParts.push(`ходьба ${Number(speeds.walk_ft)} фт`);
@@ -711,6 +735,9 @@ function openCharacterModal(){
   if(profTools.length){
     details.push(`<div class="char-line"><strong>Проф. инструментов (раса):</strong> ${escapeHtml(profTools.join(", "))}</div>`);
   }
+  if(featChoiceRu){
+    details.push(`<div class="char-line"><strong>Черта:</strong> ${escapeHtml(featChoiceRu)}</div>`);
+  }
   details.push(`<div class="char-line"><strong>Зона:</strong> ${escapeHtml(zone)}</div>`);
   if(String(ch.description || "").trim()){
     details.push(`<div class="char-line"><strong>Описание:</strong> ${escapeHtml(ch.description)}</div>`);
@@ -746,6 +773,7 @@ function openCharacterModal(){
   if(langsRu.length) copyLines.push(`Языки: ${langsRu.join(", ")}`);
   if(profSkills.length) copyLines.push(`Проф. навыков (раса): ${profSkills.join(", ")}`);
   if(profTools.length) copyLines.push(`Проф. инструментов (раса): ${profTools.join(", ")}`);
+  if(featChoiceRu) copyLines.push(`Черта: ${featChoiceRu}`);
   copyLines.push(`HP/STA: ${String(ch.hp ?? "—")}/${String(ch.hp_max ?? "—")} | ${String(ch.sta ?? "—")}/${String(ch.sta_max ?? "—")}`);
   copyLines.push(`Прогресс уровня: XP ${xpTotal}/${nextLevelTotal}, до след. ${toNextLevel}`);
   copyLines.push(`Инвентарь: ${getInventoryText(ch.inventory)}`);
@@ -1299,6 +1327,7 @@ appendCombatLogLine("Система: боевой журнал готов.", { m
 setCombatLogStatus("Бой не начат");
 
 // стартуем: join не должен блокировать ws
+loadFeatsCatalog();
 start();
 </script>
 </body>

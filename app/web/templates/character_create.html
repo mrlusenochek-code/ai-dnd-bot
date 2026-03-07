@@ -116,6 +116,10 @@
           <label>Навык (обязательно)</label>
           <select id="choiceSkill1"></select>
         </div>
+        <div id="choiceFeatRow" style="display:none;">
+          <label>Черта (обязательно)</label>
+          <select id="choiceFeat1"></select>
+        </div>
       </div>
 
       <label>Класс (preset)</label>
@@ -237,9 +241,16 @@ const SKILL_LABELS_RU = {
   "stealth": "Скрытность",
   "survival": "Выживание"
 };
+let featsCatalog = [];
 let classes = [];
 let races = [];
-let raceChoiceState = { languageRequired: false, asiRequired: false, asiBonus: 1, skillRequired: false };
+let raceChoiceState = {
+  languageRequired: false,
+  asiRequired: false,
+  asiBonus: 1,
+  skillRequired: false,
+  featRequired: false,
+};
 function _sortByNameRu(a, b){
   const aName = String((a && (a.name_ru || a.name)) || "").trim();
   const bName = String((b && (b.name_ru || b.name)) || "").trim();
@@ -561,6 +572,26 @@ function getSkillChoiceConfig(traits){
   return out;
 }
 
+function getFeatChoiceConfig(traits){
+  const out = { required: false, count: 0 };
+  const items = Array.isArray(traits) ? traits : [];
+  for(const t of items){
+    if(!t || typeof t !== "object") continue;
+    const mech = (t.mechanics && typeof t.mechanics === "object") ? t.mechanics : {};
+    const mtype = String(mech.type || "").trim().toLowerCase();
+    if(mtype !== "choose_feat"){
+      continue;
+    }
+    const count = Number(mech.count ?? mech.choose ?? 0);
+    if(count === 1){
+      out.required = true;
+      out.count = 1;
+      return out;
+    }
+  }
+  return out;
+}
+
 function fillAsiSelect(sel, prev){
   if(!sel) return;
   const prevValue = String(prev || "");
@@ -600,6 +631,29 @@ function fillSkillSelect(sel, prev){
   sel.value = keepPrev ? prevValue : "";
 }
 
+function fillFeatSelect(sel, prev){
+  if(!sel) return;
+  const prevValue = String(prev || "");
+  sel.innerHTML = "";
+  const first = document.createElement("option");
+  first.value = "";
+  first.textContent = "(выберите черту)";
+  sel.appendChild(first);
+  const items = Array.isArray(featsCatalog) ? featsCatalog : [];
+  for(const it of items){
+    if(!it || typeof it !== "object") continue;
+    const key = String(it.key || "").trim().toLowerCase();
+    if(!key) continue;
+    const label = String(it.name_ru || key).trim();
+    const opt = document.createElement("option");
+    opt.value = key;
+    opt.textContent = label;
+    sel.appendChild(opt);
+  }
+  const keepPrev = Array.from(sel.options).some(o => String(o.value) === prevValue);
+  sel.value = keepPrev ? prevValue : "";
+}
+
 function renderRaceChoices(){
   const block = document.getElementById("raceChoices");
   const langRow = document.getElementById("choiceLangRow");
@@ -609,27 +663,33 @@ function renderRaceChoices(){
   const asiSel2 = document.getElementById("choiceAsi2");
   const skillRow = document.getElementById("choiceSkillRow");
   const skillSel = document.getElementById("choiceSkill1");
-  if(!block || !langRow || !langSel || !asiRow || !asiSel1 || !asiSel2 || !skillRow || !skillSel) return;
+  const featRow = document.getElementById("choiceFeatRow");
+  const featSel = document.getElementById("choiceFeat1");
+  if(!block || !langRow || !langSel || !asiRow || !asiSel1 || !asiSel2 || !skillRow || !skillSel || !featRow || !featSel) return;
 
   const ctx = getCurrentRaceContext();
   const langCfg = getLanguageChoiceConfig(ctx.effectiveTraits);
   const asiCfg = getAsiChoiceConfig(ctx.effectiveTraits);
   const skillCfg = getSkillChoiceConfig(ctx.effectiveTraits);
+  const featCfg = getFeatChoiceConfig(ctx.effectiveTraits);
   const needsLanguage = !!langCfg.required;
   const needsAsi = !!asiCfg.required;
   const needsSkill = !!skillCfg.required;
+  const needsFeat = !!featCfg.required;
   raceChoiceState = {
     languageRequired: needsLanguage,
     asiRequired: needsAsi,
     asiBonus: asiCfg.bonus || 1,
     skillRequired: needsSkill,
+    featRequired: needsFeat,
   };
 
-  if(!needsLanguage && !needsAsi && !needsSkill){
+  if(!needsLanguage && !needsAsi && !needsSkill && !needsFeat){
     block.style.display = "none";
     langRow.style.display = "none";
     asiRow.style.display = "none";
     skillRow.style.display = "none";
+    featRow.style.display = "none";
     langSel.disabled = true;
     langSel.required = false;
     langSel.value = "";
@@ -642,6 +702,9 @@ function renderRaceChoices(){
     skillSel.disabled = true;
     skillSel.required = false;
     skillSel.value = "";
+    featSel.disabled = true;
+    featSel.required = false;
+    featSel.value = "";
     return;
   }
 
@@ -703,6 +766,19 @@ function renderRaceChoices(){
     skillSel.disabled = true;
     skillSel.required = false;
     skillSel.value = "";
+  }
+
+  if(needsFeat){
+    const prev = String(featSel.value || "");
+    fillFeatSelect(featSel, prev);
+    featRow.style.display = "";
+    featSel.disabled = false;
+    featSel.required = true;
+  }else{
+    featRow.style.display = "none";
+    featSel.disabled = true;
+    featSel.required = false;
+    featSel.value = "";
   }
 
   block.style.display = "";
@@ -872,6 +948,24 @@ async function loadRaces(){
   sel.onchange = () => renderRaceDetails(sel.value);
   renderRaceDetails(sel.value || (races[0] && races[0].id) || "");
 }
+async function loadFeats(){
+  const r = await fetch("/api/feats");
+  const data = await r.json();
+  const items = Array.isArray(data.feats) ? data.feats : [];
+  featsCatalog = items
+    .map((x) => {
+      if(!x || typeof x !== "object") return null;
+      const key = String(x.key || "").trim().toLowerCase();
+      if(!key) return null;
+      return {
+        key,
+        name_ru: String(x.name_ru || key).trim(),
+        summary_ru: String(x.summary_ru || "").trim(),
+      };
+    })
+    .filter(Boolean)
+    .sort((a, b) => String(a.name_ru).localeCompare(String(b.name_ru), "ru", { sensitivity: "base" }));
+}
 async function createHero(){
   const name = (document.getElementById("charName").value || "").trim();
   const classId = (document.getElementById("classId").value || "").trim();
@@ -906,6 +1000,12 @@ async function createHero(){
     setMessage("Выбери навык в блоке «Стартовые выборы».", false);
     return;
   }
+  const choiceFeatEl = document.getElementById("choiceFeat1");
+  const choiceFeat = String(choiceFeatEl ? choiceFeatEl.value : "").trim().toLowerCase();
+  if(raceChoiceState.featRequired && !choiceFeat){
+    setMessage("Выбери черту в блоке «Стартовые выборы».", false);
+    return;
+  }
   const payload = {
     session_id: SESSION_ID,
     uid: getUID(),
@@ -932,6 +1032,9 @@ async function createHero(){
   }
   if(choiceSkill){
     raceChoices.skills = [choiceSkill];
+  }
+  if(choiceFeat){
+    raceChoices.feats = [choiceFeat];
   }
   if(Object.keys(raceChoices).length > 0){
     payload.race_choices = raceChoices;
@@ -966,6 +1069,7 @@ async function init(){
       return;
     }
     await loadClasses();
+    await loadFeats();
     await loadRaces();
     setMessage("Заполни данные и нажми Create Hero.", true);
   }catch(e){
