@@ -244,3 +244,33 @@ def test_fire_genasi_persists_innate_spells(monkeypatch) -> None:
     names = [str(item.get("name") or "") for item in innate_spells if isinstance(item, dict)]
     assert "produce_flame" in names
     assert "burning_hands" in names
+
+
+def test_goliath_persists_passive_race_features(monkeypatch) -> None:
+    captured: dict[str, Any] = {}
+    _setup_create_mocks(monkeypatch, captured=captured)
+
+    response = asyncio.run(
+        http_routes.api_character_create(
+            {
+                "session_id": "test-session",
+                "uid": 1007,
+                "name": "Goliath Hero",
+                "class_id": "",
+                "custom_class": "Adventurer",
+                "race_id": "goliath",
+                "stats": {"str": 50, "dex": 50, "con": 50, "int": 50, "wis": 50, "cha": 50},
+            }
+        )
+    )
+    assert response.status_code == 200
+    race_features = ((json.loads(response.body).get("character") or {}).get("race_features") or {})
+
+    resistances = race_features.get("resistances") or []
+    assert "cold" in resistances
+
+    carry = race_features.get("carry") or {}
+    assert carry.get("powerful_build") is True
+
+    features = race_features.get("features") or {}
+    assert isinstance(features.get("stone_endurance"), dict)

@@ -640,6 +640,12 @@ function openCharacterModal(){
   const senses = (rf.senses && typeof rf.senses === "object") ? rf.senses : {};
   const speeds = (rf.speeds && typeof rf.speeds === "object") ? rf.speeds : {};
   const natArmor = (rf.natural_armor && typeof rf.natural_armor === "object") ? rf.natural_armor : {};
+  const carry = (rf.carry && typeof rf.carry === "object") ? rf.carry : {};
+  const raceFeaturesMeta = (rf.features && typeof rf.features === "object") ? rf.features : {};
+  const stoneEndurance = (raceFeaturesMeta.stone_endurance && typeof raceFeaturesMeta.stone_endurance === "object")
+    ? raceFeaturesMeta.stone_endurance
+    : null;
+  const resistances = Array.isArray(rf.resistances) ? rf.resistances.map((x) => String(x || "").trim().toLowerCase()).filter(Boolean) : [];
   const langs = Array.isArray(rf.languages) ? rf.languages.map(x => String(x)).filter(Boolean) : [];
   const _LANG_RU = {
     "common": "Общий",
@@ -677,6 +683,24 @@ function openCharacterModal(){
       const key = String(k || "").trim().toLowerCase();
       return _LANG_RU[key] || String(k || "");
     })
+    .filter(Boolean);
+  const _DAMAGE_RU = {
+    "cold": "Холод",
+    "fire": "Огонь",
+    "acid": "Кислота",
+    "lightning": "Молния",
+    "thunder": "Гром",
+    "poison": "Яд",
+    "necrotic": "Некротический",
+    "radiant": "Излучение",
+    "psychic": "Психический",
+    "force": "Силовой",
+    "bludgeoning": "Дробящий",
+    "piercing": "Колющий",
+    "slashing": "Рубящий"
+  };
+  const resistancesRu = resistances
+    .map((k) => _DAMAGE_RU[String(k || "").trim().toLowerCase()] || String(k || ""))
     .filter(Boolean);
 
   const prof = (rf.proficiencies && typeof rf.proficiencies === "object") ? rf.proficiencies : {};
@@ -795,6 +819,15 @@ function openCharacterModal(){
   if(natArmorText){
     details.push(`<div class="char-line"><strong>Природный доспех:</strong> ${escapeHtml(natArmorText)}</div>`);
   }
+  if(resistancesRu.length){
+    details.push(`<div class="char-line"><strong>Сопротивления:</strong> ${escapeHtml(resistancesRu.join(", "))}</div>`);
+  }
+  if(carry.powerful_build === true){
+    details.push("<div class=\"char-line\"><strong>Мощное телосложение:</strong> считается на 1 размер больше для переноски/толкания/тяги/подъёма</div>");
+  }
+  if(stoneEndurance){
+    details.push("<div class=\"char-line\"><strong>Каменная выносливость:</strong> реакция, 1/к/дл отдых: снижает урон (1d12 + мод. Тел)</div>");
+  }
   if(langsRu.length){
     details.push(`<div class="char-line"><strong>Языки:</strong> ${escapeHtml(langsRu.join(", "))}</div>`);
   }
@@ -842,6 +875,9 @@ function openCharacterModal(){
   if(hasActiveCombatant && moveSpeedFt !== null && moveRemainingFt !== null) copyLines.push(`Перемещение: осталось ${moveRemainingFt} фт из ${moveSpeedFt} фт`);
   if(darkvisionFt !== null) copyLines.push(`Тёмное зрение: ${darkvisionFt} фт`);
   if(natArmorText) copyLines.push(`Природный доспех: ${natArmorText}`);
+  if(resistancesRu.length) copyLines.push(`Сопротивления: ${resistancesRu.join(", ")}`);
+  if(carry.powerful_build === true) copyLines.push("Мощное телосложение: считается на 1 размер больше для переноски/толкания/тяги/подъёма");
+  if(stoneEndurance) copyLines.push("Каменная выносливость: реакция, 1/к/дл отдых: снижает урон (1d12 + мод. Тел)");
   if(langsRu.length) copyLines.push(`Языки: ${langsRu.join(", ")}`);
   if(profSkills.length) copyLines.push(`Проф. навыков (раса): ${profSkills.join(", ")}`);
   if(profTools.length) copyLines.push(`Проф. инструментов (раса): ${profTools.join(", ")}`);

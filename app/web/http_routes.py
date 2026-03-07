@@ -477,6 +477,8 @@ def _build_race_features(selected_race: dict | None) -> dict[str, Any]:
     breath: dict[str, Any] = {}
     movement: dict[str, Any] = {}
     innate_spells: list[dict[str, Any]] = []
+    carry: dict[str, Any] = {}
+    features: dict[str, Any] = {}
 
     for t in traits:
         if not isinstance(t, dict):
@@ -503,6 +505,11 @@ def _build_race_features(selected_race: dict | None) -> dict[str, Any]:
 
         if mtype == "damage_resistance":
             resist.extend([str(x) for x in _as_list(mech.get("damage")) if str(x)])
+
+        if mtype == "resistance":
+            damage_type = str(mech.get("damage_type") or "").strip().lower()
+            if damage_type:
+                resist.append(damage_type)
 
         if mtype == "damage_and_condition_immunity":
             immune_damage.extend([str(x) for x in _as_list(mech.get("damage")) if str(x)])
@@ -567,6 +574,16 @@ def _build_race_features(selected_race: dict | None) -> dict[str, Any]:
             if terrain:
                 movement["ignore_difficult_terrain"] = terrain
 
+        if mtype == "powerful_build":
+            carry["powerful_build"] = True
+            carry["effective_size_delta"] = as_int(mech.get("effective_size_delta"), 1)
+            applies = [str(x).strip() for x in _as_list(mech.get("applies_to")) if str(x).strip()]
+            if applies:
+                carry["applies_to"] = applies
+
+        if mtype == "stone_endurance":
+            features["stone_endurance"] = dict(mech)
+
         if mtype == "innate_spellcasting":
             ability = str(mech.get("ability") or "").strip().lower()
             spells = _as_list(mech.get("spells"))
@@ -607,6 +624,8 @@ def _build_race_features(selected_race: dict | None) -> dict[str, Any]:
         "breath": breath,
         "movement": movement,
         "innate_spells": innate_spells,
+        "carry": carry,
+        "features": features,
     }
     return out
 
