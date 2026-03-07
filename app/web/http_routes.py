@@ -584,6 +584,12 @@ def _build_race_features(selected_race: dict | None) -> dict[str, Any]:
         if mtype == "stone_endurance":
             features["stone_endurance"] = dict(mech)
 
+        if mtype == "healing_hands":
+            features["healing_hands"] = dict(mech)
+
+        if mtype == "aasimar_transformation":
+            features["aasimar_transformation"] = dict(mech)
+
         if mtype == "innate_spellcasting":
             ability = str(mech.get("ability") or "").strip().lower()
             spells = _as_list(mech.get("spells"))

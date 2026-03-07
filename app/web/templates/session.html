@@ -645,6 +645,58 @@ function openCharacterModal(){
   const stoneEndurance = (raceFeaturesMeta.stone_endurance && typeof raceFeaturesMeta.stone_endurance === "object")
     ? raceFeaturesMeta.stone_endurance
     : null;
+  const healingHands = (raceFeaturesMeta.healing_hands && typeof raceFeaturesMeta.healing_hands === "object")
+    ? raceFeaturesMeta.healing_hands
+    : null;
+  const aasimarTransformation = (raceFeaturesMeta.aasimar_transformation && typeof raceFeaturesMeta.aasimar_transformation === "object")
+    ? raceFeaturesMeta.aasimar_transformation
+    : null;
+  const _AASIMAR_KIND_RU = {
+    "protector": "Защитник",
+    "scourge": "Карающий",
+    "fallen": "Падший",
+  };
+  const _DURATION_RU = {
+    "1_minute": "1 мин",
+  };
+  const formatUsesText = (uses, usesMax) => {
+    const usesKey = String(uses || "").trim().toLowerCase();
+    const usesNum = Number.isFinite(Number(usesMax)) ? Number(usesMax) : null;
+    if(usesKey === "per_long_rest"){
+      if(usesNum !== null) return `${usesNum}/дл отдых`;
+      return "дл отдых";
+    }
+    if(usesNum !== null) return String(usesNum);
+    return "";
+  };
+  const healingHandsUsesText = healingHands ? formatUsesText(healingHands.uses, healingHands.uses_max) : "";
+  const healingHandsAmountKey = healingHands ? String(healingHands.amount || "").trim().toLowerCase() : "";
+  const healingHandsAmountText = healingHandsAmountKey === "level" ? "уровень" : String((healingHands && healingHands.amount) || "").trim();
+  const healingHandsText = healingHands
+    ? `Исцеляющие руки: ${healingHandsUsesText || "—"}, лечение = ${healingHandsAmountText || "—"}`
+    : "";
+  const aasimarKindKey = aasimarTransformation ? String(aasimarTransformation.kind || "").trim().toLowerCase() : "";
+  const aasimarKindText = aasimarKindKey ? (_AASIMAR_KIND_RU[aasimarKindKey] || aasimarKindKey) : "—";
+  const aasimarMinLevel = aasimarTransformation && Number.isFinite(Number(aasimarTransformation.min_level))
+    ? Number(aasimarTransformation.min_level)
+    : null;
+  const aasimarDurationKey = aasimarTransformation ? String(aasimarTransformation.duration || "").trim().toLowerCase() : "";
+  const aasimarDurationText = aasimarDurationKey ? (_DURATION_RU[aasimarDurationKey] || aasimarDurationKey) : "—";
+  const aasimarUsesText = aasimarTransformation ? formatUsesText(aasimarTransformation.uses, aasimarTransformation.uses_max) : "";
+  const aasimarFlySpeedFt = aasimarTransformation && Number.isFinite(Number(aasimarTransformation.fly_speed_ft))
+    ? Number(aasimarTransformation.fly_speed_ft)
+    : null;
+  const aasimarTransformationParts = [];
+  if(aasimarTransformation){
+    aasimarTransformationParts.push(`(${aasimarKindText})`);
+    if(aasimarMinLevel !== null) aasimarTransformationParts.push(`с ${aasimarMinLevel} уровня`);
+    if(aasimarUsesText) aasimarTransformationParts.push(aasimarUsesText);
+    if(aasimarDurationText) aasimarTransformationParts.push(`длительность ${aasimarDurationText}`);
+    if(aasimarFlySpeedFt !== null) aasimarTransformationParts.push(`полёт ${aasimarFlySpeedFt} фт`);
+  }
+  const aasimarTransformationText = aasimarTransformation
+    ? `Небесное преобразование: ${aasimarTransformationParts.join(", ")}`
+    : "";
   const resistances = Array.isArray(rf.resistances) ? rf.resistances.map((x) => String(x || "").trim().toLowerCase()).filter(Boolean) : [];
   const langs = Array.isArray(rf.languages) ? rf.languages.map(x => String(x)).filter(Boolean) : [];
   const _LANG_RU = {
@@ -828,6 +880,12 @@ function openCharacterModal(){
   if(stoneEndurance){
     details.push("<div class=\"char-line\"><strong>Каменная выносливость:</strong> реакция, 1/к/дл отдых: снижает урон (1d12 + мод. Тел)</div>");
   }
+  if(healingHandsText){
+    details.push(`<div class="char-line"><strong>Исцеляющие руки:</strong> ${escapeHtml(healingHandsText.replace(/^Исцеляющие руки:\s*/, ""))}</div>`);
+  }
+  if(aasimarTransformationText){
+    details.push(`<div class="char-line"><strong>Небесное преобразование:</strong> ${escapeHtml(aasimarTransformationText.replace(/^Небесное преобразование:\s*/, ""))}</div>`);
+  }
   if(langsRu.length){
     details.push(`<div class="char-line"><strong>Языки:</strong> ${escapeHtml(langsRu.join(", "))}</div>`);
   }
@@ -878,6 +936,8 @@ function openCharacterModal(){
   if(resistancesRu.length) copyLines.push(`Сопротивления: ${resistancesRu.join(", ")}`);
   if(carry.powerful_build === true) copyLines.push("Мощное телосложение: считается на 1 размер больше для переноски/толкания/тяги/подъёма");
   if(stoneEndurance) copyLines.push("Каменная выносливость: реакция, 1/к/дл отдых: снижает урон (1d12 + мод. Тел)");
+  if(healingHandsText) copyLines.push(healingHandsText);
+  if(aasimarTransformationText) copyLines.push(aasimarTransformationText);
   if(langsRu.length) copyLines.push(`Языки: ${langsRu.join(", ")}`);
   if(profSkills.length) copyLines.push(`Проф. навыков (раса): ${profSkills.join(", ")}`);
   if(profTools.length) copyLines.push(`Проф. инструментов (раса): ${profTools.join(", ")}`);

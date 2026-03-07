@@ -274,3 +274,42 @@ def test_goliath_persists_passive_race_features(monkeypatch) -> None:
 
     features = race_features.get("features") or {}
     assert isinstance(features.get("stone_endurance"), dict)
+
+
+def test_aasimar_protector_applies_asi_and_persists_features(monkeypatch) -> None:
+    captured: dict[str, Any] = {}
+    _setup_create_mocks(monkeypatch, captured=captured)
+
+    response = asyncio.run(
+        http_routes.api_character_create(
+            {
+                "session_id": "test-session",
+                "uid": 1008,
+                "name": "Protector Aasimar",
+                "class_id": "",
+                "custom_class": "Adventurer",
+                "race_id": "aasimar",
+                "subrace_id": "aasimar_protector",
+                "stats": {"str": 50, "dex": 50, "con": 50, "int": 50, "wis": 50, "cha": 50},
+            }
+        )
+    )
+    assert response.status_code == 200
+    payload = json.loads(response.body)
+    character = payload.get("character") or {}
+    stats = character.get("stats") or {}
+    race_features = character.get("race_features") or {}
+
+    assert stats.get("cha") == 60
+    assert stats.get("wis") == 55
+
+    resistances = race_features.get("resistances") or []
+    assert "necrotic" in resistances
+    assert "radiant" in resistances
+
+    features = race_features.get("features") or {}
+    assert isinstance(features.get("healing_hands"), dict)
+
+    transformation = features.get("aasimar_transformation") or {}
+    assert transformation.get("kind") == "protector"
+    assert int(transformation.get("fly_speed_ft") or 0) == 30
