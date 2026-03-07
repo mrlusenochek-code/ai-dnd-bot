@@ -1425,21 +1425,50 @@ EXTERNAL_RACE_CATALOG: list[dict[str, Any]] = [{
   "subraces": [],
   "tags": [],
  },
- {'key': 'custom_lineage',
-  'name_ru': 'Своё происхождение',
-  'description_ru': '',
-  'asi': [],
-  'age': {},
-  'alignment': '',
-  'size': 'medium',
-  'speed_ft': 30,
-  'speed_notes_ru': '',
-  'languages': ['common'],
-  'traits': [],
-  'subraces': [],
-  'source': 'external resources',
-  'tags': [],
-  'notes_ru': 'Импортировано из внешнего источника, требует проверки мастером'},
+ {
+  "key": "custom_lineage",
+  "name": "Custom Lineage",
+  "name_ru": "Своё происхождение",
+  "source": "TCE",
+  "description_ru": "Позволяет настроить происхождение персонажа и полностью контролировать его формирование: размер, одно повышение характеристики, черта и одна выборочная особенность.",
+  "asi": [
+   {"choose": 1, "bonus": 2, "from": ["str", "dex", "con", "int", "wis", "cha"]}
+  ],
+  "age": {},
+  "alignment": "",
+  "size": "medium",
+  "speed_ft": 30,
+  "speed_notes_ru": "Размер на выбор при создании: Маленький или Средний.",
+  "languages": ["common"],
+  "traits": [
+   {
+    "key": "creature_type_humanoid",
+    "name_ru": "Вид существа",
+    "summary_ru": "Вы — гуманоид.",
+    "mechanics": {"type": "creature_type", "value": "humanoid"},
+   },
+   {
+    "key": "feat_choice",
+    "name_ru": "Черта",
+    "summary_ru": "Вы получаете одну черту по вашему выбору, требованиям которой вы удовлетворяете.",
+    "mechanics": {"type": "feat_choice", "choose": 1},
+   },
+   {
+    "key": "variable_trait_choice",
+    "name_ru": "Выборочная особенность",
+    "summary_ru": "Выберите одно: (а) тёмное зрение 60 футов или (б) владение одним навыком по выбору.",
+    "mechanics": {"type": "choice", "choose": 1, "options": ["darkvision_60", "skill_proficiency_choice_1"]},
+   },
+   {
+    "key": "extra_language_choice",
+    "name_ru": "Языки",
+    "summary_ru": "Кроме Общего вы знаете ещё один язык на выбор.",
+    "mechanics": {"type": "language_choice", "choose": 1, "from": "any"},
+   },
+  ],
+  "subraces": [],
+  "tags": ["lineage"],
+ },
  {
   "key": "dhampir",
   "name": "Dhampir",
@@ -2711,21 +2740,124 @@ EXTERNAL_RACE_CATALOG: list[dict[str, Any]] = [{
   ],
   "tags": [],
  },
- {'key': 'simic_hybrid',
-  'name_ru': 'Гибрид Симиков',
-  'description_ru': '',
-  'asi': [],
-  'age': {},
-  'alignment': '',
-  'size': 'medium',
-  'speed_ft': 30,
-  'speed_notes_ru': '',
-  'languages': ['common'],
-  'traits': [],
-  'subraces': [],
-  'source': 'external resources',
-  'tags': [],
-  'notes_ru': 'Импортировано из внешнего источника, требует проверки мастером'},
+ {
+  "key": "simic_hybrid",
+  "name": "Simic Hybrid",
+  "name_ru": "Гибрид Симиков",
+  "source": "GGTR",
+  "description_ru": "Экспериментальный гибрид, созданный для защиты: улучшенное тело получает «животные усиления», а с ростом уровня — новые модификации.",
+  "asi": [
+   {"stat": "con", "bonus": 2},
+   {"choose": 1, "bonus": 1, "from": ["str", "dex", "int", "wis", "cha"]},
+  ],
+  "age": {},
+  "alignment": "any",
+  "size": "medium",
+  "speed_ft": 30,
+  "speed_notes_ru": "",
+  "languages": ["common"],
+  "traits": [
+   {
+    "key": "darkvision_60",
+    "name_ru": "Тёмное зрение",
+    "summary_ru": "Тёмное зрение 60 футов.",
+    "mechanics": {"type": "darkvision", "range_ft": 60},
+   },
+   {
+    "key": "language_choice_elvish_or_vedalken",
+    "name_ru": "Язык происхождения",
+    "summary_ru": "Дополнительно к Общему вы знаете Эльфийский или Ведалкенский (на выбор).",
+    "mechanics": {"type": "language_choice", "choose": 1, "from": ["elvish", "vedalken"]},
+   },
+   {
+    "key": "animal_enhancement",
+    "name_ru": "Животное усиление",
+    "summary_ru": "На 1 уровне выберите одно усиление (мантия ската / проворный скалолаз / подводная адаптация). На 5 уровне выберите ещё одно усиление (можно из начальных или одно из новых: хватательные придатки / панцирь / кислотный плевок).",
+    "mechanics": {"type": "animal_enhancement", "pick_1_level": 1, "pick_2_level": 5},
+   },
+  ],
+  "subraces": [
+   {
+    "key": "manta_glide",
+    "name_ru": "Мантия ската",
+    "traits": [
+     {
+      "key": "manta_glide",
+      "name_ru": "Планирование",
+      "summary_ru": "Когда падаете и дееспособны, вычтите до 100 футов падения для определения урона. Можете переместиться на 2 фута горизонтально за каждый 1 фут падения.",
+      "mechanics": {"type": "glide", "reduce_fall_ft": 100, "horizontal_per_fall_ft": 2},
+     }
+    ],
+   },
+   {
+    "key": "nimble_climber",
+    "name_ru": "Проворный скалолаз",
+    "traits": [
+     {
+      "key": "climb_speed_equals_walk",
+      "name_ru": "Лазание",
+      "summary_ru": "Скорость лазания равна вашей скорости ходьбы.",
+      "mechanics": {"type": "climb_speed", "speed_equals_walk": True},
+     }
+    ],
+   },
+   {
+    "key": "underwater_adaptation",
+    "name_ru": "Подводная адаптация",
+    "traits": [
+     {
+      "key": "amphibious",
+      "name_ru": "Амфибия",
+      "summary_ru": "Можете дышать воздухом и водой.",
+      "mechanics": {"type": "amphibious"},
+     },
+     {
+      "key": "swim_speed_equals_walk",
+      "name_ru": "Плавание",
+      "summary_ru": "Скорость плавания равна скорости ходьбы.",
+      "mechanics": {"type": "swim_speed", "speed_equals_walk": True},
+     },
+    ],
+   },
+   {
+    "key": "grappling_appendages",
+    "name_ru": "Хватательные придатки",
+    "traits": [
+     {
+      "key": "grappling_appendages",
+      "name_ru": "Придатки",
+      "summary_ru": "Два придатка (клешни/щупальца). Действием можно попытаться схватить. Также это природное оружие: 1к6 + модиф. Силы дробящего; после попадания можно бонусным действием попытаться схватить. Не могут держать оружие и делать тонкую работу.",
+      "mechanics": {"type": "grappling_appendages", "damage_dice": "1d6", "damage_type": "bludgeoning", "ability": "str"},
+     }
+    ],
+   },
+   {
+    "key": "carapace",
+    "name_ru": "Панцирь",
+    "traits": [
+     {
+      "key": "carapace",
+      "name_ru": "Панцирь",
+      "summary_ru": "Пока вы не носите тяжёлый доспех, вы получаете +1 к КД.",
+      "mechanics": {"type": "ac_bonus_if_no_heavy_armor", "ac_bonus": 1},
+     }
+    ],
+   },
+   {
+    "key": "acid_spit",
+    "name_ru": "Кислотный плевок",
+    "traits": [
+     {
+      "key": "acid_spit",
+      "name_ru": "Кислотный плевок",
+      "summary_ru": "Действием: цель в 30 футах спасбросок Ловкости (Сл = 8 + БМ + модиф. Телосложения) или получает 2к10 урона кислотой (половина при успехе). Урон растёт на 11/17 уровнях. Использований = модиф. Телосложения (мин. 1) за длительный отдых.",
+      "mechanics": {"type": "acid_spit", "range_ft": 30, "damage": "2d10", "damage_type": "acid", "dc_formula": "8 + prof + con_mod", "uses_formula": "max(con_mod,1)", "recharge": "per_long_rest"},
+     }
+    ],
+   },
+  ],
+  "tags": [],
+ },
  {
   "key": "tabaxi",
   "name": "Tabaxi",
