@@ -1,5 +1,17 @@
 import re
 
+INNATE_SPELL_KEY_PATTERNS: dict[str, re.Pattern[str]] = {
+    "levitate": re.compile(r"левитац|levitate", re.IGNORECASE),
+    "passwall": re.compile(r"проход.*сквозь.*кам|passwall", re.IGNORECASE),
+    "produce_flame": re.compile(r"создани[еия]\s+огня|produce\s+flame", re.IGNORECASE),
+    "burning_hands": re.compile(r"горящ(?:ие|их)\s+руки|burning\s+hands", re.IGNORECASE),
+    "shape_water": re.compile(r"формирован(?:ие|ия)\s+воды|shape\s+water", re.IGNORECASE),
+    "create_or_destroy_water": re.compile(
+        r"создани(?:е|я).*(?:уничтожени(?:е|я)).*воды|create.*destroy.*water",
+        re.IGNORECASE,
+    ),
+}
+
 
 INV_MACHINE_LINE_RE = re.compile(
     r"^\s*(?:\(\s*)?@@(?P<cmd>INV_ADD|INV_REMOVE|INV_TRANSFER|EQUIP|UNEQUIP)\s*\((?P<args>.*)\)\s*(?:\))?\s*$",
@@ -34,6 +46,16 @@ CHAT_COMBAT_ACTION_PATTERNS: list[tuple[str, re.Pattern[str]]] = [
     (
         "combat_land",
         re.compile(r"(приземляюсь|снижаюсь|опускаюсь|на\s+землю)", re.IGNORECASE),
+    ),
+    (
+        "combat_innate_spell",
+        re.compile(
+            r"(?:кастую|колдую|накладываю|использую\s+заклинание|заклинание|"
+            r"левитац|levitate|проход.*сквозь.*кам|passwall|создани[еия]\s+огня|produce\s+flame|"
+            r"горящ(?:ие|их)\s+руки|burning\s+hands|формирован(?:ие|ия)\s+воды|shape\s+water|"
+            r"создани(?:е|я).*(?:уничтожени(?:е|я)).*воды|create.*destroy.*water)",
+            re.IGNORECASE,
+        ),
     ),
     ("combat_use_object", re.compile(r"(использую|применяю|активирую|включаю|поджигаю|зажигаю|пью|выпиваю|нажимаю|достаю|зелье|флакон|свиток|факел|рычаг|кнопк)", re.IGNORECASE)),
     (

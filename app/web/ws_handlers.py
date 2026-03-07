@@ -85,7 +85,7 @@ from app.web.ws_combat_prompting import (
     _start_intent_text_needs_repair,
 )
 from app.web.ws_gameplay import STATE_COMMAND_ALIASES, _detect_chat_combat_action, _format_state_text_for_player, infer_zone_from_action
-from app.web.regexes import COMBAT_MOVE_DISTANCE_RE
+from app.web.regexes import COMBAT_MOVE_DISTANCE_RE, INNATE_SPELL_KEY_PATTERNS
 from app.web.ws_manager import manager
 from app.web.ws_turns import (
     TURN_TIMEOUT_SECONDS,
@@ -133,6 +133,63 @@ def _kickoff_lore_finalize_if_needed(session_id: str, sess: Any) -> bool:
         return False
     asyncio.create_task(gm_orchestrator.run_lore_generation(session_id))
     return True
+
+
+def _detect_innate_spell_key(text: str) -> Optional[str]:
+    txt = str(text or "").strip()
+    if not txt:
+        return None
+    for spell_key, pattern in INNATE_SPELL_KEY_PATTERNS.items():
+        if pattern.search(txt):
+            return spell_key
+    return None
+
+
+def _apply_innate_spell_usage(ch: Character, spell_key: str) -> tuple[Optional[str], Optional[str], bool]:
+    race_features = getattr(ch, "race_features", None)
+    rf = dict(race_features) if isinstance(race_features, dict) else {}
+    spells_raw = rf.get("innate_spells")
+    spells = spells_raw if isinstance(spells_raw, list) else []
+
+    spell_entry: dict[str, Any] | None = None
+    for item in spells:
+        if not isinstance(item, dict):
+            continue
+        name = str(item.get("name") or "").strip().lower()
+        if name and name == spell_key:
+            spell_entry = item
+            break
+    if spell_entry is None:
+        return None, "Это врождённое заклинание недоступно вашей расе.", False
+
+    required_level_raw = spell_entry.get("min_level")
+    if required_level_raw is not None:
+        required_level = max(0, as_int(required_level_raw, 0))
+        current_level = max(1, as_int(getattr(ch, "level", 1), 1))
+        if required_level > current_level:
+            return None, f"Это заклинание доступно с {required_level} уровня.", False
+
+    frequency = str(spell_entry.get("frequency") or "").strip().lower()
+    changed = False
+    if frequency == "1_per_long_rest":
+        runtime_raw = rf.get("runtime")
+        runtime = dict(runtime_raw) if isinstance(runtime_raw, dict) else {}
+        uses_raw = runtime.get("innate_spell_uses")
+        uses = dict(uses_raw) if isinstance(uses_raw, dict) else {}
+        spell_use_raw = uses.get(spell_key)
+        spell_use = dict(spell_use_raw) if isinstance(spell_use_raw, dict) else {}
+        used = max(0, as_int(spell_use.get("used"), 0))
+        if used >= 1:
+            return None, "Это заклинание уже использовано до долгого отдыха.", False
+        spell_use["used"] = 1
+        uses[spell_key] = spell_use
+        runtime["innate_spell_uses"] = uses
+        rf["runtime"] = runtime
+        ch.race_features = rf
+        changed = True
+
+    display_name = str(spell_entry.get("name") or spell_key).strip()
+    return display_name, None, changed
 
 
 async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
@@ -875,6 +932,7 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                     elif (lower.startswith("gm ") or lower.startswith("gm:")) and is_admin_user:
                         pass
                     elif combat_action:
+                        innate_spell_key = _detect_innate_spell_key(text) if combat_action == "combat_innate_spell" else None
                         actor_label = await _event_actor_label(db, sess, player)
                         await add_event(
                             db,
@@ -882,9 +940,10 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                             f"{actor_label}: {text}",
                             actor_player_id=player.id,
                             result_json={
-                                "type": "player_action",
+                                "type": "combat_innate_spell" if combat_action == "combat_innate_spell" else "player_action",
                                 "raw_text": text,
                                 "combat_chat_action": combat_action,
+                                "spell_key": innate_spell_key,
                             },
                         )
                         await db.commit()
@@ -898,6 +957,35 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                             current_name = current_turn_label(combat_state) if combat_state else "другой участник"
                             await add_system_event(db, sess, f"Сейчас ходит {current_name}. Дождись своего хода.")
                             await broadcast_state(session_id)
+                            continue
+
+                        if combat_action == "combat_innate_spell":
+                            if not innate_spell_key:
+                                await ws_error("Не понял, какое врождённое заклинание вы хотите наложить.", request_id=msg_request_id)
+                                continue
+                            ch = await get_character(db, sess.id, player.id)
+                            if not ch:
+                                await ws_error("Персонаж не найден.", request_id=msg_request_id)
+                                continue
+                            spell_display_name, innate_err, changed = _apply_innate_spell_usage(ch, innate_spell_key)
+                            if innate_err:
+                                await ws_error(innate_err, request_id=msg_request_id)
+                                continue
+                            if changed:
+                                flag_modified(ch, "race_features")
+                                await db.commit()
+                            caster_name = str(getattr(ch, "name", "") or player.display_name).strip() or player.display_name
+                            combat_state_now = get_combat(session_id)
+                            round_no = combat_state_now.round_no if combat_state_now is not None else 1
+                            turn_label_now = current_turn_label(combat_state_now) if combat_state_now is not None else "-"
+                            patch = {
+                                "status": f"⚔ Бой • Раунд {round_no} • Ход: {turn_label_now}",
+                                "open": True,
+                                "lines": [
+                                    {"text": f"{caster_name} накладывает врождённое заклинание: {spell_display_name}."},
+                                ],
+                            }
+                            await _broadcast_state_unlocked(session_id, combat_log_ui_patch=patch)
                             continue
 
                         all_patches: list[dict[str, Any]] = []
@@ -1630,12 +1718,13 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                     continue
 
                 if combat_active:
+                    innate_spell_key = _detect_innate_spell_key(text) if combat_action == "combat_innate_spell" else None
                     actor_label = await _event_actor_label(db, sess, player)
                     pid = str(player.id)
                     current_zone = _get_pc_positions(sess).get(pid, "стартовая локация")
                     new_zone_preview = current_zone
                     payload = {
-                        "type": "player_action",
+                        "type": "combat_innate_spell" if combat_action == "combat_innate_spell" else "player_action",
                         "actor_uid": _player_uid(player),
                         "actor_player_id": str(player.id),
                         "join_order": int(sp.join_order or 0),
@@ -1646,6 +1735,7 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                         "zone_after": new_zone_preview,
                         "turn_index": int(sess.turn_index or 0),
                         "combat_chat_action": combat_action,
+                        "spell_key": innate_spell_key,
                     }
                     await add_event(
                         db,
@@ -1667,6 +1757,35 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                             current_name = current_turn_label(combat_state) if combat_state else "другой участник"
                             await add_system_event(db, sess, f"Сейчас ходит {current_name}. Дождись своего хода.")
                             await broadcast_state(session_id)
+                            continue
+
+                        if combat_action == "combat_innate_spell":
+                            if not innate_spell_key:
+                                await ws_error("Не понял, какое врождённое заклинание вы хотите наложить.")
+                                continue
+                            ch = await get_character(db, sess.id, player.id)
+                            if not ch:
+                                await ws_error("Персонаж не найден.")
+                                continue
+                            spell_display_name, innate_err, changed = _apply_innate_spell_usage(ch, innate_spell_key)
+                            if innate_err:
+                                await ws_error(innate_err)
+                                continue
+                            if changed:
+                                flag_modified(ch, "race_features")
+                                await db.commit()
+                            caster_name = str(getattr(ch, "name", "") or player.display_name).strip() or player.display_name
+                            combat_state_now = get_combat(session_id)
+                            round_no = combat_state_now.round_no if combat_state_now is not None else 1
+                            turn_label_now = current_turn_label(combat_state_now) if combat_state_now is not None else "-"
+                            patch = {
+                                "status": f"⚔ Бой • Раунд {round_no} • Ход: {turn_label_now}",
+                                "open": True,
+                                "lines": [
+                                    {"text": f"{caster_name} накладывает врождённое заклинание: {spell_display_name}."},
+                                ],
+                            }
+                            await broadcast_state(session_id, combat_log_ui_patch=patch)
                             continue
 
                         all_patches: list[dict[str, Any]] = []
