@@ -356,12 +356,14 @@ function setSubraceItems(listEl, subraces){
   }
 }
 
-function renderSubraceSelect(details){
+function renderSubraceSelect(race, details){
   const row = document.getElementById("subraceRow");
   const sel = document.getElementById("subraceId");
   if(!row || !sel) return;
 
-  const subs = Array.isArray(details && details.subraces) ? details.subraces.filter(Boolean) : [];
+  const raceSubs = race && Array.isArray(race.subraces) ? race.subraces : [];
+  const detailSubs = details && Array.isArray(details.subraces) ? details.subraces : [];
+  const subs = (raceSubs.length > 0 ? raceSubs : detailSubs).filter(Boolean);
   const prev = String(sel.value || "");
 
   sel.innerHTML = "";
@@ -404,7 +406,10 @@ function renderRaceDetails(raceId){
   const subracesEl = document.getElementById("raceSubraces");
   const race = races.find(x => x && x.id === raceId) || null;
   const details = race && race.details ? race.details : {};
-  renderSubraceSelect(details);
+  const raceSubs = race && Array.isArray(race.subraces) ? race.subraces : [];
+  const detailSubs = Array.isArray(details.subraces) ? details.subraces : [];
+  const subraces = raceSubs.length > 0 ? raceSubs : detailSubs;
+  renderSubraceSelect(race, details);
   const title = (details.name_ru || (race ? race.name : "") || raceId || "Раса");
   const description = (details.description_ru || details.notes_ru || "Описание будет добавлено позже.");
   titleEl.textContent = String(title);
@@ -420,7 +425,7 @@ function renderRaceDetails(raceId){
       }).filter(Boolean)
     : [];
   setListItems(traitsEl, traits);
-  setSubraceItems(subracesEl, details.subraces || []);
+  setSubraceItems(subracesEl, subraces);
 }
 function renderClassDetails(classId){
   const titleEl = document.getElementById("classTitle");

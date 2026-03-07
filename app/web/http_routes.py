@@ -610,7 +610,12 @@ async def api_character_create(payload: dict):
                 base_traits_list = base_traits if isinstance(base_traits, list) else []
                 sub_traits = selected_subrace.get("traits")
                 sub_traits_list = sub_traits if isinstance(sub_traits, list) else []
-                eff["traits"] = [*base_traits_list, *sub_traits_list]
+                race_key = str(selected_race.get("key") or "").strip().lower()
+                subrace_key = str(selected_subrace.get("key") or "").strip().lower()
+                if race_key == "human" and subrace_key == "variant_human":
+                    eff["traits"] = sub_traits_list
+                else:
+                    eff["traits"] = [*base_traits_list, *sub_traits_list]
 
                 base_lang = eff.get("languages")
                 base_lang_list = base_lang if isinstance(base_lang, list) else []
