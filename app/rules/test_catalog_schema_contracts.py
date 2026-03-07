@@ -114,6 +114,41 @@ def test_dragonborn_reference_schema_payload() -> None:
     assert ancestry_keys == {"red", "green", "blue", "black", "white", "gold", "silver", "bronze", "copper", "brass"}
 
 
+def test_gnome_reference_schema_payload() -> None:
+    gnome = next((item for item in RACE_CATALOG if str(item.get("key") or "") == "gnome"), None)
+    assert gnome is not None
+    assert str(gnome.get("size") or "") == "small"
+    assert int(gnome.get("speed_ft") or 0) == 25
+
+    asi = gnome.get("asi") or []
+    assert any(item.get("stat") == "int" and int(item.get("bonus") or 0) == 2 for item in asi if isinstance(item, dict))
+
+    languages = set(gnome.get("languages") or [])
+    assert "common" in languages
+    assert "gnomish" in languages
+
+    traits = {str(item.get("key") or ""): item for item in (gnome.get("traits") or []) if isinstance(item, dict)}
+    assert "darkvision_60" in traits
+    assert "gnome_cunning" in traits
+
+    subraces = {str(item.get("key") or ""): item for item in (gnome.get("subraces") or []) if isinstance(item, dict)}
+    assert "forest_gnome" in subraces
+    assert "rock_gnome" in subraces
+
+    forest_gnome = subraces["forest_gnome"]
+    forest_asi = forest_gnome.get("asi") or []
+    assert any(item.get("stat") == "dex" and int(item.get("bonus") or 0) == 1 for item in forest_asi if isinstance(item, dict))
+    forest_traits = {str(item.get("key") or ""): item for item in (forest_gnome.get("traits") or []) if isinstance(item, dict)}
+    assert "natural_illusionist" in forest_traits
+
+    rock_gnome = subraces["rock_gnome"]
+    rock_asi = rock_gnome.get("asi") or []
+    assert any(item.get("stat") == "con" and int(item.get("bonus") or 0) == 1 for item in rock_asi if isinstance(item, dict))
+    rock_traits = {str(item.get("key") or ""): item for item in (rock_gnome.get("traits") or []) if isinstance(item, dict)}
+    assert "tinker" in rock_traits
+    assert "artificers_lore" in rock_traits
+
+
 def test_dwarf_reference_schema_payload() -> None:
     dwarf = next((item for item in RACE_CATALOG if str(item.get("key") or "") == "dwarf"), None)
     assert dwarf is not None
