@@ -319,6 +319,7 @@ async def create_character(
     class_skin: str = "Adventurer",
     race_kit: str = "human",
     race_skin: str = "Human",
+    speed_ft: int | None = None,
     hp_max: int = 20,
     sta_max: int = 10,
     stats: Optional[dict[str, int]] = None,
@@ -329,7 +330,7 @@ async def create_character(
     sta_max = max(1, sta_max)
     level = 1
     hit_die = class_hit_die(class_kit, class_skin)
-    speed_ft = race_speed_ft_by_catalog(race_kit, race_skin)
+    speed_ft = max(0, int(speed_ft)) if isinstance(speed_ft, int) and not isinstance(speed_ft, bool) else race_speed_ft_by_catalog(race_kit, race_skin)
     hit_dice_max = level
     hit_dice_remaining = hit_dice_max
     ch = Character(

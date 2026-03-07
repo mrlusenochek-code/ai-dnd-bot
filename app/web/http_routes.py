@@ -600,6 +600,7 @@ async def api_character_create(payload: dict):
             race_skin = (custom_race or "Human").strip()[:60]
             race_kit = (custom_race.strip().lower().replace(" ", "_") if custom_race else "human")[:40]
         race_features = _build_race_features(selected_race)
+        walk_speed = as_int(((race_features.get("speeds") or {}) if isinstance(race_features, dict) else {}).get("walk_ft"), 30)
         if not meta_race:
             meta_race = race_skin
         stats_preset_key = class_id if CLASS_PRESETS.get(class_id) else selected_class_key
@@ -628,6 +629,7 @@ async def api_character_create(payload: dict):
             sta_max=sta_max,
             stats=stats,
             race_features=race_features,
+            speed_ft=walk_speed,
         )
         await _upsert_starter_skills(db, ch, (selected_preset or {}).get("starter_skills") or {})
         await add_system_event(db, sess, f"Character ready: {ch.name} for player #{sp.join_order}.")
