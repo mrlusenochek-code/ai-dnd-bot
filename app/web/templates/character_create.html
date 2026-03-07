@@ -112,6 +112,10 @@
             <select id="choiceAsi2"></select>
           </div>
         </div>
+        <div id="choiceSkillRow" style="display:none;">
+          <label>Навык (обязательно)</label>
+          <select id="choiceSkill1"></select>
+        </div>
       </div>
 
       <label>Класс (preset)</label>
@@ -213,9 +217,29 @@ const ASI_STAT_LABELS_RU = {
   "wis": "Мудрость (WIS)",
   "cha": "Харизма (CHA)"
 };
+const SKILL_LABELS_RU = {
+  "acrobatics": "Акробатика",
+  "animal_handling": "Уход за животными",
+  "arcana": "Магия",
+  "athletics": "Атлетика",
+  "deception": "Обман",
+  "history": "История",
+  "insight": "Проницательность",
+  "intimidation": "Запугивание",
+  "investigation": "Расследование",
+  "medicine": "Медицина",
+  "nature": "Природа",
+  "perception": "Внимательность",
+  "performance": "Выступление",
+  "persuasion": "Убеждение",
+  "religion": "Религия",
+  "sleight_of_hand": "Ловкость рук",
+  "stealth": "Скрытность",
+  "survival": "Выживание"
+};
 let classes = [];
 let races = [];
-let raceChoiceState = { languageRequired: false, asiRequired: false, asiBonus: 1 };
+let raceChoiceState = { languageRequired: false, asiRequired: false, asiBonus: 1, skillRequired: false };
 function _sortByNameRu(a, b){
   const aName = String((a && (a.name_ru || a.name)) || "").trim();
   const bName = String((b && (b.name_ru || b.name)) || "").trim();
@@ -517,6 +541,26 @@ function getAsiChoiceConfig(traits){
   return out;
 }
 
+function getSkillChoiceConfig(traits){
+  const out = { required: false, count: 0 };
+  const items = Array.isArray(traits) ? traits : [];
+  for(const t of items){
+    if(!t || typeof t !== "object") continue;
+    const mech = (t.mechanics && typeof t.mechanics === "object") ? t.mechanics : {};
+    const mtype = String(mech.type || "").trim().toLowerCase();
+    if(mtype !== "choose_skill_proficiency"){
+      continue;
+    }
+    const count = Number(mech.count ?? mech.choose ?? 0);
+    if(count === 1){
+      out.required = true;
+      out.count = 1;
+      return out;
+    }
+  }
+  return out;
+}
+
 function fillAsiSelect(sel, prev){
   if(!sel) return;
   const prevValue = String(prev || "");
@@ -535,6 +579,27 @@ function fillAsiSelect(sel, prev){
   sel.value = keepPrev ? prevValue : "";
 }
 
+function fillSkillSelect(sel, prev){
+  if(!sel) return;
+  const prevValue = String(prev || "");
+  sel.innerHTML = "";
+  const first = document.createElement("option");
+  first.value = "";
+  first.textContent = "(выберите навык)";
+  sel.appendChild(first);
+  const keys = Object.keys(SKILL_LABELS_RU).sort((a, b) => {
+    return String(SKILL_LABELS_RU[a] || a).localeCompare(String(SKILL_LABELS_RU[b] || b), "ru", { sensitivity: "base" });
+  });
+  for(const key of keys){
+    const opt = document.createElement("option");
+    opt.value = key;
+    opt.textContent = SKILL_LABELS_RU[key] || key;
+    sel.appendChild(opt);
+  }
+  const keepPrev = Array.from(sel.options).some(o => String(o.value) === prevValue);
+  sel.value = keepPrev ? prevValue : "";
+}
+
 function renderRaceChoices(){
   const block = document.getElementById("raceChoices");
   const langRow = document.getElementById("choiceLangRow");
@@ -542,19 +607,29 @@ function renderRaceChoices(){
   const asiRow = document.getElementById("choiceAsiRow");
   const asiSel1 = document.getElementById("choiceAsi1");
   const asiSel2 = document.getElementById("choiceAsi2");
-  if(!block || !langRow || !langSel || !asiRow || !asiSel1 || !asiSel2) return;
+  const skillRow = document.getElementById("choiceSkillRow");
+  const skillSel = document.getElementById("choiceSkill1");
+  if(!block || !langRow || !langSel || !asiRow || !asiSel1 || !asiSel2 || !skillRow || !skillSel) return;
 
   const ctx = getCurrentRaceContext();
   const langCfg = getLanguageChoiceConfig(ctx.effectiveTraits);
   const asiCfg = getAsiChoiceConfig(ctx.effectiveTraits);
+  const skillCfg = getSkillChoiceConfig(ctx.effectiveTraits);
   const needsLanguage = !!langCfg.required;
   const needsAsi = !!asiCfg.required;
-  raceChoiceState = { languageRequired: needsLanguage, asiRequired: needsAsi, asiBonus: asiCfg.bonus || 1 };
+  const needsSkill = !!skillCfg.required;
+  raceChoiceState = {
+    languageRequired: needsLanguage,
+    asiRequired: needsAsi,
+    asiBonus: asiCfg.bonus || 1,
+    skillRequired: needsSkill,
+  };
 
-  if(!needsLanguage && !needsAsi){
+  if(!needsLanguage && !needsAsi && !needsSkill){
     block.style.display = "none";
     langRow.style.display = "none";
     asiRow.style.display = "none";
+    skillRow.style.display = "none";
     langSel.disabled = true;
     langSel.required = false;
     langSel.value = "";
@@ -564,6 +639,9 @@ function renderRaceChoices(){
     asiSel2.disabled = true;
     asiSel2.required = false;
     asiSel2.value = "";
+    skillSel.disabled = true;
+    skillSel.required = false;
+    skillSel.value = "";
     return;
   }
 
@@ -612,6 +690,19 @@ function renderRaceChoices(){
     asiSel2.disabled = true;
     asiSel2.required = false;
     asiSel2.value = "";
+  }
+
+  if(needsSkill){
+    const prev = String(skillSel.value || "");
+    fillSkillSelect(skillSel, prev);
+    skillRow.style.display = "";
+    skillSel.disabled = false;
+    skillSel.required = true;
+  }else{
+    skillRow.style.display = "none";
+    skillSel.disabled = true;
+    skillSel.required = false;
+    skillSel.value = "";
   }
 
   block.style.display = "";
@@ -809,6 +900,12 @@ async function createHero(){
       return;
     }
   }
+  const choiceSkillEl = document.getElementById("choiceSkill1");
+  const choiceSkill = String(choiceSkillEl ? choiceSkillEl.value : "").trim().toLowerCase();
+  if(raceChoiceState.skillRequired && !choiceSkill){
+    setMessage("Выбери навык в блоке «Стартовые выборы».", false);
+    return;
+  }
   const payload = {
     session_id: SESSION_ID,
     uid: getUID(),
@@ -832,6 +929,9 @@ async function createHero(){
       {stat: choiceAsi1, bonus: 1},
       {stat: choiceAsi2, bonus: 1},
     ];
+  }
+  if(choiceSkill){
+    raceChoices.skills = [choiceSkill];
   }
   if(Object.keys(raceChoices).length > 0){
     payload.race_choices = raceChoices;

@@ -548,6 +548,7 @@ async def api_character_create(payload: dict):
     meta_description = str(payload.get("description") or "").strip()[:1000]
     race_choice_languages: list[str] = []
     race_choice_asi: list[dict[str, Any]] = []
+    race_choice_skills: list[str] = []
     if isinstance(race_choices_payload, dict):
         raw_langs = race_choices_payload.get("languages")
         raw_langs_list = raw_langs if isinstance(raw_langs, list) else []
@@ -572,6 +573,39 @@ async def api_character_create(payload: dict):
                 raise HTTPException(status_code=400, detail="ASI stats must be distinct")
             seen_asi_stats.add(stat)
             race_choice_asi.append({"stat": stat, "bonus": bonus})
+        raw_skills = race_choices_payload.get("skills")
+        raw_skills_list = raw_skills if isinstance(raw_skills, list) else []
+        seen_skill_keys: set[str] = set()
+        allowed_skill_keys = {
+            "acrobatics",
+            "animal_handling",
+            "arcana",
+            "athletics",
+            "deception",
+            "history",
+            "insight",
+            "intimidation",
+            "investigation",
+            "medicine",
+            "nature",
+            "perception",
+            "performance",
+            "persuasion",
+            "religion",
+            "sleight_of_hand",
+            "stealth",
+            "survival",
+        }
+        for item in raw_skills_list:
+            skill = str(item or "").strip().lower()
+            if not skill:
+                continue
+            if skill not in allowed_skill_keys:
+                raise HTTPException(status_code=400, detail=f"Invalid skill choice: {skill}")
+            if skill in seen_skill_keys:
+                continue
+            seen_skill_keys.add(skill)
+            race_choice_skills.append(skill)
 
     if uid <= 0:
         raise HTTPException(status_code=400, detail="Bad uid")
@@ -701,6 +735,19 @@ async def api_character_create(payload: dict):
             choices_dict["languages"] = list(race_choice_languages)
         if isinstance(race_features, dict) and race_choice_asi:
             choices_dict["asi"] = list(race_choice_asi)
+        if isinstance(race_features, dict) and race_choice_skills:
+            prof = race_features.get("proficiencies")
+            prof_dict: dict[str, Any] = prof if isinstance(prof, dict) else {}
+            prof_skills = prof_dict.get("skills")
+            prof_skills_list = prof_skills if isinstance(prof_skills, list) else []
+            merged_skills: list[str] = []
+            for item in [*prof_skills_list, *race_choice_skills]:
+                skill = str(item or "").strip().lower()
+                if skill and skill not in merged_skills:
+                    merged_skills.append(skill)
+            prof_dict["skills"] = merged_skills
+            race_features["proficiencies"] = prof_dict
+            choices_dict["skills"] = list(race_choice_skills)
         if isinstance(race_features, dict) and choices_dict:
             race_features["choices"] = choices_dict
         walk_speed = as_int(((race_features.get("speeds") or {}) if isinstance(race_features, dict) else {}).get("walk_ft"), 30)
