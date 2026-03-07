@@ -43,19 +43,6 @@
       <label>Или своя раса (опционально)</label>
       <input id="customRace" placeholder="Half-Orc"/>
 
-      <div id="racePanel" class="race-panel">
-        <h3 id="raceTitle">Раса</h3>
-        <p id="raceText" class="race-text">Описание будет добавлено позже.</p>
-        <div class="race-section">
-          <b>Особенности</b>
-          <ul id="raceTraits" class="race-list"></ul>
-        </div>
-        <div class="race-section">
-          <b>Разновидности</b>
-          <ul id="raceSubraces" class="race-list"></ul>
-        </div>
-      </div>
-
       <label>Класс (preset)</label>
       <select id="classId"></select>
 
@@ -76,31 +63,44 @@
     </div>
 
     <div class="card">
-      <div id="classPanel" class="race-panel">
-        <h3 id="classTitle">Класс</h3>
-        <p id="classText" class="race-text">Описание будет добавлено позже.</p>
-
-        <div class="race-section">
-          <b>Основные характеристики</b>
-          <ul id="classAbilities" class="race-list"></ul>
-        </div>
-
-        <div class="race-section">
-          <b>Спасброски</b>
-          <ul id="classSaves" class="race-list"></ul>
-        </div>
-
-        <div class="race-section">
-          <b>Архетипы</b>
-          <ul id="classSubclasses" class="race-list"></ul>
-        </div>
-      </div>
-
-      <h3 style="margin-top:12px;">Статы</h3>
+      <h3 style="margin-top:0;">Статы</h3>
       <div class="muted">Available points: <b id="pointsLeft">20</b></div>
       <div id="statsBox"></div>
       <div class="row">
         <button onclick="resetStats()">Reset</button>
+      </div>
+    </div>
+
+    <div id="racePanel" class="race-panel">
+      <h3 id="raceTitle">Раса</h3>
+      <p id="raceText" class="race-text">Описание будет добавлено позже.</p>
+      <div class="race-section">
+        <b>Особенности</b>
+        <ul id="raceTraits" class="race-list"></ul>
+      </div>
+      <div class="race-section">
+        <b>Разновидности</b>
+        <ul id="raceSubraces" class="race-list"></ul>
+      </div>
+    </div>
+
+    <div id="classPanel" class="race-panel">
+      <h3 id="classTitle">Класс</h3>
+      <p id="classText" class="race-text">Описание будет добавлено позже.</p>
+
+      <div class="race-section">
+        <b>Основные характеристики</b>
+        <ul id="classAbilities" class="race-list"></ul>
+      </div>
+
+      <div class="race-section">
+        <b>Спасброски</b>
+        <ul id="classSaves" class="race-list"></ul>
+      </div>
+
+      <div class="race-section">
+        <b>Архетипы</b>
+        <ul id="classSubclasses" class="race-list"></ul>
       </div>
     </div>
   </div>
