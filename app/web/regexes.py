@@ -27,6 +27,20 @@ CHAT_COMBAT_ACTION_PATTERNS: list[tuple[str, re.Pattern[str]]] = [
     ("combat_dash", re.compile(r"(рывок|спринт|\bбегу\b(?!\s+(?:прочь|из\s+боя|с\s+боя))|мчусь|ускоряюсь|ринул|бросаюсь вперед|стремглав|сокращаю дистанц)", re.IGNORECASE)),
     ("combat_disengage", re.compile(r"(отхож|отход|отступ|отступаю|вырываюсь|разрыв дистанц|разрыва[юл]|разорва[лю]|отпрыг|отскоч|дисенгейдж)", re.IGNORECASE)),
     ("combat_use_object", re.compile(r"(использую|применяю|активирую|включаю|поджигаю|зажигаю|пью|выпиваю|нажимаю|достаю|зелье|флакон|свиток|факел|рычаг|кнопк)", re.IGNORECASE)),
+    (
+        "tortle_shell_in",
+        re.compile(
+            r"(?:пряч\w*|залез\w*|втяг\w*|убира\w*|скрыва\w*)(?:\s+\S+){0,3}?\s+(?:в|внутрь)\s+(?:свой\s+)?панцир\w*",
+            re.IGNORECASE,
+        ),
+    ),
+    (
+        "tortle_shell_out",
+        re.compile(
+            r"(?:вылез\w*|выбира\w*|выхож\w*|вытягива\w*|раскрыва\w*)(?:\s+\S+){0,3}?\s+(?:из|с)\s+(?:своего\s+)?панцир\w*",
+            re.IGNORECASE,
+        ),
+    ),
     ("combat_end_turn", re.compile(r"(конец хода|заканчиваю ход|передаю ход|пас|пропускаю ход|жду|ничего не делаю)", re.IGNORECASE)),
 ]
 COMBAT_MECHANICS_EVENT_RE = re.compile(

@@ -801,6 +801,68 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                     await ws_error("Ждём ответа мастера...")
                     continue
 
+                # Race runtime actions: Tortle shell defense ("прячусь в панцирь" / "вылезаю из панциря")
+                if combat_action in {"tortle_shell_in", "tortle_shell_out"}:
+                    # If in combat — respect turn order (как и остальные боевые действия)
+                    if combat_active:
+                        player_uid = _player_uid(player)
+                        player_key = f"pc_{player_uid}" if player_uid is not None else ""
+                        turn_key: Optional[str] = None
+                        if combat_state and combat_state.order and 0 <= combat_state.turn_index < len(combat_state.order):
+                            turn_key = combat_state.order[combat_state.turn_index]
+                        if not turn_key or turn_key != player_key:
+                            current_name = current_turn_label(combat_state) if combat_state else "другой участник"
+                            await add_system_event(db, sess, f"Сейчас ходит {current_name}. Дождись своего хода.")
+                            await db.commit()
+                            await broadcast_state(session_id)
+                            continue
+
+                    async with lock:
+                        ch = await get_character(db, sess.id, player.id)
+                        if not ch:
+                            await ws_error("Персонаж не найден.", request_id=msg_request_id)
+                            continue
+
+                        if str(getattr(ch, "race_kit", "") or "").lower() != "tortle":
+                            await add_system_event(db, sess, "Это действие доступно только тортлу (панцирь).")
+                            await db.commit()
+                            await broadcast_state(session_id)
+                            continue
+
+                        rf = getattr(ch, "race_features", None)
+                        rf2 = dict(rf) if isinstance(rf, dict) else {}
+
+                        runtime = rf2.get("runtime")
+                        runtime2 = dict(runtime) if isinstance(runtime, dict) else {}
+                        is_active_now = bool(runtime2.get("active"))
+
+                        if combat_action == "tortle_shell_in":
+                            if is_active_now:
+                                msg = "Ты уже в панцире."
+                            else:
+                                rf2["runtime"] = {"active": True, "ac_bonus": 4, "speed_override_ft": 0}
+                                ch.race_features = rf2
+                                await db.commit()
+                                msg = "Ты прячешься в панцирь: +4 к КД, скорость 0."
+                        else:
+                            if not is_active_now:
+                                msg = "Ты уже вне панциря."
+                            else:
+                                rf2["runtime"] = {"active": False}
+                                ch.race_features = rf2
+                                await db.commit()
+                                msg = "Ты вылезаешь из панциря: эффекты панциря сняты."
+
+                        # Resync combat stats immediately (AC/speed)
+                        if combat_active:
+                            _uid_map, chars_by_uid, _ = await _load_actor_context(db, sess)
+                            sync_pcs_from_chars(session_id, chars_by_uid)
+
+                    await add_system_event(db, sess, msg)
+                    await db.commit()
+                    await broadcast_state(session_id)
+                    continue
+
                 # Combat Lock: during active combat only combat actions are allowed.
                 if combat_active:
                     is_admin_user = await is_admin(db, sess, player)
