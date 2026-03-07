@@ -135,6 +135,30 @@ def _kickoff_lore_finalize_if_needed(session_id: str, sess: Any) -> bool:
     return True
 
 
+def _effective_save_mode(requested_mode: str, race_features: Any, ability: str) -> str:
+    mode = str(requested_mode or "normal").strip().lower()
+    if mode not in ("normal", "advantage", "disadvantage"):
+        mode = "normal"
+    if mode != "normal":
+        return mode
+
+    ability_key = str(ability or "").strip().lower()
+    if ability_key not in CHAR_STAT_KEYS:
+        return mode
+    if not isinstance(race_features, dict):
+        return mode
+
+    saves_raw = race_features.get("saves")
+    saves = saves_raw if isinstance(saves_raw, dict) else {}
+    adv_raw = saves.get("advantage")
+    advantages = adv_raw if isinstance(adv_raw, list) else []
+    for item in advantages:
+        adv_key = str(item or "").strip().lower()
+        if adv_key == ability_key:
+            return "advantage"
+    return mode
+
+
 def _detect_innate_spell_key(text: str) -> Optional[str]:
     txt = str(text or "").strip()
     if not txt:
@@ -1481,7 +1505,8 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                         db,
                         sess,
                         "de" "ps.Character commands: char create <Name> [Class], me, hp <+N|-N|N>, sta <+N|-N|N>, rest|rest long|rest short|rest hd <N>, "
-                        "stat <str|dex|con|int|wis|cha> <0..100>, check [adv|dis] <stat_or_skill> [dc N] (ручной бросок, опционально).",
+                        "stat <str|dex|con|int|wis|cha> <0..100>, check [adv|dis] <stat_or_skill> [dc N] (ручной бросок, опционально), "
+                        "save [adv|dis] <str|dex|con|int|wis|cha> [dc N].",
                     )
                     await broadcast_state(session_id)
                     continue
@@ -1836,6 +1861,82 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                     rolls_text = str(roll) if rb is None else f"{ra}/{rb}->{roll}"
 
                     msg = f"[CHECK] {ch.name}: {key} = {rolls_text} + {mod:+d} => {total}"
+                    if dc is not None:
+                        ok = bool(res["success"])
+                        msg += f" (DC {dc}) {'SUCCESS' if ok else 'FAIL'}"
+                    await add_system_event(db, sess, msg)
+                    await broadcast_state(session_id)
+                    continue
+
+                if lower.startswith("save"):
+                    parts = cmdline.split()
+                    if len(parts) < 2:
+                        await ws_error("Usage: save [adv|dis] <str|dex|con|int|wis|cha> [dc N]", request_id=msg_request_id)
+                        continue
+                    mode = "roll"
+                    idx = 1
+                    if idx < len(parts) and parts[idx].lower() in ("adv", "dis"):
+                        mode = parts[idx].lower()
+                        idx += 1
+                    if idx >= len(parts):
+                        await ws_error("Usage: save [adv|dis] <str|dex|con|int|wis|cha> [dc N]", request_id=msg_request_id)
+                        continue
+
+                    ability = parts[idx].lower()
+                    idx += 1
+                    if ability not in CHAR_STAT_KEYS:
+                        await ws_error("Unknown ability key", request_id=msg_request_id)
+                        continue
+
+                    dc: Optional[int] = None
+                    if idx < len(parts):
+                        tok = parts[idx].lower()
+                        if tok.startswith("dc"):
+                            if tok == "dc":
+                                if idx + 1 >= len(parts):
+                                    await ws_error("Usage: save ... dc <N>", request_id=msg_request_id)
+                                    continue
+                                dc = as_int(parts[idx + 1], -1)
+                                idx += 2
+                            else:
+                                dc = as_int(tok[2:], -1)
+                                idx += 1
+                        else:
+                            await ws_error("Usage: save [adv|dis] <str|dex|con|int|wis|cha> [dc N]", request_id=msg_request_id)
+                            continue
+                    if idx != len(parts):
+                        await ws_error("Usage: save [adv|dis] <str|dex|con|int|wis|cha> [dc N]", request_id=msg_request_id)
+                        continue
+                    if dc is not None and dc < 0:
+                        await ws_error("DC must be >= 0", request_id=msg_request_id)
+                        continue
+
+                    ch = await get_character(db, sess.id, player.id)
+                    if not ch:
+                        await ws_error("No character. Use: char create ...", request_id=msg_request_id)
+                        continue
+
+                    requested_mode = {
+                        "roll": "normal",
+                        "adv": "advantage",
+                        "dis": "disadvantage",
+                    }.get(mode, "normal")
+                    mapped_mode = _effective_save_mode(requested_mode, getattr(ch, "race_features", None), ability)
+                    mod = _ability_mod_from_stats(ch.stats, ability)
+
+                    ra, rb, roll = roll_check(mapped_mode)
+                    check_payload = {
+                        "actor_uid": _player_uid(player),
+                        "kind": "save",
+                        "name": ability,
+                        "dc": dc if dc is not None else 0,
+                        "mode": mapped_mode,
+                    }
+                    res = build_check_result(check_payload, mod=mod, roll_a=ra, roll_b=rb, roll=roll)
+                    total = int(res["total"])
+                    d20_text = str(roll) if rb is None else f"{ra}/{rb}->{roll}"
+
+                    msg = f"[SAVE] {ch.name}: {ability} = d20({d20_text}) + {mod:+d} => {total}"
                     if dc is not None:
                         ok = bool(res["success"])
                         msg += f" (DC {dc}) {'SUCCESS' if ok else 'FAIL'}"

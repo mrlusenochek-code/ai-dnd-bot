@@ -637,6 +637,21 @@ function openCharacterModal(){
     ? `<ul class='char-list'>${skillsLines.map((line) => `<li>${escapeHtml(line)}</li>`).join("")}</ul>`
     : "—";
   const rf = (ch && typeof ch.race_features === "object" && ch.race_features) ? ch.race_features : {};
+  const saves = (rf.saves && typeof rf.saves === "object") ? rf.saves : {};
+  const saveAdvantages = Array.isArray(saves.advantage)
+    ? saves.advantage.map((x) => String(x || "").trim().toLowerCase()).filter(Boolean)
+    : [];
+  const _ABILITY_SHORT_RU = {
+    "str": "Сил",
+    "dex": "Лов",
+    "con": "Тел",
+    "int": "Инт",
+    "wis": "Муд",
+    "cha": "Хар",
+  };
+  const saveAdvantagesRu = saveAdvantages
+    .map((k) => _ABILITY_SHORT_RU[k] || k)
+    .filter(Boolean);
   const senses = (rf.senses && typeof rf.senses === "object") ? rf.senses : {};
   const speeds = (rf.speeds && typeof rf.speeds === "object") ? rf.speeds : {};
   const natArmor = (rf.natural_armor && typeof rf.natural_armor === "object") ? rf.natural_armor : {};
@@ -886,6 +901,9 @@ function openCharacterModal(){
   if(aasimarTransformationText){
     details.push(`<div class="char-line"><strong>Небесное преобразование:</strong> ${escapeHtml(aasimarTransformationText.replace(/^Небесное преобразование:\s*/, ""))}</div>`);
   }
+  if(saveAdvantagesRu.length){
+    details.push(`<div class="char-line"><strong>Преим. спасброски:</strong> ${escapeHtml(saveAdvantagesRu.join(", "))}</div>`);
+  }
   if(langsRu.length){
     details.push(`<div class="char-line"><strong>Языки:</strong> ${escapeHtml(langsRu.join(", "))}</div>`);
   }
@@ -938,6 +956,7 @@ function openCharacterModal(){
   if(stoneEndurance) copyLines.push("Каменная выносливость: реакция, 1/к/дл отдых: снижает урон (1d12 + мод. Тел)");
   if(healingHandsText) copyLines.push(healingHandsText);
   if(aasimarTransformationText) copyLines.push(aasimarTransformationText);
+  if(saveAdvantagesRu.length) copyLines.push(`Преим. спасброски: ${saveAdvantagesRu.join(", ")}`);
   if(langsRu.length) copyLines.push(`Языки: ${langsRu.join(", ")}`);
   if(profSkills.length) copyLines.push(`Проф. навыков (раса): ${profSkills.join(", ")}`);
   if(profTools.length) copyLines.push(`Проф. инструментов (раса): ${profTools.join(", ")}`);

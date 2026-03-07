@@ -479,6 +479,8 @@ def _build_race_features(selected_race: dict | None) -> dict[str, Any]:
     innate_spells: list[dict[str, Any]] = []
     carry: dict[str, Any] = {}
     features: dict[str, Any] = {}
+    saves: dict[str, Any] = {}
+    allowed_save_abilities = {"str", "dex", "con", "int", "wis", "cha"}
 
     for t in traits:
         if not isinstance(t, dict):
@@ -610,6 +612,15 @@ def _build_race_features(selected_race: dict | None) -> dict[str, Any]:
                     spell_obj["min_level"] = as_int(spell.get("min_level"), 0)
                 innate_spells.append(spell_obj)
 
+        if mtype == "saving_throw_advantage":
+            abilities = []
+            for item in _as_list(mech.get("abilities")):
+                ability = str(item or "").strip().lower()
+                if ability in allowed_save_abilities and ability not in abilities:
+                    abilities.append(ability)
+            if abilities:
+                saves["advantage"] = abilities
+
     out: dict[str, Any] = {
         "race_key": str(selected_race.get("key") or "").strip(),
         "size": size,
@@ -632,6 +643,7 @@ def _build_race_features(selected_race: dict | None) -> dict[str, Any]:
         "innate_spells": innate_spells,
         "carry": carry,
         "features": features,
+        "saves": saves,
     }
     return out
 
