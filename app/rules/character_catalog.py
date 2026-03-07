@@ -731,7 +731,64 @@ BASE_RACE_CATALOG: list[dict[str, Any]] = [
         ],
         "tags": [],
     },
-    {"key": "tiefling", "name": "Tiefling", "name_ru": "Тифлинг", "source": "PHB", "description_ru": "", "asi": [], "age": {}, "alignment": "", "size": "medium", "speed_ft": 30, "speed_notes_ru": "", "languages": [], "traits": [], "subraces": [], "tags": []},
+    {
+        "key": "tiefling",
+        "name": "Tiefling",
+        "name_ru": "Тифлинг",
+        "source": "PHB",
+        "description_ru": "Народ с инфернальным наследием, наделённый огненной стойкостью и врождённой магией.",
+        "asi": [{"stat": "int", "bonus": 1}, {"stat": "cha", "bonus": 2}],
+        "age": {},
+        "alignment": "",
+        "size": "medium",
+        "speed_ft": 30,
+        "speed_notes_ru": "",
+        "languages": ["common", "infernal"],
+        "traits": [
+            {
+                "key": "darkvision_60",
+                "name_ru": "Тёмное зрение",
+                "summary_ru": "Тёмное зрение 60 футов.",
+                "mechanics": {"type": "darkvision", "range_ft": 60},
+            },
+            {
+                "key": "hellish_resistance",
+                "name_ru": "Адская стойкость",
+                "summary_ru": "Сопротивление урону огнём.",
+                "mechanics": {"type": "damage_resistance", "damage_type": "fire"},
+            },
+            {
+                "key": "infernal_legacy",
+                "name_ru": "Дьявольское наследие",
+                "summary_ru": "Дьявольское наследие: заговор + 1/день заклинания на 3 и 5 уровнях (Харизма).",
+                "mechanics": {
+                    "type": "spell_grants",
+                    "casting_ability": "cha",
+                    "grants": [
+                        {"kind": "cantrip", "spell": "thaumaturgy", "min_level": 1},
+                        {
+                            "kind": "spell",
+                            "spell": "hellish_rebuke",
+                            "spell_level": 2,
+                            "min_level": 3,
+                            "uses": "per_long_rest",
+                            "uses_max": 1,
+                        },
+                        {
+                            "kind": "spell",
+                            "spell": "darkness",
+                            "spell_level": 2,
+                            "min_level": 5,
+                            "uses": "per_long_rest",
+                            "uses_max": 1,
+                        },
+                    ],
+                },
+            },
+        ],
+        "subraces": [],
+        "tags": [],
+    },
 ]
 
 

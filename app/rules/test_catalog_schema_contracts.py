@@ -191,6 +191,37 @@ def test_half_orc_reference_schema_payload() -> None:
     assert "savage_attacks" in traits
 
 
+def test_tiefling_reference_schema_payload() -> None:
+    tiefling = next((item for item in RACE_CATALOG if str(item.get("key") or "") == "tiefling"), None)
+    assert tiefling is not None
+    assert str(tiefling.get("size") or "") == "medium"
+    assert int(tiefling.get("speed_ft") or 0) == 30
+
+    languages = set(tiefling.get("languages") or [])
+    assert "common" in languages
+    assert "infernal" in languages
+
+    asi = tiefling.get("asi") or []
+    assert any(item.get("stat") == "int" and int(item.get("bonus") or 0) == 1 for item in asi if isinstance(item, dict))
+    assert any(item.get("stat") == "cha" and int(item.get("bonus") or 0) == 2 for item in asi if isinstance(item, dict))
+
+    traits = {str(item.get("key") or ""): item for item in (tiefling.get("traits") or []) if isinstance(item, dict)}
+    assert "darkvision_60" in traits
+    assert "hellish_resistance" in traits
+    assert "infernal_legacy" in traits
+
+    grants = ((traits["infernal_legacy"].get("mechanics") or {}).get("grants") or [])
+    assert len(grants) == 3
+    by_level = {
+        int(item.get("min_level") or 0): str(item.get("spell") or "")
+        for item in grants
+        if isinstance(item, dict)
+    }
+    assert by_level.get(1) == "thaumaturgy"
+    assert by_level.get(3) == "hellish_rebuke"
+    assert by_level.get(5) == "darkness"
+
+
 def test_dwarf_reference_schema_payload() -> None:
     dwarf = next((item for item in RACE_CATALOG if str(item.get("key") or "") == "dwarf"), None)
     assert dwarf is not None

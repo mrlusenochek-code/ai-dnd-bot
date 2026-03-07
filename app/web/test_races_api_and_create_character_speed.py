@@ -59,6 +59,7 @@ def test_api_races_nonempty() -> None:
     assert "half_elf" in race_ids
     assert "half_orc" in race_ids
     assert "halfling" in race_ids
+    assert "tiefling" in race_ids
 
 
 def test_api_classes_contains_barbarian() -> None:
