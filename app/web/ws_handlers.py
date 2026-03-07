@@ -25,7 +25,6 @@ from app.db.models import Character, Player, SessionPlayer, Skill
 from app.rules.phb_rest import (
     apply_long_rest,
     apply_short_rest,
-    apply_short_rest_spend_hd,
     long_rest_recover_hit_dice,
 )
 from app.rules.phb_math import ability_mod_from_stat100, roll_initiative
@@ -198,6 +197,51 @@ def _tireless_precision_bonus_for_check(
     roller = rng if rng is not None else random
     value = max(1, int(roller.randint(1, 4)))
     return value, f"1d4({value})"
+
+
+def _apply_short_rest_spend_hd_with_racial_reroll(
+    *,
+    hp: int,
+    hp_max: int,
+    hit_die: int,
+    hit_dice_remaining: int,
+    con_mod: int,
+    spend: int,
+    race_features: Any,
+    rng: Any = None,
+) -> tuple[int, int, list[int], list[str]]:
+    hp_max_norm = max(1, int(hp_max))
+    hp_after = _clamp(as_int(hp, 0), 0, hp_max_norm)
+    hd_remaining = max(0, int(hit_dice_remaining))
+    spend_norm = _clamp(int(spend), 0, hd_remaining)
+    die_size = max(1, int(hit_die))
+    heals: list[int] = []
+    reroll_logs: list[str] = []
+
+    reroll_on: set[int] = set()
+    if isinstance(race_features, dict):
+        features_raw = race_features.get("features")
+        features = features_raw if isinstance(features_raw, dict) else {}
+        reroll_raw = features.get("hit_dice_reroll")
+        reroll_cfg = reroll_raw if isinstance(reroll_raw, dict) else {}
+        for item in (reroll_cfg.get("reroll_on") if isinstance(reroll_cfg.get("reroll_on"), list) else []):
+            face = as_int(item, 0)
+            if 1 <= face <= die_size:
+                reroll_on.add(face)
+
+    roller = rng if rng is not None else random
+    for _ in range(spend_norm):
+        first_raw = max(1, min(int(roller.randint(1, die_size)), die_size))
+        final_raw = first_raw
+        if first_raw in reroll_on:
+            second_raw = max(1, min(int(roller.randint(1, die_size)), die_size))
+            final_raw = second_raw
+            reroll_logs.append(f"Black Blood Healing: переброс 1d{die_size} (выпало {first_raw} → {second_raw})")
+        heal = max(0, final_raw + int(con_mod))
+        heals.append(heal)
+        hp_after = min(hp_max_norm, hp_after + heal)
+
+    return hp_after, hd_remaining - spend_norm, heals, reroll_logs
 
 
 def _detect_innate_spell_key(text: str) -> Optional[str]:
@@ -1795,13 +1839,14 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                     con_mod = ability_mod_from_stat100(con_stat)
                     hp_before = _clamp(as_int(ch.hp, 0), 0, max(1, as_int(ch.hp_max, 1)))
 
-                    hp_after, hd_after, heals = apply_short_rest_spend_hd(
+                    hp_after, hd_after, heals, reroll_logs = _apply_short_rest_spend_hd_with_racial_reroll(
                         hp=hp_before,
                         hp_max=as_int(ch.hp_max, 0),
                         hit_die=max(1, as_int(getattr(ch, "hit_die", 8), 8)),
                         hit_dice_remaining=hd_before,
                         con_mod=con_mod,
                         spend=requested,
+                        race_features=getattr(ch, "race_features", None),
                     )
 
                     ch.hp = hp_after
@@ -1815,6 +1860,8 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                         f"[REST] hd x{requested} {ch.name}: +{healed_total} HP, "
                         f"HD {hd_before}->{hd_after}/{hd_max}, rolls={heals}",
                     )
+                    for line in reroll_logs:
+                        await add_system_event(db, sess, line)
                     await broadcast_state(session_id)
                     continue
 
