@@ -103,6 +103,8 @@ class Character(Base):
 
     # Статы 0..100
     stats: Mapped[dict] = mapped_column(JSONB, default=dict)
+    race_features: Mapped[dict] = mapped_column(JSONB, default=dict, server_default=text("'{}'::jsonb"))
+    class_features: Mapped[dict] = mapped_column(JSONB, default=dict, server_default=text("'{}'::jsonb"))
 
     is_alive: Mapped[bool] = mapped_column(Boolean, default=True)
 
