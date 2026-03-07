@@ -432,6 +432,8 @@ def _build_race_features(selected_race: dict | None) -> dict[str, Any]:
     details = selected_race.get("details")
     if not isinstance(details, dict):
         details = {}
+    if not isinstance(details, dict):
+        details = {}
 
     def _as_list(v):
         return list(v) if isinstance(v, (list, tuple)) else []
@@ -441,8 +443,11 @@ def _build_race_features(selected_race: dict | None) -> dict[str, Any]:
     speeds: dict[str, Any] = {"walk_ft": max(0, walk)}
 
     # traits (используем mechanics.type, если есть)
-    traits = _as_list(details.get("traits"))
-    languages = _as_list(details.get("languages") or selected_race.get("languages"))
+    # In create flow race catalog keeps these on top-level; details is fallback.
+    traits = _as_list(selected_race.get("traits") or details.get("traits"))
+    subraces = _as_list(selected_race.get("subraces") or details.get("subraces"))
+    languages = _as_list(selected_race.get("languages") or details.get("languages"))
+    size = str(selected_race.get("size") or details.get("size") or "").strip()
     senses: dict[str, Any] = {}
     resist: list[str] = []
     immune_damage: list[str] = []
@@ -490,7 +495,7 @@ def _build_race_features(selected_race: dict | None) -> dict[str, Any]:
 
     out: dict[str, Any] = {
         "race_key": str(selected_race.get("key") or "").strip(),
-        "size": str(details.get("size") or selected_race.get("size") or "").strip(),
+        "size": size,
         "languages": [str(x) for x in languages if str(x)],
         "speeds": speeds,
         "senses": senses,
