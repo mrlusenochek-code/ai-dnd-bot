@@ -210,16 +210,28 @@ async def api_classes():
         items.append(
             {
                 "id": class_id,
-                "name": class_item.get("name") or preset.get("display_name") or class_id,
+                "name": class_item.get("name") or preset.get("display_name") or class_item.get("name_ru") or class_id,
                 "source": class_item.get("source") or "custom",
                 "hit_die": max(1, as_int(class_item.get("hit_die"), 8)),
                 "speed_ft": max(0, as_int(class_item.get("speed_ft"), 30)),
                 "subclasses": list(class_item.get("subclasses") or []),
-                "level_progression": dict(class_item.get("level_progression") or {}),
-                "spell_lists": list(class_item.get("spell_lists") or []),
+                "level_progression": dict(class_item.get("features_by_level") or class_item.get("level_progression") or {}),
+                "spell_lists": class_item.get("spell_lists") if isinstance(class_item.get("spell_lists"), dict) else list(class_item.get("spell_lists") or []),
                 "hp_max": max(1, as_int(preset.get("hp_max"), 20)),
                 "sta_max": max(1, as_int(preset.get("sta_max"), 10)),
                 "stats": stats,
+                "details": {
+                    "name_ru": class_item.get("name_ru") or class_id,
+                    "description_ru": class_item.get("description_ru") or "",
+                    "primary_abilities": list(class_item.get("primary_abilities") or []),
+                    "saving_throws": list(class_item.get("saving_throws") or []),
+                    "proficiencies": dict(class_item.get("proficiencies") or {}),
+                    "skill_choices": dict(class_item.get("skill_choices") or {}),
+                    "starting_equipment": list(class_item.get("starting_equipment") or []),
+                    "features_by_level": dict(class_item.get("features_by_level") or {}),
+                    "spellcasting": dict(class_item.get("spellcasting") or {}),
+                    "tags": list(class_item.get("tags") or []),
+                },
             }
         )
     return JSONResponse({"classes": items})
@@ -235,11 +247,23 @@ async def api_races():
         items.append(
             {
                 "id": race_id,
-                "name": race_item.get("name") or race_id,
+                "name": race_item.get("name") or race_item.get("name_ru") or race_id,
                 "source": race_item.get("source") or "custom",
                 "speed_ft": max(0, as_int(race_item.get("speed_ft"), 30)),
                 "hit_die": max(1, as_int(race_item.get("hit_die"), 8)),
                 "subraces": list(race_item.get("subraces") or []),
+                "details": {
+                    "name_ru": race_item.get("name_ru") or race_id,
+                    "description_ru": race_item.get("description_ru") or "",
+                    "asi": list(race_item.get("asi") or []),
+                    "age": dict(race_item.get("age") or {}),
+                    "alignment": race_item.get("alignment") or "",
+                    "size": race_item.get("size") or "medium",
+                    "speed_notes_ru": race_item.get("speed_notes_ru") or "",
+                    "languages": list(race_item.get("languages") or []),
+                    "traits": list(race_item.get("traits") or []),
+                    "tags": list(race_item.get("tags") or []),
+                },
             }
         )
     return JSONResponse({"races": items})

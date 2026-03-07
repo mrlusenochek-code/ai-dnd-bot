@@ -1,0 +1,56 @@
+from __future__ import annotations
+
+from app.rules.character_catalog import CLASS_CATALOG, RACE_CATALOG
+
+
+STAT_KEYS = {"str", "dex", "con", "int", "wis", "cha"}
+SIZE_KEYS = {"small", "medium", "large"}
+
+
+def test_catalog_keys_are_unique() -> None:
+    class_keys = [str(item.get("key") or "") for item in CLASS_CATALOG]
+    race_keys = [str(item.get("key") or "") for item in RACE_CATALOG]
+    assert all(class_keys)
+    assert all(race_keys)
+    assert len(class_keys) == len(set(class_keys))
+    assert len(race_keys) == len(set(race_keys))
+
+
+def test_race_schema_contracts() -> None:
+    for race in RACE_CATALOG:
+        assert str(race.get("key") or "").strip()
+        assert str(race.get("name_ru") or "").strip()
+        assert isinstance(race.get("speed_ft"), int)
+        assert int(race.get("speed_ft") or 0) >= 0
+        assert str(race.get("size") or "medium") in SIZE_KEYS
+        assert isinstance(race.get("traits"), list)
+        assert isinstance(race.get("subraces"), list)
+        assert isinstance(race.get("languages"), list)
+        assert isinstance(race.get("asi"), list)
+
+
+def test_class_schema_contracts() -> None:
+    for klass in CLASS_CATALOG:
+        assert str(klass.get("key") or "").strip()
+        assert str(klass.get("name_ru") or "").strip()
+        assert isinstance(klass.get("hit_die"), int)
+        assert int(klass.get("hit_die") or 0) >= 1
+        assert isinstance(klass.get("primary_abilities"), list)
+        assert isinstance(klass.get("saving_throws"), list)
+
+        for stat in klass.get("primary_abilities") or []:
+            assert stat in STAT_KEYS
+        for stat in klass.get("saving_throws") or []:
+            assert stat in STAT_KEYS
+
+        levels = klass.get("features_by_level") or {}
+        assert isinstance(levels, dict)
+        for level in levels.keys():
+            assert isinstance(level, int)
+            assert 1 <= level <= 20
+
+
+def test_artificer_exists_and_hit_die_8() -> None:
+    artificer = next((item for item in CLASS_CATALOG if str(item.get("key") or "") == "artificer"), None)
+    assert artificer is not None
+    assert int(artificer.get("hit_die") or 0) == 8
