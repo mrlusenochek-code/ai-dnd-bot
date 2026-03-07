@@ -572,6 +572,22 @@ def _build_race_features(selected_race: dict | None) -> dict[str, Any]:
     return out
 
 
+def _apply_asi_bonuses(stats: dict[str, Any], asi_items: Any) -> None:
+    allowed_asi_stats = {"str", "dex", "con", "int", "wis", "cha"}
+    items = asi_items if isinstance(asi_items, list) else []
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        stat_key = str(item.get("stat") or "").strip().lower()
+        if stat_key not in allowed_asi_stats:
+            continue
+        bonus = as_int(item.get("bonus"), 0)
+        if bonus <= 0:
+            continue
+        current = as_int(stats.get(stat_key), 50)
+        stats[stat_key] = max(0, min(100, current + (bonus * 5)))
+
+
 @router.post("/api/character/create")
 async def api_character_create(payload: dict):
     session_id = str(payload.get("session_id") or "").strip()
@@ -740,6 +756,15 @@ async def api_character_create(payload: dict):
                 else:
                     eff["traits"] = [*base_traits_list, *sub_traits_list]
 
+                base_asi = eff.get("asi")
+                base_asi_list = base_asi if isinstance(base_asi, list) else []
+                sub_asi = selected_subrace.get("asi")
+                sub_asi_list = sub_asi if isinstance(sub_asi, list) else []
+                if race_key == "human" and subrace_key == "variant_human":
+                    eff["asi"] = sub_asi_list
+                else:
+                    eff["asi"] = [*base_asi_list, *sub_asi_list]
+
                 base_lang = eff.get("languages")
                 base_lang_list = base_lang if isinstance(base_lang, list) else []
                 sub_lang = selected_subrace.get("languages")
@@ -827,16 +852,10 @@ async def api_character_create(payload: dict):
         )
         if _stats_points_used(stats) > 20:
             raise HTTPException(status_code=400, detail="Points budget exceeded (max 20)")
+        if isinstance(effective_race, dict):
+            _apply_asi_bonuses(stats, effective_race.get("asi"))
         if race_choice_asi:
-            for item in race_choice_asi:
-                stat_key = str(item.get("stat") or "").strip().lower()
-                if stat_key not in {"str", "dex", "con", "int", "wis", "cha"}:
-                    continue
-                bonus = max(0, as_int(item.get("bonus"), 0))
-                if bonus <= 0:
-                    continue
-                current = as_int(stats.get(stat_key), 50)
-                stats[stat_key] = max(0, min(100, current + (bonus * 5)))
+            _apply_asi_bonuses(stats, race_choice_asi)
 
         hp_max = max(1, as_int((selected_preset or {}).get("hp_max"), 20))
         sta_max = max(1, as_int((selected_preset or {}).get("sta_max"), 10))
