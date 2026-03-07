@@ -149,6 +149,27 @@ def test_gnome_reference_schema_payload() -> None:
     assert "artificers_lore" in rock_traits
 
 
+def test_half_elf_reference_schema_payload() -> None:
+    half_elf = next((item for item in RACE_CATALOG if str(item.get("key") or "") == "half_elf"), None)
+    assert half_elf is not None
+    assert str(half_elf.get("size") or "") == "medium"
+    assert int(half_elf.get("speed_ft") or 0) == 30
+
+    languages = set(half_elf.get("languages") or [])
+    assert "common" in languages
+    assert "elvish" in languages
+
+    asi = half_elf.get("asi") or []
+    assert any(item.get("stat") == "cha" and int(item.get("bonus") or 0) == 2 for item in asi if isinstance(item, dict))
+
+    traits = {str(item.get("key") or ""): item for item in (half_elf.get("traits") or []) if isinstance(item, dict)}
+    assert "darkvision_60" in traits
+    assert "fey_ancestry" in traits
+    assert "half_elf_versatility_asi" in traits
+    assert "skill_versatility" in traits
+    assert "extra_language" in traits
+
+
 def test_dwarf_reference_schema_payload() -> None:
     dwarf = next((item for item in RACE_CATALOG if str(item.get("key") or "") == "dwarf"), None)
     assert dwarf is not None
