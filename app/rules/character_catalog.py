@@ -145,7 +145,69 @@ BASE_CLASS_CATALOG: list[dict[str, Any]] = [
 
 
 BASE_RACE_CATALOG: list[dict[str, Any]] = [
-    {"key": "human", "name": "Human", "name_ru": "Человек", "source": "PHB", "description_ru": "", "asi": [], "age": {}, "alignment": "", "size": "medium", "speed_ft": 30, "speed_notes_ru": "", "languages": [], "traits": [], "subraces": [], "tags": []},
+    {
+        "key": "human",
+        "name": "Human",
+        "name_ru": "Человек",
+        "source": "PHB",
+        "description_ru": "Универсальный и адаптивный народ, встречающийся по всему миру.",
+        "asi": [
+            {"stat": "str", "bonus": 1},
+            {"stat": "dex", "bonus": 1},
+            {"stat": "con", "bonus": 1},
+            {"stat": "int", "bonus": 1},
+            {"stat": "wis", "bonus": 1},
+            {"stat": "cha", "bonus": 1},
+        ],
+        "age": {},
+        "alignment": "",
+        "size": "medium",
+        "speed_ft": 30,
+        "speed_notes_ru": "",
+        "languages": ["common"],
+        "traits": [
+            {
+                "key": "extra_language",
+                "name_ru": "Дополнительный язык",
+                "summary_ru": "Вы знаете ещё один язык на выбор.",
+                "mechanics": {"type": "choose_language", "count": 1},
+            }
+        ],
+        "subraces": [
+            {
+                "key": "variant_human",
+                "name_ru": "Человек (вариант)",
+                "asi": [],
+                "traits": [
+                    {
+                        "key": "variant_asi",
+                        "name_ru": "Вариативные характеристики",
+                        "summary_ru": "+1 к двум характеристикам на выбор.",
+                        "mechanics": {"type": "choose_asi", "choices": 2, "bonus": 1},
+                    },
+                    {
+                        "key": "variant_skill",
+                        "name_ru": "Вариативный навык",
+                        "summary_ru": "Владение одним навыком на выбор.",
+                        "mechanics": {"type": "choose_skill_proficiency", "count": 1},
+                    },
+                    {
+                        "key": "variant_feat",
+                        "name_ru": "Вариативная черта",
+                        "summary_ru": "Одна черта на выбор.",
+                        "mechanics": {"type": "choose_feat", "count": 1},
+                    },
+                    {
+                        "key": "extra_language",
+                        "name_ru": "Дополнительный язык",
+                        "summary_ru": "Вы знаете ещё один язык на выбор.",
+                        "mechanics": {"type": "choose_language", "count": 1},
+                    },
+                ],
+            }
+        ],
+        "tags": [],
+    },
     {"key": "dragonborn", "name": "Dragonborn", "name_ru": "Драконорождённый", "source": "PHB", "description_ru": "", "asi": [], "age": {}, "alignment": "", "size": "medium", "speed_ft": 30, "speed_notes_ru": "", "languages": [], "traits": [], "subraces": [], "tags": []},
     {
         "key": "dwarf",

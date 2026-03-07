@@ -51,6 +51,7 @@ def test_api_races_nonempty() -> None:
     races = payload.get("races") or []
     assert races
     race_ids = {str(item.get("id") or "") for item in races if isinstance(item, dict)}
+    assert "human" in race_ids
     assert "dwarf" in race_ids
     assert "elf" in race_ids
     assert "halfling" in race_ids

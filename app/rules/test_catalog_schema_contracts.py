@@ -56,6 +56,39 @@ def test_artificer_exists_and_hit_die_8() -> None:
     assert int(artificer.get("hit_die") or 0) == 8
 
 
+def test_human_reference_schema_payload() -> None:
+    human = next((item for item in RACE_CATALOG if str(item.get("key") or "") == "human"), None)
+    assert human is not None
+    assert str(human.get("size") or "") == "medium"
+    assert int(human.get("speed_ft") or 0) == 30
+
+    asi = human.get("asi") or []
+    expected_stats = {"str", "dex", "con", "int", "wis", "cha"}
+    asi_plus_one_stats = {
+        str(item.get("stat") or "")
+        for item in asi
+        if isinstance(item, dict) and int(item.get("bonus") or 0) == 1
+    }
+    assert expected_stats.issubset(asi_plus_one_stats)
+
+    traits = {str(item.get("key") or ""): item for item in (human.get("traits") or []) if isinstance(item, dict)}
+    assert "extra_language" in traits
+
+    subraces = {str(item.get("key") or ""): item for item in (human.get("subraces") or []) if isinstance(item, dict)}
+    assert "variant_human" in subraces
+
+    variant_human = subraces["variant_human"]
+    variant_traits = {
+        str(item.get("key") or ""): item
+        for item in (variant_human.get("traits") or [])
+        if isinstance(item, dict)
+    }
+    assert "variant_asi" in variant_traits
+    assert "variant_skill" in variant_traits
+    assert "variant_feat" in variant_traits
+    assert "extra_language" in variant_traits
+
+
 def test_dwarf_reference_schema_payload() -> None:
     dwarf = next((item for item in RACE_CATALOG if str(item.get("key") or "") == "dwarf"), None)
     assert dwarf is not None
