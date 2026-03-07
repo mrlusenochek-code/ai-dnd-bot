@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any, Literal
 
@@ -26,6 +26,7 @@ class Combatant:
     bonus_action_available: bool = True
     reaction_available: bool = True
     speed_ft: int = 30
+    movement_speeds: dict[str, int] = field(default_factory=dict)
     move_remaining: int = 30
     is_dead: bool = False
     is_stable: bool = False
@@ -119,6 +120,19 @@ def _sanitize_race_features_payload(value: Any) -> dict[str, Any] | None:
     return dict(value)
 
 
+def _sanitize_movement_speeds_payload(value: Any) -> dict[str, int] | None:
+    if not isinstance(value, dict):
+        return None
+    out: dict[str, int] = {}
+    for k, v in value.items():
+        if not isinstance(k, str):
+            continue
+        if not isinstance(v, int) or isinstance(v, bool):
+            continue
+        out[k] = max(0, int(v))
+    return out
+
+
 def _normalize_level(value: Any) -> int:
     try:
         level = int(value)
@@ -200,6 +214,7 @@ def upsert_pc(
     inventory: list[dict[str, Any]] | None = None,
     equip: dict[str, str] | None = None,
     race_features: dict[str, Any] | None = None,
+    movement_speeds: dict[str, int] | None = None,
 ) -> CombatState | None:
     state = get_combat(session_id)
     if state is None or not state.active:
@@ -222,6 +237,7 @@ def upsert_pc(
     inventory_norm = _sanitize_inventory_payload(inventory)
     equip_norm = _sanitize_equip_payload(equip)
     race_features_norm = _sanitize_race_features_payload(race_features)
+    movement_speeds_norm = _sanitize_movement_speeds_payload(movement_speeds)
 
     existing = state.combatants.get(pc_key)
     if existing is not None:
@@ -237,6 +253,8 @@ def upsert_pc(
         existing.inventory = inventory_norm
         existing.equip = equip_norm
         existing.race_features = race_features_norm
+        if movement_speeds_norm is not None:
+            existing.movement_speeds = movement_speeds_norm
     else:
         state.combatants[pc_key] = Combatant(
             key=pc_key,
@@ -248,6 +266,7 @@ def upsert_pc(
             initiative=initiative_norm,
             level=level_norm,
             speed_ft=speed_ft_norm,
+            movement_speeds=movement_speeds_norm or {},
             move_remaining=speed_ft_norm,
             stats=stats_norm,
             inventory=inventory_norm,
@@ -315,6 +334,7 @@ def combatant_to_dict(c: Combatant) -> dict[str, Any]:
         "bonus_action_available": bool(c.bonus_action_available),
         "reaction_available": bool(c.reaction_available),
         "speed_ft": max(0, int(c.speed_ft)),
+        "movement_speeds": _sanitize_movement_speeds_payload(c.movement_speeds) or {},
         "move_remaining": max(0, int(c.move_remaining)),
         "is_dead": bool(c.is_dead),
         "is_stable": bool(c.is_stable),
@@ -402,6 +422,7 @@ def combatant_from_dict(raw: Any) -> Combatant | None:
         if isinstance(raw_move_remaining, int) and not isinstance(raw_move_remaining, bool)
         else 30
     )
+    movement_speeds_norm = _sanitize_movement_speeds_payload(raw.get("movement_speeds")) or {}
 
     return Combatant(
         key=key,
@@ -420,6 +441,7 @@ def combatant_from_dict(raw: Any) -> Combatant | None:
         bonus_action_available=bool(raw.get("bonus_action_available", True)),
         reaction_available=bool(raw.get("reaction_available", True)),
         speed_ft=speed_ft_norm,
+        movement_speeds=movement_speeds_norm,
         move_remaining=move_remaining_norm,
         is_dead=bool(is_dead),
         is_stable=bool(is_stable),
