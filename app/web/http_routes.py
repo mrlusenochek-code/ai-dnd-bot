@@ -547,6 +547,7 @@ async def api_character_create(payload: dict):
     meta_race = str(payload.get("race") or "").strip()[:60]
     meta_description = str(payload.get("description") or "").strip()[:1000]
     race_choice_languages: list[str] = []
+    race_choice_asi: list[dict[str, Any]] = []
     if isinstance(race_choices_payload, dict):
         raw_langs = race_choices_payload.get("languages")
         raw_langs_list = raw_langs if isinstance(raw_langs, list) else []
@@ -554,6 +555,23 @@ async def api_character_create(payload: dict):
             lang = str(item or "").strip().lower()
             if lang and lang not in race_choice_languages:
                 race_choice_languages.append(lang)
+        raw_asi = race_choices_payload.get("asi")
+        raw_asi_list = raw_asi if isinstance(raw_asi, list) else []
+        seen_asi_stats: set[str] = set()
+        allowed_asi_stats = {"str", "dex", "con", "int", "wis", "cha"}
+        for item in raw_asi_list:
+            if not isinstance(item, dict):
+                continue
+            stat = str(item.get("stat") or "").strip().lower()
+            if stat not in allowed_asi_stats:
+                continue
+            bonus = as_int(item.get("bonus"), 0)
+            if bonus <= 0:
+                continue
+            if stat in seen_asi_stats:
+                raise HTTPException(status_code=400, detail="ASI stats must be distinct")
+            seen_asi_stats.add(stat)
+            race_choice_asi.append({"stat": stat, "bonus": bonus})
 
     if uid <= 0:
         raise HTTPException(status_code=400, detail="Bad uid")
@@ -669,6 +687,8 @@ async def api_character_create(payload: dict):
                 "key": str(selected_subrace.get("key") or "").strip(),
                 "name_ru": str(selected_subrace.get("name_ru") or selected_subrace.get("name") or "").strip(),
             }
+        choices = race_features.get("choices") if isinstance(race_features, dict) else None
+        choices_dict: dict[str, Any] = choices if isinstance(choices, dict) else {}
         if isinstance(race_features, dict) and race_choice_languages:
             base_langs = race_features.get("languages")
             base_langs_list = base_langs if isinstance(base_langs, list) else []
@@ -678,9 +698,10 @@ async def api_character_create(payload: dict):
                 if lang and lang not in merged_langs:
                     merged_langs.append(lang)
             race_features["languages"] = merged_langs
-            choices = race_features.get("choices")
-            choices_dict = choices if isinstance(choices, dict) else {}
             choices_dict["languages"] = list(race_choice_languages)
+        if isinstance(race_features, dict) and race_choice_asi:
+            choices_dict["asi"] = list(race_choice_asi)
+        if isinstance(race_features, dict) and choices_dict:
             race_features["choices"] = choices_dict
         walk_speed = as_int(((race_features.get("speeds") or {}) if isinstance(race_features, dict) else {}).get("walk_ft"), 30)
         if not meta_race:
@@ -695,6 +716,16 @@ async def api_character_create(payload: dict):
         )
         if _stats_points_used(stats) > 20:
             raise HTTPException(status_code=400, detail="Points budget exceeded (max 20)")
+        if race_choice_asi:
+            for item in race_choice_asi:
+                stat_key = str(item.get("stat") or "").strip().lower()
+                if stat_key not in {"str", "dex", "con", "int", "wis", "cha"}:
+                    continue
+                bonus = max(0, as_int(item.get("bonus"), 0))
+                if bonus <= 0:
+                    continue
+                current = as_int(stats.get(stat_key), 50)
+                stats[stat_key] = max(0, min(100, current + (bonus * 5)))
 
         hp_max = max(1, as_int((selected_preset or {}).get("hp_max"), 20))
         sta_max = max(1, as_int((selected_preset or {}).get("sta_max"), 10))
