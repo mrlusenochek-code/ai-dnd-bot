@@ -290,6 +290,8 @@ def _char_to_payload(ch: Optional[Character]) -> Optional[dict]:
         "sta": int(ch.sta or 0),
         "sta_max": int(ch.sta_max or 0),
         "stats": _normalized_stats(ch.stats),
+        "race_features": (getattr(ch, "race_features", None) or {}),
+        "class_features": (getattr(ch, "class_features", None) or {}),
         "gender": meta["gender"],
         "race": _display_race(ch, meta),
         "description": meta["description"],
