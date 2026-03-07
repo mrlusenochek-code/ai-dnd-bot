@@ -42,6 +42,30 @@ from app.web.utils import as_int
 router = APIRouter()
 BASE_DIR = Path(__file__).resolve().parent
 templates = Jinja2Templates(directory=str(BASE_DIR / "templates"))
+TIRELESS_PRECISION_TOOL_WHITELIST = {
+    "thieves_tools",
+    "smith_tools",
+    "mason_tools",
+    "brewer_supplies",
+    "tinkers_tools",
+    "herbalism_kit",
+    "disguise_kit",
+    "forgery_kit",
+    "navigator_tools",
+    "alchemists_supplies",
+    "calligraphers_supplies",
+    "carpenters_tools",
+    "cartographers_tools",
+    "cobblers_tools",
+    "cooks_utensils",
+    "glassblowers_tools",
+    "jewelers_tools",
+    "leatherworkers_tools",
+    "painters_supplies",
+    "potters_tools",
+    "weavers_tools",
+    "woodcarvers_tools",
+}
 
 
 @router.get("/", response_class=HTMLResponse)
@@ -683,6 +707,8 @@ async def api_character_create(payload: dict):
     race_choice_asi: list[dict[str, Any]] = []
     race_choice_skills: list[str] = []
     race_choice_feats: list[str] = []
+    race_choice_tp_skill = ""
+    race_choice_tp_tool = ""
     if isinstance(race_choices_payload, dict):
         raw_langs = race_choices_payload.get("languages")
         raw_langs_list = raw_langs if isinstance(raw_langs, list) else []
@@ -760,6 +786,10 @@ async def api_character_create(payload: dict):
             race_choice_feats.append(feat)
         if len(race_choice_feats) > 1:
             raise HTTPException(status_code=400, detail="Only one feat choice is allowed")
+        raw_tp = race_choices_payload.get("tireless_precision")
+        if isinstance(raw_tp, dict):
+            race_choice_tp_skill = str(raw_tp.get("skill") or "").strip().lower()
+            race_choice_tp_tool = str(raw_tp.get("tool") or "").strip().lower()
 
     if uid <= 0:
         raise HTTPException(status_code=400, detail="Bad uid")
@@ -860,6 +890,34 @@ async def api_character_create(payload: dict):
 
                 effective_race = eff
 
+        tireless_precision_skills: list[str] = []
+        if isinstance(effective_race, dict):
+            effective_traits = effective_race.get("traits")
+            effective_traits_list = effective_traits if isinstance(effective_traits, list) else []
+            for trait in effective_traits_list:
+                if not isinstance(trait, dict):
+                    continue
+                mech = trait.get("mechanics")
+                if not isinstance(mech, dict):
+                    continue
+                mtype = str(mech.get("type") or "").strip().lower()
+                if mtype != "tireless_precision":
+                    continue
+                for item in (mech.get("choose_skill_from") if isinstance(mech.get("choose_skill_from"), list) else []):
+                    skill_key = str(item or "").strip().lower()
+                    if skill_key and skill_key not in tireless_precision_skills:
+                        tireless_precision_skills.append(skill_key)
+
+        tireless_precision_required = bool(tireless_precision_skills)
+        if tireless_precision_required and (not race_choice_tp_skill or not race_choice_tp_tool):
+            raise HTTPException(status_code=400, detail="Tireless Precision choices are required")
+        if race_choice_tp_skill and race_choice_tp_skill not in tireless_precision_skills:
+            raise HTTPException(status_code=400, detail=f"Invalid Tireless Precision skill: {race_choice_tp_skill}")
+        if race_choice_tp_tool and race_choice_tp_tool not in TIRELESS_PRECISION_TOOL_WHITELIST:
+            raise HTTPException(status_code=400, detail=f"Invalid Tireless Precision tool: {race_choice_tp_tool}")
+        if not tireless_precision_required and (race_choice_tp_skill or race_choice_tp_tool):
+            raise HTTPException(status_code=400, detail="Tireless Precision is not available for selected race")
+
         if selected_race is not None:
             # When a preset race is selected, keep mechanics by base race id.
             race_kit = str(selected_race.get("key") or "human").strip()[:40]
@@ -913,6 +971,19 @@ async def api_character_create(payload: dict):
             choices_dict["skills"] = list(race_choice_skills)
         if isinstance(race_features, dict) and race_choice_feats:
             choices_dict["feats"] = list(race_choice_feats)
+        if isinstance(race_features, dict) and race_choice_tp_skill and race_choice_tp_tool:
+            choices_dict["tireless_precision"] = {
+                "skill": race_choice_tp_skill,
+                "tool": race_choice_tp_tool,
+            }
+            bonuses = race_features.get("bonuses")
+            bonuses_dict: dict[str, Any] = bonuses if isinstance(bonuses, dict) else {}
+            bonuses_dict["tireless_precision"] = {
+                "die": "1d4",
+                "skills": [race_choice_tp_skill],
+                "tools": [race_choice_tp_tool],
+            }
+            race_features["bonuses"] = bonuses_dict
         if isinstance(race_features, dict) and choices_dict:
             race_features["choices"] = choices_dict
         walk_speed = as_int(((race_features.get("speeds") or {}) if isinstance(race_features, dict) else {}).get("walk_ft"), 30)

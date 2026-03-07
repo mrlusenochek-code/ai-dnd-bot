@@ -774,6 +774,40 @@ function openCharacterModal(){
   const profSkills = Array.isArray(prof.skills) ? prof.skills.map(x => String(x)).filter(Boolean) : [];
   const profTools = Array.isArray(prof.tools) ? prof.tools.map(x => String(x)).filter(Boolean) : [];
   const choices = (rf.choices && typeof rf.choices === "object") ? rf.choices : {};
+  const tirelessChoice = (choices.tireless_precision && typeof choices.tireless_precision === "object")
+    ? choices.tireless_precision
+    : {};
+  const tirelessSkillKey = String(tirelessChoice.skill || "").trim().toLowerCase();
+  const tirelessToolKey = String(tirelessChoice.tool || "").trim().toLowerCase();
+  const tirelessSkillRu = tirelessSkillKey ? getSkillNameRu(tirelessSkillKey) : "";
+  const TOOL_LABELS_RU = {
+    "thieves_tools": "Воровские инструменты",
+    "smith_tools": "Инструменты кузнеца",
+    "mason_tools": "Инструменты каменщика",
+    "brewer_supplies": "Принадлежности пивовара",
+    "tinkers_tools": "Инструменты жестянщика",
+    "herbalism_kit": "Набор травника",
+    "disguise_kit": "Набор для грима",
+    "forgery_kit": "Набор фальсификатора",
+    "navigator_tools": "Инструменты навигатора",
+    "alchemists_supplies": "Принадлежности алхимика",
+    "calligraphers_supplies": "Принадлежности каллиграфа",
+    "carpenters_tools": "Инструменты плотника",
+    "cartographers_tools": "Инструменты картографа",
+    "cobblers_tools": "Инструменты сапожника",
+    "cooks_utensils": "Кухонная утварь",
+    "glassblowers_tools": "Инструменты стеклодува",
+    "jewelers_tools": "Инструменты ювелира",
+    "leatherworkers_tools": "Инструменты кожевника",
+    "painters_supplies": "Принадлежности художника",
+    "potters_tools": "Инструменты гончара",
+    "weavers_tools": "Инструменты ткача",
+    "woodcarvers_tools": "Инструменты резчика по дереву",
+  };
+  const tirelessToolRu = tirelessToolKey ? (TOOL_LABELS_RU[tirelessToolKey] || tirelessToolKey) : "";
+  const tirelessPrecisionText = (tirelessSkillRu && tirelessToolRu)
+    ? `Неустанная скрупулёзность: навык ${tirelessSkillRu}, инструмент ${tirelessToolRu}, бонус 1d4`
+    : "";
   const featChoices = Array.isArray(choices.feats) ? choices.feats.map(x => String(x).trim().toLowerCase()).filter(Boolean) : [];
   const featChoiceRu = featChoices.length
     ? (featsNameRuByKey[featChoices[0]] || featChoices[0])
@@ -901,6 +935,9 @@ function openCharacterModal(){
   if(aasimarTransformationText){
     details.push(`<div class="char-line"><strong>Небесное преобразование:</strong> ${escapeHtml(aasimarTransformationText.replace(/^Небесное преобразование:\s*/, ""))}</div>`);
   }
+  if(tirelessPrecisionText){
+    details.push(`<div class="char-line"><strong>Неустанная скрупулёзность:</strong> ${escapeHtml(tirelessPrecisionText.replace(/^Неустанная скрупулёзность:\s*/, ""))}</div>`);
+  }
   if(saveAdvantagesRu.length){
     details.push(`<div class="char-line"><strong>Преим. спасброски:</strong> ${escapeHtml(saveAdvantagesRu.join(", "))}</div>`);
   }
@@ -956,6 +993,7 @@ function openCharacterModal(){
   if(stoneEndurance) copyLines.push("Каменная выносливость: реакция, 1/к/дл отдых: снижает урон (1d12 + мод. Тел)");
   if(healingHandsText) copyLines.push(healingHandsText);
   if(aasimarTransformationText) copyLines.push(aasimarTransformationText);
+  if(tirelessPrecisionText) copyLines.push(tirelessPrecisionText);
   if(saveAdvantagesRu.length) copyLines.push(`Преим. спасброски: ${saveAdvantagesRu.join(", ")}`);
   if(langsRu.length) copyLines.push(`Языки: ${langsRu.join(", ")}`);
   if(profSkills.length) copyLines.push(`Проф. навыков (раса): ${profSkills.join(", ")}`);

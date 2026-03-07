@@ -159,6 +159,47 @@ def _effective_save_mode(requested_mode: str, race_features: Any, ability: str) 
     return mode
 
 
+def _tireless_precision_bonus_for_check(
+    race_features: Any,
+    *,
+    kind: str,
+    key: str,
+    rng: Any = None,
+) -> tuple[int, str]:
+    if not isinstance(race_features, dict):
+        return 0, ""
+
+    choices_raw = race_features.get("choices")
+    choices = choices_raw if isinstance(choices_raw, dict) else {}
+    tp_choice_raw = choices.get("tireless_precision")
+    tp_choice = tp_choice_raw if isinstance(tp_choice_raw, dict) else {}
+    selected_skill = str(tp_choice.get("skill") or "").strip().lower()
+    selected_tool = str(tp_choice.get("tool") or "").strip().lower()
+
+    key_norm = str(key or "").strip().lower()
+    kind_norm = str(kind or "").strip().lower()
+    if kind_norm == "skill":
+        if not selected_skill or key_norm != selected_skill:
+            return 0, ""
+    elif kind_norm == "tool":
+        if not selected_tool or key_norm != selected_tool:
+            return 0, ""
+    else:
+        return 0, ""
+
+    bonuses_raw = race_features.get("bonuses")
+    bonuses = bonuses_raw if isinstance(bonuses_raw, dict) else {}
+    tp_bonus_raw = bonuses.get("tireless_precision")
+    tp_bonus = tp_bonus_raw if isinstance(tp_bonus_raw, dict) else {}
+    die = str(tp_bonus.get("die") or "1d4").strip().lower()
+    if die != "1d4":
+        return 0, ""
+
+    roller = rng if rng is not None else random
+    value = max(1, int(roller.randint(1, 4)))
+    return value, f"1d4({value})"
+
+
 def _detect_innate_spell_key(text: str) -> Optional[str]:
     txt = str(text or "").strip()
     if not txt:
@@ -1506,6 +1547,7 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                         sess,
                         "de" "ps.Character commands: char create <Name> [Class], me, hp <+N|-N|N>, sta <+N|-N|N>, rest|rest long|rest short|rest hd <N>, "
                         "stat <str|dex|con|int|wis|cha> <0..100>, check [adv|dis] <stat_or_skill> [dc N] (ручной бросок, опционально), "
+                        "toolcheck [adv|dis] <tool_key> [dc N], "
                         "save [adv|dis] <str|dex|con|int|wis|cha> [dc N].",
                     )
                     await broadcast_state(session_id)
@@ -1857,12 +1899,102 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                         "mode": mapped_mode,
                     }
                     res = build_check_result(check_payload, mod=mod, roll_a=ra, roll_b=rb, roll=roll)
-                    total = int(res["total"])
+                    base_total = int(res["total"])
+                    tp_bonus, tp_bonus_text = _tireless_precision_bonus_for_check(
+                        getattr(ch, "race_features", None),
+                        kind=str(check_payload["kind"]),
+                        key=key,
+                    )
+                    total = base_total + tp_bonus
                     rolls_text = str(roll) if rb is None else f"{ra}/{rb}->{roll}"
 
                     msg = f"[CHECK] {ch.name}: {key} = {rolls_text} + {mod:+d} => {total}"
+                    if tp_bonus > 0 and tp_bonus_text:
+                        msg = f"[CHECK] {ch.name}: {key} = {rolls_text} + {mod:+d} + {tp_bonus_text} => {total}"
                     if dc is not None:
-                        ok = bool(res["success"])
+                        ok = total >= dc
+                        msg += f" (DC {dc}) {'SUCCESS' if ok else 'FAIL'}"
+                    await add_system_event(db, sess, msg)
+                    await broadcast_state(session_id)
+                    continue
+
+                if lower.startswith("toolcheck"):
+                    parts = cmdline.split()
+                    if len(parts) < 2:
+                        await ws_error("Usage: toolcheck [adv|dis] <tool_key> [dc N]", request_id=msg_request_id)
+                        continue
+                    mode = "roll"
+                    idx = 1
+                    if idx < len(parts) and parts[idx].lower() in ("adv", "dis"):
+                        mode = parts[idx].lower()
+                        idx += 1
+                    if idx >= len(parts):
+                        await ws_error("Usage: toolcheck [adv|dis] <tool_key> [dc N]", request_id=msg_request_id)
+                        continue
+
+                    tool_key = parts[idx].lower()
+                    idx += 1
+                    if not tool_key:
+                        await ws_error("Usage: toolcheck [adv|dis] <tool_key> [dc N]", request_id=msg_request_id)
+                        continue
+
+                    dc: Optional[int] = None
+                    if idx < len(parts):
+                        tok = parts[idx].lower()
+                        if tok.startswith("dc"):
+                            if tok == "dc":
+                                if idx + 1 >= len(parts):
+                                    await ws_error("Usage: toolcheck ... dc <N>", request_id=msg_request_id)
+                                    continue
+                                dc = as_int(parts[idx + 1], -1)
+                                idx += 2
+                            else:
+                                dc = as_int(tok[2:], -1)
+                                idx += 1
+                        else:
+                            await ws_error("Usage: toolcheck [adv|dis] <tool_key> [dc N]", request_id=msg_request_id)
+                            continue
+                    if idx != len(parts):
+                        await ws_error("Usage: toolcheck [adv|dis] <tool_key> [dc N]", request_id=msg_request_id)
+                        continue
+                    if dc is not None and dc < 0:
+                        await ws_error("DC must be >= 0", request_id=msg_request_id)
+                        continue
+
+                    ch = await get_character(db, sess.id, player.id)
+                    if not ch:
+                        await ws_error("No character. Use: char create ...", request_id=msg_request_id)
+                        continue
+
+                    mapped_mode = {
+                        "roll": "normal",
+                        "adv": "advantage",
+                        "dis": "disadvantage",
+                    }.get(mode, "normal")
+                    mod = 0
+                    ra, rb, roll = roll_check(mapped_mode)
+                    check_payload = {
+                        "actor_uid": _player_uid(player),
+                        "kind": "tool",
+                        "name": tool_key,
+                        "dc": dc if dc is not None else 0,
+                        "mode": mapped_mode,
+                    }
+                    res = build_check_result(check_payload, mod=mod, roll_a=ra, roll_b=rb, roll=roll)
+                    base_total = int(res["total"])
+                    tp_bonus, tp_bonus_text = _tireless_precision_bonus_for_check(
+                        getattr(ch, "race_features", None),
+                        kind="tool",
+                        key=tool_key,
+                    )
+                    total = base_total + tp_bonus
+                    d20_text = str(roll) if rb is None else f"{ra}/{rb}->{roll}"
+
+                    msg = f"[TOOL] {ch.name}: {tool_key} = d20({d20_text}) + {mod:+d} => {total}"
+                    if tp_bonus > 0 and tp_bonus_text:
+                        msg = f"[TOOL] {ch.name}: {tool_key} = d20({d20_text}) + {mod:+d} + {tp_bonus_text} => {total}"
+                    if dc is not None:
+                        ok = total >= dc
                         msg += f" (DC {dc}) {'SUCCESS' if ok else 'FAIL'}"
                     await add_system_event(db, sess, msg)
                     await broadcast_state(session_id)

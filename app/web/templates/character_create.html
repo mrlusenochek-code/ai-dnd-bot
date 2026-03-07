@@ -120,6 +120,13 @@
           <label>Черта (обязательно)</label>
           <select id="choiceFeat1"></select>
         </div>
+        <div id="choiceVedalkenRow" style="display:none;">
+          <label>Неустанная скрупулёзность (обязательно)</label>
+          <div class="row">
+            <select id="choiceVedalkenSkill"></select>
+            <select id="choiceVedalkenTool"></select>
+          </div>
+        </div>
       </div>
 
       <label>Класс (preset)</label>
@@ -241,6 +248,54 @@ const SKILL_LABELS_RU = {
   "stealth": "Скрытность",
   "survival": "Выживание"
 };
+const TIRELESS_TOOL_LABELS_RU = {
+  "thieves_tools": "Воровские инструменты",
+  "smith_tools": "Инструменты кузнеца",
+  "mason_tools": "Инструменты каменщика",
+  "brewer_supplies": "Принадлежности пивовара",
+  "tinkers_tools": "Инструменты жестянщика",
+  "herbalism_kit": "Набор травника",
+  "disguise_kit": "Набор для грима",
+  "forgery_kit": "Набор фальсификатора",
+  "navigator_tools": "Инструменты навигатора",
+  "alchemists_supplies": "Принадлежности алхимика",
+  "calligraphers_supplies": "Принадлежности каллиграфа",
+  "carpenters_tools": "Инструменты плотника",
+  "cartographers_tools": "Инструменты картографа",
+  "cobblers_tools": "Инструменты сапожника",
+  "cooks_utensils": "Кухонная утварь",
+  "glassblowers_tools": "Инструменты стеклодува",
+  "jewelers_tools": "Инструменты ювелира",
+  "leatherworkers_tools": "Инструменты кожевника",
+  "painters_supplies": "Принадлежности художника",
+  "potters_tools": "Инструменты гончара",
+  "weavers_tools": "Инструменты ткача",
+  "woodcarvers_tools": "Инструменты резчика по дереву",
+};
+const TIRELESS_TOOL_KEYS = [
+  "thieves_tools",
+  "smith_tools",
+  "mason_tools",
+  "brewer_supplies",
+  "tinkers_tools",
+  "herbalism_kit",
+  "disguise_kit",
+  "forgery_kit",
+  "navigator_tools",
+  "alchemists_supplies",
+  "calligraphers_supplies",
+  "carpenters_tools",
+  "cartographers_tools",
+  "cobblers_tools",
+  "cooks_utensils",
+  "glassblowers_tools",
+  "jewelers_tools",
+  "leatherworkers_tools",
+  "painters_supplies",
+  "potters_tools",
+  "weavers_tools",
+  "woodcarvers_tools",
+];
 let featsCatalog = [];
 let classes = [];
 let races = [];
@@ -250,6 +305,8 @@ let raceChoiceState = {
   asiBonus: 1,
   skillRequired: false,
   featRequired: false,
+  vedalkenRequired: false,
+  vedalkenSkills: [],
 };
 function _sortByNameRu(a, b){
   const aName = String((a && (a.name_ru || a.name)) || "").trim();
@@ -592,6 +649,25 @@ function getFeatChoiceConfig(traits){
   return out;
 }
 
+function getTirelessPrecisionChoiceConfig(traits){
+  const out = { required: false, skills: [] };
+  const items = Array.isArray(traits) ? traits : [];
+  for(const t of items){
+    if(!t || typeof t !== "object") continue;
+    const mech = (t.mechanics && typeof t.mechanics === "object") ? t.mechanics : {};
+    const mtype = String(mech.type || "").trim().toLowerCase();
+    if(mtype !== "tireless_precision"){
+      continue;
+    }
+    const rawSkills = Array.isArray(mech.choose_skill_from) ? mech.choose_skill_from : [];
+    const skills = rawSkills.map((x) => String(x || "").trim().toLowerCase()).filter(Boolean);
+    out.required = true;
+    out.skills = Array.from(new Set(skills));
+    return out;
+  }
+  return out;
+}
+
 function fillAsiSelect(sel, prev){
   if(!sel) return;
   const prevValue = String(prev || "");
@@ -654,6 +730,53 @@ function fillFeatSelect(sel, prev){
   sel.value = keepPrev ? prevValue : "";
 }
 
+function fillTirelessSkillSelect(sel, skills, prev){
+  if(!sel) return;
+  const prevValue = String(prev || "");
+  const allowed = Array.isArray(skills) ? skills : [];
+  sel.innerHTML = "";
+  const first = document.createElement("option");
+  first.value = "";
+  first.textContent = "(выберите навык)";
+  sel.appendChild(first);
+  const sorted = allowed.slice().sort((a, b) => {
+    const aLabel = String(SKILL_LABELS_RU[a] || a);
+    const bLabel = String(SKILL_LABELS_RU[b] || b);
+    return aLabel.localeCompare(bLabel, "ru", { sensitivity: "base" });
+  });
+  for(const key of sorted){
+    const opt = document.createElement("option");
+    opt.value = key;
+    opt.textContent = SKILL_LABELS_RU[key] || key;
+    sel.appendChild(opt);
+  }
+  const keepPrev = Array.from(sel.options).some(o => String(o.value) === prevValue);
+  sel.value = keepPrev ? prevValue : "";
+}
+
+function fillTirelessToolSelect(sel, prev){
+  if(!sel) return;
+  const prevValue = String(prev || "");
+  sel.innerHTML = "";
+  const first = document.createElement("option");
+  first.value = "";
+  first.textContent = "(выберите инструмент)";
+  sel.appendChild(first);
+  const sorted = TIRELESS_TOOL_KEYS.slice().sort((a, b) => {
+    const aLabel = String(TIRELESS_TOOL_LABELS_RU[a] || a);
+    const bLabel = String(TIRELESS_TOOL_LABELS_RU[b] || b);
+    return aLabel.localeCompare(bLabel, "ru", { sensitivity: "base" });
+  });
+  for(const key of sorted){
+    const opt = document.createElement("option");
+    opt.value = key;
+    opt.textContent = TIRELESS_TOOL_LABELS_RU[key] || key;
+    sel.appendChild(opt);
+  }
+  const keepPrev = Array.from(sel.options).some(o => String(o.value) === prevValue);
+  sel.value = keepPrev ? prevValue : "";
+}
+
 function renderRaceChoices(){
   const block = document.getElementById("raceChoices");
   const langRow = document.getElementById("choiceLangRow");
@@ -665,26 +788,33 @@ function renderRaceChoices(){
   const skillSel = document.getElementById("choiceSkill1");
   const featRow = document.getElementById("choiceFeatRow");
   const featSel = document.getElementById("choiceFeat1");
-  if(!block || !langRow || !langSel || !asiRow || !asiSel1 || !asiSel2 || !skillRow || !skillSel || !featRow || !featSel) return;
+  const vedRow = document.getElementById("choiceVedalkenRow");
+  const vedSkillSel = document.getElementById("choiceVedalkenSkill");
+  const vedToolSel = document.getElementById("choiceVedalkenTool");
+  if(!block || !langRow || !langSel || !asiRow || !asiSel1 || !asiSel2 || !skillRow || !skillSel || !featRow || !featSel || !vedRow || !vedSkillSel || !vedToolSel) return;
 
   const ctx = getCurrentRaceContext();
   const langCfg = getLanguageChoiceConfig(ctx.effectiveTraits);
   const asiCfg = getAsiChoiceConfig(ctx.effectiveTraits);
   const skillCfg = getSkillChoiceConfig(ctx.effectiveTraits);
   const featCfg = getFeatChoiceConfig(ctx.effectiveTraits);
+  const vedCfg = getTirelessPrecisionChoiceConfig(ctx.effectiveTraits);
   const needsLanguage = !!langCfg.required;
   const needsAsi = !!asiCfg.required;
   const needsSkill = !!skillCfg.required;
   const needsFeat = !!featCfg.required;
+  const needsVedalken = !!vedCfg.required;
   raceChoiceState = {
     languageRequired: needsLanguage,
     asiRequired: needsAsi,
     asiBonus: asiCfg.bonus || 1,
     skillRequired: needsSkill,
     featRequired: needsFeat,
+    vedalkenRequired: needsVedalken,
+    vedalkenSkills: Array.isArray(vedCfg.skills) ? vedCfg.skills.slice() : [],
   };
 
-  if(!needsLanguage && !needsAsi && !needsSkill && !needsFeat){
+  if(!needsLanguage && !needsAsi && !needsSkill && !needsFeat && !needsVedalken){
     block.style.display = "none";
     langRow.style.display = "none";
     asiRow.style.display = "none";
@@ -705,6 +835,13 @@ function renderRaceChoices(){
     featSel.disabled = true;
     featSel.required = false;
     featSel.value = "";
+    vedRow.style.display = "none";
+    vedSkillSel.disabled = true;
+    vedSkillSel.required = false;
+    vedSkillSel.value = "";
+    vedToolSel.disabled = true;
+    vedToolSel.required = false;
+    vedToolSel.value = "";
     return;
   }
 
@@ -779,6 +916,26 @@ function renderRaceChoices(){
     featSel.disabled = true;
     featSel.required = false;
     featSel.value = "";
+  }
+
+  if(needsVedalken){
+    const prevSkill = String(vedSkillSel.value || "");
+    const prevTool = String(vedToolSel.value || "");
+    fillTirelessSkillSelect(vedSkillSel, vedCfg.skills, prevSkill);
+    fillTirelessToolSelect(vedToolSel, prevTool);
+    vedRow.style.display = "";
+    vedSkillSel.disabled = false;
+    vedSkillSel.required = true;
+    vedToolSel.disabled = false;
+    vedToolSel.required = true;
+  }else{
+    vedRow.style.display = "none";
+    vedSkillSel.disabled = true;
+    vedSkillSel.required = false;
+    vedSkillSel.value = "";
+    vedToolSel.disabled = true;
+    vedToolSel.required = false;
+    vedToolSel.value = "";
   }
 
   block.style.display = "";
@@ -1006,6 +1163,16 @@ async function createHero(){
     setMessage("Выбери черту в блоке «Стартовые выборы».", false);
     return;
   }
+  const choiceVedSkillEl = document.getElementById("choiceVedalkenSkill");
+  const choiceVedToolEl = document.getElementById("choiceVedalkenTool");
+  const choiceVedSkill = String(choiceVedSkillEl ? choiceVedSkillEl.value : "").trim().toLowerCase();
+  const choiceVedTool = String(choiceVedToolEl ? choiceVedToolEl.value : "").trim().toLowerCase();
+  if(raceChoiceState.vedalkenRequired){
+    if(!choiceVedSkill || !choiceVedTool){
+      setMessage("Выбери навык и инструмент для «Неустанной скрупулёзности».", false);
+      return;
+    }
+  }
   const payload = {
     session_id: SESSION_ID,
     uid: getUID(),
@@ -1035,6 +1202,12 @@ async function createHero(){
   }
   if(choiceFeat){
     raceChoices.feats = [choiceFeat];
+  }
+  if(choiceVedSkill || choiceVedTool){
+    raceChoices.tireless_precision = {
+      skill: choiceVedSkill,
+      tool: choiceVedTool,
+    };
   }
   if(Object.keys(raceChoices).length > 0){
     payload.race_choices = raceChoices;
