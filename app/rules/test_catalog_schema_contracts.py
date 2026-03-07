@@ -170,6 +170,27 @@ def test_half_elf_reference_schema_payload() -> None:
     assert "extra_language" in traits
 
 
+def test_half_orc_reference_schema_payload() -> None:
+    half_orc = next((item for item in RACE_CATALOG if str(item.get("key") or "") == "half_orc"), None)
+    assert half_orc is not None
+    assert str(half_orc.get("size") or "") == "medium"
+    assert int(half_orc.get("speed_ft") or 0) == 30
+
+    languages = set(half_orc.get("languages") or [])
+    assert "common" in languages
+    assert "orc" in languages
+
+    asi = half_orc.get("asi") or []
+    assert any(item.get("stat") == "str" and int(item.get("bonus") or 0) == 2 for item in asi if isinstance(item, dict))
+    assert any(item.get("stat") == "con" and int(item.get("bonus") or 0) == 1 for item in asi if isinstance(item, dict))
+
+    traits = {str(item.get("key") or ""): item for item in (half_orc.get("traits") or []) if isinstance(item, dict)}
+    assert "darkvision_60" in traits
+    assert "menacing" in traits
+    assert "relentless_endurance" in traits
+    assert "savage_attacks" in traits
+
+
 def test_dwarf_reference_schema_payload() -> None:
     dwarf = next((item for item in RACE_CATALOG if str(item.get("key") or "") == "dwarf"), None)
     assert dwarf is not None

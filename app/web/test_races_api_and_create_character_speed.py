@@ -57,6 +57,7 @@ def test_api_races_nonempty() -> None:
     assert "elf" in race_ids
     assert "gnome" in race_ids
     assert "half_elf" in race_ids
+    assert "half_orc" in race_ids
     assert "halfling" in race_ids
 
 
