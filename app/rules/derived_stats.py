@@ -179,4 +179,10 @@ def compute_ac(*, stats: dict, inventory: list[dict], equip_map: dict[str, str],
     if shield_equip and shield_equip.grants_ac_bonus:
         ac += int(shield_equip.grants_ac_bonus)
 
+    # Runtime AC bonus from race features (e.g., Tortle Shell Defense +4 AC)
+    runtime = (race_features or {}).get("runtime") if isinstance(race_features, dict) else None
+    ac_bonus = _safe_int(runtime.get("ac_bonus"), 0) if isinstance(runtime, dict) else 0
+    if ac_bonus:
+        ac += int(ac_bonus)
+
     return _clamp(ac, 1, 50)

@@ -42,3 +42,11 @@ def test_compute_ac_no_armor_stack_uses_worn_armor() -> None:
     equip_map = {"body": "i1"}
     race_features = {"natural_armor": {"ac": 16, "no_armor_stack": True}}
     assert compute_ac(stats=stats, inventory=inv, equip_map=equip_map, race_features=race_features) == 13
+
+
+def test_compute_ac_applies_race_runtime_ac_bonus() -> None:
+    stats = {"dex": 50}
+    inv: list[dict] = []
+    equip_map: dict[str, str] = {}
+    rf = {"runtime": {"ac_bonus": 4}}
+    assert compute_ac(stats=stats, inventory=inv, equip_map=equip_map, race_features=rf) == 14
