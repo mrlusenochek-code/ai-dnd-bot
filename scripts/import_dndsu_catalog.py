@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Any
 
 
-DEFAULT_DNDSU_DATA_DIR = "/home/lus/downloads/dndsu-full/dnd.su"
+DEFAULT_CATALOG_SOURCE_DIR = "/home/lus/code/game_resources/catalog_source"
 DEFAULT_PRIVATE_DATA_DIR = "./data_private"
 
 
@@ -165,15 +165,21 @@ def _write_json(path: Path, payload: list[dict[str, Any]]) -> None:
 
 
 def main() -> int:
-    dndsu_dir = Path(os.getenv("DNDSU_DATA_DIR", DEFAULT_DNDSU_DATA_DIR)).expanduser()
+    source_dir_raw = (
+        os.getenv("CATALOG_SOURCE_DIR")
+        or os.getenv("DNDSU_ROOT")
+        or os.getenv("DNDSU_DATA_DIR")
+        or DEFAULT_CATALOG_SOURCE_DIR
+    )
+    source_dir = Path(source_dir_raw).expanduser()
     private_dir = Path(os.getenv("DNDSU_PRIVATE_DATA_DIR", DEFAULT_PRIVATE_DATA_DIR)).expanduser()
 
-    if not dndsu_dir.is_dir():
-        print(f"DNDSU_DATA_DIR not found: {dndsu_dir}")
+    if not source_dir.is_dir():
+        print(f"Catalog source dir not found: {source_dir}")
         return 1
 
-    classes = sorted(_build_classes(dndsu_dir), key=lambda x: str(x.get("id") or ""))
-    races = sorted(_build_races(dndsu_dir), key=lambda x: str(x.get("id") or ""))
+    classes = sorted(_build_classes(source_dir), key=lambda x: str(x.get("id") or ""))
+    races = sorted(_build_races(source_dir), key=lambda x: str(x.get("id") or ""))
 
     classes_path = private_dir / "dndsu_classes.json"
     races_path = private_dir / "dndsu_races.json"

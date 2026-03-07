@@ -48,10 +48,11 @@ cd ~/code/ai-dnd-bot
 - Фоновые watcher-задачи (`timer_watcher` и `inactive_watcher`) по умолчанию включены.
 - Чтобы отключить их для локальной разработки/отладки, установите `ENABLE_WATCHERS=0` в `.env`.
 
-## Приватный каталог dnd.su
-- `DNDSU_DATA_DIR=/home/lus/downloads/dndsu-full/dnd.su`
+## Внешний источник каталога
+- `CATALOG_SOURCE_DIR=/home/lus/code/game_resources/catalog_source`
 - `DNDSU_PRIVATE_DATA_DIR=./data_private`
+- Для обратной совместимости поддерживается legacy-переменная `DNDSU_ROOT` (и `DNDSU_DATA_DIR`).
 - Импорт локальных рас/классов в приватные JSON:
 ```bash
-python scripts/import_dndsu_catalog.py
+CATALOG_SOURCE_DIR=/home/lus/code/game_resources/catalog_source python scripts/import_dndsu_catalog.py
 ```
