@@ -157,3 +157,79 @@ def test_combat_dash_grants_extra_movement() -> None:
         assert state_now.combatants["pc_1"].move_remaining == 50
     finally:
         end_combat(session_id)
+
+
+def test_takeoff_and_land_do_not_reset_movement_budget_mid_turn() -> None:
+    session_id = "test_takeoff_and_land_do_not_reset_movement_budget_mid_turn"
+    state = start_combat(session_id)
+    state.combatants["pc_1"] = Combatant(
+        key="pc_1",
+        name="Герой",
+        side="pc",
+        hp_current=10,
+        hp_max=10,
+        ac=12,
+        initiative=20,
+        speed_ft=30,
+        movement_speeds={"walk": 30, "fly": 60},
+        movement_mode="walk",
+        move_speed_ft=1,
+        move_remaining_ft=1,
+        move_remaining=1,
+    )
+    state.combatants["enemy_1"] = Combatant(
+        key="enemy_1",
+        name="Гоблин",
+        side="enemy",
+        hp_current=10,
+        hp_max=10,
+        ac=12,
+        initiative=10,
+    )
+    state.order = ["enemy_1", "pc_1"]
+    state.turn_index = 0
+
+    try:
+        patch, err = handle_live_combat_action("combat_end_turn", session_id)
+        assert err is None
+        assert patch is not None
+
+        state_now = get_combat(session_id)
+        assert state_now is not None
+        actor = state_now.combatants["pc_1"]
+        assert actor.move_speed_ft == 30
+        assert actor.move_remaining_ft == 30
+
+        patch, err = handle_live_combat_action("combat_move", session_id, distance_ft=10)
+        assert err is None
+        assert patch is not None
+
+        state_now = get_combat(session_id)
+        assert state_now is not None
+        actor = state_now.combatants["pc_1"]
+        assert actor.move_speed_ft == 30
+        assert actor.move_remaining_ft == 20
+
+        patch, err = handle_live_combat_action("combat_takeoff", session_id)
+        assert err is None
+        assert patch is not None
+
+        state_now = get_combat(session_id)
+        assert state_now is not None
+        actor = state_now.combatants["pc_1"]
+        assert actor.movement_mode == "fly"
+        assert actor.move_speed_ft == 30
+        assert actor.move_remaining_ft == 20
+
+        patch, err = handle_live_combat_action("combat_land", session_id)
+        assert err is None
+        assert patch is not None
+
+        state_now = get_combat(session_id)
+        assert state_now is not None
+        actor = state_now.combatants["pc_1"]
+        assert actor.movement_mode == "walk"
+        assert actor.move_speed_ft == 30
+        assert actor.move_remaining_ft == 20
+    finally:
+        end_combat(session_id)
