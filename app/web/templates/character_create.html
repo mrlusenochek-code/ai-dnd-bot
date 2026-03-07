@@ -120,6 +120,10 @@
           <label>Черта (обязательно)</label>
           <select id="choiceFeat1"></select>
         </div>
+        <div id="choiceToolRow" style="display:none;">
+          <label>Инструмент (обязательно)</label>
+          <select id="choiceTool1"></select>
+        </div>
         <div id="choiceVedalkenRow" style="display:none;">
           <label>Неустанная скрупулёзность (обязательно)</label>
           <div class="row">
@@ -328,6 +332,8 @@ let raceChoiceState = {
   asiBonus: 1,
   skillRequired: false,
   featRequired: false,
+  toolRequired: false,
+  toolOptions: [],
   vedalkenRequired: false,
   vedalkenSkills: [],
   ancestryRequired: false,
@@ -674,6 +680,25 @@ function getFeatChoiceConfig(traits){
   return out;
 }
 
+function getToolChoiceConfig(traits){
+  const out = { required: false, choices: 0, from: [] };
+  const items = Array.isArray(traits) ? traits : [];
+  for(const t of items){
+    if(!t || typeof t !== "object") continue;
+    const key = String(t.key || "").trim().toLowerCase();
+    const mech = (t.mechanics && typeof t.mechanics === "object") ? t.mechanics : {};
+    const choose = Number(mech.choose ?? mech.count ?? 0);
+    const from = Array.isArray(mech.from) ? mech.from.map((x) => String(x || "").trim().toLowerCase()).filter(Boolean) : [];
+    if(key === "tool_proficiency" && choose === 1 && from.length > 0){
+      out.required = true;
+      out.choices = 1;
+      out.from = Array.from(new Set(from));
+      return out;
+    }
+  }
+  return out;
+}
+
 function getTirelessPrecisionChoiceConfig(traits){
   const out = { required: false, skills: [] };
   const items = Array.isArray(traits) ? traits : [];
@@ -832,6 +857,30 @@ function fillTirelessToolSelect(sel, prev){
   sel.value = keepPrev ? prevValue : "";
 }
 
+function fillToolChoiceSelect(sel, options, prev){
+  if(!sel) return;
+  const prevValue = String(prev || "");
+  const allowed = Array.isArray(options) ? options : [];
+  sel.innerHTML = "";
+  const first = document.createElement("option");
+  first.value = "";
+  first.textContent = "(выберите инструмент)";
+  sel.appendChild(first);
+  const sorted = allowed.slice().sort((a, b) => {
+    const aLabel = String(TIRELESS_TOOL_LABELS_RU[a] || a);
+    const bLabel = String(TIRELESS_TOOL_LABELS_RU[b] || b);
+    return aLabel.localeCompare(bLabel, "ru", { sensitivity: "base" });
+  });
+  for(const key of sorted){
+    const opt = document.createElement("option");
+    opt.value = key;
+    opt.textContent = TIRELESS_TOOL_LABELS_RU[key] || key;
+    sel.appendChild(opt);
+  }
+  const keepPrev = Array.from(sel.options).some(o => String(o.value) === prevValue);
+  sel.value = keepPrev ? prevValue : "";
+}
+
 function fillAncestrySelect(sel, options, prev){
   if(!sel) return;
   const prevValue = String(prev || "");
@@ -878,24 +927,28 @@ function renderRaceChoices(){
   const skillSel = document.getElementById("choiceSkill1");
   const featRow = document.getElementById("choiceFeatRow");
   const featSel = document.getElementById("choiceFeat1");
+  const toolRow = document.getElementById("choiceToolRow");
+  const toolSel = document.getElementById("choiceTool1");
   const vedRow = document.getElementById("choiceVedalkenRow");
   const vedSkillSel = document.getElementById("choiceVedalkenSkill");
   const vedToolSel = document.getElementById("choiceVedalkenTool");
   const ancestryRow = document.getElementById("choiceAncestryRow");
   const ancestrySel = document.getElementById("choiceAncestry");
-  if(!block || !langRow || !langSel || !asiRow || !asiSel1 || !asiSel2 || !skillRow || !skillSel || !featRow || !featSel || !vedRow || !vedSkillSel || !vedToolSel || !ancestryRow || !ancestrySel) return;
+  if(!block || !langRow || !langSel || !asiRow || !asiSel1 || !asiSel2 || !skillRow || !skillSel || !featRow || !featSel || !toolRow || !toolSel || !vedRow || !vedSkillSel || !vedToolSel || !ancestryRow || !ancestrySel) return;
 
   const ctx = getCurrentRaceContext();
   const langCfg = getLanguageChoiceConfig(ctx.effectiveTraits);
   const asiCfg = getAsiChoiceConfig(ctx.effectiveTraits);
   const skillCfg = getSkillChoiceConfig(ctx.effectiveTraits);
   const featCfg = getFeatChoiceConfig(ctx.effectiveTraits);
+  const toolCfg = getToolChoiceConfig(ctx.effectiveTraits);
   const vedCfg = getTirelessPrecisionChoiceConfig(ctx.effectiveTraits);
   const ancestryCfg = getDraconicAncestryChoiceConfig(ctx.effectiveTraits);
   const needsLanguage = !!langCfg.required;
   const needsAsi = !!asiCfg.required;
   const needsSkill = !!skillCfg.required;
   const needsFeat = !!featCfg.required;
+  const needsTool = !!toolCfg.required;
   const needsVedalken = !!vedCfg.required;
   const needsAncestry = !!ancestryCfg.required;
   raceChoiceState = {
@@ -904,18 +957,21 @@ function renderRaceChoices(){
     asiBonus: asiCfg.bonus || 1,
     skillRequired: needsSkill,
     featRequired: needsFeat,
+    toolRequired: needsTool,
+    toolOptions: Array.isArray(toolCfg.from) ? toolCfg.from.slice() : [],
     vedalkenRequired: needsVedalken,
     vedalkenSkills: Array.isArray(vedCfg.skills) ? vedCfg.skills.slice() : [],
     ancestryRequired: needsAncestry,
     ancestryOptions: Array.isArray(ancestryCfg.options) ? ancestryCfg.options.slice() : [],
   };
 
-  if(!needsLanguage && !needsAsi && !needsSkill && !needsFeat && !needsVedalken && !needsAncestry){
+  if(!needsLanguage && !needsAsi && !needsSkill && !needsFeat && !needsTool && !needsVedalken && !needsAncestry){
     block.style.display = "none";
     langRow.style.display = "none";
     asiRow.style.display = "none";
     skillRow.style.display = "none";
     featRow.style.display = "none";
+    toolRow.style.display = "none";
     langSel.disabled = true;
     langSel.required = false;
     langSel.value = "";
@@ -931,6 +987,9 @@ function renderRaceChoices(){
     featSel.disabled = true;
     featSel.required = false;
     featSel.value = "";
+    toolSel.disabled = true;
+    toolSel.required = false;
+    toolSel.value = "";
     vedRow.style.display = "none";
     vedSkillSel.disabled = true;
     vedSkillSel.required = false;
@@ -1016,6 +1075,19 @@ function renderRaceChoices(){
     featSel.disabled = true;
     featSel.required = false;
     featSel.value = "";
+  }
+
+  if(needsTool){
+    const prev = String(toolSel.value || "");
+    fillToolChoiceSelect(toolSel, toolCfg.from, prev);
+    toolRow.style.display = "";
+    toolSel.disabled = false;
+    toolSel.required = true;
+  }else{
+    toolRow.style.display = "none";
+    toolSel.disabled = true;
+    toolSel.required = false;
+    toolSel.value = "";
   }
 
   if(needsVedalken){
@@ -1276,6 +1348,12 @@ async function createHero(){
     setMessage("Выбери черту в блоке «Стартовые выборы».", false);
     return;
   }
+  const choiceToolEl = document.getElementById("choiceTool1");
+  const choiceTool = String(choiceToolEl ? choiceToolEl.value : "").trim().toLowerCase();
+  if(raceChoiceState.toolRequired && !choiceTool){
+    setMessage("Выбери инструмент в блоке «Стартовые выборы».", false);
+    return;
+  }
   const choiceVedSkillEl = document.getElementById("choiceVedalkenSkill");
   const choiceVedToolEl = document.getElementById("choiceVedalkenTool");
   const choiceVedSkill = String(choiceVedSkillEl ? choiceVedSkillEl.value : "").trim().toLowerCase();
@@ -1321,6 +1399,9 @@ async function createHero(){
   }
   if(choiceFeat){
     raceChoices.feats = [choiceFeat];
+  }
+  if(choiceTool){
+    raceChoices.tools = [choiceTool];
   }
   if(choiceVedSkill || choiceVedTool){
     raceChoices.tireless_precision = {

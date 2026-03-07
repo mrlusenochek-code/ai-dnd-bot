@@ -641,6 +641,9 @@ function openCharacterModal(){
   const saveAdvantages = Array.isArray(saves.advantage)
     ? saves.advantage.map((x) => String(x || "").trim().toLowerCase()).filter(Boolean)
     : [];
+  const saveAdvantageConditions = Array.isArray(saves.advantage_conditions)
+    ? saves.advantage_conditions.map((x) => String(x || "").trim().toLowerCase()).filter(Boolean)
+    : [];
   const _ABILITY_SHORT_RU = {
     "str": "Сил",
     "dex": "Лов",
@@ -651,6 +654,13 @@ function openCharacterModal(){
   };
   const saveAdvantagesRu = saveAdvantages
     .map((k) => _ABILITY_SHORT_RU[k] || k)
+    .filter(Boolean);
+  const _SAVE_CONDITION_RU = {
+    "poison": "яд",
+    "poisoned": "отравление",
+  };
+  const saveAdvantageConditionsRu = saveAdvantageConditions
+    .map((k) => _SAVE_CONDITION_RU[k] || k)
     .filter(Boolean);
   const telepathicInsightText = saveAdvantagesRu.length
     ? `Телепатическая проницательность: преим. спасброски: ${saveAdvantagesRu.join(", ")}`
@@ -700,6 +710,12 @@ function openCharacterModal(){
   const stoneEndurance = (raceFeaturesMeta.stone_endurance && typeof raceFeaturesMeta.stone_endurance === "object")
     ? raceFeaturesMeta.stone_endurance
     : null;
+  const stonecunning = (raceFeaturesMeta.stonecunning && typeof raceFeaturesMeta.stonecunning === "object")
+    ? raceFeaturesMeta.stonecunning
+    : null;
+  const stonecunningText = stonecunning
+    ? "Знание камня: преимущество/экспертиза по Истории (каменная кладка)"
+    : "";
   const healingHands = (raceFeaturesMeta.healing_hands && typeof raceFeaturesMeta.healing_hands === "object")
     ? raceFeaturesMeta.healing_hands
     : null;
@@ -829,6 +845,14 @@ function openCharacterModal(){
   const resistancesRu = resistances
     .map((k) => _DAMAGE_RU[String(k || "").trim().toLowerCase()] || String(k || ""))
     .filter(Boolean);
+  const hasPoisonResistance = resistances.map((x) => String(x || "").trim().toLowerCase()).includes("poison");
+  const hasPoisonSaveAdvantage = saveAdvantageConditions.includes("poison");
+  const dwarvenResilienceParts = [];
+  if(hasPoisonResistance) dwarvenResilienceParts.push("сопротивление яду");
+  if(hasPoisonSaveAdvantage) dwarvenResilienceParts.push("преимущество против яда");
+  const dwarvenResilienceText = dwarvenResilienceParts.length
+    ? `Дварфская стойкость: ${dwarvenResilienceParts.join("; ")}`
+    : "";
 
   const prof = (rf.proficiencies && typeof rf.proficiencies === "object") ? rf.proficiencies : {};
   const profSkills = Array.isArray(prof.skills) ? prof.skills.map(x => String(x)).filter(Boolean) : [];
@@ -867,6 +891,10 @@ function openCharacterModal(){
     "weavers_tools": "Инструменты ткача",
     "woodcarvers_tools": "Инструменты резчика по дереву",
   };
+  const profToolsRu = profTools.map((x) => {
+    const key = String(x || "").trim().toLowerCase();
+    return TOOL_LABELS_RU[key] || String(x || "");
+  }).filter(Boolean);
   const tirelessToolRu = tirelessToolKey ? (TOOL_LABELS_RU[tirelessToolKey] || tirelessToolKey) : "";
   const tirelessPrecisionText = (tirelessSkillRu && tirelessToolRu)
     ? `Неустанная скрупулёзность: навык ${tirelessSkillRu}, инструмент ${tirelessToolRu}, бонус 1d4`
@@ -1038,11 +1066,20 @@ function openCharacterModal(){
   if(resistancesRu.length){
     details.push(`<div class="char-line"><strong>Сопротивления:</strong> ${escapeHtml(resistancesRu.join(", "))}</div>`);
   }
+  if(saveAdvantageConditionsRu.length){
+    details.push(`<div class="char-line"><strong>Преим. против:</strong> ${escapeHtml(saveAdvantageConditionsRu.join(", "))} (спасброски)</div>`);
+  }
+  if(dwarvenResilienceText){
+    details.push(`<div class="char-line"><strong>Дварфская стойкость:</strong> ${escapeHtml(dwarvenResilienceText.replace(/^Дварфская стойкость:\s*/, ""))}</div>`);
+  }
   if(carry.powerful_build === true){
     details.push("<div class=\"char-line\"><strong>Мощное телосложение:</strong> считается на 1 размер больше для переноски/толкания/тяги/подъёма</div>");
   }
   if(stoneEndurance){
     details.push("<div class=\"char-line\"><strong>Каменная выносливость:</strong> реакция, 1/к/дл отдых: снижает урон (1d12 + мод. Тел)</div>");
+  }
+  if(stonecunningText){
+    details.push(`<div class="char-line"><strong>Знание камня:</strong> ${escapeHtml(stonecunningText.replace(/^Знание камня:\s*/, ""))}</div>`);
   }
   if(telepathyText){
     details.push(`<div class="char-line"><strong>Телепатия:</strong> ${escapeHtml(telepathyText.replace(/^Телепатия:\s*/, ""))}</div>`);
@@ -1084,7 +1121,7 @@ function openCharacterModal(){
     details.push(`<div class="char-line"><strong>Проф. навыков (раса):</strong> ${escapeHtml(profSkills.join(", "))}</div>`);
   }
   if(profTools.length){
-    details.push(`<div class="char-line"><strong>Проф. инструментов (раса):</strong> ${escapeHtml(profTools.join(", "))}</div>`);
+    details.push(`<div class="char-line"><strong>Проф. инструментов (раса):</strong> ${escapeHtml(profToolsRu.join(", "))}</div>`);
   }
   if(featChoiceRu){
     details.push(`<div class="char-line"><strong>Черта:</strong> ${escapeHtml(featChoiceRu)}</div>`);
@@ -1126,8 +1163,11 @@ function openCharacterModal(){
   if(darkvisionFt !== null) copyLines.push(`Тёмное зрение: ${darkvisionFt} фт`);
   if(natArmorText) copyLines.push(`Природный доспех: ${natArmorText}`);
   if(resistancesRu.length) copyLines.push(`Сопротивления: ${resistancesRu.join(", ")}`);
+  if(saveAdvantageConditionsRu.length) copyLines.push(`Преим. против: ${saveAdvantageConditionsRu.join(", ")} (спасброски)`);
+  if(dwarvenResilienceText) copyLines.push(dwarvenResilienceText);
   if(carry.powerful_build === true) copyLines.push("Мощное телосложение: считается на 1 размер больше для переноски/толкания/тяги/подъёма");
   if(stoneEndurance) copyLines.push("Каменная выносливость: реакция, 1/к/дл отдых: снижает урон (1d12 + мод. Тел)");
+  if(stonecunningText) copyLines.push(stonecunningText);
   if(telepathyText) copyLines.push(telepathyText);
   if(blackBloodText) copyLines.push(blackBloodText);
   if(telepathicInsightText) copyLines.push(telepathicInsightText);
@@ -1141,7 +1181,7 @@ function openCharacterModal(){
   if(saveAdvantagesRu.length) copyLines.push(`Преим. спасброски: ${saveAdvantagesRu.join(", ")}`);
   if(langsRu.length) copyLines.push(`Языки: ${langsRu.join(", ")}`);
   if(profSkills.length) copyLines.push(`Проф. навыков (раса): ${profSkills.join(", ")}`);
-  if(profTools.length) copyLines.push(`Проф. инструментов (раса): ${profTools.join(", ")}`);
+  if(profTools.length) copyLines.push(`Проф. инструментов (раса): ${profToolsRu.join(", ")}`);
   if(featChoiceRu) copyLines.push(`Черта: ${featChoiceRu}`);
   copyLines.push(`HP/STA: ${String(ch.hp ?? "—")}/${String(ch.hp_max ?? "—")} | ${String(ch.sta ?? "—")}/${String(ch.sta_max ?? "—")}`);
   copyLines.push(`Прогресс уровня: XP ${xpTotal}/${nextLevelTotal}, до след. ${toNextLevel}`);

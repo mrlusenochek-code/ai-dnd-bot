@@ -480,6 +480,14 @@ def _build_race_features(selected_race: dict | None) -> dict[str, Any]:
     def _as_list(v):
         return list(v) if isinstance(v, (list, tuple)) else []
 
+    def _uniq_lower_str_list(v):
+        out: list[str] = []
+        for item in _as_list(v):
+            value = str(item or "").strip().lower()
+            if value and value not in out:
+                out.append(value)
+        return out
+
     # speeds
     walk = as_int(selected_race.get("speed_ft"), 30)
     speeds: dict[str, Any] = {"walk_ft": max(0, walk)}
@@ -496,6 +504,8 @@ def _build_race_features(selected_race: dict | None) -> dict[str, Any]:
     immune_cond: list[str] = []
     skill_profs: list[str] = []
     tool_profs: list[str] = []
+    weapon_profs: list[str] = []
+    armor_profs: list[str] = []
     out_nat: dict[str, Any] | None = None
     out_nat_weapons: list[dict[str, Any]] = []
     breath: dict[str, Any] = {}
@@ -504,7 +514,10 @@ def _build_race_features(selected_race: dict | None) -> dict[str, Any]:
     carry: dict[str, Any] = {}
     features: dict[str, Any] = {}
     saves: dict[str, Any] = {}
+    save_advantage_conditions: list[str] = []
     allowed_save_abilities = {"str", "dex", "con", "int", "wis", "cha"}
+    race_key = str(selected_race.get("key") or "").strip().lower()
+    speed_notes_ru = str(selected_race.get("speed_notes_ru") or details.get("speed_notes_ru") or "").strip().lower()
 
     for t in traits:
         if not isinstance(t, dict):
@@ -513,8 +526,10 @@ def _build_race_features(selected_race: dict | None) -> dict[str, Any]:
         if not isinstance(mech, dict):
             mech = {}
         mtype = str(mech.get("type") or "").strip().lower()
+        mname = str(mech.get("name") or "").strip().lower()
+        tkey = str(t.get("key") or "").strip().lower()
 
-        if mtype == "darkvision":
+        if mtype == "darkvision" or (mtype == "sense" and mname == "darkvision"):
             senses["darkvision_ft"] = max(as_int(mech.get("range_ft"), 60), 0)
 
         if mtype in ("swim_speed", "fly_speed", "climb_speed"):
@@ -561,6 +576,22 @@ def _build_race_features(selected_race: dict | None) -> dict[str, Any]:
 
         if mtype == "tool_proficiency_choice":
             tool_profs.append("choose_any_tools")
+
+        if mtype == "proficiency":
+            weapon_profs.extend(_uniq_lower_str_list(mech.get("weapons")))
+            armor_profs.extend(_uniq_lower_str_list(mech.get("armor")))
+            tool_profs.extend(_uniq_lower_str_list(mech.get("tools")))
+
+        if _uniq_lower_str_list(mech.get("resistances")):
+            resist.extend(_uniq_lower_str_list(mech.get("resistances")))
+        if _uniq_lower_str_list(mech.get("saves_advantage")):
+            save_advantage_conditions.extend(_uniq_lower_str_list(mech.get("saves_advantage")))
+
+        if tkey == "tool_proficiency":
+            choose = max(as_int(mech.get("choose"), 0), 0)
+            from_items = _uniq_lower_str_list(mech.get("from"))
+            if choose > 0 and from_items:
+                features["tool_choice"] = {"choose": choose, "from": from_items}
 
         if mtype == "natural_armor":
             # Supports either fixed AC or formula in mechanics
@@ -634,6 +665,9 @@ def _build_race_features(selected_race: dict | None) -> dict[str, Any]:
         if mtype == "stone_endurance":
             features["stone_endurance"] = dict(mech)
 
+        if mtype == "skill_bonus":
+            features["stonecunning"] = dict(mech)
+
         if mtype == "healing_hands":
             features["healing_hands"] = dict(mech)
 
@@ -684,6 +718,11 @@ def _build_race_features(selected_race: dict | None) -> dict[str, Any]:
             if abilities:
                 saves["advantage"] = abilities
 
+    if save_advantage_conditions:
+        saves["advantage_conditions"] = sorted(set(save_advantage_conditions))
+    if race_key == "dwarf" or ("тяж" in speed_notes_ru and "не сниж" in speed_notes_ru and "скорост" in speed_notes_ru):
+        movement["ignore_heavy_armor_speed_penalty"] = True
+
     out: dict[str, Any] = {
         "race_key": str(selected_race.get("key") or "").strip(),
         "size": size,
@@ -700,6 +739,8 @@ def _build_race_features(selected_race: dict | None) -> dict[str, Any]:
         "proficiencies": {
             "skills": sorted(set(skill_profs)),
             "tools": sorted(set(tool_profs)),
+            "weapons": sorted(set(weapon_profs)),
+            "armor": sorted(set(armor_profs)),
         },
         "breath": breath,
         "movement": movement,
@@ -746,6 +787,7 @@ async def api_character_create(payload: dict):
     race_choice_asi: list[dict[str, Any]] = []
     race_choice_skills: list[str] = []
     race_choice_feats: list[str] = []
+    race_choice_tools: list[str] = []
     race_choice_tp_skill = ""
     race_choice_tp_tool = ""
     race_choice_draconic_ancestry = ""
@@ -826,6 +868,12 @@ async def api_character_create(payload: dict):
             race_choice_feats.append(feat)
         if len(race_choice_feats) > 1:
             raise HTTPException(status_code=400, detail="Only one feat choice is allowed")
+        raw_tools = race_choices_payload.get("tools")
+        raw_tools_list = raw_tools if isinstance(raw_tools, list) else []
+        for item in raw_tools_list:
+            tool = str(item or "").strip().lower()
+            if tool and tool not in race_choice_tools:
+                race_choice_tools.append(tool)
         raw_tp = race_choices_payload.get("tireless_precision")
         if isinstance(raw_tp, dict):
             race_choice_tp_skill = str(raw_tp.get("skill") or "").strip().lower()
@@ -1016,6 +1064,30 @@ async def api_character_create(payload: dict):
                 "key": str(selected_subrace.get("key") or "").strip(),
                 "name_ru": str(selected_subrace.get("name_ru") or selected_subrace.get("name") or "").strip(),
             }
+        tool_choice_cfg: dict[str, Any] = {}
+        if isinstance(race_features, dict):
+            rf_features = race_features.get("features")
+            if isinstance(rf_features, dict):
+                maybe_tool_choice = rf_features.get("tool_choice")
+                if isinstance(maybe_tool_choice, dict):
+                    tool_choice_cfg = maybe_tool_choice
+        allowed_tool_choices: list[str] = []
+        for item in (tool_choice_cfg.get("from") if isinstance(tool_choice_cfg.get("from"), list) else []):
+            tool = str(item or "").strip().lower()
+            if tool and tool not in allowed_tool_choices:
+                allowed_tool_choices.append(tool)
+        required_tool_choices = max(as_int(tool_choice_cfg.get("choose"), 0), 0)
+        if required_tool_choices > 0:
+            if len(race_choice_tools) != required_tool_choices:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Exactly {required_tool_choices} race tool choice(s) required",
+                )
+            for tool in race_choice_tools:
+                if tool not in allowed_tool_choices:
+                    raise HTTPException(status_code=400, detail=f"Invalid race tool choice: {tool}")
+        elif race_choice_tools:
+            raise HTTPException(status_code=400, detail="Race tool choice is not available for selected race")
         choices = race_features.get("choices") if isinstance(race_features, dict) else None
         choices_dict: dict[str, Any] = choices if isinstance(choices, dict) else {}
         if isinstance(race_features, dict) and race_choice_languages:
@@ -1043,6 +1115,19 @@ async def api_character_create(payload: dict):
             prof_dict["skills"] = merged_skills
             race_features["proficiencies"] = prof_dict
             choices_dict["skills"] = list(race_choice_skills)
+        if isinstance(race_features, dict) and race_choice_tools:
+            prof = race_features.get("proficiencies")
+            prof_dict = prof if isinstance(prof, dict) else {}
+            prof_tools = prof_dict.get("tools")
+            prof_tools_list = prof_tools if isinstance(prof_tools, list) else []
+            merged_tools: list[str] = []
+            for item in [*prof_tools_list, *race_choice_tools]:
+                tool = str(item or "").strip().lower()
+                if tool and tool not in merged_tools:
+                    merged_tools.append(tool)
+            prof_dict["tools"] = merged_tools
+            race_features["proficiencies"] = prof_dict
+            choices_dict["tools"] = list(race_choice_tools)
         if isinstance(race_features, dict) and race_choice_feats:
             choices_dict["feats"] = list(race_choice_feats)
         if isinstance(race_features, dict) and race_choice_tp_skill and race_choice_tp_tool:
@@ -1125,6 +1210,8 @@ async def api_character_create(payload: dict):
 
         hp_max = max(1, as_int((selected_preset or {}).get("hp_max"), 20))
         sta_max = max(1, as_int((selected_preset or {}).get("sta_max"), 10))
+        if str((selected_subrace or {}).get("key") or "").strip().lower() == "hill_dwarf":
+            hp_max += 1
         ch = await create_character(
             db,
             sess.id,
