@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Any
 
 from app.rules.catalog_loader import load_catalogs
+from app.rules.races_imported import IMPORTED_RACE_CATALOG
 
 
 def _slug(value: Any) -> str:
@@ -1281,9 +1282,12 @@ BASE_RACE_CATALOG: list[dict[str, Any]] = [
 ]
 
 
+COMBINED_RACE_CATALOG: list[dict[str, Any]] = BASE_RACE_CATALOG + IMPORTED_RACE_CATALOG
+
+
 CLASS_CATALOG, RACE_CATALOG = load_catalogs(
     base_classes=BASE_CLASS_CATALOG,
-    base_races=BASE_RACE_CATALOG,
+    base_races=COMBINED_RACE_CATALOG,
 )
 
 

@@ -77,3 +77,16 @@ def test_api_classes_contains_barbarian() -> None:
     classes = payload.get("classes") or []
     class_ids = {str(item.get("id") or "") for item in classes if isinstance(item, dict)}
     assert "barbarian" in class_ids
+
+
+def test_api_races_contains_imported_keys() -> None:
+    async def _run():
+        return await api_races()
+
+    resp = asyncio.run(_run())
+    payload = json.loads(resp.body)
+    races = payload.get("races") or []
+    race_ids = {str(item.get("id") or "") for item in races if isinstance(item, dict)}
+    assert "shifter" in race_ids
+    assert "orc" in race_ids
+    assert "triton" in race_ids
