@@ -89,6 +89,33 @@ def test_human_reference_schema_payload() -> None:
     assert "extra_language" in variant_traits
 
 
+def test_aarakocra_reference_schema_payload() -> None:
+    aarakocra = next((item for item in RACE_CATALOG if str(item.get("key") or "") == "aarakocra"), None)
+    assert aarakocra is not None
+    assert str(aarakocra.get("size") or "") == "medium"
+    assert int(aarakocra.get("speed_ft") or 0) == 25
+
+    asi = aarakocra.get("asi") or []
+    assert any(item.get("stat") == "dex" and int(item.get("bonus") or 0) == 2 for item in asi if isinstance(item, dict))
+    assert any(item.get("stat") == "wis" and int(item.get("bonus") or 0) == 1 for item in asi if isinstance(item, dict))
+
+    languages = set(aarakocra.get("languages") or [])
+    assert "common" in languages
+    assert "auran" in languages
+    assert "aarakocra" in languages
+
+    traits = {str(item.get("key") or ""): item for item in (aarakocra.get("traits") or []) if isinstance(item, dict)}
+    assert "flight_aarakocra" in traits
+    assert "claws" in traits
+
+    flight = traits["flight_aarakocra"]
+    flight_mechanics = flight.get("mechanics") or {}
+    assert int(flight_mechanics.get("speed_ft") or 0) == 50
+    restrictions = (flight_mechanics.get("restriction") or {}).get("no_armor_categories") or []
+    assert "medium" in restrictions
+    assert "heavy" in restrictions
+
+
 def test_dragonborn_reference_schema_payload() -> None:
     dragonborn = next((item for item in RACE_CATALOG if str(item.get("key") or "") == "dragonborn"), None)
     assert dragonborn is not None

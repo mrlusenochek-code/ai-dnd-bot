@@ -51,7 +51,9 @@ def test_api_races_nonempty() -> None:
     races = payload.get("races") or []
     assert races
     race_ids = {str(item.get("id") or "") for item in races if isinstance(item, dict)}
+    race_names = {str(item.get("id") or ""): str(item.get("name") or "") for item in races if isinstance(item, dict)}
     assert "human" in race_ids
+    assert "aarakocra" in race_ids
     assert "dragonborn" in race_ids
     assert "dwarf" in race_ids
     assert "elf" in race_ids
@@ -60,6 +62,8 @@ def test_api_races_nonempty() -> None:
     assert "half_orc" in race_ids
     assert "halfling" in race_ids
     assert "tiefling" in race_ids
+    assert race_names.get("human") == "Человек"
+    assert race_names.get("aarakocra") == "Ааракокра"
 
 
 def test_api_classes_contains_barbarian() -> None:

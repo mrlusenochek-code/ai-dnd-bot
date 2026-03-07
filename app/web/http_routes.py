@@ -247,13 +247,14 @@ async def api_races():
         items.append(
             {
                 "id": race_id,
-                "name": race_item.get("name") or race_item.get("name_ru") or race_id,
+                "name": race_item.get("name_ru") or race_item.get("name") or race_id,
                 "source": race_item.get("source") or "custom",
                 "speed_ft": max(0, as_int(race_item.get("speed_ft"), 30)),
                 "hit_die": max(1, as_int(race_item.get("hit_die"), 8)),
                 "subraces": list(race_item.get("subraces") or []),
                 "details": {
                     "name_ru": race_item.get("name_ru") or race_id,
+                    "name_en": race_item.get("name") or race_id,
                     "description_ru": race_item.get("description_ru") or "",
                     "asi": list(race_item.get("asi") or []),
                     "age": dict(race_item.get("age") or {}),
