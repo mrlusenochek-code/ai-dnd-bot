@@ -156,6 +156,15 @@ const SESSION_ID = "{{ session_id }}";
 const STAT_KEYS = ["str","dex","con","int","wis","cha"];
 let classes = [];
 let races = [];
+function _sortByNameRu(a, b){
+  const aName = String((a && (a.name_ru || a.name)) || "").trim();
+  const bName = String((b && (b.name_ru || b.name)) || "").trim();
+  const r = aName.localeCompare(bName, "ru", { sensitivity: "base" });
+  if(r !== 0) return r;
+  const aId = String((a && a.id) || "").trim();
+  const bId = String((b && b.id) || "").trim();
+  return aId.localeCompare(bId, "ru", { sensitivity: "base" });
+}
 let currentPreset = null;
 let stats = {str:50,dex:50,con:50,int:50,wis:50,cha:50};
 
@@ -415,6 +424,7 @@ async function loadClasses(){
   const data = await r.json();
 
   classes = data.classes || [];
+  classes.sort(_sortByNameRu);
 
   const sel = document.getElementById("classId");
   sel.innerHTML = "";
@@ -440,6 +450,7 @@ async function loadRaces(){
   const r = await fetch("/api/races");
   const data = await r.json();
   races = data.races || [];
+  races.sort(_sortByNameRu);
   const sel = document.getElementById("raceId");
   sel.innerHTML = "";
   for(const it of races){
