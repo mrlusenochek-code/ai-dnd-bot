@@ -473,6 +473,7 @@ def _build_race_features(selected_race: dict | None) -> dict[str, Any]:
     skill_profs: list[str] = []
     tool_profs: list[str] = []
     out_nat: dict[str, Any] | None = None
+    out_nat_weapons: list[dict[str, Any]] = []
 
     for t in traits:
         if not isinstance(t, dict):
@@ -529,6 +530,27 @@ def _build_race_features(selected_race: dict | None) -> dict[str, Any]:
             if nat_obj:
                 out_nat = nat_obj
 
+        if mtype == "natural_weapon":
+            weapon_key = str(t.get("key") or mech.get("key") or "").strip().lower()
+            name_ru = str(t.get("name_ru") or mech.get("name_ru") or "").strip()
+            damage_dice = str(mech.get("damage_dice") or "").strip().lower()
+            damage_type = str(mech.get("damage_type") or "").strip().lower()
+            kind = str(mech.get("kind") or "").strip().lower()
+            ability = str(mech.get("ability") or "").strip().lower()
+            if kind == "unarmed" and not ability:
+                ability = "str"
+            if damage_dice and damage_type:
+                out_nat_weapons.append(
+                    {
+                        "key": weapon_key,
+                        "name_ru": name_ru,
+                        "damage_dice": damage_dice,
+                        "damage_type": damage_type,
+                        "kind": kind,
+                        "ability": ability,
+                    }
+                )
+
     out: dict[str, Any] = {
         "race_key": str(selected_race.get("key") or "").strip(),
         "size": size,
@@ -536,6 +558,7 @@ def _build_race_features(selected_race: dict | None) -> dict[str, Any]:
         "speeds": speeds,
         "senses": senses,
         "natural_armor": out_nat or {},
+        "natural_weapons": out_nat_weapons,
         "resistances": sorted(set(resist)),
         "immunities": {
             "damage": sorted(set(immune_damage)),

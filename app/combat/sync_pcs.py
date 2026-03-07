@@ -77,4 +77,5 @@ def sync_pcs_from_chars(session_id: str, chars_by_uid: dict[int, Any]) -> None:
             stats=stats_payload,
             inventory=inventory_payload,
             equip=equip_payload,
+            race_features=rf if isinstance(rf, dict) else None,
         )

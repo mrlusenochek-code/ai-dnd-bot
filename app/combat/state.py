@@ -34,6 +34,7 @@ class Combatant:
     stats: dict[str, int] | None = None
     inventory: list[dict[str, Any]] | None = None
     equip: dict[str, str] | None = None
+    race_features: dict[str, Any] | None = None
     level: int = 1
 
 
@@ -110,6 +111,12 @@ def _sanitize_equip_payload(value: Any) -> dict[str, str] | None:
         if isinstance(k, str) and isinstance(v, str):
             out[k] = v
     return out
+
+
+def _sanitize_race_features_payload(value: Any) -> dict[str, Any] | None:
+    if not isinstance(value, dict):
+        return None
+    return dict(value)
 
 
 def _normalize_level(value: Any) -> int:
@@ -192,6 +199,7 @@ def upsert_pc(
     stats: dict[str, int] | None = None,
     inventory: list[dict[str, Any]] | None = None,
     equip: dict[str, str] | None = None,
+    race_features: dict[str, Any] | None = None,
 ) -> CombatState | None:
     state = get_combat(session_id)
     if state is None or not state.active:
@@ -213,6 +221,7 @@ def upsert_pc(
     stats_norm = _sanitize_stats_payload(stats)
     inventory_norm = _sanitize_inventory_payload(inventory)
     equip_norm = _sanitize_equip_payload(equip)
+    race_features_norm = _sanitize_race_features_payload(race_features)
 
     existing = state.combatants.get(pc_key)
     if existing is not None:
@@ -227,6 +236,7 @@ def upsert_pc(
         existing.stats = stats_norm
         existing.inventory = inventory_norm
         existing.equip = equip_norm
+        existing.race_features = race_features_norm
     else:
         state.combatants[pc_key] = Combatant(
             key=pc_key,
@@ -242,6 +252,7 @@ def upsert_pc(
             stats=stats_norm,
             inventory=inventory_norm,
             equip=equip_norm,
+            race_features=race_features_norm,
         )
 
     from app.combat.turns import build_initiative_order
@@ -319,6 +330,9 @@ def combatant_to_dict(c: Combatant) -> dict[str, Any]:
     equip = _sanitize_equip_payload(c.equip)
     if equip is not None:
         payload["equip"] = equip
+    race_features = _sanitize_race_features_payload(c.race_features)
+    if race_features is not None:
+        payload["race_features"] = race_features
     return payload
 
 
@@ -414,6 +428,7 @@ def combatant_from_dict(raw: Any) -> Combatant | None:
         stats=_sanitize_stats_payload(raw.get("stats")),
         inventory=_sanitize_inventory_payload(raw.get("inventory")),
         equip=_sanitize_equip_payload(raw.get("equip")),
+        race_features=_sanitize_race_features_payload(raw.get("race_features")),
         level=level_norm,
     )
 

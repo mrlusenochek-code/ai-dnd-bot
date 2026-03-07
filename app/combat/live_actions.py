@@ -858,7 +858,13 @@ def handle_live_combat_action(
         stats = attacker.stats if isinstance(attacker.stats, dict) else {}
         inventory = attacker.inventory if isinstance(attacker.inventory, list) else []
         equip_map = attacker.equip if isinstance(attacker.equip, dict) else {}
-        profile = compute_attack_profile(stats=stats, inventory=inventory, equip_map=equip_map, level=attacker.level)
+        profile = compute_attack_profile(
+            stats=stats,
+            inventory=inventory,
+            equip_map=equip_map,
+            level=attacker.level,
+            race_features=getattr(attacker, "race_features", None),
+        )
         parsed = parse_dice(profile.damage_dice)
         if parsed is None:
             n, sides = 1, 6
@@ -1012,7 +1018,13 @@ def handle_live_combat_action(
         stats = attacker.stats if isinstance(attacker.stats, dict) else {}
         inventory = attacker.inventory if isinstance(attacker.inventory, list) else []
         equip_map = attacker.equip if isinstance(attacker.equip, dict) else {}
-        profile = compute_attack_profile(stats=stats, inventory=inventory, equip_map=equip_map, level=attacker.level)
+        profile = compute_attack_profile(
+            stats=stats,
+            inventory=inventory,
+            equip_map=equip_map,
+            level=attacker.level,
+            race_features=getattr(attacker, "race_features", None),
+        )
         parsed = parse_dice(profile.damage_dice)
         if parsed is None:
             n, sides = 1, 6

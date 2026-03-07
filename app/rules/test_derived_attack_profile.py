@@ -57,3 +57,30 @@ def test_compute_attack_profile_shortbow_level_five_gains_prof_bonus() -> None:
 
     assert profile.attack_bonus == 3
     assert profile.damage_bonus == 0
+
+
+def test_compute_attack_profile_uses_race_natural_unarmed_weapon_when_no_weapon_equipped() -> None:
+    stats = {"str": 50, "dex": 50}
+    inv: list[dict] = []
+    equip_map: dict[str, str] = {}
+    race_features = {
+        "natural_weapons": [
+            {
+                "damage_dice": "1d4",
+                "damage_type": "slashing",
+                "kind": "unarmed",
+                "ability": "str",
+            }
+        ]
+    }
+
+    profile = compute_attack_profile(
+        stats=stats,
+        inventory=inv,
+        equip_map=equip_map,
+        level=1,
+        race_features=race_features,
+    )
+
+    assert profile.damage_dice == "1d4"
+    assert profile.damage_type == "slashing"

@@ -54,11 +54,60 @@ def parse_dice(dice: str) -> tuple[int, int] | None:
     return n, m
 
 
-def compute_attack_profile(*, stats: dict, inventory: list[dict], equip_map: dict[str, str], level: int | None = None) -> AttackProfile:
+def _ability_mod_by_key(ability_key: str, *, str_mod: int, dex_mod: int, con_mod: int, int_mod: int, wis_mod: int, cha_mod: int) -> int:
+    key = str(ability_key or "").strip().lower()
+    if key == "dex":
+        return dex_mod
+    if key == "con":
+        return con_mod
+    if key == "int":
+        return int_mod
+    if key == "wis":
+        return wis_mod
+    if key == "cha":
+        return cha_mod
+    return str_mod
+
+
+def _first_unarmed_natural_weapon(race_features: dict | None) -> dict[str, Any] | None:
+    if not isinstance(race_features, dict):
+        return None
+    raw = race_features.get("natural_weapons")
+    items = raw if isinstance(raw, list) else []
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        kind = str(item.get("kind") or "").strip().lower()
+        damage_dice = str(item.get("damage_dice") or "").strip().lower()
+        damage_type = str(item.get("damage_type") or "").strip().lower()
+        if kind != "unarmed":
+            continue
+        if not damage_dice or not damage_type:
+            continue
+        return item
+    return None
+
+
+def compute_attack_profile(
+    *,
+    stats: dict,
+    inventory: list[dict],
+    equip_map: dict[str, str],
+    level: int | None = None,
+    race_features: dict | None = None,
+) -> AttackProfile:
     str_stat = _safe_int(stats.get("str", 50), 50) if isinstance(stats, dict) else 50
     dex_stat = _safe_int(stats.get("dex", 50), 50) if isinstance(stats, dict) else 50
+    con_stat = _safe_int(stats.get("con", 50), 50) if isinstance(stats, dict) else 50
+    int_stat = _safe_int(stats.get("int", 50), 50) if isinstance(stats, dict) else 50
+    wis_stat = _safe_int(stats.get("wis", 50), 50) if isinstance(stats, dict) else 50
+    cha_stat = _safe_int(stats.get("cha", 50), 50) if isinstance(stats, dict) else 50
     str_mod = ability_mod_from_stat100(str_stat)
     dex_mod = ability_mod_from_stat100(dex_stat)
+    con_mod = ability_mod_from_stat100(con_stat)
+    int_mod = ability_mod_from_stat100(int_stat)
+    wis_mod = ability_mod_from_stat100(wis_stat)
+    cha_mod = ability_mod_from_stat100(cha_stat)
     prof = proficiency_bonus(level or 1)
 
     by_id: dict[str, dict[str, Any]] = {}
@@ -106,6 +155,28 @@ def compute_attack_profile(*, stats: dict, inventory: list[dict], equip_map: dic
 
     attack_bonus = str_mod + prof
     damage_bonus = str_mod
+    nat_unarmed = _first_unarmed_natural_weapon(race_features)
+    if nat_unarmed is not None:
+        ability_key = str(nat_unarmed.get("ability") or "str").strip().lower()
+        stat_mod = _ability_mod_by_key(
+            ability_key,
+            str_mod=str_mod,
+            dex_mod=dex_mod,
+            con_mod=con_mod,
+            int_mod=int_mod,
+            wis_mod=wis_mod,
+            cha_mod=cha_mod,
+        )
+        attack_bonus = stat_mod + prof
+        damage_bonus = stat_mod
+        return AttackProfile(
+            attack_bonus=attack_bonus,
+            damage_dice=str(nat_unarmed.get("damage_dice") or "1d4").strip().lower(),
+            damage_bonus=damage_bonus,
+            damage_type=str(nat_unarmed.get("damage_type") or "bludgeoning").strip().lower(),
+            properties=(),
+            mastery=None,
+        )
     return AttackProfile(
         attack_bonus=attack_bonus,
         damage_dice="1d4",
