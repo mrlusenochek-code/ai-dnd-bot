@@ -167,6 +167,27 @@ def test_genasi_reference_schema_payload() -> None:
     assert "call_to_the_wave" in water_traits
 
 
+def test_goliath_reference_schema_payload() -> None:
+    goliath = next((item for item in RACE_CATALOG if str(item.get("key") or "") == "goliath"), None)
+    assert goliath is not None
+    assert str(goliath.get("size") or "") == "medium"
+    assert int(goliath.get("speed_ft") or 0) == 30
+
+    asi = goliath.get("asi") or []
+    assert any(item.get("stat") == "str" and int(item.get("bonus") or 0) == 2 for item in asi if isinstance(item, dict))
+    assert any(item.get("stat") == "con" and int(item.get("bonus") or 0) == 1 for item in asi if isinstance(item, dict))
+
+    languages = set(goliath.get("languages") or [])
+    assert "common" in languages
+    assert "giant" in languages
+
+    traits = {str(item.get("key") or ""): item for item in (goliath.get("traits") or []) if isinstance(item, dict)}
+    assert "stone_endurance" in traits
+    assert "powerful_build" in traits
+    assert "mountain_born" in traits
+    assert "athletics_proficiency" in traits
+
+
 def test_dragonborn_reference_schema_payload() -> None:
     dragonborn = next((item for item in RACE_CATALOG if str(item.get("key") or "") == "dragonborn"), None)
     assert dragonborn is not None

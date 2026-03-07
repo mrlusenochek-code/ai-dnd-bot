@@ -58,6 +58,7 @@ def test_api_races_nonempty() -> None:
     assert "dwarf" in race_ids
     assert "elf" in race_ids
     assert "genasi" in race_ids
+    assert "goliath" in race_ids
     assert "gnome" in race_ids
     assert "half_elf" in race_ids
     assert "half_orc" in race_ids
@@ -66,6 +67,7 @@ def test_api_races_nonempty() -> None:
     assert race_names.get("human") == "Человек"
     assert race_names.get("aarakocra") == "Ааракокра"
     assert race_names.get("genasi") == "Дженази"
+    assert race_names.get("goliath") == "Голиаф"
 
 
 def test_api_classes_contains_barbarian() -> None:
