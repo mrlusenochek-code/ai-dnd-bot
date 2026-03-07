@@ -2,7 +2,7 @@ import random
 
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Optional
+from typing import Any, Optional
 
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
@@ -424,6 +424,89 @@ async def api_story_lore_generate(payload: dict):
     return JSONResponse({"ok": True, "lore_text": lore_text})
 
 
+def _build_race_features(selected_race: dict | None) -> dict[str, Any]:
+    if not isinstance(selected_race, dict):
+        return {}
+
+    # В каталогах race details лежат внутри race["details"]
+    details = selected_race.get("details")
+    if not isinstance(details, dict):
+        details = {}
+
+    def _as_list(v):
+        return list(v) if isinstance(v, (list, tuple)) else []
+
+    # speeds
+    walk = as_int(selected_race.get("speed_ft"), 30)
+    speeds: dict[str, Any] = {"walk_ft": max(0, walk)}
+
+    # traits (используем mechanics.type, если есть)
+    traits = _as_list(details.get("traits"))
+    languages = _as_list(details.get("languages") or selected_race.get("languages"))
+    senses: dict[str, Any] = {}
+    resist: list[str] = []
+    immune_damage: list[str] = []
+    immune_cond: list[str] = []
+    skill_profs: list[str] = []
+    tool_profs: list[str] = []
+
+    for t in traits:
+        if not isinstance(t, dict):
+            continue
+        mech = t.get("mechanics")
+        if not isinstance(mech, dict):
+            mech = {}
+        mtype = str(mech.get("type") or "").strip().lower()
+
+        if mtype == "darkvision":
+            senses["darkvision_ft"] = max(as_int(mech.get("range_ft"), 60), 0)
+
+        if mtype in ("swim_speed", "fly_speed", "climb_speed"):
+            sp = max(as_int(mech.get("speed_ft"), 0), 0)
+            if mtype == "swim_speed":
+                speeds["swim_ft"] = sp
+            elif mtype == "climb_speed":
+                speeds["climb_ft"] = sp
+            elif mtype == "fly_speed":
+                speeds["fly_ft"] = sp
+                # ограничения по броне сохраним как есть
+                if isinstance(mech.get("restriction"), dict):
+                    speeds["fly_restriction"] = mech.get("restriction")
+
+        if mtype == "damage_resistance":
+            resist.extend([str(x) for x in _as_list(mech.get("damage")) if str(x)])
+
+        if mtype == "damage_and_condition_immunity":
+            immune_damage.extend([str(x) for x in _as_list(mech.get("damage")) if str(x)])
+            immune_cond.extend([str(x) for x in _as_list(mech.get("conditions")) if str(x)])
+
+        if mtype == "skill_proficiency":
+            sk = str(mech.get("skill") or "").strip().lower()
+            if sk:
+                skill_profs.append(sk)
+
+        if mtype == "tool_proficiency_choice":
+            tool_profs.append("choose_any_tools")
+
+    out: dict[str, Any] = {
+        "race_key": str(selected_race.get("key") or "").strip(),
+        "size": str(details.get("size") or selected_race.get("size") or "").strip(),
+        "languages": [str(x) for x in languages if str(x)],
+        "speeds": speeds,
+        "senses": senses,
+        "resistances": sorted(set(resist)),
+        "immunities": {
+            "damage": sorted(set(immune_damage)),
+            "conditions": sorted(set(immune_cond)),
+        },
+        "proficiencies": {
+            "skills": sorted(set(skill_profs)),
+            "tools": sorted(set(tool_profs)),
+        },
+    }
+    return out
+
+
 @router.post("/api/character/create")
 async def api_character_create(payload: dict):
     session_id = str(payload.get("session_id") or "").strip()
@@ -489,6 +572,7 @@ async def api_character_create(payload: dict):
         else:
             race_skin = (custom_race or "Human").strip()[:60]
             race_kit = (custom_race.strip().lower().replace(" ", "_") if custom_race else "human")[:40]
+        race_features = _build_race_features(selected_race)
         if not meta_race:
             meta_race = race_skin
         stats_preset_key = class_id if CLASS_PRESETS.get(class_id) else selected_class_key
@@ -516,6 +600,7 @@ async def api_character_create(payload: dict):
             hp_max=hp_max,
             sta_max=sta_max,
             stats=stats,
+            race_features=race_features,
         )
         await _upsert_starter_skills(db, ch, (selected_preset or {}).get("starter_skills") or {})
         await add_system_event(db, sess, f"Character ready: {ch.name} for player #{sp.join_order}.")

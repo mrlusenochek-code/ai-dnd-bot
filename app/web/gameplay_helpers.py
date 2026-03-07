@@ -295,6 +295,8 @@ async def create_character(
     hp_max: int = 20,
     sta_max: int = 10,
     stats: Optional[dict[str, int]] = None,
+    race_features: Optional[dict[str, Any]] = None,
+    class_features: Optional[dict[str, Any]] = None,
 ) -> Character:
     hp_max = max(1, hp_max)
     sta_max = max(1, sta_max)
@@ -321,6 +323,8 @@ async def create_character(
         hit_dice_remaining=hit_dice_remaining,
         speed_ft=speed_ft,
         stats=(dict(stats) if isinstance(stats, dict) else dict(CHAR_DEFAULT_STATS)),
+        race_features=(dict(race_features) if isinstance(race_features, dict) else {}),
+        class_features=(dict(class_features) if isinstance(class_features, dict) else {}),
     )
     db.add(ch)
     await db.commit()
