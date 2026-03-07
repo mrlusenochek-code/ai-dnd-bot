@@ -42,6 +42,51 @@ def _item_def_for_inventory_entry(entry: dict[str, Any]) -> ItemDef | None:
     return None
 
 
+def equipped_armor_category(*, inventory: list[dict], equip_map: dict[str, str]) -> str | None:
+    by_id: dict[str, dict[str, Any]] = {}
+    for entry in inventory if isinstance(inventory, list) else []:
+        if not isinstance(entry, dict):
+            continue
+        entry_id = str(entry.get("id") or "").strip().lower()
+        if entry_id:
+            by_id[entry_id] = entry
+
+    body_item_id = str(equip_map.get(EquipmentSlot.body.value) or "").strip().lower() if isinstance(equip_map, dict) else ""
+    if not body_item_id:
+        return None
+
+    armor_entry = by_id.get(body_item_id)
+    armor_def = _item_def_for_inventory_entry(armor_entry) if armor_entry else None
+    armor_equip = armor_def.equip if armor_def else None
+    armor_category = armor_equip.armor_category if armor_equip else None
+    if armor_category is None:
+        return None
+    return str(armor_category.value if hasattr(armor_category, "value") else armor_category).strip().lower() or None
+
+
+def fly_speed_available_by_armor(*, race_features: dict | None, inventory: list[dict], equip_map: dict[str, str]) -> tuple[bool, str | None]:
+    rf = race_features if isinstance(race_features, dict) else {}
+    speeds = rf.get("speeds") if isinstance(rf.get("speeds"), dict) else {}
+    fly_ft = _safe_int(speeds.get("fly_ft"), 0)
+    if fly_ft <= 0:
+        return False, None
+
+    restriction = speeds.get("fly_restriction") if isinstance(speeds.get("fly_restriction"), dict) else {}
+    no_armor_categories_raw = restriction.get("no_armor_categories")
+    no_armor_categories = (
+        [str(x).strip().lower() for x in no_armor_categories_raw if str(x).strip()]
+        if isinstance(no_armor_categories_raw, list)
+        else []
+    )
+    if not no_armor_categories:
+        return True, None
+
+    armor_cat = equipped_armor_category(inventory=inventory, equip_map=equip_map)
+    if armor_cat and armor_cat in no_armor_categories:
+        return False, armor_cat
+    return True, armor_cat
+
+
 def parse_dice(dice: str) -> tuple[int, int] | None:
     parts = str(dice or "").strip().lower().split("d")
     if len(parts) != 2:
