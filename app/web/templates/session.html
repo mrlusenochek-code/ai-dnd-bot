@@ -658,6 +658,7 @@ function openCharacterModal(){
   const _SAVE_CONDITION_RU = {
     "poison": "яд",
     "poisoned": "отравление",
+    "charmed": "очарование",
   };
   const saveAdvantageConditionsRu = saveAdvantageConditions
     .map((k) => _SAVE_CONDITION_RU[k] || k)
@@ -716,6 +717,20 @@ function openCharacterModal(){
   const stonecunningText = stonecunning
     ? "Знание камня: преимущество/экспертиза по Истории (каменная кладка)"
     : "";
+  const trance = (raceFeaturesMeta.trance && typeof raceFeaturesMeta.trance === "object")
+    ? raceFeaturesMeta.trance
+    : null;
+  const tranceHours = trance && Number.isFinite(Number(trance.trance_hours)) ? Number(trance.trance_hours) : 4;
+  const tranceEquivalentHours = trance && Number.isFinite(Number(trance.equivalent_rest_hours)) ? Number(trance.equivalent_rest_hours) : 8;
+  const tranceText = trance ? `Транс: ${tranceHours} часа = ${tranceEquivalentHours} часов отдыха` : "";
+  const maskOfTheWild = (raceFeaturesMeta.mask_of_the_wild && typeof raceFeaturesMeta.mask_of_the_wild === "object")
+    ? raceFeaturesMeta.mask_of_the_wild
+    : null;
+  const maskOfTheWildText = maskOfTheWild ? "Маска леса" : "";
+  const sunlightSensitivity = Array.isArray(raceFeaturesMeta.sunlight_sensitivity)
+    ? raceFeaturesMeta.sunlight_sensitivity.map((x) => String(x || "").trim().toLowerCase()).filter(Boolean)
+    : [];
+  const sunlightSensitivityText = sunlightSensitivity.length ? "Чувствительность к солнцу" : "";
   const healingHands = (raceFeaturesMeta.healing_hands && typeof raceFeaturesMeta.healing_hands === "object")
     ? raceFeaturesMeta.healing_hands
     : null;
@@ -769,6 +784,10 @@ function openCharacterModal(){
     ? `Небесное преобразование: ${aasimarTransformationParts.join(", ")}`
     : "";
   const resistances = Array.isArray(rf.resistances) ? rf.resistances.map((x) => String(x || "").trim().toLowerCase()).filter(Boolean) : [];
+  const immunities = (rf.immunities && typeof rf.immunities === "object") ? rf.immunities : {};
+  const immunityConditions = Array.isArray(immunities.conditions)
+    ? immunities.conditions.map((x) => String(x || "").trim().toLowerCase()).filter(Boolean)
+    : [];
   const langs = Array.isArray(rf.languages) ? rf.languages.map(x => String(x)).filter(Boolean) : [];
   const _LANG_RU = {
     "common": "Общий",
@@ -853,6 +872,14 @@ function openCharacterModal(){
   const dwarvenResilienceText = dwarvenResilienceParts.length
     ? `Дварфская стойкость: ${dwarvenResilienceParts.join("; ")}`
     : "";
+  const hasCharmedAdvantage = saveAdvantageConditions.includes("charmed");
+  const hasMagicSleepImmunity = immunityConditions.includes("magic_sleep");
+  const feyAncestryParts = [];
+  if(hasCharmedAdvantage) feyAncestryParts.push("преимущество против очарования");
+  if(hasMagicSleepImmunity) feyAncestryParts.push("иммунитет к магическому сну");
+  const feyAncestryText = feyAncestryParts.length
+    ? `Наследие фей: ${feyAncestryParts.join("; ")}`
+    : "";
 
   const prof = (rf.proficiencies && typeof rf.proficiencies === "object") ? rf.proficiencies : {};
   const profSkills = Array.isArray(prof.skills) ? prof.skills.map(x => String(x)).filter(Boolean) : [];
@@ -864,6 +891,21 @@ function openCharacterModal(){
   const draconicChoice = (choices.draconic_ancestry && typeof choices.draconic_ancestry === "object")
     ? choices.draconic_ancestry
     : {};
+  const cantripChoices = Array.isArray(choices.cantrips)
+    ? choices.cantrips.map((x) => String(x || "").trim().toLowerCase()).filter(Boolean)
+    : [];
+  const cantripKey = cantripChoices.length > 0 ? cantripChoices[0] : "";
+  const CANTRIP_LABELS_RU = {
+    "fire_bolt": "Огненный снаряд",
+    "ray_of_frost": "Луч холода",
+    "shocking_grasp": "Электрошок",
+    "mage_hand": "Волшебная рука",
+    "minor_illusion": "Малая иллюзия",
+    "prestidigitation": "Фокусы",
+    "light": "Свет",
+    "dancing_lights": "Пляшущие огоньки",
+  };
+  const cantripChoiceText = cantripKey ? `Заговор мага (выбор): ${CANTRIP_LABELS_RU[cantripKey] || cantripKey}` : "";
   const tirelessSkillKey = String(tirelessChoice.skill || "").trim().toLowerCase();
   const tirelessToolKey = String(tirelessChoice.tool || "").trim().toLowerCase();
   const tirelessSkillRu = tirelessSkillKey ? getSkillNameRu(tirelessSkillKey) : "";
@@ -1072,11 +1114,23 @@ function openCharacterModal(){
   if(dwarvenResilienceText){
     details.push(`<div class="char-line"><strong>Дварфская стойкость:</strong> ${escapeHtml(dwarvenResilienceText.replace(/^Дварфская стойкость:\s*/, ""))}</div>`);
   }
+  if(feyAncestryText){
+    details.push(`<div class="char-line"><strong>Наследие фей:</strong> ${escapeHtml(feyAncestryText.replace(/^Наследие фей:\s*/, ""))}</div>`);
+  }
   if(carry.powerful_build === true){
     details.push("<div class=\"char-line\"><strong>Мощное телосложение:</strong> считается на 1 размер больше для переноски/толкания/тяги/подъёма</div>");
   }
   if(stoneEndurance){
     details.push("<div class=\"char-line\"><strong>Каменная выносливость:</strong> реакция, 1/к/дл отдых: снижает урон (1d12 + мод. Тел)</div>");
+  }
+  if(tranceText){
+    details.push(`<div class="char-line"><strong>Транс:</strong> ${escapeHtml(tranceText.replace(/^Транс:\s*/, ""))}</div>`);
+  }
+  if(maskOfTheWildText){
+    details.push(`<div class="char-line"><strong>Маска леса:</strong> ${escapeHtml(maskOfTheWildText.replace(/^Маска леса:\s*/, ""))}</div>`);
+  }
+  if(sunlightSensitivityText){
+    details.push(`<div class="char-line"><strong>Чувствительность к солнцу:</strong> ${escapeHtml(sunlightSensitivityText.replace(/^Чувствительность к солнцу:\s*/, ""))}</div>`);
   }
   if(stonecunningText){
     details.push(`<div class="char-line"><strong>Знание камня:</strong> ${escapeHtml(stonecunningText.replace(/^Знание камня:\s*/, ""))}</div>`);
@@ -1110,6 +1164,9 @@ function openCharacterModal(){
   }
   if(tirelessPrecisionText){
     details.push(`<div class="char-line"><strong>Неустанная скрупулёзность:</strong> ${escapeHtml(tirelessPrecisionText.replace(/^Неустанная скрупулёзность:\s*/, ""))}</div>`);
+  }
+  if(cantripChoiceText){
+    details.push(`<div class="char-line"><strong>Заговор мага (выбор):</strong> ${escapeHtml(cantripChoiceText.replace(/^Заговор мага \(выбор\):\s*/, ""))}</div>`);
   }
   if(saveAdvantagesRu.length){
     details.push(`<div class="char-line"><strong>Преим. спасброски:</strong> ${escapeHtml(saveAdvantagesRu.join(", "))}</div>`);
@@ -1165,8 +1222,12 @@ function openCharacterModal(){
   if(resistancesRu.length) copyLines.push(`Сопротивления: ${resistancesRu.join(", ")}`);
   if(saveAdvantageConditionsRu.length) copyLines.push(`Преим. против: ${saveAdvantageConditionsRu.join(", ")} (спасброски)`);
   if(dwarvenResilienceText) copyLines.push(dwarvenResilienceText);
+  if(feyAncestryText) copyLines.push(feyAncestryText);
   if(carry.powerful_build === true) copyLines.push("Мощное телосложение: считается на 1 размер больше для переноски/толкания/тяги/подъёма");
   if(stoneEndurance) copyLines.push("Каменная выносливость: реакция, 1/к/дл отдых: снижает урон (1d12 + мод. Тел)");
+  if(tranceText) copyLines.push(tranceText);
+  if(maskOfTheWildText) copyLines.push(maskOfTheWildText);
+  if(sunlightSensitivityText) copyLines.push(sunlightSensitivityText);
   if(stonecunningText) copyLines.push(stonecunningText);
   if(telepathyText) copyLines.push(telepathyText);
   if(blackBloodText) copyLines.push(blackBloodText);
@@ -1178,6 +1239,7 @@ function openCharacterModal(){
   if(healingHandsText) copyLines.push(healingHandsText);
   if(aasimarTransformationText) copyLines.push(aasimarTransformationText);
   if(tirelessPrecisionText) copyLines.push(tirelessPrecisionText);
+  if(cantripChoiceText) copyLines.push(cantripChoiceText);
   if(saveAdvantagesRu.length) copyLines.push(`Преим. спасброски: ${saveAdvantagesRu.join(", ")}`);
   if(langsRu.length) copyLines.push(`Языки: ${langsRu.join(", ")}`);
   if(profSkills.length) copyLines.push(`Проф. навыков (раса): ${profSkills.join(", ")}`);

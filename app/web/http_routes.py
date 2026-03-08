@@ -66,6 +66,16 @@ TIRELESS_PRECISION_TOOL_WHITELIST = {
     "weavers_tools",
     "woodcarvers_tools",
 }
+WIZARD_CANTRIP_WHITELIST = {
+    "fire_bolt",
+    "ray_of_frost",
+    "shocking_grasp",
+    "mage_hand",
+    "minor_illusion",
+    "prestidigitation",
+    "light",
+    "dancing_lights",
+}
 
 
 @router.get("/", response_class=HTMLResponse)
@@ -488,6 +498,33 @@ def _build_race_features(selected_race: dict | None) -> dict[str, Any]:
                 out.append(value)
         return out
 
+    def _append_innate_spell(*, ability: str, spell_obj: dict[str, Any]) -> None:
+        spell_name = str(spell_obj.get("name") or spell_obj.get("spell_ref") or "").strip().lower()
+        if not spell_name:
+            return
+        level = as_int(spell_obj.get("level"), -1)
+        if level < 0:
+            level = 0 if str(spell_obj.get("kind") or "").strip().lower() == "cantrip" else 1
+            if spell_name == "faerie_fire":
+                level = 1
+            elif spell_name == "darkness":
+                level = 2
+        frequency = str(spell_obj.get("frequency") or "").strip().lower()
+        if not frequency:
+            if str(spell_obj.get("kind") or "").strip().lower() == "cantrip":
+                frequency = "at_will"
+            elif as_int(spell_obj.get("uses_per_day"), 0) > 0:
+                frequency = "1_per_long_rest"
+        entry: dict[str, Any] = {
+            "ability": str(ability or "").strip().lower(),
+            "level": max(0, level),
+            "name": spell_name,
+            "frequency": frequency,
+        }
+        if spell_obj.get("min_level") is not None:
+            entry["min_level"] = as_int(spell_obj.get("min_level"), 0)
+        innate_spells.append(entry)
+
     # speeds
     walk = as_int(selected_race.get("speed_ft"), 30)
     speeds: dict[str, Any] = {"walk_ft": max(0, walk)}
@@ -578,6 +615,7 @@ def _build_race_features(selected_race: dict | None) -> dict[str, Any]:
             tool_profs.append("choose_any_tools")
 
         if mtype == "proficiency":
+            skill_profs.extend(_uniq_lower_str_list(mech.get("skills")))
             weapon_profs.extend(_uniq_lower_str_list(mech.get("weapons")))
             armor_profs.extend(_uniq_lower_str_list(mech.get("armor")))
             tool_profs.extend(_uniq_lower_str_list(mech.get("tools")))
@@ -586,6 +624,8 @@ def _build_race_features(selected_race: dict | None) -> dict[str, Any]:
             resist.extend(_uniq_lower_str_list(mech.get("resistances")))
         if _uniq_lower_str_list(mech.get("saves_advantage")):
             save_advantage_conditions.extend(_uniq_lower_str_list(mech.get("saves_advantage")))
+        if _uniq_lower_str_list(mech.get("immunities")):
+            immune_cond.extend(_uniq_lower_str_list(mech.get("immunities")))
 
         if tkey == "tool_proficiency":
             choose = max(as_int(mech.get("choose"), 0), 0)
@@ -668,6 +708,13 @@ def _build_race_features(selected_race: dict | None) -> dict[str, Any]:
         if mtype == "skill_bonus":
             features["stonecunning"] = dict(mech)
 
+        if mtype == "stealth_bonus":
+            features["mask_of_the_wild"] = dict(mech)
+            features["stealth_bonus"] = dict(mech)
+
+        if mtype == "rest_override":
+            features["trance"] = dict(mech)
+
         if mtype == "healing_hands":
             features["healing_hands"] = dict(mech)
 
@@ -686,19 +733,30 @@ def _build_race_features(selected_race: dict | None) -> dict[str, Any]:
             for spell in spells:
                 if not isinstance(spell, dict):
                     continue
-                name = str(spell.get("name") or "").strip()
-                frequency = str(spell.get("frequency") or "").strip()
-                if not name:
-                    continue
-                spell_obj: dict[str, Any] = {
+                _append_innate_spell(ability=ability, spell_obj=spell)
+
+        if tkey == "drow_magic":
+            ability = str(mech.get("ability") or "").strip().lower()
+            spells = _as_list(mech.get("spells"))
+            for spell in spells:
+                if isinstance(spell, dict):
+                    _append_innate_spell(ability=ability, spell_obj=spell)
+
+        if tkey == "sunlight_sensitivity":
+            disadvantage = _uniq_lower_str_list(mech.get("disadvantage"))
+            if disadvantage:
+                features["sunlight_sensitivity"] = disadvantage
+
+        if tkey == "wizard_cantrip" and mtype == "choice":
+            choose = max(as_int(mech.get("choose"), 0), 0)
+            from_list = str(mech.get("from_list") or "").strip().lower()
+            ability = str(mech.get("ability") or "").strip().lower()
+            if choose > 0 and from_list == "wizard_cantrips":
+                features["wizard_cantrip_choice"] = {
+                    "choose": choose,
+                    "from_list": from_list,
                     "ability": ability,
-                    "level": as_int(spell.get("level"), 0),
-                    "name": name,
-                    "frequency": frequency,
                 }
-                if spell.get("min_level") is not None:
-                    spell_obj["min_level"] = as_int(spell.get("min_level"), 0)
-                innate_spells.append(spell_obj)
 
         if mtype == "saving_throw_advantage":
             abilities = []
@@ -788,6 +846,7 @@ async def api_character_create(payload: dict):
     race_choice_skills: list[str] = []
     race_choice_feats: list[str] = []
     race_choice_tools: list[str] = []
+    race_choice_cantrips: list[str] = []
     race_choice_tp_skill = ""
     race_choice_tp_tool = ""
     race_choice_draconic_ancestry = ""
@@ -874,6 +933,16 @@ async def api_character_create(payload: dict):
             tool = str(item or "").strip().lower()
             if tool and tool not in race_choice_tools:
                 race_choice_tools.append(tool)
+        raw_cantrips = race_choices_payload.get("cantrips")
+        raw_cantrips_list = raw_cantrips if isinstance(raw_cantrips, list) else []
+        for item in raw_cantrips_list:
+            cantrip = str(item or "").strip().lower()
+            if not cantrip:
+                continue
+            if cantrip not in WIZARD_CANTRIP_WHITELIST:
+                raise HTTPException(status_code=400, detail=f"Invalid cantrip choice: {cantrip}")
+            if cantrip not in race_choice_cantrips:
+                race_choice_cantrips.append(cantrip)
         raw_tp = race_choices_payload.get("tireless_precision")
         if isinstance(raw_tp, dict):
             race_choice_tp_skill = str(raw_tp.get("skill") or "").strip().lower()
@@ -982,6 +1051,7 @@ async def api_character_create(payload: dict):
         tireless_precision_skills: list[str] = []
         draconic_ancestry_options: list[dict[str, Any]] = []
         breath_weapon_mechanics: dict[str, Any] = {}
+        wizard_cantrip_choice_cfg: dict[str, Any] = {}
         if isinstance(effective_race, dict):
             effective_traits = effective_race.get("traits")
             effective_traits_list = effective_traits if isinstance(effective_traits, list) else []
@@ -1013,6 +1083,12 @@ async def api_character_create(payload: dict):
                                 )
                     elif mtype == "breath_weapon":
                         breath_weapon_mechanics = dict(mech)
+                    elif mtype == "choice" and str(mech.get("from_list") or "").strip().lower() == "wizard_cantrips":
+                        wizard_cantrip_choice_cfg = {
+                            "choose": max(as_int(mech.get("choose"), 0), 0),
+                            "from_list": "wizard_cantrips",
+                            "ability": str(mech.get("ability") or "").strip().lower(),
+                        }
                     continue
                 for item in (mech.get("choose_skill_from") if isinstance(mech.get("choose_skill_from"), list) else []):
                     skill_key = str(item or "").strip().lower()
@@ -1039,6 +1115,15 @@ async def api_character_create(payload: dict):
             raise HTTPException(status_code=400, detail=f"Invalid draconic ancestry choice: {race_choice_draconic_ancestry}")
         if not ancestry_required and race_choice_draconic_ancestry:
             raise HTTPException(status_code=400, detail="Draconic ancestry is not available for selected race")
+        wizard_cantrip_required = max(as_int(wizard_cantrip_choice_cfg.get("choose"), 0), 0)
+        if wizard_cantrip_required > 0:
+            if len(race_choice_cantrips) != wizard_cantrip_required:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Exactly {wizard_cantrip_required} wizard cantrip choice(s) required",
+                )
+        elif race_choice_cantrips:
+            raise HTTPException(status_code=400, detail="Wizard cantrip choice is not available for selected race")
 
         if selected_race is not None:
             # When a preset race is selected, keep mechanics by base race id.
@@ -1128,6 +1213,8 @@ async def api_character_create(payload: dict):
             prof_dict["tools"] = merged_tools
             race_features["proficiencies"] = prof_dict
             choices_dict["tools"] = list(race_choice_tools)
+        if isinstance(race_features, dict) and race_choice_cantrips:
+            choices_dict["cantrips"] = list(race_choice_cantrips)
         if isinstance(race_features, dict) and race_choice_feats:
             choices_dict["feats"] = list(race_choice_feats)
         if isinstance(race_features, dict) and race_choice_tp_skill and race_choice_tp_tool:

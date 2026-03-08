@@ -124,6 +124,10 @@
           <label>Инструмент (обязательно)</label>
           <select id="choiceTool1"></select>
         </div>
+        <div id="choiceCantripRow" style="display:none;">
+          <label>Заговор мага (обязательно)</label>
+          <select id="choiceCantrip1"></select>
+        </div>
         <div id="choiceVedalkenRow" style="display:none;">
           <label>Неустанная скрупулёзность (обязательно)</label>
           <div class="row">
@@ -323,6 +327,26 @@ const DAMAGE_TYPE_RU = {
   "acid": "Кислота",
   "fire": "Огонь",
 };
+const WIZARD_CANTRIP_KEYS = [
+  "fire_bolt",
+  "ray_of_frost",
+  "shocking_grasp",
+  "mage_hand",
+  "minor_illusion",
+  "prestidigitation",
+  "light",
+  "dancing_lights",
+];
+const WIZARD_CANTRIP_LABELS_RU = {
+  "fire_bolt": "Огненный снаряд",
+  "ray_of_frost": "Луч холода",
+  "shocking_grasp": "Электрошок",
+  "mage_hand": "Волшебная рука",
+  "minor_illusion": "Малая иллюзия",
+  "prestidigitation": "Фокусы",
+  "light": "Свет",
+  "dancing_lights": "Пляшущие огоньки",
+};
 let featsCatalog = [];
 let classes = [];
 let races = [];
@@ -334,6 +358,8 @@ let raceChoiceState = {
   featRequired: false,
   toolRequired: false,
   toolOptions: [],
+  cantripRequired: false,
+  cantripOptions: [],
   vedalkenRequired: false,
   vedalkenSkills: [],
   ancestryRequired: false,
@@ -699,6 +725,27 @@ function getToolChoiceConfig(traits){
   return out;
 }
 
+function getCantripChoiceConfig(traits){
+  const out = { required: false, count: 0, fromList: "", ability: "", options: [] };
+  const items = Array.isArray(traits) ? traits : [];
+  for(const t of items){
+    if(!t || typeof t !== "object") continue;
+    const mech = (t.mechanics && typeof t.mechanics === "object") ? t.mechanics : {};
+    const mtype = String(mech.type || "").trim().toLowerCase();
+    const fromList = String(mech.from_list || "").trim().toLowerCase();
+    const choose = Number(mech.choose ?? mech.count ?? 0);
+    if(mtype === "choice" && fromList === "wizard_cantrips" && choose === 1){
+      out.required = true;
+      out.count = 1;
+      out.fromList = fromList;
+      out.ability = String(mech.ability || "").trim().toLowerCase();
+      out.options = WIZARD_CANTRIP_KEYS.slice();
+      return out;
+    }
+  }
+  return out;
+}
+
 function getTirelessPrecisionChoiceConfig(traits){
   const out = { required: false, skills: [] };
   const items = Array.isArray(traits) ? traits : [];
@@ -881,6 +928,30 @@ function fillToolChoiceSelect(sel, options, prev){
   sel.value = keepPrev ? prevValue : "";
 }
 
+function fillCantripSelect(sel, options, prev){
+  if(!sel) return;
+  const prevValue = String(prev || "");
+  const allowed = Array.isArray(options) ? options : [];
+  sel.innerHTML = "";
+  const first = document.createElement("option");
+  first.value = "";
+  first.textContent = "(выберите заговор)";
+  sel.appendChild(first);
+  const sorted = allowed.slice().sort((a, b) => {
+    const aLabel = String(WIZARD_CANTRIP_LABELS_RU[a] || a);
+    const bLabel = String(WIZARD_CANTRIP_LABELS_RU[b] || b);
+    return aLabel.localeCompare(bLabel, "ru", { sensitivity: "base" });
+  });
+  for(const key of sorted){
+    const opt = document.createElement("option");
+    opt.value = key;
+    opt.textContent = WIZARD_CANTRIP_LABELS_RU[key] || key;
+    sel.appendChild(opt);
+  }
+  const keepPrev = Array.from(sel.options).some(o => String(o.value) === prevValue);
+  sel.value = keepPrev ? prevValue : "";
+}
+
 function fillAncestrySelect(sel, options, prev){
   if(!sel) return;
   const prevValue = String(prev || "");
@@ -929,12 +1000,14 @@ function renderRaceChoices(){
   const featSel = document.getElementById("choiceFeat1");
   const toolRow = document.getElementById("choiceToolRow");
   const toolSel = document.getElementById("choiceTool1");
+  const cantripRow = document.getElementById("choiceCantripRow");
+  const cantripSel = document.getElementById("choiceCantrip1");
   const vedRow = document.getElementById("choiceVedalkenRow");
   const vedSkillSel = document.getElementById("choiceVedalkenSkill");
   const vedToolSel = document.getElementById("choiceVedalkenTool");
   const ancestryRow = document.getElementById("choiceAncestryRow");
   const ancestrySel = document.getElementById("choiceAncestry");
-  if(!block || !langRow || !langSel || !asiRow || !asiSel1 || !asiSel2 || !skillRow || !skillSel || !featRow || !featSel || !toolRow || !toolSel || !vedRow || !vedSkillSel || !vedToolSel || !ancestryRow || !ancestrySel) return;
+  if(!block || !langRow || !langSel || !asiRow || !asiSel1 || !asiSel2 || !skillRow || !skillSel || !featRow || !featSel || !toolRow || !toolSel || !cantripRow || !cantripSel || !vedRow || !vedSkillSel || !vedToolSel || !ancestryRow || !ancestrySel) return;
 
   const ctx = getCurrentRaceContext();
   const langCfg = getLanguageChoiceConfig(ctx.effectiveTraits);
@@ -942,6 +1015,7 @@ function renderRaceChoices(){
   const skillCfg = getSkillChoiceConfig(ctx.effectiveTraits);
   const featCfg = getFeatChoiceConfig(ctx.effectiveTraits);
   const toolCfg = getToolChoiceConfig(ctx.effectiveTraits);
+  const cantripCfg = getCantripChoiceConfig(ctx.effectiveTraits);
   const vedCfg = getTirelessPrecisionChoiceConfig(ctx.effectiveTraits);
   const ancestryCfg = getDraconicAncestryChoiceConfig(ctx.effectiveTraits);
   const needsLanguage = !!langCfg.required;
@@ -949,6 +1023,7 @@ function renderRaceChoices(){
   const needsSkill = !!skillCfg.required;
   const needsFeat = !!featCfg.required;
   const needsTool = !!toolCfg.required;
+  const needsCantrip = !!cantripCfg.required;
   const needsVedalken = !!vedCfg.required;
   const needsAncestry = !!ancestryCfg.required;
   raceChoiceState = {
@@ -959,19 +1034,22 @@ function renderRaceChoices(){
     featRequired: needsFeat,
     toolRequired: needsTool,
     toolOptions: Array.isArray(toolCfg.from) ? toolCfg.from.slice() : [],
+    cantripRequired: needsCantrip,
+    cantripOptions: Array.isArray(cantripCfg.options) ? cantripCfg.options.slice() : [],
     vedalkenRequired: needsVedalken,
     vedalkenSkills: Array.isArray(vedCfg.skills) ? vedCfg.skills.slice() : [],
     ancestryRequired: needsAncestry,
     ancestryOptions: Array.isArray(ancestryCfg.options) ? ancestryCfg.options.slice() : [],
   };
 
-  if(!needsLanguage && !needsAsi && !needsSkill && !needsFeat && !needsTool && !needsVedalken && !needsAncestry){
+  if(!needsLanguage && !needsAsi && !needsSkill && !needsFeat && !needsTool && !needsCantrip && !needsVedalken && !needsAncestry){
     block.style.display = "none";
     langRow.style.display = "none";
     asiRow.style.display = "none";
     skillRow.style.display = "none";
     featRow.style.display = "none";
     toolRow.style.display = "none";
+    cantripRow.style.display = "none";
     langSel.disabled = true;
     langSel.required = false;
     langSel.value = "";
@@ -990,6 +1068,9 @@ function renderRaceChoices(){
     toolSel.disabled = true;
     toolSel.required = false;
     toolSel.value = "";
+    cantripSel.disabled = true;
+    cantripSel.required = false;
+    cantripSel.value = "";
     vedRow.style.display = "none";
     vedSkillSel.disabled = true;
     vedSkillSel.required = false;
@@ -1088,6 +1169,19 @@ function renderRaceChoices(){
     toolSel.disabled = true;
     toolSel.required = false;
     toolSel.value = "";
+  }
+
+  if(needsCantrip){
+    const prev = String(cantripSel.value || "");
+    fillCantripSelect(cantripSel, cantripCfg.options, prev);
+    cantripRow.style.display = "";
+    cantripSel.disabled = false;
+    cantripSel.required = true;
+  }else{
+    cantripRow.style.display = "none";
+    cantripSel.disabled = true;
+    cantripSel.required = false;
+    cantripSel.value = "";
   }
 
   if(needsVedalken){
@@ -1354,6 +1448,12 @@ async function createHero(){
     setMessage("Выбери инструмент в блоке «Стартовые выборы».", false);
     return;
   }
+  const choiceCantripEl = document.getElementById("choiceCantrip1");
+  const choiceCantrip = String(choiceCantripEl ? choiceCantripEl.value : "").trim().toLowerCase();
+  if(raceChoiceState.cantripRequired && !choiceCantrip){
+    setMessage("Выбери заговор мага в блоке «Стартовые выборы».", false);
+    return;
+  }
   const choiceVedSkillEl = document.getElementById("choiceVedalkenSkill");
   const choiceVedToolEl = document.getElementById("choiceVedalkenTool");
   const choiceVedSkill = String(choiceVedSkillEl ? choiceVedSkillEl.value : "").trim().toLowerCase();
@@ -1402,6 +1502,9 @@ async function createHero(){
   }
   if(choiceTool){
     raceChoices.tools = [choiceTool];
+  }
+  if(choiceCantrip){
+    raceChoices.cantrips = [choiceCantrip];
   }
   if(choiceVedSkill || choiceVedTool){
     raceChoices.tireless_precision = {
