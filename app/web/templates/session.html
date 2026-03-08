@@ -659,6 +659,7 @@ function openCharacterModal(){
     "poison": "яд",
     "poisoned": "отравление",
     "charmed": "очарование",
+    "paralyzed": "паралич",
   };
   const saveAdvantageConditionsRu = saveAdvantageConditions
     .map((k) => _SAVE_CONDITION_RU[k] || k)
@@ -705,6 +706,12 @@ function openCharacterModal(){
     ? `Подводное дыхание: 1 час (1/дл отдых)${breatheUnderwaterUntilText ? `, активно до ${breatheUnderwaterUntilText}` : ""}`
     : "";
   const raceFeaturesMeta = (rf.features && typeof rf.features === "object") ? rf.features : {};
+  const creatureType = String(rf.creature_type || "").trim().toLowerCase();
+  const creatureTypeText = creatureType ? `Тип существа: ${creatureType === "construct" ? "конструкт" : creatureType}` : "";
+  const raceNeeds = (rf.needs && typeof rf.needs === "object") ? rf.needs : {};
+  const noNeedList = Array.isArray(raceNeeds.no_need)
+    ? raceNeeds.no_need.map((x) => String(x || "").trim().toLowerCase()).filter(Boolean)
+    : [];
   const innateSpells = Array.isArray(rf.innate_spells)
     ? rf.innate_spells.filter((x) => x && typeof x === "object")
     : [];
@@ -779,6 +786,31 @@ function openCharacterModal(){
     ? raceFeaturesMeta.tinker
     : null;
   const tinkerText = tinker ? "Жестянщик: владение инструментами жестянщика; создание малых устройств" : "";
+  const sentryRest = (raceFeaturesMeta.sentry_rest && typeof raceFeaturesMeta.sentry_rest === "object")
+    ? raceFeaturesMeta.sentry_rest
+    : null;
+  const builtForSuccess = (raceFeaturesMeta.built_for_success && typeof raceFeaturesMeta.built_for_success === "object")
+    ? raceFeaturesMeta.built_for_success
+    : null;
+  const mendingHeal = (raceFeaturesMeta.mending_heal && typeof raceFeaturesMeta.mending_heal === "object")
+    ? raceFeaturesMeta.mending_heal
+    : null;
+  const healingSpellsAffectConstruct = raceFeaturesMeta.healing_spells_affect_construct === true;
+  const sentryRestHours = sentryRest && Number.isFinite(Number(sentryRest.long_rest_inert_hours))
+    ? Number(sentryRest.long_rest_inert_hours)
+    : 6;
+  const sentryRestText = sentryRest
+    ? `Отдых стража: ${sentryRestHours} ч неподвижности во время длительного отдыха, в сознании`
+    : "";
+  const builtForSuccessText = builtForSuccess
+    ? "Создан для успеха: +1d4 к следующему d20, использований = БМ/дл отдых"
+    : "";
+  const mendingHealText = mendingHeal
+    ? "Лечащая машина: mending + Кость Хитов восстанавливает HP"
+    : "";
+  const healingSpellsAffectConstructText = healingSpellsAffectConstruct
+    ? "Заклинания лечения действуют на конструкта"
+    : "";
   const hasMinorIllusionAtWill = innateSpells.some((spell) => {
     const name = String(spell.name || "").trim().toLowerCase();
     const frequency = String(spell.frequency || "").trim().toLowerCase();
@@ -967,6 +999,20 @@ function openCharacterModal(){
     : "";
   const hasPoisonResistance = resistances.map((x) => String(x || "").trim().toLowerCase()).includes("poison");
   const hasPoisonSaveAdvantage = saveAdvantageConditions.includes("poison");
+  const hasPoisonedSaveAdvantage = saveAdvantageConditions.includes("poisoned");
+  const hasParalyzedSaveAdvantage = saveAdvantageConditions.includes("paralyzed");
+  const hasDiseaseImmunity = immunityConditions.includes("diseased") || immunityConditions.includes("disease");
+  const noNeedRuMap = { "eat": "есть", "drink": "пить", "breathe": "дышать" };
+  const noNeedRu = noNeedList.map((x) => noNeedRuMap[x] || x).filter(Boolean);
+  const mechanicalNatureParts = [];
+  if(hasPoisonResistance) mechanicalNatureParts.push("сопротивление яду");
+  if(hasDiseaseImmunity) mechanicalNatureParts.push("иммунитет к болезням");
+  if(hasPoisonSaveAdvantage || hasPoisonedSaveAdvantage) mechanicalNatureParts.push("преимущество против отравления");
+  if(hasParalyzedSaveAdvantage) mechanicalNatureParts.push("преимущество против паралича");
+  if(noNeedRu.length) mechanicalNatureParts.push(`не нужно: ${noNeedRu.join(", ")}`);
+  const mechanicalNatureText = mechanicalNatureParts.length
+    ? `Механическая природа: ${mechanicalNatureParts.join("; ")}`
+    : "";
   const stoutResilienceText = (hasPoisonResistance || hasPoisonSaveAdvantage)
     ? "Коренастая стойкость: преим. против яда; сопротивление яду"
     : "";
@@ -1212,8 +1258,26 @@ function openCharacterModal(){
   if(natArmorText){
     details.push(`<div class="char-line"><strong>Природный доспех:</strong> ${escapeHtml(natArmorText)}</div>`);
   }
+  if(creatureTypeText){
+    details.push(`<div class="char-line"><strong>Тип существа:</strong> ${escapeHtml(creatureTypeText.replace(/^Тип существа:\s*/, ""))}</div>`);
+  }
   if(resistancesRu.length){
     details.push(`<div class="char-line"><strong>Сопротивления:</strong> ${escapeHtml(resistancesRu.join(", "))}</div>`);
+  }
+  if(mechanicalNatureText){
+    details.push(`<div class="char-line"><strong>Механическая природа:</strong> ${escapeHtml(mechanicalNatureText.replace(/^Механическая природа:\s*/, ""))}</div>`);
+  }
+  if(sentryRestText){
+    details.push(`<div class="char-line"><strong>Отдых стража:</strong> ${escapeHtml(sentryRestText.replace(/^Отдых стража:\s*/, ""))}</div>`);
+  }
+  if(builtForSuccessText){
+    details.push(`<div class="char-line"><strong>Создан для успеха:</strong> ${escapeHtml(builtForSuccessText.replace(/^Создан для успеха:\s*/, ""))}</div>`);
+  }
+  if(mendingHealText){
+    details.push(`<div class="char-line"><strong>Лечащая машина:</strong> ${escapeHtml(mendingHealText.replace(/^Лечащая машина:\s*/, ""))}</div>`);
+  }
+  if(healingSpellsAffectConstructText){
+    details.push(`<div class="char-line"><strong>Заклинания, сохраняющие жизнь:</strong> ${escapeHtml(healingSpellsAffectConstructText)}</div>`);
   }
   if(hellishResistanceText){
     details.push(`<div class="char-line"><strong>Адская стойкость:</strong> ${escapeHtml(hellishResistanceText.replace(/^Адская стойкость:\s*/, ""))}</div>`);
@@ -1368,7 +1432,13 @@ function openCharacterModal(){
   if(hasActiveCombatant && moveSpeedFt !== null && moveRemainingFt !== null) copyLines.push(`Перемещение: осталось ${moveRemainingFt} фт из ${moveSpeedFt} фт`);
   if(darkvisionFt !== null) copyLines.push(`Тёмное зрение: ${darkvisionFt} фт`);
   if(natArmorText) copyLines.push(`Природный доспех: ${natArmorText}`);
+  if(creatureTypeText) copyLines.push(creatureTypeText);
   if(resistancesRu.length) copyLines.push(`Сопротивления: ${resistancesRu.join(", ")}`);
+  if(mechanicalNatureText) copyLines.push(mechanicalNatureText);
+  if(sentryRestText) copyLines.push(sentryRestText);
+  if(builtForSuccessText) copyLines.push(builtForSuccessText);
+  if(mendingHealText) copyLines.push(mendingHealText);
+  if(healingSpellsAffectConstructText) copyLines.push(healingSpellsAffectConstructText);
   if(hellishResistanceText) copyLines.push(hellishResistanceText);
   if(infernalLegacyText) copyLines.push(infernalLegacyText);
   if(saveAdvantageConditionsRu.length) copyLines.push(`Преим. против: ${saveAdvantageConditionsRu.join(", ")} (спасброски)`);

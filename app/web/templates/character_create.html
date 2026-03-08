@@ -106,10 +106,18 @@
           <select id="choiceLang1"></select>
         </div>
         <div id="choiceAsiRow" style="display:none;">
-          <label>ASI +1 к двум разным характеристикам (обязательно)</label>
+          <label id="choiceAsiLabel">ASI (обязательно)</label>
+          <div class="row" id="choiceAsiVariantRow" style="display:none;">
+            <select id="choiceAsiVariant">
+              <option value="">(выберите вариант)</option>
+              <option value="2_1">+2 к одной и +1 к другой</option>
+              <option value="1_1_1">+1 к трём разным</option>
+            </select>
+          </div>
           <div class="row">
             <select id="choiceAsi1"></select>
             <select id="choiceAsi2"></select>
+            <select id="choiceAsi3" style="display:none;"></select>
           </div>
         </div>
         <div id="choiceSkillRow" style="display:none;">
@@ -124,8 +132,11 @@
           <select id="choiceFeat1"></select>
         </div>
         <div id="choiceToolRow" style="display:none;">
-          <label>Инструмент (обязательно)</label>
-          <select id="choiceTool1"></select>
+          <label id="choiceToolLabel">Инструмент (обязательно)</label>
+          <div class="row">
+            <select id="choiceTool1"></select>
+            <select id="choiceTool2" style="display:none;"></select>
+          </div>
         </div>
         <div id="choiceCantripRow" style="display:none;">
           <label>Заговор мага (обязательно)</label>
@@ -356,12 +367,16 @@ let races = [];
 let raceChoiceState = {
   languageRequired: false,
   asiRequired: false,
+  flexAsiRequired: false,
+  flexAsiVariants: [],
   asiBonus: 1,
   asiExclude: [],
+  asiCount: 0,
   skillRequired: false,
   skillCount: 0,
   featRequired: false,
   toolRequired: false,
+  toolCount: 0,
   toolOptions: [],
   cantripRequired: false,
   cantripOptions: [],
@@ -675,6 +690,20 @@ function getAsiChoiceConfig(traits){
   return out;
 }
 
+function getFlexAsiChoiceConfig(asiItems){
+  const out = { required: false, variants: [] };
+  const items = Array.isArray(asiItems) ? asiItems : [];
+  for(const item of items){
+    if(!item || typeof item !== "object") continue;
+    const note = String(item.note || "").trim().toLowerCase();
+    if(note !== "flexible_asi") continue;
+    out.required = true;
+    out.variants = ["2_1", "1_1_1"];
+    return out;
+  }
+  return out;
+}
+
 function getSkillChoiceConfig(traits){
   const out = { required: false, count: 0 };
   const items = Array.isArray(traits) ? traits : [];
@@ -722,11 +751,14 @@ function getToolChoiceConfig(traits){
     if(!t || typeof t !== "object") continue;
     const key = String(t.key || "").trim().toLowerCase();
     const mech = (t.mechanics && typeof t.mechanics === "object") ? t.mechanics : {};
+    const mtype = String(mech.type || "").trim().toLowerCase();
     const choose = Number(mech.choose ?? mech.count ?? 0);
-    const from = Array.isArray(mech.from) ? mech.from.map((x) => String(x || "").trim().toLowerCase()).filter(Boolean) : [];
-    if(key === "tool_proficiency" && choose === 1 && from.length > 0){
+    const fromRaw = mech.from;
+    const fromList = Array.isArray(fromRaw) ? fromRaw : [fromRaw];
+    const from = fromList.map((x) => String(x || "").trim().toLowerCase()).filter(Boolean);
+    if((mtype === "tool_proficiency_choice" || key === "tool_proficiency") && choose > 0 && from.length > 0){
       out.required = true;
-      out.choices = 1;
+      out.choices = choose;
       out.from = Array.from(new Set(from));
       return out;
     }
@@ -922,21 +954,25 @@ function fillTirelessToolSelect(sel, prev){
   sel.value = keepPrev ? prevValue : "";
 }
 
-function fillToolChoiceSelect(sel, options, prev){
+function fillToolChoiceSelect(sel, options, prev, opts){
   if(!sel) return;
   const prevValue = String(prev || "");
-  const allowed = Array.isArray(options) ? options : [];
+  const settings = (opts && typeof opts === "object") ? opts : {};
+  const blockedValue = String(settings.blockedValue || "").trim().toLowerCase();
+  const allowedRaw = Array.isArray(options) ? options : [];
+  const allowed = allowedRaw.includes("any") ? TIRELESS_TOOL_KEYS.slice() : allowedRaw.slice();
   sel.innerHTML = "";
   const first = document.createElement("option");
   first.value = "";
   first.textContent = "(выберите инструмент)";
   sel.appendChild(first);
-  const sorted = allowed.slice().sort((a, b) => {
+  const sorted = Array.from(new Set(allowed)).sort((a, b) => {
     const aLabel = String(TIRELESS_TOOL_LABELS_RU[a] || a);
     const bLabel = String(TIRELESS_TOOL_LABELS_RU[b] || b);
     return aLabel.localeCompare(bLabel, "ru", { sensitivity: "base" });
   });
   for(const key of sorted){
+    if(blockedValue && key === blockedValue && key !== prevValue) continue;
     const opt = document.createElement("option");
     opt.value = key;
     opt.textContent = TIRELESS_TOOL_LABELS_RU[key] || key;
@@ -1010,8 +1046,12 @@ function renderRaceChoices(){
   const langRow = document.getElementById("choiceLangRow");
   const langSel = document.getElementById("choiceLang1");
   const asiRow = document.getElementById("choiceAsiRow");
+  const asiLabel = document.getElementById("choiceAsiLabel");
+  const asiVariantRow = document.getElementById("choiceAsiVariantRow");
+  const asiVariantSel = document.getElementById("choiceAsiVariant");
   const asiSel1 = document.getElementById("choiceAsi1");
   const asiSel2 = document.getElementById("choiceAsi2");
+  const asiSel3 = document.getElementById("choiceAsi3");
   const skillRow = document.getElementById("choiceSkillRow");
   const skillLabel = document.getElementById("choiceSkillLabel");
   const skillSel1 = document.getElementById("choiceSkill1");
@@ -1019,7 +1059,9 @@ function renderRaceChoices(){
   const featRow = document.getElementById("choiceFeatRow");
   const featSel = document.getElementById("choiceFeat1");
   const toolRow = document.getElementById("choiceToolRow");
+  const toolLabel = document.getElementById("choiceToolLabel");
   const toolSel = document.getElementById("choiceTool1");
+  const toolSel2 = document.getElementById("choiceTool2");
   const cantripRow = document.getElementById("choiceCantripRow");
   const cantripSel = document.getElementById("choiceCantrip1");
   const vedRow = document.getElementById("choiceVedalkenRow");
@@ -1027,11 +1069,12 @@ function renderRaceChoices(){
   const vedToolSel = document.getElementById("choiceVedalkenTool");
   const ancestryRow = document.getElementById("choiceAncestryRow");
   const ancestrySel = document.getElementById("choiceAncestry");
-  if(!block || !langRow || !langSel || !asiRow || !asiSel1 || !asiSel2 || !skillRow || !skillLabel || !skillSel1 || !skillSel2 || !featRow || !featSel || !toolRow || !toolSel || !cantripRow || !cantripSel || !vedRow || !vedSkillSel || !vedToolSel || !ancestryRow || !ancestrySel) return;
+  if(!block || !langRow || !langSel || !asiRow || !asiLabel || !asiVariantRow || !asiVariantSel || !asiSel1 || !asiSel2 || !asiSel3 || !skillRow || !skillLabel || !skillSel1 || !skillSel2 || !featRow || !featSel || !toolRow || !toolLabel || !toolSel || !toolSel2 || !cantripRow || !cantripSel || !vedRow || !vedSkillSel || !vedToolSel || !ancestryRow || !ancestrySel) return;
 
   const ctx = getCurrentRaceContext();
   const langCfg = getLanguageChoiceConfig(ctx.effectiveTraits);
   const asiCfg = getAsiChoiceConfig(ctx.effectiveTraits);
+  const flexAsiCfg = getFlexAsiChoiceConfig(ctx.details.asi);
   const skillCfg = getSkillChoiceConfig(ctx.effectiveTraits);
   const featCfg = getFeatChoiceConfig(ctx.effectiveTraits);
   const toolCfg = getToolChoiceConfig(ctx.effectiveTraits);
@@ -1039,7 +1082,8 @@ function renderRaceChoices(){
   const vedCfg = getTirelessPrecisionChoiceConfig(ctx.effectiveTraits);
   const ancestryCfg = getDraconicAncestryChoiceConfig(ctx.effectiveTraits);
   const needsLanguage = !!langCfg.required;
-  const needsAsi = !!asiCfg.required;
+  const needsAsi = !!asiCfg.required || !!flexAsiCfg.required;
+  const needsFlexAsi = !!flexAsiCfg.required;
   const needsSkill = !!skillCfg.required;
   const needsFeat = !!featCfg.required;
   const needsTool = !!toolCfg.required;
@@ -1049,12 +1093,16 @@ function renderRaceChoices(){
   raceChoiceState = {
     languageRequired: needsLanguage,
     asiRequired: needsAsi,
+    flexAsiRequired: needsFlexAsi,
+    flexAsiVariants: Array.isArray(flexAsiCfg.variants) ? flexAsiCfg.variants.slice() : [],
     asiBonus: asiCfg.bonus || 1,
     asiExclude: Array.isArray(asiCfg.exclude) ? asiCfg.exclude.slice() : [],
+    asiCount: needsFlexAsi ? 2 : Number(asiCfg.count || 2),
     skillRequired: needsSkill,
     skillCount: Number(skillCfg.count || 0),
     featRequired: needsFeat,
     toolRequired: needsTool,
+    toolCount: Number(toolCfg.choices || 0),
     toolOptions: Array.isArray(toolCfg.from) ? toolCfg.from.slice() : [],
     cantripRequired: needsCantrip,
     cantripOptions: Array.isArray(cantripCfg.options) ? cantripCfg.options.slice() : [],
@@ -1081,6 +1129,14 @@ function renderRaceChoices(){
     asiSel2.disabled = true;
     asiSel2.required = false;
     asiSel2.value = "";
+    asiSel3.style.display = "none";
+    asiSel3.disabled = true;
+    asiSel3.required = false;
+    asiSel3.value = "";
+    asiVariantRow.style.display = "none";
+    asiVariantSel.disabled = true;
+    asiVariantSel.required = false;
+    asiVariantSel.value = "";
     skillSel1.disabled = true;
     skillSel1.required = false;
     skillSel1.value = "";
@@ -1094,6 +1150,10 @@ function renderRaceChoices(){
     toolSel.disabled = true;
     toolSel.required = false;
     toolSel.value = "";
+    toolSel2.style.display = "none";
+    toolSel2.disabled = true;
+    toolSel2.required = false;
+    toolSel2.value = "";
     cantripSel.disabled = true;
     cantripSel.required = false;
     cantripSel.value = "";
@@ -1140,14 +1200,53 @@ function renderRaceChoices(){
 
   if(needsAsi){
     const refreshAsiPair = () => {
+      const variant = String(asiVariantSel.value || "").trim().toLowerCase();
+      const flexTriple = needsFlexAsi && variant === "1_1_1";
       const current1 = String(asiSel1.value || "").trim().toLowerCase();
       const current2 = String(asiSel2.value || "").trim().toLowerCase();
-      fillAsiSelect(asiSel1, current1, { exclude: raceChoiceState.asiExclude, blockedValue: current2 });
-      fillAsiSelect(asiSel2, current2, { exclude: raceChoiceState.asiExclude, blockedValue: current1 });
+      const current3 = String(asiSel3.value || "").trim().toLowerCase();
+      fillAsiSelect(asiSel1, current1, { exclude: raceChoiceState.asiExclude, blockedValue: current2 || current3 });
+      fillAsiSelect(asiSel2, current2, { exclude: raceChoiceState.asiExclude, blockedValue: current1 || current3 });
+      if(flexTriple){
+        fillAsiSelect(asiSel3, current3, { exclude: raceChoiceState.asiExclude, blockedValue: current1 || current2 });
+      }
+      asiSel3.style.display = flexTriple ? "" : "none";
+      asiSel3.disabled = !flexTriple;
+      asiSel3.required = flexTriple;
+      if(!flexTriple) asiSel3.value = "";
     };
+    if(needsFlexAsi){
+      const prevVariant = String(asiVariantSel.value || "").trim().toLowerCase();
+      asiVariantSel.innerHTML = "";
+      const v0 = document.createElement("option");
+      v0.value = "";
+      v0.textContent = "(выберите вариант)";
+      asiVariantSel.appendChild(v0);
+      const v21 = document.createElement("option");
+      v21.value = "2_1";
+      v21.textContent = "+2 к одной и +1 к другой";
+      asiVariantSel.appendChild(v21);
+      const v111 = document.createElement("option");
+      v111.value = "1_1_1";
+      v111.textContent = "+1 к трём разным";
+      asiVariantSel.appendChild(v111);
+      asiVariantSel.value = (prevVariant === "2_1" || prevVariant === "1_1_1") ? prevVariant : "";
+      asiVariantSel.disabled = false;
+      asiVariantSel.required = true;
+      asiVariantRow.style.display = "";
+      asiLabel.textContent = "Гибкие ASI (обязательно)";
+    }else{
+      asiVariantRow.style.display = "none";
+      asiVariantSel.disabled = true;
+      asiVariantSel.required = false;
+      asiVariantSel.value = "";
+      asiLabel.textContent = "ASI +1 к двум разным характеристикам (обязательно)";
+    }
     refreshAsiPair();
     asiSel1.onchange = refreshAsiPair;
     asiSel2.onchange = refreshAsiPair;
+    asiSel3.onchange = refreshAsiPair;
+    asiVariantSel.onchange = refreshAsiPair;
     asiRow.style.display = "";
     asiSel1.disabled = false;
     asiSel1.required = true;
@@ -1155,14 +1254,24 @@ function renderRaceChoices(){
     asiSel2.required = true;
   }else{
     asiRow.style.display = "none";
+    asiVariantRow.style.display = "none";
+    asiVariantSel.disabled = true;
+    asiVariantSel.required = false;
+    asiVariantSel.value = "";
     asiSel1.onchange = null;
     asiSel2.onchange = null;
+    asiSel3.onchange = null;
+    asiVariantSel.onchange = null;
     asiSel1.disabled = true;
     asiSel1.required = false;
     asiSel1.value = "";
     asiSel2.disabled = true;
     asiSel2.required = false;
     asiSel2.value = "";
+    asiSel3.style.display = "none";
+    asiSel3.disabled = true;
+    asiSel3.required = false;
+    asiSel3.value = "";
   }
 
   if(needsSkill){
@@ -1220,16 +1329,44 @@ function renderRaceChoices(){
   }
 
   if(needsTool){
-    const prev = String(toolSel.value || "");
-    fillToolChoiceSelect(toolSel, toolCfg.from, prev);
+    const toolCount = Number(toolCfg.choices || 0);
+    const refreshTools = () => {
+      const current1 = String(toolSel.value || "").trim().toLowerCase();
+      const current2 = String(toolSel2.value || "").trim().toLowerCase();
+      fillToolChoiceSelect(toolSel, toolCfg.from, current1, { blockedValue: toolCount >= 2 ? current2 : "" });
+      if(toolCount >= 2){
+        fillToolChoiceSelect(toolSel2, toolCfg.from, current2, { blockedValue: current1 });
+      }
+    };
+    refreshTools();
+    toolSel.onchange = refreshTools;
+    toolSel2.onchange = refreshTools;
+    if(toolCount >= 2){
+      toolLabel.textContent = "Инструменты (2, обязательно)";
+      toolSel2.style.display = "";
+      toolSel2.disabled = false;
+      toolSel2.required = true;
+    }else{
+      toolLabel.textContent = "Инструмент (обязательно)";
+      toolSel2.style.display = "none";
+      toolSel2.disabled = true;
+      toolSel2.required = false;
+      toolSel2.value = "";
+    }
     toolRow.style.display = "";
     toolSel.disabled = false;
     toolSel.required = true;
   }else{
     toolRow.style.display = "none";
+    toolSel.onchange = null;
+    toolSel2.onchange = null;
     toolSel.disabled = true;
     toolSel.required = false;
     toolSel.value = "";
+    toolSel2.style.display = "none";
+    toolSel2.disabled = true;
+    toolSel2.required = false;
+    toolSel2.value = "";
   }
 
   if(needsCantrip){
@@ -1479,16 +1616,45 @@ async function createHero(){
   }
   const choiceAsi1El = document.getElementById("choiceAsi1");
   const choiceAsi2El = document.getElementById("choiceAsi2");
+  const choiceAsi3El = document.getElementById("choiceAsi3");
+  const choiceAsiVariantEl = document.getElementById("choiceAsiVariant");
   const choiceAsi1 = String(choiceAsi1El ? choiceAsi1El.value : "").trim().toLowerCase();
   const choiceAsi2 = String(choiceAsi2El ? choiceAsi2El.value : "").trim().toLowerCase();
+  const choiceAsi3 = String(choiceAsi3El ? choiceAsi3El.value : "").trim().toLowerCase();
+  const choiceAsiVariant = String(choiceAsiVariantEl ? choiceAsiVariantEl.value : "").trim().toLowerCase();
   if(raceChoiceState.asiRequired){
-    if(!choiceAsi1 || !choiceAsi2){
-      setMessage("Выбери две характеристики для ASI в блоке «Стартовые выборы».", false);
-      return;
-    }
-    if(choiceAsi1 === choiceAsi2){
-      setMessage("Для ASI нужно выбрать две разные характеристики.", false);
-      return;
+    if(raceChoiceState.flexAsiRequired){
+      if(choiceAsiVariant !== "2_1" && choiceAsiVariant !== "1_1_1"){
+        setMessage("Выбери вариант гибких ASI в блоке «Стартовые выборы».", false);
+        return;
+      }
+      if(!choiceAsi1 || !choiceAsi2){
+        setMessage("Выбери характеристики для гибких ASI в блоке «Стартовые выборы».", false);
+        return;
+      }
+      if(choiceAsi1 === choiceAsi2){
+        setMessage("Для гибких ASI нужны разные характеристики.", false);
+        return;
+      }
+      if(choiceAsiVariant === "1_1_1"){
+        if(!choiceAsi3){
+          setMessage("Для варианта +1/+1/+1 выбери третью характеристику.", false);
+          return;
+        }
+        if(choiceAsi1 === choiceAsi3 || choiceAsi2 === choiceAsi3){
+          setMessage("Для варианта +1/+1/+1 нужны три разные характеристики.", false);
+          return;
+        }
+      }
+    }else{
+      if(!choiceAsi1 || !choiceAsi2){
+        setMessage("Выбери две характеристики для ASI в блоке «Стартовые выборы».", false);
+        return;
+      }
+      if(choiceAsi1 === choiceAsi2){
+        setMessage("Для ASI нужно выбрать две разные характеристики.", false);
+        return;
+      }
     }
   }
   const choiceSkillEl = document.getElementById("choiceSkill1");
@@ -1517,10 +1683,23 @@ async function createHero(){
     return;
   }
   const choiceToolEl = document.getElementById("choiceTool1");
+  const choiceToolEl2 = document.getElementById("choiceTool2");
   const choiceTool = String(choiceToolEl ? choiceToolEl.value : "").trim().toLowerCase();
-  if(raceChoiceState.toolRequired && !choiceTool){
-    setMessage("Выбери инструмент в блоке «Стартовые выборы».", false);
-    return;
+  const choiceTool2 = String(choiceToolEl2 ? choiceToolEl2.value : "").trim().toLowerCase();
+  if(raceChoiceState.toolRequired){
+    if(Number(raceChoiceState.toolCount || 0) >= 2){
+      if(!choiceTool || !choiceTool2){
+        setMessage("Выбери два инструмента в блоке «Стартовые выборы».", false);
+        return;
+      }
+      if(choiceTool === choiceTool2){
+        setMessage("Для выбора инструментов нужны два разных инструмента.", false);
+        return;
+      }
+    }else if(!choiceTool){
+      setMessage("Выбери инструмент в блоке «Стартовые выборы».", false);
+      return;
+    }
   }
   const choiceCantripEl = document.getElementById("choiceCantrip1");
   const choiceCantrip = String(choiceCantripEl ? choiceCantripEl.value : "").trim().toLowerCase();
@@ -1563,11 +1742,21 @@ async function createHero(){
     raceChoices.languages = [choiceLang];
   }
   if(raceChoiceState.asiRequired){
+    if(raceChoiceState.flexAsiRequired){
+      const flexStats = choiceAsiVariant === "1_1_1"
+        ? [choiceAsi1, choiceAsi2, choiceAsi3]
+        : [choiceAsi1, choiceAsi2];
+      raceChoices.flex_asi = {
+        variant: choiceAsiVariant,
+        stats: flexStats,
+      };
+    }else{
     const asiBonus = Number(raceChoiceState.asiBonus || 1);
     raceChoices.asi = [
       {stat: choiceAsi1, bonus: asiBonus},
       {stat: choiceAsi2, bonus: asiBonus},
     ];
+    }
   }
   if(choiceSkill){
     raceChoices.skills = Number(raceChoiceState.skillCount || 0) >= 2
@@ -1578,7 +1767,9 @@ async function createHero(){
     raceChoices.feats = [choiceFeat];
   }
   if(choiceTool){
-    raceChoices.tools = [choiceTool];
+    raceChoices.tools = Number(raceChoiceState.toolCount || 0) >= 2
+      ? [choiceTool, choiceTool2]
+      : [choiceTool];
   }
   if(choiceCantrip){
     raceChoices.cantrips = [choiceCantrip];

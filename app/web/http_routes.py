@@ -76,6 +76,7 @@ WIZARD_CANTRIP_WHITELIST = {
     "light",
     "dancing_lights",
 }
+AUTOGNOME_TOOL_WHITELIST = set(TIRELESS_PRECISION_TOOL_WHITELIST)
 
 
 @router.get("/", response_class=HTMLResponse)
@@ -556,10 +557,12 @@ def _build_race_features(selected_race: dict | None) -> dict[str, Any]:
     carry: dict[str, Any] = {}
     features: dict[str, Any] = {}
     saves: dict[str, Any] = {}
+    needs: dict[str, Any] = {}
     save_advantage_conditions: list[str] = []
     save_advantage_vs_magic: list[str] = []
     allowed_save_abilities = {"str", "dex", "con", "int", "wis", "cha"}
     race_key = str(selected_race.get("key") or "").strip().lower()
+    creature_type = ""
     speed_notes_ru = str(selected_race.get("speed_notes_ru") or details.get("speed_notes_ru") or "").strip().lower()
 
     for t in traits:
@@ -622,6 +625,12 @@ def _build_race_features(selected_race: dict | None) -> dict[str, Any]:
 
         if mtype == "tool_proficiency_choice":
             tool_profs.append("choose_any_tools")
+            choose = max(as_int(mech.get("choose"), as_int(mech.get("count"), 0)), 0)
+            from_raw = mech.get("from")
+            from_list = from_raw if isinstance(from_raw, list) else [from_raw]
+            from_items = _uniq_lower_str_list(from_list)
+            if choose > 0 and from_items:
+                features["tool_choice"] = {"choose": choose, "from": from_items}
 
         if mtype == "proficiency":
             skill_profs.extend(_uniq_lower_str_list(mech.get("skills")))
@@ -749,6 +758,29 @@ def _build_race_features(selected_race: dict | None) -> dict[str, Any]:
                 if not isinstance(spell, dict):
                     continue
                 _append_innate_spell(ability=ability, spell_obj=spell)
+
+        if mtype == "creature_type":
+            creature_type = str(mech.get("value") or "").strip().lower()
+
+        if mtype == "mechanical_nature":
+            resist.extend(_uniq_lower_str_list(mech.get("damage_resistance")))
+            immune_cond.extend(_uniq_lower_str_list(mech.get("condition_immunity")))
+            save_advantage_conditions.extend(_uniq_lower_str_list(mech.get("condition_advantage")))
+            no_need_items = _uniq_lower_str_list(mech.get("no_need"))
+            if no_need_items:
+                needs["no_need"] = no_need_items
+
+        if mtype == "sentry_rest":
+            features["sentry_rest"] = dict(mech)
+
+        if mtype == "built_for_success":
+            features["built_for_success"] = dict(mech)
+
+        if mtype == "mending_heal":
+            features["mending_heal"] = dict(mech)
+
+        if mtype == "healing_spells_affect_construct":
+            features["healing_spells_affect_construct"] = True
 
         if mtype == "spell_grants":
             ability = str(mech.get("casting_ability") or "").strip().lower()
@@ -887,6 +919,7 @@ def _build_race_features(selected_race: dict | None) -> dict[str, Any]:
     out: dict[str, Any] = {
         "race_key": str(selected_race.get("key") or "").strip(),
         "size": size,
+        "creature_type": creature_type,
         "languages": [str(x) for x in languages if str(x)],
         "speeds": speeds,
         "senses": senses,
@@ -909,6 +942,7 @@ def _build_race_features(selected_race: dict | None) -> dict[str, Any]:
         "carry": carry,
         "features": features,
         "saves": saves,
+        "needs": needs,
     }
     return out
 
@@ -950,6 +984,8 @@ async def api_character_create(payload: dict):
     race_choice_feats: list[str] = []
     race_choice_tools: list[str] = []
     race_choice_cantrips: list[str] = []
+    race_choice_flex_asi_variant = ""
+    race_choice_flex_asi_stats: list[str] = []
     race_choice_tp_skill = ""
     race_choice_tp_tool = ""
     race_choice_draconic_ancestry = ""
@@ -1046,6 +1082,23 @@ async def api_character_create(payload: dict):
                 raise HTTPException(status_code=400, detail=f"Invalid cantrip choice: {cantrip}")
             if cantrip not in race_choice_cantrips:
                 race_choice_cantrips.append(cantrip)
+        raw_flex_asi = race_choices_payload.get("flex_asi")
+        if isinstance(raw_flex_asi, dict):
+            race_choice_flex_asi_variant = str(raw_flex_asi.get("variant") or "").strip().lower()
+            raw_flex_stats = raw_flex_asi.get("stats")
+            raw_flex_stats_list = raw_flex_stats if isinstance(raw_flex_stats, list) else []
+            allowed_asi_stats = {"str", "dex", "con", "int", "wis", "cha"}
+            seen_flex_asi_stats: set[str] = set()
+            for item in raw_flex_stats_list:
+                stat_key = str(item or "").strip().lower()
+                if not stat_key:
+                    continue
+                if stat_key not in allowed_asi_stats:
+                    raise HTTPException(status_code=400, detail=f"Invalid flex ASI stat choice: {stat_key}")
+                if stat_key in seen_flex_asi_stats:
+                    raise HTTPException(status_code=400, detail="Flex ASI stats must be distinct")
+                seen_flex_asi_stats.add(stat_key)
+                race_choice_flex_asi_stats.append(stat_key)
         raw_tp = race_choices_payload.get("tireless_precision")
         if isinstance(raw_tp, dict):
             race_choice_tp_skill = str(raw_tp.get("skill") or "").strip().lower()
@@ -1161,9 +1214,18 @@ async def api_character_create(payload: dict):
         required_race_skill_count = 0
         required_race_language_count = 0
         race_language_choice_available = False
+        race_flex_asi_available = False
         if isinstance(effective_race, dict):
             effective_traits = effective_race.get("traits")
             effective_traits_list = effective_traits if isinstance(effective_traits, list) else []
+            effective_asi = effective_race.get("asi")
+            effective_asi_list = effective_asi if isinstance(effective_asi, list) else []
+            for asi_item in effective_asi_list:
+                if not isinstance(asi_item, dict):
+                    continue
+                if str(asi_item.get("note") or "").strip().lower() == "flexible_asi":
+                    race_flex_asi_available = True
+                    break
             for trait in effective_traits_list:
                 if not isinstance(trait, dict):
                     continue
@@ -1300,6 +1362,18 @@ async def api_character_create(payload: dict):
         elif race_choice_languages and not race_language_choice_available:
             raise HTTPException(status_code=400, detail="Race language choice is not available for selected race")
 
+        if race_flex_asi_available:
+            if race_choice_flex_asi_variant not in {"2_1", "1_1_1"}:
+                raise HTTPException(status_code=400, detail="Flex ASI variant is required")
+            expected_count = 2 if race_choice_flex_asi_variant == "2_1" else 3
+            if len(race_choice_flex_asi_stats) != expected_count:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Flex ASI requires exactly {expected_count} distinct stat choice(s)",
+                )
+        elif race_choice_flex_asi_variant or race_choice_flex_asi_stats:
+            raise HTTPException(status_code=400, detail="Flex ASI is not available for selected race")
+
         if selected_race is not None:
             # When a preset race is selected, keep mechanics by base race id.
             race_kit = str(selected_race.get("key") or "human").strip()[:40]
@@ -1337,6 +1411,8 @@ async def api_character_create(payload: dict):
             if tool and tool not in allowed_tool_choices:
                 allowed_tool_choices.append(tool)
         required_tool_choices = max(as_int(tool_choice_cfg.get("choose"), 0), 0)
+        if "any" in allowed_tool_choices:
+            allowed_tool_choices = sorted(AUTOGNOME_TOOL_WHITELIST)
         if required_tool_choices > 0:
             if len(race_choice_tools) != required_tool_choices:
                 raise HTTPException(
@@ -1390,6 +1466,11 @@ async def api_character_create(payload: dict):
             choices_dict["tools"] = list(race_choice_tools)
         if isinstance(race_features, dict) and race_choice_cantrips:
             choices_dict["cantrips"] = list(race_choice_cantrips)
+        if isinstance(race_features, dict) and race_choice_flex_asi_variant and race_choice_flex_asi_stats:
+            choices_dict["flex_asi"] = {
+                "variant": race_choice_flex_asi_variant,
+                "stats": list(race_choice_flex_asi_stats),
+            }
         if isinstance(race_features, dict) and race_choice_feats:
             choices_dict["feats"] = list(race_choice_feats)
         if isinstance(race_features, dict) and race_choice_tp_skill and race_choice_tp_tool:
@@ -1469,6 +1550,16 @@ async def api_character_create(payload: dict):
             _apply_asi_bonuses(stats, effective_race.get("asi"))
         if race_choice_asi:
             _apply_asi_bonuses(stats, race_choice_asi)
+        if race_choice_flex_asi_variant and race_choice_flex_asi_stats:
+            flex_asi_items: list[dict[str, Any]] = []
+            if race_choice_flex_asi_variant == "2_1" and len(race_choice_flex_asi_stats) == 2:
+                flex_asi_items = [
+                    {"stat": race_choice_flex_asi_stats[0], "bonus": 2},
+                    {"stat": race_choice_flex_asi_stats[1], "bonus": 1},
+                ]
+            elif race_choice_flex_asi_variant == "1_1_1" and len(race_choice_flex_asi_stats) == 3:
+                flex_asi_items = [{"stat": stat_key, "bonus": 1} for stat_key in race_choice_flex_asi_stats]
+            _apply_asi_bonuses(stats, flex_asi_items)
 
         hp_max = max(1, as_int((selected_preset or {}).get("hp_max"), 20))
         sta_max = max(1, as_int((selected_preset or {}).get("sta_max"), 10))

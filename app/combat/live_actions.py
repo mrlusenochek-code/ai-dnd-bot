@@ -201,6 +201,36 @@ def _apply_relentless_endurance_if_needed(*, target: Any, incoming_damage: int) 
     return max(0, pre_hp - 1), extra_lines
 
 
+def _built_for_success_bonus_for_attack(actor: Any) -> tuple[int, list[dict[str, Any]]]:
+    extra_lines: list[dict[str, Any]] = []
+    if str(getattr(actor, "side", "")).lower() != "pc":
+        return 0, extra_lines
+    built_cfg = _race_feature(actor, "built_for_success")
+    if built_cfg is None:
+        return 0, extra_lines
+    race_features = actor.race_features if isinstance(actor.race_features, dict) else {}
+    runtime_raw = race_features.get("runtime")
+    runtime = dict(runtime_raw) if isinstance(runtime_raw, dict) else {}
+    if not bool(runtime.get("built_for_success_armed")):
+        return 0, extra_lines
+    level = max(1, int(getattr(actor, "level", 1) or 1))
+    uses_max = max(1, int(proficiency_bonus(level)))
+    used = max(0, int(runtime.get("built_for_success_used") or 0))
+    if used >= uses_max:
+        runtime["built_for_success_armed"] = False
+        race_features["runtime"] = runtime
+        actor.race_features = race_features
+        extra_lines.append({"text": "Создан для успеха: заряды исчерпаны до долгого отдыха.", "muted": True})
+        return 0, extra_lines
+    bonus = random.randint(1, 4)
+    runtime["built_for_success_used"] = used + 1
+    runtime["built_for_success_armed"] = False
+    race_features["runtime"] = runtime
+    actor.race_features = race_features
+    extra_lines.append({"text": f"Создан для успеха: +{bonus} (1d4).", "muted": True})
+    return bonus, extra_lines
+
+
 def _breath_weapon_dice_for_level(progression: list[dict[str, Any]], level: int) -> str:
     lvl = max(1, int(level))
     out = "2d6"
@@ -1181,6 +1211,8 @@ def handle_live_combat_action(
             rng=random,
             reroll_ones=_has_reroll_ones_scope(attacker, "attack"),
         )
+        built_for_success_bonus, built_for_success_lines = _built_for_success_bonus_for_attack(attacker)
+        d20_roll += built_for_success_bonus
         attack_roll_repr = f"d20({roll_a})" if roll_b is None else f"d20({roll_a},{roll_b}) -> {d20_roll}"
 
         stats = attacker.stats if isinstance(attacker.stats, dict) else {}
@@ -1209,6 +1241,7 @@ def handle_live_combat_action(
         )
         attacker.help_attack_advantage = False
         extra_outcome_lines: list[dict[str, Any]] = []
+        extra_outcome_lines.extend(built_for_success_lines)
         total_damage = int(resolution.total_damage)
         if resolution.is_hit:
             total_damage, savage_lines = _apply_savage_attacks_bonus(

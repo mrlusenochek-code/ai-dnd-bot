@@ -27,7 +27,7 @@ from app.rules.phb_rest import (
     apply_short_rest,
     long_rest_recover_hit_dice,
 )
-from app.rules.phb_math import ability_mod_from_stat100, roll_initiative
+from app.rules.phb_math import ability_mod_from_stat100, proficiency_bonus, roll_initiative
 from app.gm import combat_narration as gm_combat_narration
 from app.web import gm_orchestrator
 from app.web.db_helpers import get_or_create_player_web, get_session, list_session_players
@@ -164,6 +164,9 @@ def _normalize_save_tag(raw: str) -> str:
         "charmed": "charmed",
         "очарование": "charmed",
         "очарован": "charmed",
+        "paralyzed": "paralyzed",
+        "паралич": "paralyzed",
+        "парализован": "paralyzed",
     }
     return aliases.get(key, key)
 
@@ -567,6 +570,65 @@ def _apply_aasimar_transformation_in_combat(
     return patch, None, changed
 
 
+def _apply_built_for_success_arm(ch: Character) -> tuple[Optional[str], bool]:
+    race_features = getattr(ch, "race_features", None)
+    rf = dict(race_features) if isinstance(race_features, dict) else {}
+    features_raw = rf.get("features")
+    features = dict(features_raw) if isinstance(features_raw, dict) else {}
+    built_cfg_raw = features.get("built_for_success")
+    built_cfg = dict(built_cfg_raw) if isinstance(built_cfg_raw, dict) else {}
+    if not built_cfg:
+        return "Создан для успеха недоступно вашей расе.", False
+
+    runtime_raw = rf.get("runtime")
+    runtime = dict(runtime_raw) if isinstance(runtime_raw, dict) else {}
+    if bool(runtime.get("built_for_success_armed")):
+        return "Создан для успеха уже готово: следующий бросок d20 получит +1d4.", False
+
+    level = max(1, as_int(getattr(ch, "level", 1), 1))
+    uses_max = max(1, int(proficiency_bonus(level)))
+    used = max(0, as_int(runtime.get("built_for_success_used"), 0))
+    if used >= uses_max:
+        return "Создан для успеха уже использовано до долгого отдыха.", False
+
+    runtime["built_for_success_armed"] = True
+    rf["runtime"] = runtime
+    ch.race_features = rf
+    return None, True
+
+
+def _consume_built_for_success_for_d20(ch: Character) -> tuple[int, Optional[str], bool]:
+    race_features = getattr(ch, "race_features", None)
+    rf = dict(race_features) if isinstance(race_features, dict) else {}
+    features_raw = rf.get("features")
+    features = dict(features_raw) if isinstance(features_raw, dict) else {}
+    built_cfg_raw = features.get("built_for_success")
+    built_cfg = dict(built_cfg_raw) if isinstance(built_cfg_raw, dict) else {}
+    if not built_cfg:
+        return 0, None, False
+
+    runtime_raw = rf.get("runtime")
+    runtime = dict(runtime_raw) if isinstance(runtime_raw, dict) else {}
+    if not bool(runtime.get("built_for_success_armed")):
+        return 0, None, False
+
+    level = max(1, as_int(getattr(ch, "level", 1), 1))
+    uses_max = max(1, int(proficiency_bonus(level)))
+    used = max(0, as_int(runtime.get("built_for_success_used"), 0))
+    if used >= uses_max:
+        runtime["built_for_success_armed"] = False
+        rf["runtime"] = runtime
+        ch.race_features = rf
+        return 0, None, True
+
+    bonus = random.randint(1, 4)
+    runtime["built_for_success_used"] = used + 1
+    runtime["built_for_success_armed"] = False
+    rf["runtime"] = runtime
+    ch.race_features = rf
+    return bonus, f"1d4 (Создан для успеха: {bonus})", True
+
+
 def _reset_racial_rest_uses(ch: Character) -> bool:
     race_features = getattr(ch, "race_features", None)
     rf = dict(race_features) if isinstance(race_features, dict) else {}
@@ -602,6 +664,12 @@ def _reset_racial_rest_uses(ch: Character) -> bool:
         changed = True
     if "relentless_endurance_used" in runtime:
         runtime.pop("relentless_endurance_used", None)
+        changed = True
+    if "built_for_success_used" in runtime:
+        runtime.pop("built_for_success_used", None)
+        changed = True
+    if "built_for_success_armed" in runtime:
+        runtime.pop("built_for_success_armed", None)
         changed = True
     if not changed:
         return False
@@ -654,6 +722,12 @@ def _reset_combatant_racial_rest_uses(session_id: str, actor_key: str) -> bool:
     if "relentless_endurance_used" in runtime:
         runtime.pop("relentless_endurance_used", None)
         changed = True
+    if "built_for_success_used" in runtime:
+        runtime.pop("built_for_success_used", None)
+        changed = True
+    if "built_for_success_armed" in runtime:
+        runtime.pop("built_for_success_armed", None)
+        changed = True
     if not changed:
         return False
     if runtime:
@@ -668,7 +742,8 @@ async def _persist_relentless_endurance_used_from_combat_state(db, sess, session
     state = get_combat(session_id)
     if state is None or not state.active:
         return False
-    used_uids: set[int] = set()
+    relentless_used_uids: set[int] = set()
+    built_for_success_runtime_by_uid: dict[int, dict[str, Any]] = {}
     for key, actor in (state.combatants or {}).items():
         actor_key = str(key or "").strip().lower()
         if not actor_key.startswith("pc_"):
@@ -679,13 +754,22 @@ async def _persist_relentless_endurance_used_from_combat_state(db, sess, session
         race_features = actor.race_features if isinstance(actor.race_features, dict) else {}
         runtime = race_features.get("runtime") if isinstance(race_features.get("runtime"), dict) else {}
         if bool(runtime.get("relentless_endurance_used", False)):
-            used_uids.add(int(uid_raw))
-    if not used_uids:
+            relentless_used_uids.add(int(uid_raw))
+        if "built_for_success_used" in runtime or "built_for_success_armed" in runtime:
+            built_runtime: dict[str, Any] = {}
+            if "built_for_success_used" in runtime:
+                built_runtime["built_for_success_used"] = max(0, as_int(runtime.get("built_for_success_used"), 0))
+            if "built_for_success_armed" in runtime:
+                built_runtime["built_for_success_armed"] = bool(runtime.get("built_for_success_armed"))
+            built_for_success_runtime_by_uid[int(uid_raw)] = built_runtime
+    if not relentless_used_uids and not built_for_success_runtime_by_uid:
         return False
 
     _uid_map, chars_by_uid, _ = await _load_actor_context(db, sess)
     changed = False
-    for uid in used_uids:
+    for uid, ch in chars_by_uid.items():
+        if uid not in relentless_used_uids and uid not in built_for_success_runtime_by_uid:
+            continue
         ch = chars_by_uid.get(uid)
         if ch is None:
             continue
@@ -693,13 +777,27 @@ async def _persist_relentless_endurance_used_from_combat_state(db, sess, session
         race_features = dict(race_features_raw) if isinstance(race_features_raw, dict) else {}
         runtime_raw = race_features.get("runtime")
         runtime = dict(runtime_raw) if isinstance(runtime_raw, dict) else {}
-        if bool(runtime.get("relentless_endurance_used", False)):
-            continue
-        runtime["relentless_endurance_used"] = True
-        race_features["runtime"] = runtime
-        ch.race_features = race_features
-        flag_modified(ch, "race_features")
-        changed = True
+        local_changed = False
+        if uid in relentless_used_uids and not bool(runtime.get("relentless_endurance_used", False)):
+            runtime["relentless_endurance_used"] = True
+            local_changed = True
+        built_runtime = built_for_success_runtime_by_uid.get(uid)
+        if isinstance(built_runtime, dict):
+            if "built_for_success_used" in built_runtime:
+                value = max(0, as_int(built_runtime.get("built_for_success_used"), 0))
+                if max(0, as_int(runtime.get("built_for_success_used"), 0)) != value:
+                    runtime["built_for_success_used"] = value
+                    local_changed = True
+            if "built_for_success_armed" in built_runtime:
+                value = bool(built_runtime.get("built_for_success_armed"))
+                if bool(runtime.get("built_for_success_armed")) != value:
+                    runtime["built_for_success_armed"] = value
+                    local_changed = True
+        if local_changed:
+            race_features["runtime"] = runtime
+            ch.race_features = race_features
+            flag_modified(ch, "race_features")
+            changed = True
     return changed
 
 
@@ -1432,6 +1530,27 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
 
                     await add_system_event(db, sess, msg)
                     await db.commit()
+                    await broadcast_state(session_id)
+                    continue
+
+                if combat_action == "use_built_for_success":
+                    ch = await get_character(db, sess.id, player.id)
+                    if not ch:
+                        await ws_error("Персонаж не найден.", request_id=msg_request_id)
+                        continue
+                    arm_err, changed = _apply_built_for_success_arm(ch)
+                    if arm_err:
+                        await ws_error(arm_err, request_id=msg_request_id)
+                        continue
+                    if changed:
+                        flag_modified(ch, "race_features")
+                        await db.commit()
+                    actor_name = str(getattr(ch, "name", "") or player.display_name).strip() or player.display_name
+                    await add_system_event(
+                        db,
+                        sess,
+                        f"{actor_name}: Готово: следующий бросок d20 получит +1d4.",
+                    )
                     await broadcast_state(session_id)
                     continue
 
@@ -2188,17 +2307,27 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                     }
                     res = build_check_result(check_payload, mod=mod, roll_a=ra, roll_b=rb, roll=roll)
                     base_total = int(res["total"])
+                    bfs_bonus, bfs_bonus_text, bfs_changed = _consume_built_for_success_for_d20(ch)
+                    if bfs_changed:
+                        flag_modified(ch, "race_features")
+                        await db.commit()
                     tp_bonus, tp_bonus_text = _tireless_precision_bonus_for_check(
                         getattr(ch, "race_features", None),
                         kind=str(check_payload["kind"]),
                         key=key,
                     )
-                    total = base_total + tp_bonus
+                    total = base_total + tp_bonus + bfs_bonus
                     rolls_text = str(roll) if rb is None else f"{ra}/{rb}->{roll}"
 
                     msg = f"[CHECK] {ch.name}: {key} = {rolls_text} + {mod:+d} => {total}"
                     if tp_bonus > 0 and tp_bonus_text:
                         msg = f"[CHECK] {ch.name}: {key} = {rolls_text} + {mod:+d} + {tp_bonus_text} => {total}"
+                    if bfs_bonus > 0 and bfs_bonus_text:
+                        msg = f"[CHECK] {ch.name}: {key} = {rolls_text} + {mod:+d} + {bfs_bonus_text} => {total}"
+                    if tp_bonus > 0 and tp_bonus_text and bfs_bonus > 0 and bfs_bonus_text:
+                        msg = (
+                            f"[CHECK] {ch.name}: {key} = {rolls_text} + {mod:+d} + {tp_bonus_text} + {bfs_bonus_text} => {total}"
+                        )
                     if dc is not None:
                         ok = total >= dc
                         msg += f" (DC {dc}) {'SUCCESS' if ok else 'FAIL'}"
@@ -2401,14 +2530,24 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                         "mode": mapped_mode,
                     }
                     res = build_check_result(check_payload, mod=mod, roll_a=ra, roll_b=rb, roll=roll)
-                    total = int(res["total"])
+                    base_total = int(res["total"])
+                    bfs_bonus, bfs_bonus_text, bfs_changed = _consume_built_for_success_for_d20(ch)
+                    if bfs_changed:
+                        flag_modified(ch, "race_features")
+                        await db.commit()
+                    total = base_total + bfs_bonus
                     d20_text = str(roll) if rb is None else f"{ra}/{rb}->{roll}"
 
                     save_prefix = "save magic" if is_magic_save else "save"
                     vs_suffix = f" vs {vs_tag}" if vs_tag else ""
                     msg = f"[SAVE] {ch.name}: {save_prefix} {ability}{vs_suffix} = d20({d20_text}) + {mod:+d} => {total}"
+                    if bfs_bonus > 0 and bfs_bonus_text:
+                        msg = (
+                            f"[SAVE] {ch.name}: {save_prefix} {ability}{vs_suffix} = "
+                            f"d20({d20_text}) + {mod:+d} + {bfs_bonus_text} => {total}"
+                        )
                     if dc is not None:
-                        ok = bool(res["success"])
+                        ok = total >= dc
                         msg += f" (DC {dc}) {'SUCCESS' if ok else 'FAIL'}"
                     await add_system_event(db, sess, msg)
                     await broadcast_state(session_id)
@@ -2659,6 +2798,27 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                     await ws_error("Unknown init command")
                     continue
 
+                if combat_action == "use_built_for_success":
+                    ch = await get_character(db, sess.id, player.id)
+                    if not ch:
+                        await ws_error("Персонаж не найден.", request_id=msg_request_id)
+                        continue
+                    arm_err, changed = _apply_built_for_success_arm(ch)
+                    if arm_err:
+                        await ws_error(arm_err, request_id=msg_request_id)
+                        continue
+                    if changed:
+                        flag_modified(ch, "race_features")
+                        await db.commit()
+                    actor_name = str(getattr(ch, "name", "") or player.display_name).strip() or player.display_name
+                    await add_system_event(
+                        db,
+                        sess,
+                        f"{actor_name}: Готово: следующий бросок d20 получит +1d4.",
+                    )
+                    await broadcast_state(session_id)
+                    continue
+
                 if combat_active:
                     innate_spell_key = _detect_innate_spell_key(text) if combat_action == "combat_innate_spell" else None
                     actor_label = await _event_actor_label(db, sess, player)
@@ -2869,6 +3029,9 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                             pass
 
                         merged_patch = _merge_combat_patches(all_patches) if all_patches else None
+                        persist_changed = await _persist_relentless_endurance_used_from_combat_state(db, sess, session_id)
+                        if persist_changed:
+                            await db.commit()
                         await broadcast_state(session_id, combat_log_ui_patch=merged_patch)
                         state_for_prompt = state_after_actions
                         story = settings_get(sess, "story", {}) or {}
