@@ -27,7 +27,28 @@ INV_MACHINE_LINE_RE = re.compile(
     re.IGNORECASE,
 )
 ZONE_SET_MACHINE_LINE_RE = re.compile(r"^\s*(?:\(\s*)?@@ZONE_SET\s*\((?P<args>.*?)\)\s*(?:\))?\s*$", re.IGNORECASE)
+SHAPECHANGER_SHIFT_RE = re.compile(
+    r"(превращаюс|меняю\s+внешност|принимаю\s+облик|меняю\s+лицо|change\s+form|shapechange|disguise\s+myself)",
+    re.IGNORECASE,
+)
+SHAPECHANGER_REVERT_RE = re.compile(
+    r"(возвращаюс?\s+в\s+истинн|истинн(?:ая|ую)\s+форм|снимаю\s+облик|revert|true\s+form)",
+    re.IGNORECASE,
+)
+SHAPECHANGER_PERSONA_CAPTURE_RE = re.compile(
+    r"(?:превращаюс(?:ь)?|меняю\s+внешност(?:ь)?|принимаю\s+облик|меняю\s+лицо|change\s+form|shapechange|disguise\s+myself)"
+    r"(?:\s*(?:в|под|как|into|as|to|:|-)\s*)?(?P<persona>[^\n\r]{1,240})?$",
+    re.IGNORECASE,
+)
 CHAT_COMBAT_ACTION_PATTERNS: list[tuple[str, re.Pattern[str]]] = [
+    (
+        "combat_shapechanger_revert",
+        SHAPECHANGER_REVERT_RE,
+    ),
+    (
+        "combat_shapechanger_shift",
+        SHAPECHANGER_SHIFT_RE,
+    ),
     (
         "combat_hooves_attack",
         re.compile(r"(копыт\w*|бью\s+копыт\w*|топч\w*)", re.IGNORECASE),

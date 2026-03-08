@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import re
 import random
+from datetime import datetime, timezone
 from typing import Any, Optional
 
 from app.combat.resolution import resolve_attack_roll
@@ -233,6 +234,26 @@ def _apply_relentless_endurance_if_needed(*, target: Any, incoming_damage: int) 
     target.race_features = race_features
     extra_lines.append({"text": "Неукротимая стойкость: вместо 0 HP остаётся 1 (1/дл отдых).", "muted": True})
     return max(0, pre_hp - 1), extra_lines
+
+
+def _revert_shapechanger_on_death(target: Any, lines: list[dict[str, Any]]) -> None:
+    if str(getattr(target, "side", "")).lower() != "pc":
+        return
+    race_features = target.race_features if isinstance(getattr(target, "race_features", None), dict) else {}
+    runtime_raw = race_features.get("runtime")
+    runtime = dict(runtime_raw) if isinstance(runtime_raw, dict) else {}
+    shape_raw = runtime.get("shapechanger")
+    shape = dict(shape_raw) if isinstance(shape_raw, dict) else {}
+    if not bool(shape.get("active")):
+        return
+    shape["active"] = False
+    shape["persona"] = ""
+    shape["voice"] = ""
+    shape["changed_at_iso"] = datetime.now(timezone.utc).isoformat()
+    runtime["shapechanger"] = shape
+    race_features["runtime"] = runtime
+    target.race_features = race_features
+    lines.append({"text": "Перевёртыш: смерть — возвращение в истинную форму.", "muted": True})
 
 
 def _maybe_apply_built_for_success(actor: Any, d20_roll: int, lines: list[dict[str, Any]]) -> int:
@@ -648,6 +669,7 @@ def _auto_resolve_zero_hp_turns(session_id: str, state: Any) -> dict[str, Any] |
                             current.is_dead = True
                             current.is_stable = False
                             lines.append({"text": f"Смерть: {current.name} погибает."})
+                            _revert_shapechanger_on_death(current, lines)
                         elif current.death_successes >= 3:
                             current.is_stable = True
                             lines.append({"text": f"Стабилизация: {current.name} стабилен (без сознания)."})
@@ -1462,6 +1484,7 @@ def handle_live_combat_action(
                         target.is_dead = True
                         target.is_stable = False
                         extra_outcome_lines.append({"text": f"Мгновенная смерть: {target.name} погибает."})
+                        _revert_shapechanger_on_death(target, extra_outcome_lines)
                 elif pre_hp == 0 and not target.is_dead:
                     fail_step = 2 if resolution.is_crit else 1
                     target.death_failures = _clamp_death_counter(target.death_failures + fail_step)
@@ -1469,6 +1492,7 @@ def handle_live_combat_action(
                         target.is_dead = True
                         target.is_stable = False
                         extra_outcome_lines.append({"text": f"Смерть: {target.name} погибает."})
+                        _revert_shapechanger_on_death(target, extra_outcome_lines)
                     else:
                         extra_outcome_lines.append({"text": "Смертельный урон при 0 HP: провал спасброска смерти."})
 
@@ -1777,6 +1801,7 @@ def handle_live_combat_action(
                         target.is_dead = True
                         target.is_stable = False
                         extra_outcome_lines.append({"text": f"Мгновенная смерть: {target.name} погибает."})
+                        _revert_shapechanger_on_death(target, extra_outcome_lines)
                 elif pre_hp == 0 and not target.is_dead:
                     fail_step = 2 if resolution.is_crit else 1
                     target.death_failures = _clamp_death_counter(target.death_failures + fail_step)
@@ -1784,6 +1809,7 @@ def handle_live_combat_action(
                         target.is_dead = True
                         target.is_stable = False
                         extra_outcome_lines.append({"text": f"Смерть: {target.name} погибает."})
+                        _revert_shapechanger_on_death(target, extra_outcome_lines)
                     else:
                         extra_outcome_lines.append({"text": "Смертельный урон при 0 HP: провал спасброска смерти."})
 
@@ -1958,6 +1984,7 @@ def handle_live_combat_action(
                         target.is_dead = True
                         target.is_stable = False
                         extra_outcome_lines.append({"text": f"Мгновенная смерть: {target.name} погибает."})
+                        _revert_shapechanger_on_death(target, extra_outcome_lines)
                 elif pre_hp == 0 and not target.is_dead:
                     fail_step = 2 if resolution.is_crit else 1
                     target.death_failures = _clamp_death_counter(target.death_failures + fail_step)
@@ -1965,6 +1992,7 @@ def handle_live_combat_action(
                         target.is_dead = True
                         target.is_stable = False
                         extra_outcome_lines.append({"text": f"Смерть: {target.name} погибает."})
+                        _revert_shapechanger_on_death(target, extra_outcome_lines)
                     else:
                         extra_outcome_lines.append({"text": "Смертельный урон при 0 HP: провал спасброска смерти."})
 

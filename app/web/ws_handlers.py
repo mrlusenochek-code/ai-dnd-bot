@@ -5,7 +5,7 @@ import logging
 import random
 import re
 import uuid
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Any, Optional
 
 from fastapi import WebSocket, WebSocketDisconnect
@@ -84,7 +84,11 @@ from app.web.ws_combat_prompting import (
     _start_intent_text_needs_repair,
 )
 from app.web.ws_gameplay import STATE_COMMAND_ALIASES, _detect_chat_combat_action, _format_state_text_for_player, infer_zone_from_action
-from app.web.regexes import COMBAT_MOVE_DISTANCE_RE, INNATE_SPELL_KEY_PATTERNS
+from app.web.regexes import (
+    COMBAT_MOVE_DISTANCE_RE,
+    INNATE_SPELL_KEY_PATTERNS,
+    SHAPECHANGER_PERSONA_CAPTURE_RE,
+)
 from app.web.ws_manager import manager
 from app.web.ws_turns import (
     TURN_TIMEOUT_SECONDS,
@@ -650,6 +654,152 @@ def _apply_fury_of_small_arm(ch: Character) -> tuple[Optional[str], bool]:
     rf["runtime"] = runtime
     ch.race_features = rf
     return None, True
+
+
+def _extract_shapechanger_persona(text: str) -> str:
+    txt = str(text or "").strip()
+    if not txt:
+        return ""
+    m = SHAPECHANGER_PERSONA_CAPTURE_RE.search(txt)
+    if not m:
+        return ""
+    persona = str(m.group("persona") or "").strip()
+    if not persona:
+        return ""
+    persona = re.sub(r"^(?:на|в|под|как|into|as|to)\s+", "", persona, flags=re.IGNORECASE).strip()
+    if not persona:
+        return ""
+    if len(persona) > 120:
+        persona = persona[:120].rstrip()
+    return persona
+
+
+def _apply_shapechanger(
+    ch: Character,
+    *,
+    active: bool,
+    persona: str | None = None,
+    voice: str | None = None,
+) -> tuple[Optional[str], Optional[str], bool]:
+    race_features = getattr(ch, "race_features", None)
+    rf = dict(race_features) if isinstance(race_features, dict) else {}
+    features_raw = rf.get("features")
+    features = dict(features_raw) if isinstance(features_raw, dict) else {}
+    shape_cfg_raw = features.get("shapechanger")
+    shape_cfg = dict(shape_cfg_raw) if isinstance(shape_cfg_raw, dict) else {}
+    if not shape_cfg:
+        return None, "Перевёртыш недоступен вашей расе.", False
+
+    runtime_raw = rf.get("runtime")
+    runtime = dict(runtime_raw) if isinstance(runtime_raw, dict) else {}
+    shape_raw = runtime.get("shapechanger")
+    shape = dict(shape_raw) if isinstance(shape_raw, dict) else {}
+    now_iso = datetime.now(timezone.utc).isoformat()
+
+    if active:
+        persona_value = str(persona or "").strip()
+        if len(persona_value) > 120:
+            persona_value = persona_value[:120].rstrip()
+        voice_value = str(voice or "").strip()
+        if len(voice_value) > 120:
+            voice_value = voice_value[:120].rstrip()
+        changed = (
+            not bool(shape.get("active"))
+            or str(shape.get("persona") or "").strip() != persona_value
+            or str(shape.get("voice") or "").strip() != voice_value
+        )
+        shape["active"] = True
+        shape["persona"] = persona_value
+        shape["voice"] = voice_value
+        shape["changed_at_iso"] = now_iso
+        runtime["shapechanger"] = shape
+
+        if persona_value:
+            history_raw = runtime.get("shapechanger_history")
+            history_list = history_raw if isinstance(history_raw, list) else []
+            history: list[dict[str, str]] = []
+            for item in history_list:
+                if not isinstance(item, dict):
+                    continue
+                item_persona = str(item.get("persona") or "").strip()
+                if not item_persona:
+                    continue
+                item_voice = str(item.get("voice") or "").strip()
+                item_changed = str(item.get("changed_at_iso") or "").strip()
+                history.append(
+                    {
+                        "persona": item_persona[:120],
+                        "voice": item_voice[:120],
+                        "changed_at_iso": item_changed,
+                    }
+                )
+            history.append(
+                {
+                    "persona": persona_value,
+                    "voice": voice_value,
+                    "changed_at_iso": now_iso,
+                }
+            )
+            runtime["shapechanger_history"] = history[-3:]
+
+        rf["runtime"] = runtime
+        ch.race_features = rf
+        shown = persona_value or "без уточнения"
+        return f"Меняет облик: {shown}.", None, changed
+
+    if not bool(shape.get("active")):
+        return "Уже в истинной форме.", None, False
+    shape["active"] = False
+    shape["persona"] = ""
+    shape["voice"] = ""
+    shape["changed_at_iso"] = now_iso
+    runtime["shapechanger"] = shape
+    rf["runtime"] = runtime
+    ch.race_features = rf
+    return "Возвращается в истинную форму.", None, True
+
+
+def _apply_shapechanger_in_combat(
+    session_id: str,
+    actor_key: str,
+    ch: Character,
+    *,
+    active: bool,
+    persona: str | None = None,
+    voice: str | None = None,
+) -> tuple[Optional[dict[str, Any]], Optional[str], bool]:
+    state = get_combat(session_id)
+    if state is None or not state.active:
+        return None, "Combat is not active", False
+    if not state.order or state.turn_index < 0 or state.turn_index >= len(state.order):
+        return None, "Combat state is inconsistent", False
+    turn_key = state.order[state.turn_index]
+    if turn_key != actor_key:
+        return None, f"Сейчас ходит {current_turn_label(state)}. Дождись своего хода.", False
+
+    actor = state.combatants.get(actor_key)
+    if actor is None:
+        return None, "Боец не найден.", False
+    if not bool(getattr(actor, "action_available", True)):
+        return None, "Действие недоступно: действие уже потрачено.", False
+
+    msg, shape_err, changed = _apply_shapechanger(ch, active=active, persona=persona, voice=voice)
+    if shape_err:
+        return None, shape_err, False
+
+    actor.action_available = False
+    actor.race_features = dict(getattr(ch, "race_features", {}) or {})
+
+    actor_name = str(getattr(ch, "name", "") or getattr(actor, "name", "") or "Персонаж").strip() or "Персонаж"
+    line = f"{actor_name}: {msg or 'Меняет облик.'}"
+    patch = {
+        "status": f"⚔ Бой • Раунд {state.round_no} • Ход: {current_turn_label(state)}",
+        "open": True,
+        "lines": [
+            {"text": line, "muted": True},
+        ],
+    }
+    return patch, None, changed
 
 
 def _reset_racial_rest_uses(ch: Character) -> bool:
@@ -1637,6 +1787,50 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                     await broadcast_state(session_id)
                     continue
 
+                if combat_action in {"combat_shapechanger_shift", "combat_shapechanger_revert"}:
+                    ch = await get_character(db, sess.id, player.id)
+                    if not ch:
+                        await ws_error("Персонаж не найден.", request_id=msg_request_id)
+                        continue
+                    is_shift = combat_action == "combat_shapechanger_shift"
+                    persona = _extract_shapechanger_persona(text) if is_shift else ""
+                    if combat_active:
+                        player_uid = _player_uid(player)
+                        player_key = f"pc_{player_uid}" if player_uid is not None else ""
+                        combat_patch, shape_err, changed = _apply_shapechanger_in_combat(
+                            session_id,
+                            player_key,
+                            ch,
+                            active=is_shift,
+                            persona=persona,
+                            voice="",
+                        )
+                        if shape_err:
+                            await ws_error(shape_err, request_id=msg_request_id)
+                            continue
+                        if changed:
+                            flag_modified(ch, "race_features")
+                        await db.commit()
+                        if combat_patch:
+                            await _broadcast_state_unlocked(session_id, combat_log_ui_patch=combat_patch)
+                        continue
+                    msg, shape_err, changed = _apply_shapechanger(
+                        ch,
+                        active=is_shift,
+                        persona=persona,
+                        voice="",
+                    )
+                    if shape_err:
+                        await ws_error(shape_err, request_id=msg_request_id)
+                        continue
+                    if changed:
+                        flag_modified(ch, "race_features")
+                        await db.commit()
+                    actor_name = str(getattr(ch, "name", "") or player.display_name).strip() or player.display_name
+                    await add_system_event(db, sess, f"{actor_name}: {msg or 'Меняет облик.'}")
+                    await broadcast_state(session_id)
+                    continue
+
                 # Combat Lock: during active combat only combat actions are allowed.
                 if combat_active:
                     is_admin_user = await is_admin(db, sess, player)
@@ -1674,7 +1868,11 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                                                     else (
                                                         "combat_breath_weapon"
                                                         if combat_action == "combat_breath_weapon"
-                                                        else "player_action"
+                                                        else (
+                                                            "combat_shapechanger"
+                                                            if combat_action in {"combat_shapechanger_shift", "combat_shapechanger_revert"}
+                                                            else "player_action"
+                                                        )
                                                     )
                                                 )
                                             )
@@ -2926,6 +3124,50 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                     await broadcast_state(session_id)
                     continue
 
+                if combat_action in {"combat_shapechanger_shift", "combat_shapechanger_revert"}:
+                    ch = await get_character(db, sess.id, player.id)
+                    if not ch:
+                        await ws_error("Персонаж не найден.", request_id=msg_request_id)
+                        continue
+                    is_shift = combat_action == "combat_shapechanger_shift"
+                    persona = _extract_shapechanger_persona(text) if is_shift else ""
+                    if combat_active:
+                        player_uid = _player_uid(player)
+                        player_key = f"pc_{player_uid}" if player_uid is not None else ""
+                        combat_patch, shape_err, changed = _apply_shapechanger_in_combat(
+                            session_id,
+                            player_key,
+                            ch,
+                            active=is_shift,
+                            persona=persona,
+                            voice="",
+                        )
+                        if shape_err:
+                            await ws_error(shape_err, request_id=msg_request_id)
+                            continue
+                        if changed:
+                            flag_modified(ch, "race_features")
+                        await db.commit()
+                        if combat_patch:
+                            await broadcast_state(session_id, combat_log_ui_patch=combat_patch)
+                        continue
+                    msg, shape_err, changed = _apply_shapechanger(
+                        ch,
+                        active=is_shift,
+                        persona=persona,
+                        voice="",
+                    )
+                    if shape_err:
+                        await ws_error(shape_err, request_id=msg_request_id)
+                        continue
+                    if changed:
+                        flag_modified(ch, "race_features")
+                        await db.commit()
+                    actor_name = str(getattr(ch, "name", "") or player.display_name).strip() or player.display_name
+                    await add_system_event(db, sess, f"{actor_name}: {msg or 'Меняет облик.'}")
+                    await broadcast_state(session_id)
+                    continue
+
                 if combat_active:
                     innate_spell_key = _detect_innate_spell_key(text) if combat_action == "combat_innate_spell" else None
                     actor_label = await _event_actor_label(db, sess, player)
@@ -2951,7 +3193,11 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                                             else (
                                                 "combat_breath_weapon"
                                                 if combat_action == "combat_breath_weapon"
-                                                else "player_action"
+                                                else (
+                                                    "combat_shapechanger"
+                                                    if combat_action in {"combat_shapechanger_shift", "combat_shapechanger_revert"}
+                                                    else "player_action"
+                                                )
                                             )
                                         )
                                     )

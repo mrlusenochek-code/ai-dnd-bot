@@ -87,6 +87,8 @@ def _combat_outcome_summary_from_patch(
         "combat_help": "помог союзнику и открыл окно для атаки.",
         "combat_dash": "рванул вперёд и резко сменил позицию.",
         "combat_hooves_attack": "воспользовался разбегом и ударил копытами.",
+        "combat_shapechanger_shift": "сменил облик, скрыв истинное лицо.",
+        "combat_shapechanger_revert": "сбросил маску и вернулся к истинной форме.",
         "combat_mode_walk": "перешёл на ходьбу и стабилизировал движение.",
         "combat_mode_swim": "перешёл на плавание и продолжил манёвр.",
         "combat_mode_climb": "перешёл на лазание и полез вверх.",

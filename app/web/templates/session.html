@@ -1084,6 +1084,23 @@ function openCharacterModal(){
   const profSkills = Array.isArray(prof.skills) ? prof.skills.map(x => String(x)).filter(Boolean) : [];
   const profTools = Array.isArray(prof.tools) ? prof.tools.map(x => String(x)).filter(Boolean) : [];
   const choices = (rf.choices && typeof rf.choices === "object") ? rf.choices : {};
+  const _ASI_STAT_RU = {
+    "str": "Сила",
+    "dex": "Ловкость",
+    "con": "Телосложение",
+    "int": "Интеллект",
+    "wis": "Мудрость",
+    "cha": "Харизма",
+  };
+  const asiChoices = Array.isArray(choices.asi) ? choices.asi.filter((x) => x && typeof x === "object") : [];
+  const asiChoiceText = (() => {
+    if(!asiChoices.length) return "";
+    const first = asiChoices[0] || {};
+    const statKey = String(first.stat || "").trim().toLowerCase();
+    const bonus = Number.isFinite(Number(first.bonus)) ? Number(first.bonus) : 1;
+    if(!statKey) return "";
+    return `ASI (выбор): +${bonus} к ${_ASI_STAT_RU[statKey] || statKey.toUpperCase()}`;
+  })();
   const tirelessChoice = (choices.tireless_precision && typeof choices.tireless_precision === "object")
     ? choices.tireless_precision
     : {};
@@ -1140,6 +1157,21 @@ function openCharacterModal(){
   const tirelessPrecisionText = (tirelessSkillRu && tirelessToolRu)
     ? `Неустанная скрупулёзность: навык ${tirelessSkillRu}, инструмент ${tirelessToolRu}, бонус 1d4`
     : "";
+  const shapechangerRuntime = (runtime.shapechanger && typeof runtime.shapechanger === "object")
+    ? runtime.shapechanger
+    : null;
+  const shapechangerActive = !!(shapechangerRuntime && shapechangerRuntime.active === true);
+  const shapechangerPersona = String((shapechangerRuntime && shapechangerRuntime.persona) || "").trim();
+  const shapechangerText = shapechangerActive
+    ? `Облик: ${shapechangerPersona || "неуточнённый образ"}`
+    : "Облик: истинная форма";
+  const shapechangerHistoryRaw = Array.isArray(runtime.shapechanger_history) ? runtime.shapechanger_history : [];
+  const shapechangerHistory = shapechangerHistoryRaw
+    .filter((x) => x && typeof x === "object")
+    .map((x) => String(x.persona || "").trim())
+    .filter(Boolean)
+    .slice(-3)
+    .reverse();
   const survivorSkills = Array.isArray(choices.skills)
     ? choices.skills.map((x) => String(x || "").trim().toLowerCase()).filter(Boolean)
     : [];
@@ -1450,6 +1482,15 @@ function openCharacterModal(){
   if(tirelessPrecisionText){
     details.push(`<div class="char-line"><strong>Неустанная скрупулёзность:</strong> ${escapeHtml(tirelessPrecisionText.replace(/^Неустанная скрупулёзность:\s*/, ""))}</div>`);
   }
+  if(asiChoiceText){
+    details.push(`<div class="char-line"><strong>ASI (выбор):</strong> ${escapeHtml(asiChoiceText.replace(/^ASI \(выбор\):\s*/, ""))}</div>`);
+  }
+  if(shapechangerText){
+    details.push(`<div class="char-line"><strong>Облик:</strong> ${escapeHtml(shapechangerText.replace(/^Облик:\s*/, ""))}</div>`);
+  }
+  if(shapechangerHistory.length){
+    details.push(`<div class="char-line muted"><strong>Последние облики:</strong> ${escapeHtml(shapechangerHistory.join(", "))}</div>`);
+  }
   if(cantripChoiceText){
     details.push(`<div class="char-line"><strong>Заговор мага (выбор):</strong> ${escapeHtml(cantripChoiceText.replace(/^Заговор мага \(выбор\):\s*/, ""))}</div>`);
   }
@@ -1551,6 +1592,8 @@ function openCharacterModal(){
   if(healingHandsText) copyLines.push(healingHandsText);
   if(aasimarTransformationText) copyLines.push(aasimarTransformationText);
   if(tirelessPrecisionText) copyLines.push(tirelessPrecisionText);
+  if(asiChoiceText) copyLines.push(asiChoiceText);
+  if(shapechangerText) copyLines.push(shapechangerText);
   if(cantripChoiceText) copyLines.push(cantripChoiceText);
   if(saveAdvantagesRu.length) copyLines.push(`Преим. спасброски: ${saveAdvantagesRu.join(", ")}`);
   if(langsRu.length) copyLines.push(`Языки: ${langsRu.join(", ")}`);

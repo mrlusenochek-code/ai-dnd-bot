@@ -102,8 +102,11 @@
       <div id="raceChoices" style="display:none;">
         <label>Стартовые выборы</label>
         <div id="choiceLangRow">
-          <label>Доп. язык (обязательно)</label>
-          <select id="choiceLang1"></select>
+          <label id="choiceLangLabel">Доп. язык (обязательно)</label>
+          <div class="row">
+            <select id="choiceLang1"></select>
+            <select id="choiceLang2" style="display:none;"></select>
+          </div>
         </div>
         <div id="choiceAsiRow" style="display:none;">
           <label id="choiceAsiLabel">ASI (обязательно)</label>
@@ -366,6 +369,7 @@ let classes = [];
 let races = [];
 let raceChoiceState = {
   languageRequired: false,
+  languageCount: 0,
   asiRequired: false,
   flexAsiRequired: false,
   flexAsiVariants: [],
@@ -620,7 +624,7 @@ function getCurrentRaceContext(raceId){
 }
 
 function getLanguageChoiceConfig(traits){
-  const out = { required: false, allowAny: false, allowedKeys: [] };
+  const out = { required: false, count: 0, allowAny: false, allowedKeys: [] };
   const items = Array.isArray(traits) ? traits : [];
 
   for(const t of items){
@@ -633,6 +637,7 @@ function getLanguageChoiceConfig(traits){
 
     if(mtype === "choose_language"){
       out.required = true;
+      out.count = Math.max(out.count, count);
       out.allowAny = true;
       continue;
     }
@@ -645,9 +650,11 @@ function getLanguageChoiceConfig(traits){
       const vals = from.map(normalizeLanguageKey).filter(Boolean);
       if(vals.includes("any") || vals.includes("any_language")){
         out.required = true;
+        out.count = Math.max(out.count, count);
         out.allowAny = true;
       }else if(vals.length > 0){
         out.required = true;
+        out.count = Math.max(out.count, count);
         out.allowedKeys.push(...vals);
       }
       continue;
@@ -656,9 +663,11 @@ function getLanguageChoiceConfig(traits){
     const fromKey = normalizeLanguageKey(from);
     if(fromKey === "any" || fromKey === "any_language" || !fromKey){
       out.required = true;
+      out.count = Math.max(out.count, count);
       out.allowAny = true;
     }else{
       out.required = true;
+      out.count = Math.max(out.count, count);
       out.allowedKeys.push(fromKey);
     }
   }
@@ -666,8 +675,8 @@ function getLanguageChoiceConfig(traits){
   return out;
 }
 
-function getAsiChoiceConfig(traits){
-  const out = { required: false, count: 0, bonus: 0, exclude: [] };
+function getAsiChoiceConfig(traits, asiItems, raceKey){
+  const out = { required: false, count: 0, bonus: 0, exclude: [], from: [] };
   const items = Array.isArray(traits) ? traits : [];
   for(const t of items){
     if(!t || typeof t !== "object") continue;
@@ -686,6 +695,24 @@ function getAsiChoiceConfig(traits){
       out.count = 2;
       out.bonus = 1;
       out.exclude = Array.from(new Set(exclude));
+      return out;
+    }
+  }
+  const asiList = Array.isArray(asiItems) ? asiItems : [];
+  const rk = String(raceKey || "").trim().toLowerCase();
+  for(const item of asiList){
+    if(!item || typeof item !== "object") continue;
+    const choose = Number(item.choose ?? item.count ?? 0);
+    const bonus = Number(item.bonus ?? item.delta ?? 0);
+    const from = Array.isArray(item.from)
+      ? item.from.map((x) => String(x || "").trim().toLowerCase()).filter(Boolean)
+      : [];
+    if(rk === "changeling" && choose === 1 && bonus === 1 && from.length > 0){
+      out.required = true;
+      out.count = 1;
+      out.bonus = 1;
+      out.exclude = ["cha"];
+      out.from = Array.from(new Set(from));
       return out;
     }
   }
@@ -1055,7 +1082,9 @@ function fillAncestrySelect(sel, options, prev){
 function renderRaceChoices(){
   const block = document.getElementById("raceChoices");
   const langRow = document.getElementById("choiceLangRow");
+  const langLabel = document.getElementById("choiceLangLabel");
   const langSel = document.getElementById("choiceLang1");
+  const langSel2 = document.getElementById("choiceLang2");
   const asiRow = document.getElementById("choiceAsiRow");
   const asiLabel = document.getElementById("choiceAsiLabel");
   const asiVariantRow = document.getElementById("choiceAsiVariantRow");
@@ -1080,11 +1109,11 @@ function renderRaceChoices(){
   const vedToolSel = document.getElementById("choiceVedalkenTool");
   const ancestryRow = document.getElementById("choiceAncestryRow");
   const ancestrySel = document.getElementById("choiceAncestry");
-  if(!block || !langRow || !langSel || !asiRow || !asiLabel || !asiVariantRow || !asiVariantSel || !asiSel1 || !asiSel2 || !asiSel3 || !skillRow || !skillLabel || !skillSel1 || !skillSel2 || !featRow || !featSel || !toolRow || !toolLabel || !toolSel || !toolSel2 || !cantripRow || !cantripSel || !vedRow || !vedSkillSel || !vedToolSel || !ancestryRow || !ancestrySel) return;
+  if(!block || !langRow || !langLabel || !langSel || !langSel2 || !asiRow || !asiLabel || !asiVariantRow || !asiVariantSel || !asiSel1 || !asiSel2 || !asiSel3 || !skillRow || !skillLabel || !skillSel1 || !skillSel2 || !featRow || !featSel || !toolRow || !toolLabel || !toolSel || !toolSel2 || !cantripRow || !cantripSel || !vedRow || !vedSkillSel || !vedToolSel || !ancestryRow || !ancestrySel) return;
 
   const ctx = getCurrentRaceContext();
   const langCfg = getLanguageChoiceConfig(ctx.effectiveTraits);
-  const asiCfg = getAsiChoiceConfig(ctx.effectiveTraits);
+  const asiCfg = getAsiChoiceConfig(ctx.effectiveTraits, ctx.details.asi, ctx.details.key);
   const flexAsiCfg = getFlexAsiChoiceConfig(ctx.details.asi);
   const skillCfg = getSkillChoiceConfig(ctx.effectiveTraits);
   const featCfg = getFeatChoiceConfig(ctx.effectiveTraits);
@@ -1103,11 +1132,13 @@ function renderRaceChoices(){
   const needsAncestry = !!ancestryCfg.required;
   raceChoiceState = {
     languageRequired: needsLanguage,
+    languageCount: Number(langCfg.count || 1),
     asiRequired: needsAsi,
     flexAsiRequired: needsFlexAsi,
     flexAsiVariants: Array.isArray(flexAsiCfg.variants) ? flexAsiCfg.variants.slice() : [],
     asiBonus: asiCfg.bonus || 1,
     asiExclude: Array.isArray(asiCfg.exclude) ? asiCfg.exclude.slice() : [],
+    asiFrom: Array.isArray(asiCfg.from) ? asiCfg.from.slice() : [],
     asiCount: needsFlexAsi ? 2 : Number(asiCfg.count || 2),
     skillRequired: needsSkill,
     skillCount: Number(skillCfg.count || 0),
@@ -1136,6 +1167,10 @@ function renderRaceChoices(){
     langSel.disabled = true;
     langSel.required = false;
     langSel.value = "";
+    langSel2.style.display = "none";
+    langSel2.disabled = true;
+    langSel2.required = false;
+    langSel2.value = "";
     asiSel1.disabled = true;
     asiSel1.required = false;
     asiSel1.value = "";
@@ -1186,11 +1221,18 @@ function renderRaceChoices(){
 
   if(needsLanguage){
     const prev = String(langSel.value || "");
+    const prev2 = String(langSel2.value || "");
+    const langCount = Number(langCfg.count || 1);
     langSel.innerHTML = "";
+    langSel2.innerHTML = "";
     const first = document.createElement("option");
     first.value = "";
     first.textContent = "(выберите язык)";
     langSel.appendChild(first);
+    const first2 = document.createElement("option");
+    first2.value = "";
+    first2.textContent = "(выберите язык)";
+    langSel2.appendChild(first2);
 
     const options = buildLanguageOptions(langCfg.allowAny ? [] : langCfg.allowedKeys);
     for(const item of options){
@@ -1201,14 +1243,72 @@ function renderRaceChoices(){
     }
     const keepPrev = Array.from(langSel.options).some(o => String(o.value) === prev);
     langSel.value = keepPrev ? prev : "";
+    const keepPrev2 = Array.from(langSel2.options).some(o => String(o.value) === prev2);
+    langSel2.value = keepPrev2 ? prev2 : "";
     langRow.style.display = "";
     langSel.disabled = false;
     langSel.required = true;
+    if(langCount >= 2){
+      langLabel.textContent = "Доп. языки (2, обязательно)";
+      const refreshLangPair = () => {
+        const current1 = String(langSel.value || "").trim().toLowerCase();
+        const current2 = String(langSel2.value || "").trim().toLowerCase();
+        const options = buildLanguageOptions(langCfg.allowAny ? [] : langCfg.allowedKeys);
+        langSel.innerHTML = "";
+        langSel2.innerHTML = "";
+        const f1 = document.createElement("option");
+        f1.value = "";
+        f1.textContent = "(выберите язык)";
+        const f2 = document.createElement("option");
+        f2.value = "";
+        f2.textContent = "(выберите язык)";
+        langSel.appendChild(f1);
+        langSel2.appendChild(f2);
+        for(const item of options){
+          if(item.key !== current2){
+            const opt = document.createElement("option");
+            opt.value = item.key;
+            opt.textContent = item.label;
+            langSel.appendChild(opt);
+          }
+          if(item.key !== current1){
+            const opt2 = document.createElement("option");
+            opt2.value = item.key;
+            opt2.textContent = item.label;
+            langSel2.appendChild(opt2);
+          }
+        }
+        const keep1 = Array.from(langSel.options).some(o => String(o.value) === current1);
+        const keep2 = Array.from(langSel2.options).some(o => String(o.value) === current2);
+        langSel.value = keep1 ? current1 : "";
+        langSel2.value = keep2 ? current2 : "";
+      };
+      langSel2.style.display = "";
+      langSel2.disabled = false;
+      langSel2.required = true;
+      langSel.onchange = refreshLangPair;
+      langSel2.onchange = refreshLangPair;
+      refreshLangPair();
+    }else{
+      langLabel.textContent = "Доп. язык (обязательно)";
+      langSel2.style.display = "none";
+      langSel2.disabled = true;
+      langSel2.required = false;
+      langSel2.value = "";
+      langSel.onchange = null;
+      langSel2.onchange = null;
+    }
   }else{
     langRow.style.display = "none";
     langSel.disabled = true;
     langSel.required = false;
     langSel.value = "";
+    langSel2.style.display = "none";
+    langSel2.disabled = true;
+    langSel2.required = false;
+    langSel2.value = "";
+    langSel.onchange = null;
+    langSel2.onchange = null;
   }
 
   if(needsAsi){
@@ -1218,11 +1318,23 @@ function renderRaceChoices(){
       const current1 = String(asiSel1.value || "").trim().toLowerCase();
       const current2 = String(asiSel2.value || "").trim().toLowerCase();
       const current3 = String(asiSel3.value || "").trim().toLowerCase();
-      fillAsiSelect(asiSel1, current1, { exclude: raceChoiceState.asiExclude, blockedValue: current2 || current3 });
-      fillAsiSelect(asiSel2, current2, { exclude: raceChoiceState.asiExclude, blockedValue: current1 || current3 });
-      if(flexTriple){
-        fillAsiSelect(asiSel3, current3, { exclude: raceChoiceState.asiExclude, blockedValue: current1 || current2 });
+      const asiExclude = Array.isArray(raceChoiceState.asiExclude) ? raceChoiceState.asiExclude.slice() : [];
+      const asiFrom = Array.isArray(raceChoiceState.asiFrom) ? raceChoiceState.asiFrom.slice() : [];
+      if(asiFrom.length > 0){
+        const allowed = new Set(asiFrom);
+        for(const k of STAT_KEYS){
+          if(!allowed.has(k) && !asiExclude.includes(k)) asiExclude.push(k);
+        }
       }
+      fillAsiSelect(asiSel1, current1, { exclude: asiExclude, blockedValue: current2 || current3 });
+      fillAsiSelect(asiSel2, current2, { exclude: asiExclude, blockedValue: current1 || current3 });
+      if(flexTriple){
+        fillAsiSelect(asiSel3, current3, { exclude: asiExclude, blockedValue: current1 || current2 });
+      }
+      asiSel2.style.display = (!needsFlexAsi && Number(raceChoiceState.asiCount || 0) === 1) ? "none" : "";
+      asiSel2.disabled = !needsFlexAsi && Number(raceChoiceState.asiCount || 0) === 1;
+      asiSel2.required = !asiSel2.disabled;
+      if(asiSel2.disabled) asiSel2.value = "";
       asiSel3.style.display = flexTriple ? "" : "none";
       asiSel3.disabled = !flexTriple;
       asiSel3.required = flexTriple;
@@ -1253,7 +1365,11 @@ function renderRaceChoices(){
       asiVariantSel.disabled = true;
       asiVariantSel.required = false;
       asiVariantSel.value = "";
-      asiLabel.textContent = "ASI +1 к двум разным характеристикам (обязательно)";
+      if(Number(raceChoiceState.asiCount || 0) === 1){
+        asiLabel.textContent = "ASI +1 (обязательно)";
+      }else{
+        asiLabel.textContent = "ASI +1 к двум разным характеристикам (обязательно)";
+      }
     }
     refreshAsiPair();
     asiSel1.onchange = refreshAsiPair;
@@ -1263,8 +1379,8 @@ function renderRaceChoices(){
     asiRow.style.display = "";
     asiSel1.disabled = false;
     asiSel1.required = true;
-    asiSel2.disabled = false;
-    asiSel2.required = true;
+    asiSel2.disabled = Number(raceChoiceState.asiCount || 0) === 1;
+    asiSel2.required = !asiSel2.disabled;
   }else{
     asiRow.style.display = "none";
     asiVariantRow.style.display = "none";
@@ -1629,10 +1745,22 @@ async function createHero(){
     return;
   }
   const choiceLangEl = document.getElementById("choiceLang1");
+  const choiceLangEl2 = document.getElementById("choiceLang2");
   const choiceLang = String(choiceLangEl ? choiceLangEl.value : "").trim().toLowerCase();
+  const choiceLang2 = String(choiceLangEl2 ? choiceLangEl2.value : "").trim().toLowerCase();
   if(raceChoiceState.languageRequired && !choiceLang){
     setMessage("Выбери доп. язык в блоке «Стартовые выборы».", false);
     return;
+  }
+  if(raceChoiceState.languageRequired && Number(raceChoiceState.languageCount || 0) >= 2){
+    if(!choiceLang2){
+      setMessage("Выбери второй доп. язык в блоке «Стартовые выборы».", false);
+      return;
+    }
+    if(choiceLang === choiceLang2){
+      setMessage("Выбери два разных языка.", false);
+      return;
+    }
   }
   const choiceAsi1El = document.getElementById("choiceAsi1");
   const choiceAsi2El = document.getElementById("choiceAsi2");
@@ -1667,13 +1795,20 @@ async function createHero(){
         }
       }
     }else{
-      if(!choiceAsi1 || !choiceAsi2){
-        setMessage("Выбери две характеристики для ASI в блоке «Стартовые выборы».", false);
-        return;
-      }
-      if(choiceAsi1 === choiceAsi2){
-        setMessage("Для ASI нужно выбрать две разные характеристики.", false);
-        return;
+      if(Number(raceChoiceState.asiCount || 0) === 1){
+        if(!choiceAsi1){
+          setMessage("Выбери характеристику для ASI в блоке «Стартовые выборы».", false);
+          return;
+        }
+      }else{
+        if(!choiceAsi1 || !choiceAsi2){
+          setMessage("Выбери две характеристики для ASI в блоке «Стартовые выборы».", false);
+          return;
+        }
+        if(choiceAsi1 === choiceAsi2){
+          setMessage("Для ASI нужно выбрать две разные характеристики.", false);
+          return;
+        }
       }
     }
   }
@@ -1759,7 +1894,9 @@ async function createHero(){
   };
   const raceChoices = {};
   if(choiceLang){
-    raceChoices.languages = [choiceLang];
+    raceChoices.languages = Number(raceChoiceState.languageCount || 0) >= 2
+      ? [choiceLang, choiceLang2]
+      : [choiceLang];
   }
   if(raceChoiceState.asiRequired){
     if(raceChoiceState.flexAsiRequired){
@@ -1772,10 +1909,12 @@ async function createHero(){
       };
     }else{
     const asiBonus = Number(raceChoiceState.asiBonus || 1);
-    raceChoices.asi = [
-      {stat: choiceAsi1, bonus: asiBonus},
-      {stat: choiceAsi2, bonus: asiBonus},
-    ];
+    raceChoices.asi = Number(raceChoiceState.asiCount || 0) === 1
+      ? [{stat: choiceAsi1, bonus: asiBonus}]
+      : [
+          {stat: choiceAsi1, bonus: asiBonus},
+          {stat: choiceAsi2, bonus: asiBonus},
+        ];
     }
   }
   if(choiceSkill){

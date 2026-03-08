@@ -773,6 +773,9 @@ def _build_race_features(selected_race: dict | None) -> dict[str, Any]:
         if mtype == "size_change":
             features["size_change"] = dict(mech)
 
+        if mtype == "shapechanger":
+            features["shapechanger"] = dict(mech)
+
         if mtype == "innate_spellcasting":
             ability = str(mech.get("ability") or "").strip().lower()
             spells = _as_list(mech.get("spells"))
@@ -1014,8 +1017,12 @@ async def api_character_create(payload: dict):
     if isinstance(race_choices_payload, dict):
         raw_langs = race_choices_payload.get("languages")
         raw_langs_list = raw_langs if isinstance(raw_langs, list) else []
+        seen_language_keys: set[str] = set()
         for item in raw_langs_list:
             lang = str(item or "").strip().lower()
+            if lang in seen_language_keys:
+                raise HTTPException(status_code=400, detail="Language choices must be distinct")
+            seen_language_keys.add(lang)
             if lang and lang not in race_choice_languages:
                 race_choice_languages.append(lang)
         raw_asi = race_choices_payload.get("asi")
@@ -1233,6 +1240,7 @@ async def api_character_create(payload: dict):
         required_race_asi_count = 0
         required_race_asi_bonus = 0
         required_race_asi_exclude: set[str] = set()
+        required_race_asi_from: set[str] = set()
         required_race_skill_count = 0
         required_race_skill_options: list[str] = []
         required_race_language_count = 0
@@ -1243,6 +1251,21 @@ async def api_character_create(payload: dict):
             effective_traits_list = effective_traits if isinstance(effective_traits, list) else []
             effective_asi = effective_race.get("asi")
             effective_asi_list = effective_asi if isinstance(effective_asi, list) else []
+            effective_race_key = str(effective_race.get("key") or "").strip().lower()
+            if effective_race_key == "changeling":
+                for asi_item in effective_asi_list:
+                    if not isinstance(asi_item, dict):
+                        continue
+                    choose = max(as_int(asi_item.get("choose"), as_int(asi_item.get("count"), 0)), 0)
+                    bonus = max(as_int(asi_item.get("bonus"), as_int(asi_item.get("delta"), 0)), 0)
+                    from_raw = asi_item.get("from")
+                    from_list = from_raw if isinstance(from_raw, list) else [from_raw]
+                    from_items = [str(x or "").strip().lower() for x in from_list if str(x or "").strip()]
+                    if choose == 1 and bonus == 1 and from_items:
+                        required_race_asi_count = max(required_race_asi_count, 1)
+                        required_race_asi_bonus = max(required_race_asi_bonus, 1)
+                        required_race_asi_from.update(from_items)
+                        required_race_asi_exclude.add("cha")
             for asi_item in effective_asi_list:
                 if not isinstance(asi_item, dict):
                     continue
@@ -1372,6 +1395,8 @@ async def api_character_create(payload: dict):
             for item in race_choice_asi:
                 stat_key = str(item.get("stat") or "").strip().lower()
                 if stat_key in required_race_asi_exclude:
+                    raise HTTPException(status_code=400, detail=f"Invalid ASI stat choice: {stat_key}")
+                if required_race_asi_from and stat_key not in required_race_asi_from:
                     raise HTTPException(status_code=400, detail=f"Invalid ASI stat choice: {stat_key}")
         elif race_choice_asi:
             raise HTTPException(status_code=400, detail="Race ASI choice is not available for selected race")
