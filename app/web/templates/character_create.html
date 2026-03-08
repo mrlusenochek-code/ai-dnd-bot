@@ -123,6 +123,14 @@
             <select id="choiceAsi3" style="display:none;"></select>
           </div>
         </div>
+        <div id="choiceSizeRow" style="display:none;">
+          <label>Размер (обязательно)</label>
+          <select id="choiceSize"></select>
+        </div>
+        <div id="choiceVariableTraitRow" style="display:none;">
+          <label>Выборочная особенность (обязательно)</label>
+          <select id="choiceVariableTrait"></select>
+        </div>
         <div id="choiceSkillRow" style="display:none;">
           <label id="choiceSkillLabel">Навык (обязательно)</label>
           <div class="row">
@@ -368,6 +376,7 @@ let featsCatalog = [];
 let classes = [];
 let races = [];
 let raceChoiceState = {
+  sizeRequired: false,
   languageRequired: false,
   languageCount: 0,
   asiRequired: false,
@@ -380,6 +389,8 @@ let raceChoiceState = {
   skillCount: 0,
   skillOptions: [],
   skillTraitKey: "",
+  variableTraitRequired: false,
+  variableTraitOptions: [],
   featRequired: false,
   toolRequired: false,
   toolCount: 0,
@@ -715,6 +726,13 @@ function getAsiChoiceConfig(traits, asiItems, raceKey){
       out.from = Array.from(new Set(from));
       return out;
     }
+    if(rk === "custom_lineage" && choose === 1 && bonus === 2 && from.length > 0){
+      out.required = true;
+      out.count = 1;
+      out.bonus = 2;
+      out.from = Array.from(new Set(from));
+      return out;
+    }
   }
   return out;
 }
@@ -766,7 +784,7 @@ function getFeatChoiceConfig(traits){
     if(!t || typeof t !== "object") continue;
     const mech = (t.mechanics && typeof t.mechanics === "object") ? t.mechanics : {};
     const mtype = String(mech.type || "").trim().toLowerCase();
-    if(mtype !== "choose_feat"){
+    if(mtype !== "choose_feat" && mtype !== "feat_choice"){
       continue;
     }
     const count = Number(mech.count ?? mech.choose ?? 0);
@@ -775,6 +793,26 @@ function getFeatChoiceConfig(traits){
       out.count = 1;
       return out;
     }
+  }
+  return out;
+}
+
+function getVariableTraitChoiceConfig(traits){
+  const out = { required: false, options: [] };
+  const items = Array.isArray(traits) ? traits : [];
+  for(const t of items){
+    if(!t || typeof t !== "object") continue;
+    const traitKey = String(t.key || "").trim().toLowerCase();
+    const mech = (t.mechanics && typeof t.mechanics === "object") ? t.mechanics : {};
+    const mtype = String(mech.type || "").trim().toLowerCase();
+    if(traitKey !== "variable_trait_choice" || mtype !== "choice"){
+      continue;
+    }
+    const optionsRaw = Array.isArray(mech.options) ? mech.options : [];
+    const options = optionsRaw.map((x) => String(x || "").trim().toLowerCase()).filter(Boolean);
+    out.required = options.length > 0;
+    out.options = Array.from(new Set(options));
+    return out;
   }
   return out;
 }
@@ -1092,6 +1130,10 @@ function renderRaceChoices(){
   const asiSel1 = document.getElementById("choiceAsi1");
   const asiSel2 = document.getElementById("choiceAsi2");
   const asiSel3 = document.getElementById("choiceAsi3");
+  const sizeRow = document.getElementById("choiceSizeRow");
+  const sizeSel = document.getElementById("choiceSize");
+  const variableTraitRow = document.getElementById("choiceVariableTraitRow");
+  const variableTraitSel = document.getElementById("choiceVariableTrait");
   const skillRow = document.getElementById("choiceSkillRow");
   const skillLabel = document.getElementById("choiceSkillLabel");
   const skillSel1 = document.getElementById("choiceSkill1");
@@ -1109,28 +1151,39 @@ function renderRaceChoices(){
   const vedToolSel = document.getElementById("choiceVedalkenTool");
   const ancestryRow = document.getElementById("choiceAncestryRow");
   const ancestrySel = document.getElementById("choiceAncestry");
-  if(!block || !langRow || !langLabel || !langSel || !langSel2 || !asiRow || !asiLabel || !asiVariantRow || !asiVariantSel || !asiSel1 || !asiSel2 || !asiSel3 || !skillRow || !skillLabel || !skillSel1 || !skillSel2 || !featRow || !featSel || !toolRow || !toolLabel || !toolSel || !toolSel2 || !cantripRow || !cantripSel || !vedRow || !vedSkillSel || !vedToolSel || !ancestryRow || !ancestrySel) return;
+  if(!block || !langRow || !langLabel || !langSel || !langSel2 || !asiRow || !asiLabel || !asiVariantRow || !asiVariantSel || !asiSel1 || !asiSel2 || !asiSel3 || !sizeRow || !sizeSel || !variableTraitRow || !variableTraitSel || !skillRow || !skillLabel || !skillSel1 || !skillSel2 || !featRow || !featSel || !toolRow || !toolLabel || !toolSel || !toolSel2 || !cantripRow || !cantripSel || !vedRow || !vedSkillSel || !vedToolSel || !ancestryRow || !ancestrySel) return;
 
   const ctx = getCurrentRaceContext();
+  const raceKey = String(((ctx.race && ctx.race.id) || ctx.details.key || "")).trim().toLowerCase();
+  const isCustomLineage = raceKey === "custom_lineage";
   const langCfg = getLanguageChoiceConfig(ctx.effectiveTraits);
-  const asiCfg = getAsiChoiceConfig(ctx.effectiveTraits, ctx.details.asi, ctx.details.key);
+  const asiCfg = getAsiChoiceConfig(ctx.effectiveTraits, ctx.details.asi, raceKey);
   const flexAsiCfg = getFlexAsiChoiceConfig(ctx.details.asi);
   const skillCfg = getSkillChoiceConfig(ctx.effectiveTraits);
   const featCfg = getFeatChoiceConfig(ctx.effectiveTraits);
+  const variableTraitCfg = getVariableTraitChoiceConfig(ctx.effectiveTraits);
   const toolCfg = getToolChoiceConfig(ctx.effectiveTraits);
   const cantripCfg = getCantripChoiceConfig(ctx.effectiveTraits);
   const vedCfg = getTirelessPrecisionChoiceConfig(ctx.effectiveTraits);
   const ancestryCfg = getDraconicAncestryChoiceConfig(ctx.effectiveTraits);
+  const variableTraitOptions = Array.isArray(variableTraitCfg.options) && variableTraitCfg.options.length
+    ? variableTraitCfg.options.slice()
+    : ["darkvision_60", "skill_proficiency_choice_1"];
+  const variableTraitValue = String(variableTraitSel.value || "").trim().toLowerCase();
+  const needsCustomLineageSkill = isCustomLineage && variableTraitValue === "skill_proficiency_choice_1";
+  const needsSize = isCustomLineage;
   const needsLanguage = !!langCfg.required;
   const needsAsi = !!asiCfg.required || !!flexAsiCfg.required;
   const needsFlexAsi = !!flexAsiCfg.required;
-  const needsSkill = !!skillCfg.required;
+  const needsSkill = !!skillCfg.required || needsCustomLineageSkill;
+  const needsVariableTrait = isCustomLineage;
   const needsFeat = !!featCfg.required;
   const needsTool = !!toolCfg.required;
   const needsCantrip = !!cantripCfg.required;
   const needsVedalken = !!vedCfg.required;
   const needsAncestry = !!ancestryCfg.required;
   raceChoiceState = {
+    sizeRequired: needsSize,
     languageRequired: needsLanguage,
     languageCount: Number(langCfg.count || 1),
     asiRequired: needsAsi,
@@ -1141,9 +1194,11 @@ function renderRaceChoices(){
     asiFrom: Array.isArray(asiCfg.from) ? asiCfg.from.slice() : [],
     asiCount: needsFlexAsi ? 2 : Number(asiCfg.count || 2),
     skillRequired: needsSkill,
-    skillCount: Number(skillCfg.count || 0),
-    skillOptions: Array.isArray(skillCfg.from) ? skillCfg.from.slice() : [],
+    skillCount: needsCustomLineageSkill ? 1 : Number(skillCfg.count || 0),
+    skillOptions: needsCustomLineageSkill ? [] : (Array.isArray(skillCfg.from) ? skillCfg.from.slice() : []),
     skillTraitKey: String(skillCfg.traitKey || "").trim().toLowerCase(),
+    variableTraitRequired: needsVariableTrait,
+    variableTraitOptions: variableTraitOptions.slice(),
     featRequired: needsFeat,
     toolRequired: needsTool,
     toolCount: Number(toolCfg.choices || 0),
@@ -1156,8 +1211,10 @@ function renderRaceChoices(){
     ancestryOptions: Array.isArray(ancestryCfg.options) ? ancestryCfg.options.slice() : [],
   };
 
-  if(!needsLanguage && !needsAsi && !needsSkill && !needsFeat && !needsTool && !needsCantrip && !needsVedalken && !needsAncestry){
+  if(!needsSize && !needsLanguage && !needsAsi && !needsVariableTrait && !needsSkill && !needsFeat && !needsTool && !needsCantrip && !needsVedalken && !needsAncestry){
     block.style.display = "none";
+    sizeRow.style.display = "none";
+    variableTraitRow.style.display = "none";
     langRow.style.display = "none";
     asiRow.style.display = "none";
     skillRow.style.display = "none";
@@ -1185,6 +1242,13 @@ function renderRaceChoices(){
     asiVariantSel.disabled = true;
     asiVariantSel.required = false;
     asiVariantSel.value = "";
+    sizeSel.disabled = true;
+    sizeSel.required = false;
+    sizeSel.value = "";
+    variableTraitSel.disabled = true;
+    variableTraitSel.required = false;
+    variableTraitSel.value = "";
+    variableTraitSel.onchange = null;
     skillSel1.disabled = true;
     skillSel1.required = false;
     skillSel1.value = "";
@@ -1219,6 +1283,65 @@ function renderRaceChoices(){
     return;
   }
 
+  if(needsSize){
+    const prev = String(sizeSel.value || "").trim().toLowerCase();
+    sizeSel.innerHTML = "";
+    const first = document.createElement("option");
+    first.value = "";
+    first.textContent = "(выберите размер)";
+    sizeSel.appendChild(first);
+    const sizeOptions = [
+      { key: "small", label: "Маленький" },
+      { key: "medium", label: "Средний" },
+    ];
+    for(const item of sizeOptions){
+      const opt = document.createElement("option");
+      opt.value = item.key;
+      opt.textContent = item.label;
+      sizeSel.appendChild(opt);
+    }
+    sizeSel.value = (prev === "small" || prev === "medium") ? prev : "";
+    sizeSel.disabled = false;
+    sizeSel.required = true;
+    sizeRow.style.display = "";
+  }else{
+    sizeRow.style.display = "none";
+    sizeSel.disabled = true;
+    sizeSel.required = false;
+    sizeSel.value = "";
+  }
+
+  if(needsVariableTrait){
+    const prev = String(variableTraitSel.value || "").trim().toLowerCase();
+    const optionLabels = {
+      "darkvision_60": "Тёмное зрение (60 фт)",
+      "skill_proficiency_choice_1": "Владение 1 навыком",
+    };
+    variableTraitSel.innerHTML = "";
+    const first = document.createElement("option");
+    first.value = "";
+    first.textContent = "(выберите особенность)";
+    variableTraitSel.appendChild(first);
+    for(const key of variableTraitOptions){
+      const opt = document.createElement("option");
+      opt.value = key;
+      opt.textContent = optionLabels[key] || key;
+      variableTraitSel.appendChild(opt);
+    }
+    const keepPrev = Array.from(variableTraitSel.options).some(o => String(o.value) === prev);
+    variableTraitSel.value = keepPrev ? prev : "";
+    variableTraitSel.disabled = false;
+    variableTraitSel.required = true;
+    variableTraitRow.style.display = "";
+    variableTraitSel.onchange = () => renderRaceChoices();
+  }else{
+    variableTraitRow.style.display = "none";
+    variableTraitSel.disabled = true;
+    variableTraitSel.required = false;
+    variableTraitSel.value = "";
+    variableTraitSel.onchange = null;
+  }
+
   if(needsLanguage){
     const prev = String(langSel.value || "");
     const prev2 = String(langSel2.value || "");
@@ -1234,7 +1357,8 @@ function renderRaceChoices(){
     first2.textContent = "(выберите язык)";
     langSel2.appendChild(first2);
 
-    const options = buildLanguageOptions(langCfg.allowAny ? [] : langCfg.allowedKeys);
+    const options = buildLanguageOptions(langCfg.allowAny ? [] : langCfg.allowedKeys)
+      .filter((item) => !isCustomLineage || String(item.key || "").trim().toLowerCase() !== "common");
     for(const item of options){
       const opt = document.createElement("option");
       opt.value = item.key;
@@ -1253,7 +1377,8 @@ function renderRaceChoices(){
       const refreshLangPair = () => {
         const current1 = String(langSel.value || "").trim().toLowerCase();
         const current2 = String(langSel2.value || "").trim().toLowerCase();
-        const options = buildLanguageOptions(langCfg.allowAny ? [] : langCfg.allowedKeys);
+        const options = buildLanguageOptions(langCfg.allowAny ? [] : langCfg.allowedKeys)
+          .filter((item) => !isCustomLineage || String(item.key || "").trim().toLowerCase() !== "common");
         langSel.innerHTML = "";
         langSel2.innerHTML = "";
         const f1 = document.createElement("option");
@@ -1430,7 +1555,9 @@ function renderRaceChoices(){
       skillSel2.required = true;
     }else{
       const isCentaurSurvivor = String(raceChoiceState.skillTraitKey || "") === "survivor_skill_choice";
-      skillLabel.textContent = isCentaurSurvivor ? "Выживший (навык)" : "Навык (обязательно)";
+      skillLabel.textContent = needsCustomLineageSkill
+        ? "Навык (для выборочной особенности, обязательно)"
+        : (isCentaurSurvivor ? "Выживший (навык)" : "Навык (обязательно)");
       skillSel2.style.display = "none";
       skillSel2.disabled = true;
       skillSel2.required = false;
@@ -1770,6 +1897,18 @@ async function createHero(){
   const choiceAsi2 = String(choiceAsi2El ? choiceAsi2El.value : "").trim().toLowerCase();
   const choiceAsi3 = String(choiceAsi3El ? choiceAsi3El.value : "").trim().toLowerCase();
   const choiceAsiVariant = String(choiceAsiVariantEl ? choiceAsiVariantEl.value : "").trim().toLowerCase();
+  const choiceSizeEl = document.getElementById("choiceSize");
+  const choiceSize = String(choiceSizeEl ? choiceSizeEl.value : "").trim().toLowerCase();
+  if(raceChoiceState.sizeRequired && !choiceSize){
+    setMessage("Выбери размер в блоке «Стартовые выборы».", false);
+    return;
+  }
+  const choiceVariableTraitEl = document.getElementById("choiceVariableTrait");
+  const choiceVariableTrait = String(choiceVariableTraitEl ? choiceVariableTraitEl.value : "").trim().toLowerCase();
+  if(raceChoiceState.variableTraitRequired && !choiceVariableTrait){
+    setMessage("Выбери выборочную особенность в блоке «Стартовые выборы».", false);
+    return;
+  }
   if(raceChoiceState.asiRequired){
     if(raceChoiceState.flexAsiRequired){
       if(choiceAsiVariant !== "2_1" && choiceAsiVariant !== "1_1_1"){
@@ -1827,7 +1966,11 @@ async function createHero(){
         return;
       }
     }else if(!choiceSkill){
-      setMessage("Выбери навык в блоке «Стартовые выборы».", false);
+      if(choiceVariableTrait === "skill_proficiency_choice_1"){
+        setMessage("Для «Владение 1 навыком» выбери навык в блоке «Стартовые выборы».", false);
+      }else{
+        setMessage("Выбери навык в блоке «Стартовые выборы».", false);
+      }
       return;
     }
   }
@@ -1893,6 +2036,9 @@ async function createHero(){
     description: (document.getElementById("desc").value || "").trim(),
   };
   const raceChoices = {};
+  if(choiceSize){
+    raceChoices.size = choiceSize;
+  }
   if(choiceLang){
     raceChoices.languages = Number(raceChoiceState.languageCount || 0) >= 2
       ? [choiceLang, choiceLang2]
@@ -1924,6 +2070,9 @@ async function createHero(){
   }
   if(choiceFeat){
     raceChoices.feats = [choiceFeat];
+  }
+  if(choiceVariableTrait){
+    raceChoices.variable_trait = choiceVariableTrait;
   }
   if(choiceTool){
     raceChoices.tools = Number(raceChoiceState.toolCount || 0) >= 2

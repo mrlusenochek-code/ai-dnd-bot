@@ -934,6 +934,21 @@ def _build_race_features(selected_race: dict | None) -> dict[str, Any]:
             if tool_prof:
                 tool_profs.append(tool_prof)
 
+        if mtype in {"choose_feat", "feat_choice"}:
+            choose = max(as_int(mech.get("choose"), as_int(mech.get("count"), 0)), 0)
+            if choose > 0:
+                features["feat_choice"] = {"choose": choose, "required": True}
+
+        if tkey == "variable_trait_choice" and mtype == "choice":
+            choose = max(as_int(mech.get("choose"), as_int(mech.get("count"), 0)), 0)
+            options = _uniq_lower_str_list(mech.get("options"))
+            if choose > 0 and options:
+                features["variable_trait_choice"] = {
+                    "choose": choose,
+                    "options": options,
+                    "required": True,
+                }
+
     if save_advantage_conditions:
         saves["advantage_conditions"] = sorted(set(save_advantage_conditions))
     if save_advantage_vs_magic:
@@ -1014,6 +1029,8 @@ async def api_character_create(payload: dict):
     race_choice_tp_skill = ""
     race_choice_tp_tool = ""
     race_choice_draconic_ancestry = ""
+    race_choice_size = ""
+    race_choice_variable_trait = ""
     if isinstance(race_choices_payload, dict):
         raw_langs = race_choices_payload.get("languages")
         raw_langs_list = raw_langs if isinstance(raw_langs, list) else []
@@ -1133,6 +1150,8 @@ async def api_character_create(payload: dict):
             race_choice_tp_skill = str(raw_tp.get("skill") or "").strip().lower()
             race_choice_tp_tool = str(raw_tp.get("tool") or "").strip().lower()
         race_choice_draconic_ancestry = str(race_choices_payload.get("draconic_ancestry") or "").strip().lower()
+        race_choice_size = str(race_choices_payload.get("size") or "").strip().lower()
+        race_choice_variable_trait = str(race_choices_payload.get("variable_trait") or "").strip().lower()
 
     if uid <= 0:
         raise HTTPException(status_code=400, detail="Bad uid")
@@ -1243,9 +1262,12 @@ async def api_character_create(payload: dict):
         required_race_asi_from: set[str] = set()
         required_race_skill_count = 0
         required_race_skill_options: list[str] = []
+        required_race_feat_count = 0
         required_race_language_count = 0
         race_language_choice_available = False
         race_flex_asi_available = False
+        effective_race_key = ""
+        custom_lineage_variable_trait_options: list[str] = []
         if isinstance(effective_race, dict):
             effective_traits = effective_race.get("traits")
             effective_traits_list = effective_traits if isinstance(effective_traits, list) else []
@@ -1266,6 +1288,21 @@ async def api_character_create(payload: dict):
                         required_race_asi_bonus = max(required_race_asi_bonus, 1)
                         required_race_asi_from.update(from_items)
                         required_race_asi_exclude.add("cha")
+            for asi_item in effective_asi_list:
+                if not isinstance(asi_item, dict):
+                    continue
+                choose = max(as_int(asi_item.get("choose"), as_int(asi_item.get("count"), 0)), 0)
+                bonus = max(as_int(asi_item.get("bonus"), as_int(asi_item.get("delta"), 0)), 0)
+                if choose <= 0 or bonus <= 0:
+                    continue
+                required_race_asi_count = max(required_race_asi_count, choose)
+                required_race_asi_bonus = max(required_race_asi_bonus, bonus)
+                from_raw = asi_item.get("from")
+                from_list = from_raw if isinstance(from_raw, list) else [from_raw]
+                for item in from_list:
+                    stat_key = str(item or "").strip().lower()
+                    if stat_key:
+                        required_race_asi_from.add(stat_key)
             for asi_item in effective_asi_list:
                 if not isinstance(asi_item, dict):
                     continue
@@ -1329,6 +1366,10 @@ async def api_character_create(payload: dict):
                                     from_items.append(skill_key)
                             if from_items and not required_race_skill_options:
                                 required_race_skill_options = from_items
+                    elif mtype in {"choose_feat", "feat_choice"}:
+                        count = max(as_int(mech.get("count"), as_int(mech.get("choose"), 0)), 0)
+                        if count > 0:
+                            required_race_feat_count = max(required_race_feat_count, count)
                     elif mtype in {"choose_language", "language_choice"}:
                         count = max(as_int(mech.get("count"), as_int(mech.get("choose"), 0)), 0)
                         if count > 0:
@@ -1343,6 +1384,13 @@ async def api_character_create(payload: dict):
                             if count > 0:
                                 race_language_choice_available = True
                                 required_race_language_count = max(required_race_language_count, count)
+                        options = mech.get("options")
+                        options_list = options if isinstance(options, list) else []
+                        if str(trait.get("key") or "").strip().lower() == "variable_trait_choice":
+                            for item in options_list:
+                                option_key = str(item or "").strip().lower()
+                                if option_key and option_key not in custom_lineage_variable_trait_options:
+                                    custom_lineage_variable_trait_options.append(option_key)
                     continue
                 for item in (mech.get("choose_skill_from") if isinstance(mech.get("choose_skill_from"), list) else []):
                     skill_key = str(item or "").strip().lower()
@@ -1411,7 +1459,9 @@ async def api_character_create(payload: dict):
                 for skill in race_choice_skills:
                     if skill not in required_race_skill_options:
                         raise HTTPException(status_code=400, detail=f"Invalid race skill choice: {skill}")
-        elif race_choice_skills:
+        elif race_choice_skills and not (
+            effective_race_key == "custom_lineage" and race_choice_variable_trait == "skill_proficiency_choice_1"
+        ):
             raise HTTPException(status_code=400, detail="Race skill choice is not available for selected race")
 
         if required_race_language_count > 0:
@@ -1434,6 +1484,45 @@ async def api_character_create(payload: dict):
                 )
         elif race_choice_flex_asi_variant or race_choice_flex_asi_stats:
             raise HTTPException(status_code=400, detail="Flex ASI is not available for selected race")
+        if required_race_feat_count > 0:
+            if len(race_choice_feats) != required_race_feat_count:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Exactly {required_race_feat_count} race feat choice(s) required",
+                )
+        elif race_choice_feats:
+            raise HTTPException(status_code=400, detail="Race feat choice is not available for selected race")
+
+        if race_choice_size and effective_race_key != "custom_lineage":
+            raise HTTPException(status_code=400, detail="Race size choice is not available for selected race")
+        if race_choice_variable_trait and effective_race_key != "custom_lineage":
+            raise HTTPException(status_code=400, detail="Variable trait choice is not available for selected race")
+        if effective_race_key == "custom_lineage":
+            if race_choice_size not in {"small", "medium"}:
+                raise HTTPException(status_code=400, detail="Custom Lineage size choice is required")
+            if len(race_choice_asi) != 1 or as_int((race_choice_asi[0] or {}).get("bonus"), 0) != 2:
+                raise HTTPException(status_code=400, detail="Custom Lineage requires exactly one +2 ASI choice")
+            if len(race_choice_feats) != 1:
+                raise HTTPException(status_code=400, detail="Custom Lineage feat choice is required")
+            variable_options = (
+                custom_lineage_variable_trait_options
+                if custom_lineage_variable_trait_options
+                else ["darkvision_60", "skill_proficiency_choice_1"]
+            )
+            if race_choice_variable_trait not in variable_options:
+                raise HTTPException(status_code=400, detail="Custom Lineage variable trait choice is required")
+            if len(race_choice_languages) != 1:
+                raise HTTPException(status_code=400, detail="Custom Lineage extra language choice is required")
+            if race_choice_languages[0] == "common":
+                raise HTTPException(status_code=400, detail="Custom Lineage extra language must not duplicate Common")
+            if race_choice_variable_trait == "skill_proficiency_choice_1":
+                if len(race_choice_skills) != 1:
+                    raise HTTPException(status_code=400, detail="Custom Lineage skill choice is required")
+            elif race_choice_skills:
+                raise HTTPException(
+                    status_code=400,
+                    detail="Custom Lineage skill choice is only available with skill_proficiency_choice_1",
+                )
 
         if selected_race is not None:
             # When a preset race is selected, keep mechanics by base race id.
@@ -1497,6 +1586,9 @@ async def api_character_create(payload: dict):
                     merged_langs.append(lang)
             race_features["languages"] = merged_langs
             choices_dict["languages"] = list(race_choice_languages)
+        if isinstance(race_features, dict) and race_choice_size:
+            race_features["size"] = race_choice_size
+            choices_dict["size"] = race_choice_size
         if isinstance(race_features, dict) and race_choice_asi:
             choices_dict["asi"] = list(race_choice_asi)
         if isinstance(race_features, dict) and race_choice_skills:
@@ -1534,6 +1626,13 @@ async def api_character_create(payload: dict):
             }
         if isinstance(race_features, dict) and race_choice_feats:
             choices_dict["feats"] = list(race_choice_feats)
+        if isinstance(race_features, dict) and race_choice_variable_trait:
+            choices_dict["variable_trait"] = race_choice_variable_trait
+            if race_choice_variable_trait == "darkvision_60":
+                senses = race_features.get("senses")
+                senses_dict: dict[str, Any] = senses if isinstance(senses, dict) else {}
+                senses_dict["darkvision_ft"] = 60
+                race_features["senses"] = senses_dict
         if isinstance(race_features, dict) and race_choice_tp_skill and race_choice_tp_tool:
             choices_dict["tireless_precision"] = {
                 "skill": race_choice_tp_skill,
