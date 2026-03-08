@@ -160,6 +160,15 @@
             <select id="choiceVedalkenTool"></select>
           </div>
         </div>
+        <div id="choiceInnateAbilityRow" style="display:none;">
+          <label>Базовая характеристика магии (обязательно)</label>
+          <select id="choiceInnateAbility">
+            <option value="">(выберите)</option>
+            <option value="int">Интеллект (INT)</option>
+            <option value="wis">Мудрость (WIS)</option>
+            <option value="cha">Харизма (CHA)</option>
+          </select>
+        </div>
         <div id="choiceAncestryRow" style="display:none;">
           <label>Драконье наследие (обязательно)</label>
           <select id="choiceAncestry"></select>
@@ -399,6 +408,7 @@ let raceChoiceState = {
   cantripOptions: [],
   vedalkenRequired: false,
   vedalkenSkills: [],
+  innateAbilityRequired: false,
   ancestryRequired: false,
   ancestryOptions: [],
 };
@@ -1159,9 +1169,11 @@ function renderRaceChoices(){
   const vedRow = document.getElementById("choiceVedalkenRow");
   const vedSkillSel = document.getElementById("choiceVedalkenSkill");
   const vedToolSel = document.getElementById("choiceVedalkenTool");
+  const innateAbilityRow = document.getElementById("choiceInnateAbilityRow");
+  const innateAbilitySel = document.getElementById("choiceInnateAbility");
   const ancestryRow = document.getElementById("choiceAncestryRow");
   const ancestrySel = document.getElementById("choiceAncestry");
-  if(!block || !langRow || !langLabel || !langSel || !langSel2 || !asiRow || !asiLabel || !asiVariantRow || !asiVariantSel || !asiSel1 || !asiSel2 || !asiSel3 || !sizeRow || !sizeSel || !variableTraitRow || !variableTraitSel || !skillRow || !skillLabel || !skillSel1 || !skillSel2 || !featRow || !featSel || !toolRow || !toolLabel || !toolSel || !toolSel2 || !cantripRow || !cantripSel || !vedRow || !vedSkillSel || !vedToolSel || !ancestryRow || !ancestrySel) return;
+  if(!block || !langRow || !langLabel || !langSel || !langSel2 || !asiRow || !asiLabel || !asiVariantRow || !asiVariantSel || !asiSel1 || !asiSel2 || !asiSel3 || !sizeRow || !sizeSel || !variableTraitRow || !variableTraitSel || !skillRow || !skillLabel || !skillSel1 || !skillSel2 || !featRow || !featSel || !toolRow || !toolLabel || !toolSel || !toolSel2 || !cantripRow || !cantripSel || !vedRow || !vedSkillSel || !vedToolSel || !innateAbilityRow || !innateAbilitySel || !ancestryRow || !ancestrySel) return;
 
   const ctx = getCurrentRaceContext();
   const raceKey = String(((ctx.race && ctx.race.id) || ctx.details.key || "")).trim().toLowerCase();
@@ -1192,6 +1204,7 @@ function renderRaceChoices(){
   const needsTool = !!toolCfg.required;
   const needsCantrip = !!cantripCfg.required;
   const needsVedalken = !!vedCfg.required;
+  const needsInnateAbility = raceKey === "fairy";
   const needsAncestry = !!ancestryCfg.required;
   raceChoiceState = {
     sizeRequired: needsSize,
@@ -1218,11 +1231,12 @@ function renderRaceChoices(){
     cantripOptions: Array.isArray(cantripCfg.options) ? cantripCfg.options.slice() : [],
     vedalkenRequired: needsVedalken,
     vedalkenSkills: Array.isArray(vedCfg.skills) ? vedCfg.skills.slice() : [],
+    innateAbilityRequired: needsInnateAbility,
     ancestryRequired: needsAncestry,
     ancestryOptions: Array.isArray(ancestryCfg.options) ? ancestryCfg.options.slice() : [],
   };
 
-  if(!needsSize && !needsLanguage && !needsAsi && !needsVariableTrait && !needsSkill && !needsFeat && !needsTool && !needsCantrip && !needsVedalken && !needsAncestry){
+  if(!needsSize && !needsLanguage && !needsAsi && !needsVariableTrait && !needsSkill && !needsFeat && !needsTool && !needsCantrip && !needsVedalken && !needsInnateAbility && !needsAncestry){
     block.style.display = "none";
     sizeRow.style.display = "none";
     variableTraitRow.style.display = "none";
@@ -1287,6 +1301,10 @@ function renderRaceChoices(){
     vedToolSel.disabled = true;
     vedToolSel.required = false;
     vedToolSel.value = "";
+    innateAbilityRow.style.display = "none";
+    innateAbilitySel.disabled = true;
+    innateAbilitySel.required = false;
+    innateAbilitySel.value = "";
     ancestryRow.style.display = "none";
     ancestrySel.disabled = true;
     ancestrySel.required = false;
@@ -1704,6 +1722,17 @@ function renderRaceChoices(){
     vedToolSel.value = "";
   }
 
+  if(needsInnateAbility){
+    innateAbilityRow.style.display = "";
+    innateAbilitySel.disabled = false;
+    innateAbilitySel.required = true;
+  }else{
+    innateAbilityRow.style.display = "none";
+    innateAbilitySel.disabled = true;
+    innateAbilitySel.required = false;
+    innateAbilitySel.value = "";
+  }
+
   if(needsAncestry){
     const prev = String(ancestrySel.value || "");
     fillAncestrySelect(ancestrySel, ancestryCfg.options, prev);
@@ -2054,6 +2083,12 @@ async function createHero(){
       return;
     }
   }
+  const choiceInnateAbilityEl = document.getElementById("choiceInnateAbility");
+  const choiceInnateAbility = String(choiceInnateAbilityEl ? choiceInnateAbilityEl.value : "").trim().toLowerCase();
+  if(raceChoiceState.innateAbilityRequired && !choiceInnateAbility){
+    setMessage("Выбери базовую характеристику магии в блоке «Стартовые выборы».", false);
+    return;
+  }
   const choiceAncestryEl = document.getElementById("choiceAncestry");
   const choiceAncestry = String(choiceAncestryEl ? choiceAncestryEl.value : "").trim().toLowerCase();
   if(raceChoiceState.ancestryRequired && !choiceAncestry){
@@ -2073,6 +2108,7 @@ async function createHero(){
     gender: (document.getElementById("gender").value || "").trim(),
     race: "",
     description: (document.getElementById("desc").value || "").trim(),
+    race_choice_innate_ability: choiceInnateAbility,
   };
   const raceChoices = {};
   if(choiceSize){

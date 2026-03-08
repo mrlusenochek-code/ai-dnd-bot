@@ -1074,6 +1074,7 @@ async def api_character_create(payload: dict):
     race_choice_draconic_ancestry = ""
     race_choice_size = ""
     race_choice_variable_trait = ""
+    race_choice_innate_ability = str(payload.get("race_choice_innate_ability") or "").strip().lower()
     if isinstance(race_choices_payload, dict):
         raw_langs = race_choices_payload.get("languages")
         raw_langs_list = raw_langs if isinstance(raw_langs, list) else []
@@ -1591,6 +1592,26 @@ async def api_character_create(payload: dict):
                 raise HTTPException(status_code=400, detail="Dhampir extra language must not duplicate Common")
             if dhampir_lang in base_race_language_keys:
                 raise HTTPException(status_code=400, detail="Dhampir extra language must be distinct from base languages")
+        if effective_race_key == "fairy":
+            if race_choice_innate_ability not in {"int", "wis", "cha"}:
+                raise HTTPException(
+                    status_code=400,
+                    detail="Race innate spellcasting ability choice required (int/wis/cha)",
+                )
+            if len(race_choice_languages) != 1:
+                raise HTTPException(status_code=400, detail="Fairy extra language choice is required")
+            fairy_lang = race_choice_languages[0]
+            if fairy_lang == "common":
+                raise HTTPException(status_code=400, detail="Fairy extra language cannot be Common")
+            if fairy_lang in base_race_language_keys:
+                raise HTTPException(status_code=400, detail="Fairy extra language must be distinct from base languages")
+            if race_choice_flex_asi_variant not in {"2_1", "1_1_1"}:
+                raise HTTPException(status_code=400, detail="Fairy flexible ASI choice is required")
+        elif race_choice_innate_ability:
+            raise HTTPException(
+                status_code=400,
+                detail="Race innate spellcasting ability choice is not available for selected race",
+            )
 
         if selected_race is not None:
             # When a preset race is selected, keep mechanics by base race id.
@@ -1759,6 +1780,17 @@ async def api_character_create(payload: dict):
             features_dict: dict[str, Any] = features_raw if isinstance(features_raw, dict) else {}
             features_dict["breath_weapon"] = breath_weapon
             race_features["features"] = features_dict
+        if isinstance(race_features, dict) and race_choice_innate_ability:
+            choices_dict["innate_spellcasting_ability"] = race_choice_innate_ability
+            innate_raw = race_features.get("innate_spells")
+            innate_spells = innate_raw if isinstance(innate_raw, list) else []
+            for spell_item in innate_spells:
+                if not isinstance(spell_item, dict):
+                    continue
+                ability_key = str(spell_item.get("ability") or "").strip().lower()
+                if ability_key == "choose_int_wis_cha":
+                    spell_item["ability"] = race_choice_innate_ability
+            race_features["innate_spells"] = innate_spells
         if isinstance(race_features, dict) and choices_dict:
             race_features["choices"] = choices_dict
         walk_speed = as_int(((race_features.get("speeds") or {}) if isinstance(race_features, dict) else {}).get("walk_ft"), 30)

@@ -378,6 +378,8 @@ def _apply_innate_spell_usage(ch: Character, spell_key: str) -> tuple[Optional[s
         display_name = {
             "dancing_lights": "танцующие огни",
             "faerie_fire": "волшебный огонь",
+            "druidcraft": "Искусство друидов",
+            "enlarge_reduce": "Увеличение/уменьшение",
             "darkness": "тьма",
             "thaumaturgy": "Тауматургия",
             "hellish_rebuke": "Адское возмездие",

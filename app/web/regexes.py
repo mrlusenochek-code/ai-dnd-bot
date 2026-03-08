@@ -13,6 +13,11 @@ INNATE_SPELL_KEY_PATTERNS: dict[str, re.Pattern[str]] = {
     "minor_illusion": re.compile(r"мала[яй]\s+иллюз\w*|minor\s+illusion", re.IGNORECASE),
     "dancing_lights": re.compile(r"танцующ[а-яё]*\s+огн[а-яё]*|dancing\s+lights", re.IGNORECASE),
     "faerie_fire": re.compile(r"волшебн[а-яё]*\s+ог(?:н|он)[а-яё]*|faerie\s+fire", re.IGNORECASE),
+    "druidcraft": re.compile(r"искусств(?:о|а)\s+друид\w*|druidcraft", re.IGNORECASE),
+    "enlarge_reduce": re.compile(
+        r"увеличени[ея]\s*/?\s*уменьшени[ея]|enlarge\s*/?\s*reduce|enlarge\s+reduce",
+        re.IGNORECASE,
+    ),
     "thaumaturgy": re.compile(r"тауматург\w*|thaumaturgy", re.IGNORECASE),
     "hellish_rebuke": re.compile(r"адск\w*\s+(?:возмезди\w*|отпор\w*)|hellish\s+rebuke", re.IGNORECASE),
     "darkness": re.compile(
@@ -117,6 +122,8 @@ CHAT_COMBAT_ACTION_PATTERNS: list[tuple[str, re.Pattern[str]]] = [
             r"создани(?:е|я).*(?:уничтожени(?:е|я)).*воды|create.*destroy.*water|"
             r"мала[яй]\s+иллюз\w*|minor\s+illusion|"
             r"танцующ[а-яё]*\s+огн[а-яё]*|dancing\s+lights|волшебн[а-яё]*\s+ог(?:н|он)[а-яё]*|faerie\s+fire|"
+            r"искусств(?:о|а)\s+друид\w*|druidcraft|"
+            r"увеличени[ея]\s*/?\s*уменьшени[ея]|enlarge\s*/?\s*reduce|enlarge\s+reduce|"
             r"тауматург\w*|thaumaturgy|адск\w*\s+(?:возмезди\w*|отпор\w*)|hellish\s+rebuke|darkness)",
             re.IGNORECASE,
         ),
