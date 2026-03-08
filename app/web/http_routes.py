@@ -504,6 +504,8 @@ def _build_race_features(selected_race: dict | None) -> dict[str, Any]:
             return
         level = as_int(spell_obj.get("level"), -1)
         if level < 0:
+            level = as_int(spell_obj.get("spell_level"), -1)
+        if level < 0:
             level = 0 if str(spell_obj.get("kind") or "").strip().lower() == "cantrip" else 1
             if spell_name == "faerie_fire":
                 level = 1
@@ -521,6 +523,9 @@ def _build_race_features(selected_race: dict | None) -> dict[str, Any]:
             "name": spell_name,
             "frequency": frequency,
         }
+        spell_level = as_int(spell_obj.get("spell_level"), -1)
+        if spell_level >= 0:
+            entry["spell_level"] = max(0, spell_level)
         if spell_obj.get("min_level") is not None:
             entry["min_level"] = as_int(spell_obj.get("min_level"), 0)
         innate_spells.append(entry)
@@ -584,6 +589,9 @@ def _build_race_features(selected_race: dict | None) -> dict[str, Any]:
 
         if mtype == "damage_resistance":
             resist.extend([str(x) for x in _as_list(mech.get("damage")) if str(x)])
+            damage_type = str(mech.get("damage_type") or "").strip().lower()
+            if damage_type:
+                resist.append(damage_type)
 
         if mtype == "resistance":
             damage_type = str(mech.get("damage_type") or "").strip().lower()
@@ -741,6 +749,35 @@ def _build_race_features(selected_race: dict | None) -> dict[str, Any]:
                 if not isinstance(spell, dict):
                     continue
                 _append_innate_spell(ability=ability, spell_obj=spell)
+
+        if mtype == "spell_grants":
+            ability = str(mech.get("casting_ability") or "").strip().lower()
+            grants = _as_list(mech.get("grants"))
+            for grant in grants:
+                if not isinstance(grant, dict):
+                    continue
+                spell_key = str(grant.get("spell") or "").strip().lower()
+                if not spell_key:
+                    continue
+                kind = str(grant.get("kind") or "").strip().lower()
+                uses = str(grant.get("uses") or "").strip().lower()
+                frequency = ""
+                if kind == "cantrip":
+                    frequency = "at_will"
+                elif uses == "per_long_rest":
+                    frequency = "1_per_long_rest"
+                spell_obj: dict[str, Any] = {
+                    "spell_ref": spell_key,
+                    "kind": kind,
+                    "frequency": frequency,
+                }
+                if grant.get("min_level") is not None:
+                    spell_obj["min_level"] = as_int(grant.get("min_level"), 0)
+                spell_level = as_int(grant.get("spell_level"), -1)
+                if spell_level >= 0:
+                    spell_obj["spell_level"] = spell_level
+                    spell_obj["level"] = spell_level
+                _append_innate_spell(ability=ability, spell_obj=spell_obj)
 
         if tkey == "drow_magic":
             ability = str(mech.get("ability") or "").strip().lower()

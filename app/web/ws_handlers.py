@@ -361,6 +361,8 @@ def _apply_innate_spell_usage(ch: Character, spell_key: str) -> tuple[Optional[s
             "dancing_lights": "танцующие огни",
             "faerie_fire": "волшебный огонь",
             "darkness": "тьма",
+            "thaumaturgy": "Тауматургия",
+            "hellish_rebuke": "Адское возмездие",
         }.get(spell_key, display_name)
     return display_name, None, changed
 

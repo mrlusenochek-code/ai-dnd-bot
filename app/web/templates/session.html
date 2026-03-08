@@ -932,6 +932,39 @@ function openCharacterModal(){
   const resistancesRu = resistances
     .map((k) => _DAMAGE_RU[String(k || "").trim().toLowerCase()] || String(k || ""))
     .filter(Boolean);
+  const hasFireResistance = resistances.includes("fire");
+  const hellishResistanceText = hasFireResistance ? "Адская стойкость: сопротивление огню" : "";
+  const _INNATE_SPELL_RU = {
+    "thaumaturgy": "Тауматургия",
+    "hellish_rebuke": "Адское возмездие",
+    "darkness": "Тьма",
+  };
+  const infernalLegacySpells = innateSpells
+    .filter((spell) => {
+      const key = String((spell && spell.name) || "").trim().toLowerCase();
+      return key === "thaumaturgy" || key === "hellish_rebuke" || key === "darkness";
+    })
+    .map((spell) => {
+      const spellKey = String(spell.name || "").trim().toLowerCase();
+      const spellNameRu = _INNATE_SPELL_RU[spellKey] || spellKey;
+      const spellMinLevel = Number.isFinite(Number(spell.min_level)) ? Number(spell.min_level) : null;
+      const spellLevelRaw = Number.isFinite(Number(spell.spell_level))
+        ? Number(spell.spell_level)
+        : (Number.isFinite(Number(spell.level)) ? Number(spell.level) : null);
+      const spellLevel = spellLevelRaw !== null && spellLevelRaw > 0 ? spellLevelRaw : null;
+      const spellFrequency = String(spell.frequency || "").trim().toLowerCase();
+      const spellLimitText = spellFrequency === "at_will"
+        ? "без лимита"
+        : (spellFrequency === "1_per_long_rest" ? "1/дл отдых" : spellFrequency);
+      const parts = [];
+      if(spellMinLevel !== null) parts.push(`с ${spellMinLevel} ур.`);
+      if(spellLevel !== null) parts.push(`${spellLevel} ур.`);
+      if(spellLimitText) parts.push(spellLimitText);
+      return parts.length ? `${spellNameRu} (${parts.join(", ")})` : spellNameRu;
+    });
+  const infernalLegacyText = infernalLegacySpells.length
+    ? `Дьявольское наследие: ${infernalLegacySpells.join("; ")}`
+    : "";
   const hasPoisonResistance = resistances.map((x) => String(x || "").trim().toLowerCase()).includes("poison");
   const hasPoisonSaveAdvantage = saveAdvantageConditions.includes("poison");
   const stoutResilienceText = (hasPoisonResistance || hasPoisonSaveAdvantage)
@@ -1182,6 +1215,12 @@ function openCharacterModal(){
   if(resistancesRu.length){
     details.push(`<div class="char-line"><strong>Сопротивления:</strong> ${escapeHtml(resistancesRu.join(", "))}</div>`);
   }
+  if(hellishResistanceText){
+    details.push(`<div class="char-line"><strong>Адская стойкость:</strong> ${escapeHtml(hellishResistanceText.replace(/^Адская стойкость:\s*/, ""))}</div>`);
+  }
+  if(infernalLegacyText){
+    details.push(`<div class="char-line"><strong>Дьявольское наследие:</strong> ${escapeHtml(infernalLegacyText.replace(/^Дьявольское наследие:\s*/, ""))}</div>`);
+  }
   if(saveAdvantageConditionsRu.length){
     details.push(`<div class="char-line"><strong>Преим. против:</strong> ${escapeHtml(saveAdvantageConditionsRu.join(", "))} (спасброски)</div>`);
   }
@@ -1330,6 +1369,8 @@ function openCharacterModal(){
   if(darkvisionFt !== null) copyLines.push(`Тёмное зрение: ${darkvisionFt} фт`);
   if(natArmorText) copyLines.push(`Природный доспех: ${natArmorText}`);
   if(resistancesRu.length) copyLines.push(`Сопротивления: ${resistancesRu.join(", ")}`);
+  if(hellishResistanceText) copyLines.push(hellishResistanceText);
+  if(infernalLegacyText) copyLines.push(infernalLegacyText);
   if(saveAdvantageConditionsRu.length) copyLines.push(`Преим. против: ${saveAdvantageConditionsRu.join(", ")} (спасброски)`);
   if(dwarvenResilienceText) copyLines.push(dwarvenResilienceText);
   if(feyAncestryText) copyLines.push(feyAncestryText);
