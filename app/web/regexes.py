@@ -10,6 +10,12 @@ INNATE_SPELL_KEY_PATTERNS: dict[str, re.Pattern[str]] = {
         r"создани(?:е|я).*(?:уничтожени(?:е|я)).*воды|create.*destroy.*water",
         re.IGNORECASE,
     ),
+    "dancing_lights": re.compile(r"танцующ[а-яё]*\s+огн[а-яё]*|dancing\s+lights", re.IGNORECASE),
+    "faerie_fire": re.compile(r"волшебн[а-яё]*\s+ог(?:н|он)[а-яё]*|faerie\s+fire", re.IGNORECASE),
+    "darkness": re.compile(
+        r"(?:каст[а-яё]*|накладыва[а-яё]*|использу[а-яё]*|применя[а-яё]*)(?:\s+\S+){0,4}\s+\bтьма\b|\bdarkness\b",
+        re.IGNORECASE,
+    ),
 }
 
 
@@ -64,7 +70,8 @@ CHAT_COMBAT_ACTION_PATTERNS: list[tuple[str, re.Pattern[str]]] = [
             r"(?:кастую|колдую|накладываю|использую\s+заклинание|заклинание|"
             r"левитац|levitate|проход.*сквозь.*кам|passwall|создани[еия]\s+огня|produce\s+flame|"
             r"горящ(?:ие|их)\s+руки|burning\s+hands|формирован(?:ие|ия)\s+воды|shape\s+water|"
-            r"создани(?:е|я).*(?:уничтожени(?:е|я)).*воды|create.*destroy.*water)",
+            r"создани(?:е|я).*(?:уничтожени(?:е|я)).*воды|create.*destroy.*water|"
+            r"танцующ[а-яё]*\s+огн[а-яё]*|dancing\s+lights|волшебн[а-яё]*\s+ог(?:н|он)[а-яё]*|faerie\s+fire|darkness)",
             re.IGNORECASE,
         ),
     ),

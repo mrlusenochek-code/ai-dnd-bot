@@ -297,7 +297,15 @@ def _apply_innate_spell_usage(ch: Character, spell_key: str) -> tuple[Optional[s
         ch.race_features = rf
         changed = True
 
-    display_name = str(spell_entry.get("name") or spell_key).strip()
+    display_name = str(spell_entry.get("name_ru") or "").strip()
+    if not display_name:
+        display_name = str(spell_entry.get("name") or spell_key).strip()
+    if display_name == spell_key:
+        display_name = {
+            "dancing_lights": "танцующие огни",
+            "faerie_fire": "волшебный огонь",
+            "darkness": "тьма",
+        }.get(spell_key, display_name)
     return display_name, None, changed
 
 
@@ -1443,7 +1451,7 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                                 "status": f"⚔ Бой • Раунд {round_no} • Ход: {turn_label_now}",
                                 "open": True,
                                 "lines": [
-                                    {"text": f"{caster_name} накладывает врождённое заклинание: {spell_display_name}."},
+                                    {"text": f"{caster_name} использует врождённую магию: {spell_display_name}."},
                                 ],
                             }
                             await _broadcast_state_unlocked(session_id, combat_log_ui_patch=patch)
@@ -2618,7 +2626,7 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                                 "status": f"⚔ Бой • Раунд {round_no} • Ход: {turn_label_now}",
                                 "open": True,
                                 "lines": [
-                                    {"text": f"{caster_name} накладывает врождённое заклинание: {spell_display_name}."},
+                                    {"text": f"{caster_name} использует врождённую магию: {spell_display_name}."},
                                 ],
                             }
                             await broadcast_state(session_id, combat_log_ui_patch=patch)
