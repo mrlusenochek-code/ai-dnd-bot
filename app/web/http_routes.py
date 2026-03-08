@@ -735,6 +735,12 @@ def _build_race_features(selected_race: dict | None) -> dict[str, Any]:
         if mtype == "surprise_attack":
             features["surprise_attack"] = dict(mech)
 
+        if mtype == "bonus_damage" and tkey == "fury_of_the_small":
+            features["fury_of_the_small"] = dict(mech)
+
+        if mtype == "bonus_action_options" and tkey == "nimble_escape":
+            features["nimble_escape"] = True
+
         if mtype == "skill_bonus":
             features["stonecunning"] = dict(mech)
 

@@ -629,6 +629,29 @@ def _consume_built_for_success_for_d20(ch: Character) -> tuple[int, Optional[str
     return bonus, f"1d4 (Создан для успеха: {bonus})", True
 
 
+def _apply_fury_of_small_arm(ch: Character) -> tuple[Optional[str], bool]:
+    race_features = getattr(ch, "race_features", None)
+    rf = dict(race_features) if isinstance(race_features, dict) else {}
+    features_raw = rf.get("features")
+    features = dict(features_raw) if isinstance(features_raw, dict) else {}
+    fury_cfg_raw = features.get("fury_of_the_small")
+    fury_cfg = dict(fury_cfg_raw) if isinstance(fury_cfg_raw, dict) else {}
+    if not fury_cfg:
+        return "Ярость малого недоступна вашей расе.", False
+
+    runtime_raw = rf.get("runtime")
+    runtime = dict(runtime_raw) if isinstance(runtime_raw, dict) else {}
+    if bool(runtime.get("fury_of_small_used")):
+        return "Ярость малого уже использована до отдыха.", False
+    if bool(runtime.get("fury_of_small_armed")):
+        return "Ярость малого уже готова: сработает на следующем попадании.", False
+
+    runtime["fury_of_small_armed"] = True
+    rf["runtime"] = runtime
+    ch.race_features = rf
+    return None, True
+
+
 def _reset_racial_rest_uses(ch: Character) -> bool:
     race_features = getattr(ch, "race_features", None)
     rf = dict(race_features) if isinstance(race_features, dict) else {}
@@ -670,6 +693,12 @@ def _reset_racial_rest_uses(ch: Character) -> bool:
         changed = True
     if "built_for_success_armed" in runtime:
         runtime.pop("built_for_success_armed", None)
+        changed = True
+    if "fury_of_small_used" in runtime:
+        runtime.pop("fury_of_small_used", None)
+        changed = True
+    if "fury_of_small_armed" in runtime:
+        runtime.pop("fury_of_small_armed", None)
         changed = True
     if not changed:
         return False
@@ -728,6 +757,12 @@ def _reset_combatant_racial_rest_uses(session_id: str, actor_key: str) -> bool:
     if "built_for_success_armed" in runtime:
         runtime.pop("built_for_success_armed", None)
         changed = True
+    if "fury_of_small_used" in runtime:
+        runtime.pop("fury_of_small_used", None)
+        changed = True
+    if "fury_of_small_armed" in runtime:
+        runtime.pop("fury_of_small_armed", None)
+        changed = True
     if not changed:
         return False
     if runtime:
@@ -744,6 +779,7 @@ async def _persist_relentless_endurance_used_from_combat_state(db, sess, session
         return False
     relentless_used_uids: set[int] = set()
     built_for_success_runtime_by_uid: dict[int, dict[str, Any]] = {}
+    fury_of_small_runtime_by_uid: dict[int, dict[str, Any]] = {}
     for key, actor in (state.combatants or {}).items():
         actor_key = str(key or "").strip().lower()
         if not actor_key.startswith("pc_"):
@@ -762,13 +798,20 @@ async def _persist_relentless_endurance_used_from_combat_state(db, sess, session
             if "built_for_success_armed" in runtime:
                 built_runtime["built_for_success_armed"] = bool(runtime.get("built_for_success_armed"))
             built_for_success_runtime_by_uid[int(uid_raw)] = built_runtime
-    if not relentless_used_uids and not built_for_success_runtime_by_uid:
+        if "fury_of_small_used" in runtime or "fury_of_small_armed" in runtime:
+            fury_runtime: dict[str, Any] = {}
+            if "fury_of_small_used" in runtime:
+                fury_runtime["fury_of_small_used"] = bool(runtime.get("fury_of_small_used"))
+            if "fury_of_small_armed" in runtime:
+                fury_runtime["fury_of_small_armed"] = bool(runtime.get("fury_of_small_armed"))
+            fury_of_small_runtime_by_uid[int(uid_raw)] = fury_runtime
+    if not relentless_used_uids and not built_for_success_runtime_by_uid and not fury_of_small_runtime_by_uid:
         return False
 
     _uid_map, chars_by_uid, _ = await _load_actor_context(db, sess)
     changed = False
     for uid, ch in chars_by_uid.items():
-        if uid not in relentless_used_uids and uid not in built_for_success_runtime_by_uid:
+        if uid not in relentless_used_uids and uid not in built_for_success_runtime_by_uid and uid not in fury_of_small_runtime_by_uid:
             continue
         ch = chars_by_uid.get(uid)
         if ch is None:
@@ -792,6 +835,18 @@ async def _persist_relentless_endurance_used_from_combat_state(db, sess, session
                 value = bool(built_runtime.get("built_for_success_armed"))
                 if bool(runtime.get("built_for_success_armed")) != value:
                     runtime["built_for_success_armed"] = value
+                    local_changed = True
+        fury_runtime = fury_of_small_runtime_by_uid.get(uid)
+        if isinstance(fury_runtime, dict):
+            if "fury_of_small_used" in fury_runtime:
+                value = bool(fury_runtime.get("fury_of_small_used"))
+                if bool(runtime.get("fury_of_small_used")) != value:
+                    runtime["fury_of_small_used"] = value
+                    local_changed = True
+            if "fury_of_small_armed" in fury_runtime:
+                value = bool(fury_runtime.get("fury_of_small_armed"))
+                if bool(runtime.get("fury_of_small_armed")) != value:
+                    runtime["fury_of_small_armed"] = value
                     local_changed = True
         if local_changed:
             race_features["runtime"] = runtime
@@ -1550,6 +1605,30 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                         db,
                         sess,
                         f"{actor_name}: Готово: следующий бросок d20 получит +1d4.",
+                    )
+                    await broadcast_state(session_id)
+                    continue
+
+                if combat_action == "combat_fury_of_small":
+                    ch = await get_character(db, sess.id, player.id)
+                    if not ch:
+                        await ws_error("Персонаж не найден.", request_id=msg_request_id)
+                        continue
+                    arm_err, changed = _apply_fury_of_small_arm(ch)
+                    if arm_err:
+                        await ws_error(arm_err, request_id=msg_request_id)
+                        continue
+                    if changed:
+                        flag_modified(ch, "race_features")
+                        await db.commit()
+                        if combat_active:
+                            _uid_map, chars_by_uid, _ = await _load_actor_context(db, sess)
+                            sync_pcs_from_chars(session_id, chars_by_uid)
+                    actor_name = str(getattr(ch, "name", "") or player.display_name).strip() or player.display_name
+                    await add_system_event(
+                        db,
+                        sess,
+                        f"{actor_name}: Готово: Ярость малого сработает на следующем попадании.",
                     )
                     await broadcast_state(session_id)
                     continue
@@ -2815,6 +2894,30 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                         db,
                         sess,
                         f"{actor_name}: Готово: следующий бросок d20 получит +1d4.",
+                    )
+                    await broadcast_state(session_id)
+                    continue
+
+                if combat_action == "combat_fury_of_small":
+                    ch = await get_character(db, sess.id, player.id)
+                    if not ch:
+                        await ws_error("Персонаж не найден.", request_id=msg_request_id)
+                        continue
+                    arm_err, changed = _apply_fury_of_small_arm(ch)
+                    if arm_err:
+                        await ws_error(arm_err, request_id=msg_request_id)
+                        continue
+                    if changed:
+                        flag_modified(ch, "race_features")
+                        await db.commit()
+                        if combat_active:
+                            _uid_map, chars_by_uid, _ = await _load_actor_context(db, sess)
+                            sync_pcs_from_chars(session_id, chars_by_uid)
+                    actor_name = str(getattr(ch, "name", "") or player.display_name).strip() or player.display_name
+                    await add_system_event(
+                        db,
+                        sess,
+                        f"{actor_name}: Готово: Ярость малого сработает на следующем попадании.",
                     )
                     await broadcast_state(session_id)
                     continue

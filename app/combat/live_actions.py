@@ -268,6 +268,40 @@ def _maybe_apply_built_for_success(actor: Any, d20_roll: int, lines: list[dict[s
     return roll_out + bonus
 
 
+def _has_nimble_escape(actor: Any) -> bool:
+    race_features = getattr(actor, "race_features", None)
+    rf = race_features if isinstance(race_features, dict) else {}
+    features_raw = rf.get("features")
+    features = features_raw if isinstance(features_raw, dict) else {}
+    return bool(features.get("nimble_escape") is True)
+
+
+def _maybe_apply_fury_of_small(actor: Any, lines: list[dict[str, Any]]) -> int:
+    if str(getattr(actor, "side", "")).lower() != "pc":
+        return 0
+    fury_cfg = _race_feature(actor, "fury_of_the_small")
+    if fury_cfg is None:
+        return 0
+    race_features = actor.race_features if isinstance(actor.race_features, dict) else {}
+    runtime_raw = race_features.get("runtime")
+    runtime = dict(runtime_raw) if isinstance(runtime_raw, dict) else {}
+    if not bool(runtime.get("fury_of_small_armed")):
+        return 0
+    if bool(runtime.get("fury_of_small_used")):
+        runtime["fury_of_small_armed"] = False
+        race_features["runtime"] = runtime
+        actor.race_features = race_features
+        lines.append({"text": "Ярость малого: уже использовано до отдыха.", "muted": True})
+        return 0
+    bonus = max(1, int(getattr(actor, "level", 1) or 1))
+    runtime["fury_of_small_used"] = True
+    runtime["fury_of_small_armed"] = False
+    race_features["runtime"] = runtime
+    actor.race_features = race_features
+    lines.append({"text": f"Ярость малого: +{bonus} урона (уровень).", "muted": True})
+    return bonus
+
+
 def _breath_weapon_dice_for_level(progression: list[dict[str, Any]], level: int) -> str:
     lvl = max(1, int(level))
     out = "2d6"
@@ -850,12 +884,20 @@ def handle_live_combat_action(
         attacker = state.combatants.get(attacker_key)
         if attacker is None:
             return None, "Combat state is inconsistent"
-        blocked = _spend_action_or_block(state, attacker)
+        blocked = None
+        used_bonus_action = False
+        if _has_nimble_escape(attacker) and bool(getattr(attacker, "bonus_action_available", False)):
+            blocked = _spend_bonus_action_or_block(state, attacker)
+            used_bonus_action = blocked is None
+        else:
+            blocked = _spend_action_or_block(state, attacker)
         if blocked is not None:
             return blocked, None
 
         attacker.disengage_active = True
         lines: list[dict[str, Any]] = [{"text": f"Отход: {attacker.name} (до следующего хода)", "muted": True}]
+        if used_bonus_action:
+            lines.append({"text": "Ловкое бегство: потрачено бонусное действие.", "muted": True})
 
         state = advance_turn(session_id)
         if state is None:
@@ -1303,6 +1345,9 @@ def handle_live_combat_action(
                 total_damage=total_damage,
             )
             extra_outcome_lines.extend(savage_lines)
+            fury_bonus = _maybe_apply_fury_of_small(attacker, extra_outcome_lines)
+            if fury_bonus > 0:
+                total_damage += fury_bonus
             bonus_damage, bonus_damage_type = _aasimar_bonus_damage_for_hit(attacker)
             if bonus_damage > 0:
                 total_damage += bonus_damage
@@ -1628,6 +1673,9 @@ def handle_live_combat_action(
                 total_damage=total_damage,
             )
             extra_outcome_lines.extend(savage_lines)
+            fury_bonus = _maybe_apply_fury_of_small(attacker, extra_outcome_lines)
+            if fury_bonus > 0:
+                total_damage += fury_bonus
             bonus_damage, bonus_damage_type = _aasimar_bonus_damage_for_hit(attacker)
             if bonus_damage > 0:
                 total_damage += bonus_damage

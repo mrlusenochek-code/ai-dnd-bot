@@ -768,6 +768,10 @@ function openCharacterModal(){
   const surpriseAttack = (raceFeaturesMeta.surprise_attack && typeof raceFeaturesMeta.surprise_attack === "object")
     ? raceFeaturesMeta.surprise_attack
     : null;
+  const furyOfTheSmall = (raceFeaturesMeta.fury_of_the_small && typeof raceFeaturesMeta.fury_of_the_small === "object")
+    ? raceFeaturesMeta.fury_of_the_small
+    : null;
+  const nimbleEscape = raceFeaturesMeta.nimble_escape === true;
   const relentlessEnduranceText = relentlessEndurance
     ? "Неукротимая стойкость: 1/дл отдых, при 0 HP -> 1 HP (если не убит мгновенно)"
     : "";
@@ -784,6 +788,12 @@ function openCharacterModal(){
   const surpriseAttackLimitRu = surpriseAttackLimit === "once_per_combat" ? "1/бой" : surpriseAttackLimit;
   const surpriseAttackText = surpriseAttack
     ? `Внезапное нападение: +${surpriseAttackDamage || "2d6"} по врасплохнутой цели в первый ход боя (${surpriseAttackLimitRu || "1/бой"}).`
+    : "";
+  const furyOfTheSmallText = furyOfTheSmall
+    ? "Ярость малого: +урон = уровень (1/кд отдых)"
+    : "";
+  const nimbleEscapeText = nimbleEscape
+    ? "Ловкое бегство: отход бонусным действием"
     : "";
   const stonecunning = (raceFeaturesMeta.stonecunning && typeof raceFeaturesMeta.stonecunning === "object")
     ? raceFeaturesMeta.stonecunning
@@ -1347,6 +1357,12 @@ function openCharacterModal(){
   if(surpriseAttackText){
     details.push(`<div class="char-line"><strong>Внезапное нападение:</strong> ${escapeHtml(surpriseAttackText.replace(/^Внезапное нападение:\s*/, ""))}</div>`);
   }
+  if(furyOfTheSmallText){
+    details.push(`<div class="char-line"><strong>Ярость малого:</strong> ${escapeHtml(furyOfTheSmallText.replace(/^Ярость малого:\s*/, ""))}</div>`);
+  }
+  if(nimbleEscapeText){
+    details.push(`<div class="char-line"><strong>Ловкое бегство:</strong> ${escapeHtml(nimbleEscapeText.replace(/^Ловкое бегство:\s*/, ""))}</div>`);
+  }
   if(tranceText){
     details.push(`<div class="char-line"><strong>Транс:</strong> ${escapeHtml(tranceText.replace(/^Транс:\s*/, ""))}</div>`);
   }
@@ -1479,6 +1495,8 @@ function openCharacterModal(){
   if(savageAttacksText) copyLines.push(savageAttacksText);
   if(reachBonusText) copyLines.push(reachBonusText);
   if(surpriseAttackText) copyLines.push(surpriseAttackText);
+  if(furyOfTheSmallText) copyLines.push(furyOfTheSmallText);
+  if(nimbleEscapeText) copyLines.push(nimbleEscapeText);
   if(tranceText) copyLines.push(tranceText);
   if(maskOfTheWildText) copyLines.push(maskOfTheWildText);
   if(sunlightSensitivityText) copyLines.push(sunlightSensitivityText);

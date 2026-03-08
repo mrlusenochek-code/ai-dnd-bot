@@ -112,6 +112,13 @@ CHAT_COMBAT_ACTION_PATTERNS: list[tuple[str, re.Pattern[str]]] = [
             re.IGNORECASE,
         ),
     ),
+    (
+        "combat_fury_of_small",
+        re.compile(
+            r"(ярост\w+\s+мал\w*|выпускаю\s+ярост\w*|fury\s+of\s+the\s+small)",
+            re.IGNORECASE,
+        ),
+    ),
     ("combat_use_object", re.compile(r"(использую|применяю|активирую|включаю|поджигаю|зажигаю|пью|выпиваю|нажимаю|достаю|зелье|флакон|свиток|факел|рычаг|кнопк)", re.IGNORECASE)),
     (
         "tortle_shell_in",
