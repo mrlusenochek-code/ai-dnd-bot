@@ -36,6 +36,8 @@ class Combatant:
     is_stable: bool = False
     death_successes: int = 0
     death_failures: int = 0
+    turns_taken: int = 0
+    surprise_attack_used: bool = False
     stats: dict[str, int] | None = None
     inventory: list[dict[str, Any]] | None = None
     equip: dict[str, str] | None = None
@@ -395,6 +397,8 @@ def combatant_to_dict(c: Combatant) -> dict[str, Any]:
         "is_stable": bool(c.is_stable),
         "death_successes": max(0, min(int(c.death_successes), 3)),
         "death_failures": max(0, min(int(c.death_failures), 3)),
+        "turns_taken": max(0, int(c.turns_taken)),
+        "surprise_attack_used": bool(c.surprise_attack_used),
         "last_damage_taken": max(0, int(c.last_damage_taken)),
         "last_damage_taken_round": max(0, int(c.last_damage_taken_round)),
         "last_damage_taken_source": str(c.last_damage_taken_source).strip() if isinstance(c.last_damage_taken_source, str) else None,
@@ -448,6 +452,8 @@ def combatant_from_dict(raw: Any) -> Combatant | None:
     is_stable = raw.get("is_stable", False)
     death_successes = raw.get("death_successes", 0)
     death_failures = raw.get("death_failures", 0)
+    turns_taken = raw.get("turns_taken", 0)
+    surprise_attack_used = raw.get("surprise_attack_used", False)
     last_damage_taken = raw.get("last_damage_taken", 0)
     last_damage_taken_round = raw.get("last_damage_taken_round", 0)
     last_damage_taken_source = raw.get("last_damage_taken_source")
@@ -463,6 +469,8 @@ def combatant_from_dict(raw: Any) -> Combatant | None:
     if not isinstance(ac, int) or not isinstance(initiative, int):
         return None
     if not isinstance(death_successes, int) or not isinstance(death_failures, int):
+        return None
+    if not isinstance(turns_taken, int) or isinstance(turns_taken, bool):
         return None
     if not isinstance(last_damage_taken, int) or isinstance(last_damage_taken, bool):
         return None
@@ -531,6 +539,8 @@ def combatant_from_dict(raw: Any) -> Combatant | None:
         is_stable=bool(is_stable),
         death_successes=death_successes_norm,
         death_failures=death_failures_norm,
+        turns_taken=max(0, int(turns_taken)),
+        surprise_attack_used=bool(surprise_attack_used),
         stats=_sanitize_stats_payload(raw.get("stats")),
         inventory=_sanitize_inventory_payload(raw.get("inventory")),
         equip=_sanitize_equip_payload(raw.get("equip")),

@@ -28,6 +28,8 @@ def advance_turn_in_state(state: CombatState) -> CombatState:
 
     ending_key = state.order[state.turn_index]
     ending_combatant = state.combatants.get(ending_key)
+    if ending_combatant is not None:
+        ending_combatant.turns_taken = max(0, int(getattr(ending_combatant, "turns_taken", 0))) + 1
     if ending_combatant is not None and str(getattr(ending_combatant, "side", "")).lower() == "pc":
         race_features = ending_combatant.race_features if isinstance(ending_combatant.race_features, dict) else {}
         runtime_raw = race_features.get("runtime")

@@ -175,6 +175,40 @@ def _apply_savage_attacks_bonus(*, attacker: Any, profile: Any, is_crit: bool, t
     return total_damage + extra_damage, extra_lines
 
 
+def _apply_surprise_attack_bonus(
+    *,
+    state: Any,
+    attacker: Any,
+    target: Any,
+    is_hit: bool,
+    is_crit: bool,
+    total_damage: int,
+) -> tuple[int, list[dict[str, Any]]]:
+    extra_lines: list[dict[str, Any]] = []
+    if not is_hit:
+        return total_damage, extra_lines
+    if str(getattr(attacker, "side", "")).lower() != "pc":
+        return total_damage, extra_lines
+    surprise_cfg = _race_feature(attacker, "surprise_attack")
+    if surprise_cfg is None:
+        return total_damage, extra_lines
+    if max(1, int(getattr(state, "round_no", 1))) != 1:
+        return total_damage, extra_lines
+    if max(0, int(getattr(target, "turns_taken", 0))) != 0:
+        return total_damage, extra_lines
+    if bool(getattr(attacker, "surprise_attack_used", False)):
+        return total_damage, extra_lines
+
+    dice_count = 4 if is_crit else 2
+    rolls = [random.randint(1, 6) for _ in range(dice_count)]
+    bonus = sum(rolls)
+    attacker.surprise_attack_used = True
+    extra_lines.append(
+        {"text": f"Внезапное нападение: +{bonus} ({'4d6' if is_crit else '2d6'}) (1/бой).", "muted": True}
+    )
+    return total_damage + bonus, extra_lines
+
+
 def _apply_relentless_endurance_if_needed(*, target: Any, incoming_damage: int) -> tuple[int, list[dict[str, Any]]]:
     extra_lines: list[dict[str, Any]] = []
     if str(getattr(target, "side", "")).lower() != "pc":
@@ -1253,6 +1287,15 @@ def handle_live_combat_action(
         extra_outcome_lines.extend(bfs_lines)
         total_damage = int(resolution.total_damage)
         if resolution.is_hit:
+            total_damage, surprise_lines = _apply_surprise_attack_bonus(
+                state=state,
+                attacker=attacker,
+                target=target,
+                is_hit=bool(resolution.is_hit),
+                is_crit=bool(resolution.is_crit),
+                total_damage=total_damage,
+            )
+            extra_outcome_lines.extend(surprise_lines)
             total_damage, savage_lines = _apply_savage_attacks_bonus(
                 attacker=attacker,
                 profile=profile,
@@ -1569,6 +1612,15 @@ def handle_live_combat_action(
         extra_outcome_lines.extend(bfs_lines)
         total_damage = int(resolution.total_damage)
         if resolution.is_hit:
+            total_damage, surprise_lines = _apply_surprise_attack_bonus(
+                state=state,
+                attacker=attacker,
+                target=target,
+                is_hit=bool(resolution.is_hit),
+                is_crit=bool(resolution.is_crit),
+                total_damage=total_damage,
+            )
+            extra_outcome_lines.extend(surprise_lines)
             total_damage, savage_lines = _apply_savage_attacks_bonus(
                 attacker=attacker,
                 profile=profile,
