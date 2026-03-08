@@ -1289,16 +1289,12 @@ function openCharacterModal(){
   const speedText = speedParts.join(", ");
   const darkvisionFt = Number.isFinite(Number(senses.darkvision_ft)) ? Number(senses.darkvision_ft) : null;
   const baseSize = String(rf.size || "").trim().toLowerCase();
-  const chLevelNum = Number.isFinite(Number(ch.level)) ? Number(ch.level) : 1;
-  const effectiveSize = (sizeChange && growthToSize && growthAtLevel !== null && chLevelNum >= growthAtLevel)
-    ? growthToSize
-    : baseSize;
   const SIZE_RU = {
     "small": "Маленький",
     "medium": "Средний",
     "large": "Большой",
   };
-  const effectiveSizeRu = effectiveSize ? (SIZE_RU[effectiveSize] || effectiveSize) : "";
+  const sizeRu = baseSize ? (SIZE_RU[baseSize] || baseSize) : "";
 
   let natArmorText = "";
   if(Number.isFinite(Number(natArmor.ac))) {
@@ -1320,8 +1316,8 @@ function openCharacterModal(){
   if(String(ch.race || "").trim()){
     details.push(`<div class="char-line"><strong>Раса:</strong> ${escapeHtml(ch.race)}</div>`);
   }
-  if(effectiveSizeRu){
-    details.push(`<div class="char-line"><strong>Размер:</strong> ${escapeHtml(effectiveSizeRu)}</div>`);
+  if(sizeRu){
+    details.push(`<div class="char-line"><strong>Размер:</strong> ${escapeHtml(sizeRu)}</div>`);
   }
   if(speedText){
     details.push(`<div class="char-line"><strong>Скорость:</strong> ${escapeHtml(speedText)}</div>`);
@@ -1537,7 +1533,7 @@ function openCharacterModal(){
   if(gender || race){
     copyLines.push(`Пол/Раса: ${gender || "—"} / ${race || "—"}`);
   }
-  if(effectiveSizeRu) copyLines.push(`Размер: ${effectiveSizeRu}`);
+  if(sizeRu) copyLines.push(`Размер: ${sizeRu}`);
   copyLines.push(`Зона: ${zone}`);
   if(speedText) copyLines.push(`Скорость: ${speedText}`);
   if(hasActiveCombatant && combatModeRu) copyLines.push(`Режим движения: ${combatModeRu}`);
