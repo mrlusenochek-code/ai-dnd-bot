@@ -785,6 +785,10 @@ def _build_race_features(selected_race: dict | None) -> dict[str, Any]:
             elif abilities:
                 saves["advantage"] = abilities
 
+        if mtype == "fey_ancestry":
+            save_advantage_conditions.append("charmed")
+            immune_cond.append("magic_sleep")
+
         if mtype == "learn_cantrip":
             spell_key = str(mech.get("spell_key") or "").strip().lower()
             ability = str(mech.get("ability") or "").strip().lower()
@@ -904,7 +908,7 @@ async def api_character_create(payload: dict):
             stat = str(item.get("stat") or "").strip().lower()
             if stat not in allowed_asi_stats:
                 continue
-            bonus = as_int(item.get("bonus"), 0)
+            bonus = as_int(item.get("bonus"), as_int(item.get("delta"), 0))
             if bonus <= 0:
                 continue
             if stat in seen_asi_stats:
@@ -941,7 +945,7 @@ async def api_character_create(payload: dict):
             if skill not in allowed_skill_keys:
                 raise HTTPException(status_code=400, detail=f"Invalid skill choice: {skill}")
             if skill in seen_skill_keys:
-                continue
+                raise HTTPException(status_code=400, detail="Skill choices must be distinct")
             seen_skill_keys.add(skill)
             race_choice_skills.append(skill)
         raw_feats = race_choices_payload.get("feats")
@@ -1089,6 +1093,12 @@ async def api_character_create(payload: dict):
         draconic_ancestry_options: list[dict[str, Any]] = []
         breath_weapon_mechanics: dict[str, Any] = {}
         wizard_cantrip_choice_cfg: dict[str, Any] = {}
+        required_race_asi_count = 0
+        required_race_asi_bonus = 0
+        required_race_asi_exclude: set[str] = set()
+        required_race_skill_count = 0
+        required_race_language_count = 0
+        race_language_choice_available = False
         if isinstance(effective_race, dict):
             effective_traits = effective_race.get("traits")
             effective_traits_list = effective_traits if isinstance(effective_traits, list) else []
@@ -1126,6 +1136,34 @@ async def api_character_create(payload: dict):
                             "from_list": "wizard_cantrips",
                             "ability": str(mech.get("ability") or "").strip().lower(),
                         }
+                    elif mtype == "choose_asi":
+                        count = max(as_int(mech.get("count"), as_int(mech.get("choices"), 0)), 0)
+                        bonus = max(as_int(mech.get("delta"), as_int(mech.get("bonus"), 0)), 0)
+                        if count > 0 and bonus > 0:
+                            required_race_asi_count = max(required_race_asi_count, count)
+                            required_race_asi_bonus = max(required_race_asi_bonus, bonus)
+                            for item in (mech.get("exclude") if isinstance(mech.get("exclude"), list) else []):
+                                key = str(item or "").strip().lower()
+                                if key:
+                                    required_race_asi_exclude.add(key)
+                    elif mtype in {"choose_skill_proficiency", "choose_skill_proficiencies"}:
+                        count = max(as_int(mech.get("count"), as_int(mech.get("choose"), 0)), 0)
+                        if count > 0:
+                            required_race_skill_count = max(required_race_skill_count, count)
+                    elif mtype in {"choose_language", "language_choice"}:
+                        count = max(as_int(mech.get("count"), as_int(mech.get("choose"), 0)), 0)
+                        if count > 0:
+                            race_language_choice_available = True
+                            required_race_language_count = max(required_race_language_count, count)
+                    elif mtype == "choice":
+                        from_raw = mech.get("from")
+                        from_values = from_raw if isinstance(from_raw, list) else [from_raw]
+                        normalized_from = [str(item or "").strip().lower() for item in from_values if str(item or "").strip()]
+                        if normalized_from and ("any" in normalized_from or "any_language" in normalized_from):
+                            count = max(as_int(mech.get("count"), as_int(mech.get("choose"), 0)), 0)
+                            if count > 0:
+                                race_language_choice_available = True
+                                required_race_language_count = max(required_race_language_count, count)
                     continue
                 for item in (mech.get("choose_skill_from") if isinstance(mech.get("choose_skill_from"), list) else []):
                     skill_key = str(item or "").strip().lower()
@@ -1161,6 +1199,44 @@ async def api_character_create(payload: dict):
                 )
         elif race_choice_cantrips:
             raise HTTPException(status_code=400, detail="Wizard cantrip choice is not available for selected race")
+
+        if required_race_asi_count > 0:
+            if len(race_choice_asi) != required_race_asi_count:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Exactly {required_race_asi_count} race ASI choice(s) required",
+                )
+            if required_race_asi_bonus > 0:
+                for item in race_choice_asi:
+                    if as_int(item.get("bonus"), 0) != required_race_asi_bonus:
+                        raise HTTPException(
+                            status_code=400,
+                            detail=f"Race ASI bonus must be +{required_race_asi_bonus}",
+                        )
+            for item in race_choice_asi:
+                stat_key = str(item.get("stat") or "").strip().lower()
+                if stat_key in required_race_asi_exclude:
+                    raise HTTPException(status_code=400, detail=f"Invalid ASI stat choice: {stat_key}")
+        elif race_choice_asi:
+            raise HTTPException(status_code=400, detail="Race ASI choice is not available for selected race")
+
+        if required_race_skill_count > 0:
+            if len(race_choice_skills) != required_race_skill_count:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Exactly {required_race_skill_count} race skill choice(s) required",
+                )
+        elif race_choice_skills:
+            raise HTTPException(status_code=400, detail="Race skill choice is not available for selected race")
+
+        if required_race_language_count > 0:
+            if len(race_choice_languages) != required_race_language_count:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Exactly {required_race_language_count} race language choice(s) required",
+                )
+        elif race_choice_languages and not race_language_choice_available:
+            raise HTTPException(status_code=400, detail="Race language choice is not available for selected race")
 
         if selected_race is not None:
             # When a preset race is selected, keep mechanics by base race id.

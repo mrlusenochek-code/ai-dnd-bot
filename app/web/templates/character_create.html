@@ -113,8 +113,11 @@
           </div>
         </div>
         <div id="choiceSkillRow" style="display:none;">
-          <label>Навык (обязательно)</label>
-          <select id="choiceSkill1"></select>
+          <label id="choiceSkillLabel">Навык (обязательно)</label>
+          <div class="row">
+            <select id="choiceSkill1"></select>
+            <select id="choiceSkill2" style="display:none;"></select>
+          </div>
         </div>
         <div id="choiceFeatRow" style="display:none;">
           <label>Черта (обязательно)</label>
@@ -354,7 +357,9 @@ let raceChoiceState = {
   languageRequired: false,
   asiRequired: false,
   asiBonus: 1,
+  asiExclude: [],
   skillRequired: false,
+  skillCount: 0,
   featRequired: false,
   toolRequired: false,
   toolOptions: [],
@@ -645,7 +650,7 @@ function getLanguageChoiceConfig(traits){
 }
 
 function getAsiChoiceConfig(traits){
-  const out = { required: false, choices: 0, bonus: 0 };
+  const out = { required: false, count: 0, bonus: 0, exclude: [] };
   const items = Array.isArray(traits) ? traits : [];
   for(const t of items){
     if(!t || typeof t !== "object") continue;
@@ -655,11 +660,15 @@ function getAsiChoiceConfig(traits){
       continue;
     }
     const choices = Number(mech.choices ?? mech.count ?? 0);
-    const bonus = Number(mech.bonus ?? 0);
+    const bonus = Number(mech.bonus ?? mech.delta ?? 0);
     if(choices === 2 && bonus === 1){
+      const exclude = Array.isArray(mech.exclude)
+        ? mech.exclude.map((x) => String(x || "").trim().toLowerCase()).filter(Boolean)
+        : [];
       out.required = true;
-      out.choices = 2;
+      out.count = 2;
       out.bonus = 1;
+      out.exclude = Array.from(new Set(exclude));
       return out;
     }
   }
@@ -673,13 +682,13 @@ function getSkillChoiceConfig(traits){
     if(!t || typeof t !== "object") continue;
     const mech = (t.mechanics && typeof t.mechanics === "object") ? t.mechanics : {};
     const mtype = String(mech.type || "").trim().toLowerCase();
-    if(mtype !== "choose_skill_proficiency"){
+    if(mtype !== "choose_skill_proficiency" && mtype !== "choose_skill_proficiencies"){
       continue;
     }
     const count = Number(mech.count ?? mech.choose ?? 0);
-    if(count === 1){
+    if(count === 1 || count === 2){
       out.required = true;
-      out.count = 1;
+      out.count = count;
       return out;
     }
   }
@@ -795,15 +804,21 @@ function getDraconicAncestryChoiceConfig(traits){
   return out;
 }
 
-function fillAsiSelect(sel, prev){
+function fillAsiSelect(sel, prev, opts){
   if(!sel) return;
   const prevValue = String(prev || "");
+  const options = (opts && typeof opts === "object") ? opts : {};
+  const excludeList = Array.isArray(options.exclude) ? options.exclude : [];
+  const exclude = new Set(excludeList.map((x) => String(x || "").trim().toLowerCase()).filter(Boolean));
+  const blockedValue = String(options.blockedValue || "").trim().toLowerCase();
   sel.innerHTML = "";
   const first = document.createElement("option");
   first.value = "";
   first.textContent = "(выберите характеристику)";
   sel.appendChild(first);
   for(const key of STAT_KEYS){
+    if(exclude.has(key)) continue;
+    if(blockedValue && key === blockedValue && key !== prevValue) continue;
     const opt = document.createElement("option");
     opt.value = key;
     opt.textContent = ASI_STAT_LABELS_RU[key] || key.toUpperCase();
@@ -813,9 +828,11 @@ function fillAsiSelect(sel, prev){
   sel.value = keepPrev ? prevValue : "";
 }
 
-function fillSkillSelect(sel, prev){
+function fillSkillSelect(sel, prev, opts){
   if(!sel) return;
   const prevValue = String(prev || "");
+  const options = (opts && typeof opts === "object") ? opts : {};
+  const blockedValue = String(options.blockedValue || "").trim().toLowerCase();
   sel.innerHTML = "";
   const first = document.createElement("option");
   first.value = "";
@@ -825,6 +842,7 @@ function fillSkillSelect(sel, prev){
     return String(SKILL_LABELS_RU[a] || a).localeCompare(String(SKILL_LABELS_RU[b] || b), "ru", { sensitivity: "base" });
   });
   for(const key of keys){
+    if(blockedValue && key === blockedValue && key !== prevValue) continue;
     const opt = document.createElement("option");
     opt.value = key;
     opt.textContent = SKILL_LABELS_RU[key] || key;
@@ -995,7 +1013,9 @@ function renderRaceChoices(){
   const asiSel1 = document.getElementById("choiceAsi1");
   const asiSel2 = document.getElementById("choiceAsi2");
   const skillRow = document.getElementById("choiceSkillRow");
-  const skillSel = document.getElementById("choiceSkill1");
+  const skillLabel = document.getElementById("choiceSkillLabel");
+  const skillSel1 = document.getElementById("choiceSkill1");
+  const skillSel2 = document.getElementById("choiceSkill2");
   const featRow = document.getElementById("choiceFeatRow");
   const featSel = document.getElementById("choiceFeat1");
   const toolRow = document.getElementById("choiceToolRow");
@@ -1007,7 +1027,7 @@ function renderRaceChoices(){
   const vedToolSel = document.getElementById("choiceVedalkenTool");
   const ancestryRow = document.getElementById("choiceAncestryRow");
   const ancestrySel = document.getElementById("choiceAncestry");
-  if(!block || !langRow || !langSel || !asiRow || !asiSel1 || !asiSel2 || !skillRow || !skillSel || !featRow || !featSel || !toolRow || !toolSel || !cantripRow || !cantripSel || !vedRow || !vedSkillSel || !vedToolSel || !ancestryRow || !ancestrySel) return;
+  if(!block || !langRow || !langSel || !asiRow || !asiSel1 || !asiSel2 || !skillRow || !skillLabel || !skillSel1 || !skillSel2 || !featRow || !featSel || !toolRow || !toolSel || !cantripRow || !cantripSel || !vedRow || !vedSkillSel || !vedToolSel || !ancestryRow || !ancestrySel) return;
 
   const ctx = getCurrentRaceContext();
   const langCfg = getLanguageChoiceConfig(ctx.effectiveTraits);
@@ -1030,7 +1050,9 @@ function renderRaceChoices(){
     languageRequired: needsLanguage,
     asiRequired: needsAsi,
     asiBonus: asiCfg.bonus || 1,
+    asiExclude: Array.isArray(asiCfg.exclude) ? asiCfg.exclude.slice() : [],
     skillRequired: needsSkill,
+    skillCount: Number(skillCfg.count || 0),
     featRequired: needsFeat,
     toolRequired: needsTool,
     toolOptions: Array.isArray(toolCfg.from) ? toolCfg.from.slice() : [],
@@ -1059,9 +1081,13 @@ function renderRaceChoices(){
     asiSel2.disabled = true;
     asiSel2.required = false;
     asiSel2.value = "";
-    skillSel.disabled = true;
-    skillSel.required = false;
-    skillSel.value = "";
+    skillSel1.disabled = true;
+    skillSel1.required = false;
+    skillSel1.value = "";
+    skillSel2.style.display = "none";
+    skillSel2.disabled = true;
+    skillSel2.required = false;
+    skillSel2.value = "";
     featSel.disabled = true;
     featSel.required = false;
     featSel.value = "";
@@ -1113,10 +1139,15 @@ function renderRaceChoices(){
   }
 
   if(needsAsi){
-    const prev1 = String(asiSel1.value || "");
-    const prev2 = String(asiSel2.value || "");
-    fillAsiSelect(asiSel1, prev1);
-    fillAsiSelect(asiSel2, prev2);
+    const refreshAsiPair = () => {
+      const current1 = String(asiSel1.value || "").trim().toLowerCase();
+      const current2 = String(asiSel2.value || "").trim().toLowerCase();
+      fillAsiSelect(asiSel1, current1, { exclude: raceChoiceState.asiExclude, blockedValue: current2 });
+      fillAsiSelect(asiSel2, current2, { exclude: raceChoiceState.asiExclude, blockedValue: current1 });
+    };
+    refreshAsiPair();
+    asiSel1.onchange = refreshAsiPair;
+    asiSel2.onchange = refreshAsiPair;
     asiRow.style.display = "";
     asiSel1.disabled = false;
     asiSel1.required = true;
@@ -1124,6 +1155,8 @@ function renderRaceChoices(){
     asiSel2.required = true;
   }else{
     asiRow.style.display = "none";
+    asiSel1.onchange = null;
+    asiSel2.onchange = null;
     asiSel1.disabled = true;
     asiSel1.required = false;
     asiSel1.value = "";
@@ -1133,16 +1166,44 @@ function renderRaceChoices(){
   }
 
   if(needsSkill){
-    const prev = String(skillSel.value || "");
-    fillSkillSelect(skillSel, prev);
+    const skillCount = Number(skillCfg.count || 0);
+    const refreshSkillPair = () => {
+      const current1 = String(skillSel1.value || "").trim().toLowerCase();
+      const current2 = String(skillSel2.value || "").trim().toLowerCase();
+      fillSkillSelect(skillSel1, current1, { blockedValue: skillCount >= 2 ? current2 : "" });
+      if(skillCount >= 2){
+        fillSkillSelect(skillSel2, current2, { blockedValue: current1 });
+      }
+    };
+    refreshSkillPair();
+    skillSel1.onchange = refreshSkillPair;
+    skillSel2.onchange = refreshSkillPair;
     skillRow.style.display = "";
-    skillSel.disabled = false;
-    skillSel.required = true;
+    if(skillCount >= 2){
+      skillLabel.textContent = "2 навыка (обязательно)";
+      skillSel2.style.display = "";
+      skillSel2.disabled = false;
+      skillSel2.required = true;
+    }else{
+      skillLabel.textContent = "Навык (обязательно)";
+      skillSel2.style.display = "none";
+      skillSel2.disabled = true;
+      skillSel2.required = false;
+      skillSel2.value = "";
+    }
+    skillSel1.disabled = false;
+    skillSel1.required = true;
   }else{
     skillRow.style.display = "none";
-    skillSel.disabled = true;
-    skillSel.required = false;
-    skillSel.value = "";
+    skillSel1.onchange = null;
+    skillSel2.onchange = null;
+    skillSel1.disabled = true;
+    skillSel1.required = false;
+    skillSel1.value = "";
+    skillSel2.style.display = "none";
+    skillSel2.disabled = true;
+    skillSel2.required = false;
+    skillSel2.value = "";
   }
 
   if(needsFeat){
@@ -1431,10 +1492,23 @@ async function createHero(){
     }
   }
   const choiceSkillEl = document.getElementById("choiceSkill1");
+  const choiceSkillEl2 = document.getElementById("choiceSkill2");
   const choiceSkill = String(choiceSkillEl ? choiceSkillEl.value : "").trim().toLowerCase();
-  if(raceChoiceState.skillRequired && !choiceSkill){
-    setMessage("Выбери навык в блоке «Стартовые выборы».", false);
-    return;
+  const choiceSkill2 = String(choiceSkillEl2 ? choiceSkillEl2.value : "").trim().toLowerCase();
+  if(raceChoiceState.skillRequired){
+    if(Number(raceChoiceState.skillCount || 0) >= 2){
+      if(!choiceSkill || !choiceSkill2){
+        setMessage("Выбери два навыка в блоке «Стартовые выборы».", false);
+        return;
+      }
+      if(choiceSkill === choiceSkill2){
+        setMessage("Для выбора навыков нужны два разных навыка.", false);
+        return;
+      }
+    }else if(!choiceSkill){
+      setMessage("Выбери навык в блоке «Стартовые выборы».", false);
+      return;
+    }
   }
   const choiceFeatEl = document.getElementById("choiceFeat1");
   const choiceFeat = String(choiceFeatEl ? choiceFeatEl.value : "").trim().toLowerCase();
@@ -1489,13 +1563,16 @@ async function createHero(){
     raceChoices.languages = [choiceLang];
   }
   if(raceChoiceState.asiRequired){
+    const asiBonus = Number(raceChoiceState.asiBonus || 1);
     raceChoices.asi = [
-      {stat: choiceAsi1, bonus: 1},
-      {stat: choiceAsi2, bonus: 1},
+      {stat: choiceAsi1, bonus: asiBonus},
+      {stat: choiceAsi2, bonus: asiBonus},
     ];
   }
   if(choiceSkill){
-    raceChoices.skills = [choiceSkill];
+    raceChoices.skills = Number(raceChoiceState.skillCount || 0) >= 2
+      ? [choiceSkill, choiceSkill2]
+      : [choiceSkill];
   }
   if(choiceFeat){
     raceChoices.feats = [choiceFeat];
