@@ -762,11 +762,28 @@ function openCharacterModal(){
   const savageAttacks = (raceFeaturesMeta.savage_attacks && typeof raceFeaturesMeta.savage_attacks === "object")
     ? raceFeaturesMeta.savage_attacks
     : null;
+  const reachBonus = (raceFeaturesMeta.reach_bonus && typeof raceFeaturesMeta.reach_bonus === "object")
+    ? raceFeaturesMeta.reach_bonus
+    : null;
+  const surpriseAttack = (raceFeaturesMeta.surprise_attack && typeof raceFeaturesMeta.surprise_attack === "object")
+    ? raceFeaturesMeta.surprise_attack
+    : null;
   const relentlessEnduranceText = relentlessEndurance
     ? "Неукротимая стойкость: 1/дл отдых, при 0 HP -> 1 HP (если не убит мгновенно)"
     : "";
   const savageAttacksText = savageAttacks
     ? "Свирепые атаки: на крите рукопашным оружием +1 кость урона оружия"
+    : "";
+  const reachBonusFt = reachBonus && Number.isFinite(Number(reachBonus.bonus_ft)) ? Number(reachBonus.bonus_ft) : 5;
+  const reachBonusWhen = String((reachBonus && reachBonus.when) || "").trim().toLowerCase();
+  const reachBonusText = reachBonus
+    ? `Длинные конечности: +${reachBonusFt} фт к досягаемости рукопашных атак${reachBonusWhen === "your_turn_melee_attacks" ? " в свой ход" : ""}.`
+    : "";
+  const surpriseAttackDamage = String((surpriseAttack && surpriseAttack.extra_damage) || "").trim().toLowerCase();
+  const surpriseAttackLimit = String((surpriseAttack && surpriseAttack.limit) || "").trim().toLowerCase();
+  const surpriseAttackLimitRu = surpriseAttackLimit === "once_per_combat" ? "1/бой" : surpriseAttackLimit;
+  const surpriseAttackText = surpriseAttack
+    ? `Внезапное нападение: +${surpriseAttackDamage || "2d6"} по врасплохнутой цели в первый ход боя (${surpriseAttackLimitRu || "1/бой"}).`
     : "";
   const stonecunning = (raceFeaturesMeta.stonecunning && typeof raceFeaturesMeta.stonecunning === "object")
     ? raceFeaturesMeta.stonecunning
@@ -1324,6 +1341,12 @@ function openCharacterModal(){
   if(savageAttacksText){
     details.push(`<div class="char-line"><strong>Свирепые атаки:</strong> ${escapeHtml(savageAttacksText.replace(/^Свирепые атаки:\s*/, ""))}</div>`);
   }
+  if(reachBonusText){
+    details.push(`<div class="char-line"><strong>Длинные конечности:</strong> ${escapeHtml(reachBonusText.replace(/^Длинные конечности:\s*/, ""))}</div>`);
+  }
+  if(surpriseAttackText){
+    details.push(`<div class="char-line"><strong>Внезапное нападение:</strong> ${escapeHtml(surpriseAttackText.replace(/^Внезапное нападение:\s*/, ""))}</div>`);
+  }
   if(tranceText){
     details.push(`<div class="char-line"><strong>Транс:</strong> ${escapeHtml(tranceText.replace(/^Транс:\s*/, ""))}</div>`);
   }
@@ -1454,6 +1477,8 @@ function openCharacterModal(){
   if(stoutResilienceText) copyLines.push(stoutResilienceText);
   if(relentlessEnduranceText) copyLines.push(relentlessEnduranceText);
   if(savageAttacksText) copyLines.push(savageAttacksText);
+  if(reachBonusText) copyLines.push(reachBonusText);
+  if(surpriseAttackText) copyLines.push(surpriseAttackText);
   if(tranceText) copyLines.push(tranceText);
   if(maskOfTheWildText) copyLines.push(maskOfTheWildText);
   if(sunlightSensitivityText) copyLines.push(sunlightSensitivityText);

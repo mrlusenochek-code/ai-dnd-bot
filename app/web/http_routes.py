@@ -729,6 +729,12 @@ def _build_race_features(selected_race: dict | None) -> dict[str, Any]:
         if mtype == "savage_attacks":
             features["savage_attacks"] = dict(mech)
 
+        if mtype == "reach_bonus":
+            features["reach_bonus"] = dict(mech)
+
+        if mtype == "surprise_attack":
+            features["surprise_attack"] = dict(mech)
+
         if mtype == "skill_bonus":
             features["stonecunning"] = dict(mech)
 
