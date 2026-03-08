@@ -17,7 +17,8 @@ def test_long_rest_reset_reenables_innate_spell_with_long_rest_limit() -> None:
         race_features={
             "innate_spells": [
                 {"ability": "con", "level": 1, "name": "burning_hands", "frequency": "1_per_long_rest", "min_level": 3}
-            ]
+            ],
+            "runtime": {"relentless_endurance_used": True},
         },
     )
 
@@ -35,6 +36,7 @@ def test_long_rest_reset_reenables_innate_spell_with_long_rest_limit() -> None:
     assert reset_changed is True
     runtime_after_reset = (ch.race_features or {}).get("runtime") or {}
     assert "innate_spell_uses" not in runtime_after_reset
+    assert "relentless_endurance_used" not in runtime_after_reset
 
     third_display, third_err, third_changed = ws_handlers._apply_innate_spell_usage(ch, "burning_hands")
     assert third_err is None

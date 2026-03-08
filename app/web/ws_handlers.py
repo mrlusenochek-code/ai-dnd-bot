@@ -549,6 +549,9 @@ def _reset_racial_rest_uses(ch: Character) -> bool:
     if "breath_weapon_used" in runtime:
         runtime.pop("breath_weapon_used", None)
         changed = True
+    if "relentless_endurance_used" in runtime:
+        runtime.pop("relentless_endurance_used", None)
+        changed = True
     if not changed:
         return False
     if runtime:
@@ -597,6 +600,9 @@ def _reset_combatant_racial_rest_uses(session_id: str, actor_key: str) -> bool:
     if "breath_weapon_used" in runtime:
         runtime.pop("breath_weapon_used", None)
         changed = True
+    if "relentless_endurance_used" in runtime:
+        runtime.pop("relentless_endurance_used", None)
+        changed = True
     if not changed:
         return False
     if runtime:
@@ -605,6 +611,45 @@ def _reset_combatant_racial_rest_uses(session_id: str, actor_key: str) -> bool:
         race_features.pop("runtime", None)
     actor.race_features = race_features
     return True
+
+
+async def _persist_relentless_endurance_used_from_combat_state(db, sess, session_id: str) -> bool:
+    state = get_combat(session_id)
+    if state is None or not state.active:
+        return False
+    used_uids: set[int] = set()
+    for key, actor in (state.combatants or {}).items():
+        actor_key = str(key or "").strip().lower()
+        if not actor_key.startswith("pc_"):
+            continue
+        uid_raw = actor_key[3:]
+        if not uid_raw.isdigit():
+            continue
+        race_features = actor.race_features if isinstance(actor.race_features, dict) else {}
+        runtime = race_features.get("runtime") if isinstance(race_features.get("runtime"), dict) else {}
+        if bool(runtime.get("relentless_endurance_used", False)):
+            used_uids.add(int(uid_raw))
+    if not used_uids:
+        return False
+
+    _uid_map, chars_by_uid, _ = await _load_actor_context(db, sess)
+    changed = False
+    for uid in used_uids:
+        ch = chars_by_uid.get(uid)
+        if ch is None:
+            continue
+        race_features_raw = getattr(ch, "race_features", None)
+        race_features = dict(race_features_raw) if isinstance(race_features_raw, dict) else {}
+        runtime_raw = race_features.get("runtime")
+        runtime = dict(runtime_raw) if isinstance(runtime_raw, dict) else {}
+        if bool(runtime.get("relentless_endurance_used", False)):
+            continue
+        runtime["relentless_endurance_used"] = True
+        race_features["runtime"] = runtime
+        ch.race_features = race_features
+        flag_modified(ch, "race_features")
+        changed = True
+    return changed
 
 
 async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
@@ -1533,6 +1578,9 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                                     all_patches.append(enemy_patch)
 
                             merged_patch = _merge_combat_patches(all_patches) if all_patches else None
+                            persist_changed = await _persist_relentless_endurance_used_from_combat_state(db, sess, session_id)
+                            if persist_changed:
+                                await db.commit()
                             await _broadcast_state_unlocked(session_id, combat_log_ui_patch=merged_patch)
                         facts = extract_combat_narration_facts(merged_patch)
                         if facts:

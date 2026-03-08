@@ -14,6 +14,7 @@ def test_compute_attack_profile_dagger_finesse_uses_best_of_str_and_dex() -> Non
     assert profile.damage_bonus == 4
     assert profile.damage_dice == "1d4"
     assert profile.damage_type == "piercing"
+    assert profile.is_melee_weapon is True
 
 
 def test_compute_attack_profile_longsword_uses_str() -> None:
@@ -29,6 +30,7 @@ def test_compute_attack_profile_longsword_uses_str() -> None:
     assert profile.damage_bonus == 4
     assert profile.damage_dice == "1d8"
     assert profile.damage_type == "slashing"
+    assert profile.is_melee_weapon is True
 
 
 def test_compute_attack_profile_shortbow_ammunition_uses_dex() -> None:
@@ -44,6 +46,7 @@ def test_compute_attack_profile_shortbow_ammunition_uses_dex() -> None:
     assert profile.damage_bonus == 0
     assert profile.damage_dice == "1d6"
     assert profile.damage_type == "piercing"
+    assert profile.is_melee_weapon is False
 
 
 def test_compute_attack_profile_shortbow_level_five_gains_prof_bonus() -> None:
@@ -84,3 +87,4 @@ def test_compute_attack_profile_uses_race_natural_unarmed_weapon_when_no_weapon_
 
     assert profile.damage_dice == "1d4"
     assert profile.damage_type == "slashing"
+    assert profile.is_melee_weapon is False

@@ -14,6 +14,7 @@ class AttackProfile:
     damage_dice: str
     damage_bonus: int
     damage_type: str
+    is_melee_weapon: bool = False
     properties: tuple[str, ...] = ()
     mastery: str | None = None
 
@@ -209,6 +210,11 @@ def compute_attack_profile(
             stat_mod = max(str_mod, dex_mod)
         else:
             stat_mod = str_mod
+        is_ranged_weapon = False
+        if "ammunition" in properties_cf or chosen_slot == EquipmentSlot.ranged:
+            is_ranged_weapon = True
+        elif isinstance(weapon.range_normal, int) and weapon.range_normal > 0 and "thrown" not in properties_cf:
+            is_ranged_weapon = True
         attack_bonus = stat_mod + prof
         damage_bonus = stat_mod
         return AttackProfile(
@@ -216,6 +222,7 @@ def compute_attack_profile(
             damage_dice=weapon.damage_dice,
             damage_bonus=damage_bonus,
             damage_type=weapon.damage_type,
+            is_melee_weapon=not is_ranged_weapon,
             properties=properties,
             mastery=weapon.mastery,
         )
@@ -241,6 +248,7 @@ def compute_attack_profile(
             damage_dice=str(nat_unarmed.get("damage_dice") or "1d4").strip().lower(),
             damage_bonus=damage_bonus,
             damage_type=str(nat_unarmed.get("damage_type") or "bludgeoning").strip().lower(),
+            is_melee_weapon=False,
             properties=(),
             mastery=None,
         )
@@ -249,6 +257,7 @@ def compute_attack_profile(
         damage_dice="1d4",
         damage_bonus=damage_bonus,
         damage_type="bludgeoning",
+        is_melee_weapon=False,
     )
 
 

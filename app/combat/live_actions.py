@@ -119,6 +119,60 @@ def _aasimar_bonus_damage_for_hit(actor: Any) -> tuple[int, str]:
     return bonus, damage_type
 
 
+def _race_feature(actor: Any, feature_key: str) -> dict[str, Any] | None:
+    race_features = getattr(actor, "race_features", None)
+    rf = race_features if isinstance(race_features, dict) else {}
+    features_raw = rf.get("features")
+    features = features_raw if isinstance(features_raw, dict) else {}
+    feature_raw = features.get(feature_key)
+    return feature_raw if isinstance(feature_raw, dict) else None
+
+
+def _apply_savage_attacks_bonus(*, attacker: Any, profile: Any, is_crit: bool, total_damage: int) -> tuple[int, list[dict[str, Any]]]:
+    extra_lines: list[dict[str, Any]] = []
+    if not is_crit or str(getattr(attacker, "side", "")).lower() != "pc":
+        return total_damage, extra_lines
+    if not bool(getattr(profile, "is_melee_weapon", False)):
+        return total_damage, extra_lines
+    if _race_feature(attacker, "savage_attacks") is None:
+        return total_damage, extra_lines
+    parsed = parse_dice(str(getattr(profile, "damage_dice", "") or "").strip().lower())
+    if parsed is None:
+        return total_damage, extra_lines
+    _count, sides = parsed
+    if sides <= 0:
+        return total_damage, extra_lines
+    extra_damage = random.randint(1, sides)
+    extra_lines.append({"text": f"Свирепые атаки: +{extra_damage} (доп. кость урона оружия).", "muted": True})
+    return total_damage + extra_damage, extra_lines
+
+
+def _apply_relentless_endurance_if_needed(*, target: Any, incoming_damage: int) -> tuple[int, list[dict[str, Any]]]:
+    extra_lines: list[dict[str, Any]] = []
+    if str(getattr(target, "side", "")).lower() != "pc":
+        return incoming_damage, extra_lines
+    relentless = _race_feature(target, "relentless_endurance")
+    if relentless is None:
+        return incoming_damage, extra_lines
+    pre_hp = max(0, int(getattr(target, "hp_current", 0)))
+    hp_max = max(0, int(getattr(target, "hp_max", 0)))
+    if pre_hp <= 0 or incoming_damage < pre_hp:
+        return incoming_damage, extra_lines
+    would_instant_die = (incoming_damage - pre_hp) >= hp_max
+    if would_instant_die:
+        return incoming_damage, extra_lines
+    race_features = target.race_features if isinstance(target.race_features, dict) else {}
+    runtime_raw = race_features.get("runtime")
+    runtime = dict(runtime_raw) if isinstance(runtime_raw, dict) else {}
+    if bool(runtime.get("relentless_endurance_used", False)):
+        return incoming_damage, extra_lines
+    runtime["relentless_endurance_used"] = True
+    race_features["runtime"] = runtime
+    target.race_features = race_features
+    extra_lines.append({"text": "Неукротимая стойкость: вместо 0 HP остаётся 1 (1/дл отдых).", "muted": True})
+    return max(0, pre_hp - 1), extra_lines
+
+
 def _breath_weapon_dice_for_level(progression: list[dict[str, Any]], level: int) -> str:
     lvl = max(1, int(level))
     out = "2d6"
@@ -1130,6 +1184,13 @@ def handle_live_combat_action(
         extra_outcome_lines: list[dict[str, Any]] = []
         total_damage = int(resolution.total_damage)
         if resolution.is_hit:
+            total_damage, savage_lines = _apply_savage_attacks_bonus(
+                attacker=attacker,
+                profile=profile,
+                is_crit=bool(resolution.is_crit),
+                total_damage=total_damage,
+            )
+            extra_outcome_lines.extend(savage_lines)
             bonus_damage, bonus_damage_type = _aasimar_bonus_damage_for_hit(attacker)
             if bonus_damage > 0:
                 total_damage += bonus_damage
@@ -1137,7 +1198,9 @@ def handle_live_combat_action(
                     {"text": f"Доп. урон трансформации: +{bonus_damage} {bonus_damage_type} (1/ход).", "muted": True}
                 )
             pre_hp = target.hp_current
-            state = apply_damage(session_id, target.key, total_damage, source=attacker.key)
+            damage_to_apply, relentless_lines = _apply_relentless_endurance_if_needed(target=target, incoming_damage=total_damage)
+            extra_outcome_lines.extend(relentless_lines)
+            state = apply_damage(session_id, target.key, damage_to_apply, source=attacker.key)
             if state is None:
                 return None, "Combat is not active"
             target = state.combatants.get(target.key, target)
@@ -1438,6 +1501,13 @@ def handle_live_combat_action(
         extra_outcome_lines: list[dict[str, Any]] = []
         total_damage = int(resolution.total_damage)
         if resolution.is_hit:
+            total_damage, savage_lines = _apply_savage_attacks_bonus(
+                attacker=attacker,
+                profile=profile,
+                is_crit=bool(resolution.is_crit),
+                total_damage=total_damage,
+            )
+            extra_outcome_lines.extend(savage_lines)
             bonus_damage, bonus_damage_type = _aasimar_bonus_damage_for_hit(attacker)
             if bonus_damage > 0:
                 total_damage += bonus_damage
@@ -1445,7 +1515,9 @@ def handle_live_combat_action(
                     {"text": f"Доп. урон трансформации: +{bonus_damage} {bonus_damage_type} (1/ход).", "muted": True}
                 )
             pre_hp = target.hp_current
-            state = apply_damage(session_id, target.key, total_damage, source=attacker.key)
+            damage_to_apply, relentless_lines = _apply_relentless_endurance_if_needed(target=target, incoming_damage=total_damage)
+            extra_outcome_lines.extend(relentless_lines)
+            state = apply_damage(session_id, target.key, damage_to_apply, source=attacker.key)
             if state is None:
                 return None, "Combat is not active"
             target = state.combatants.get(target.key, target)

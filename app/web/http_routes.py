@@ -706,6 +706,12 @@ def _build_race_features(selected_race: dict | None) -> dict[str, Any]:
         if mtype == "stone_endurance":
             features["stone_endurance"] = dict(mech)
 
+        if mtype == "relentless_endurance":
+            features["relentless_endurance"] = dict(mech)
+
+        if mtype == "savage_attacks":
+            features["savage_attacks"] = dict(mech)
+
         if mtype == "skill_bonus":
             features["stonecunning"] = dict(mech)
 

@@ -728,6 +728,18 @@ function openCharacterModal(){
   const stoneEndurance = (raceFeaturesMeta.stone_endurance && typeof raceFeaturesMeta.stone_endurance === "object")
     ? raceFeaturesMeta.stone_endurance
     : null;
+  const relentlessEndurance = (raceFeaturesMeta.relentless_endurance && typeof raceFeaturesMeta.relentless_endurance === "object")
+    ? raceFeaturesMeta.relentless_endurance
+    : null;
+  const savageAttacks = (raceFeaturesMeta.savage_attacks && typeof raceFeaturesMeta.savage_attacks === "object")
+    ? raceFeaturesMeta.savage_attacks
+    : null;
+  const relentlessEnduranceText = relentlessEndurance
+    ? "Неукротимая стойкость: 1/дл отдых, при 0 HP -> 1 HP (если не убит мгновенно)"
+    : "";
+  const savageAttacksText = savageAttacks
+    ? "Свирепые атаки: на крите рукопашным оружием +1 кость урона оружия"
+    : "";
   const stonecunning = (raceFeaturesMeta.stonecunning && typeof raceFeaturesMeta.stonecunning === "object")
     ? raceFeaturesMeta.stonecunning
     : null;
@@ -1164,6 +1176,12 @@ function openCharacterModal(){
   if(stoneEndurance){
     details.push("<div class=\"char-line\"><strong>Каменная выносливость:</strong> реакция, 1/к/дл отдых: снижает урон (1d12 + мод. Тел)</div>");
   }
+  if(relentlessEnduranceText){
+    details.push(`<div class="char-line"><strong>Неукротимая стойкость:</strong> ${escapeHtml(relentlessEnduranceText.replace(/^Неукротимая стойкость:\s*/, ""))}</div>`);
+  }
+  if(savageAttacksText){
+    details.push(`<div class="char-line"><strong>Свирепые атаки:</strong> ${escapeHtml(savageAttacksText.replace(/^Свирепые атаки:\s*/, ""))}</div>`);
+  }
   if(tranceText){
     details.push(`<div class="char-line"><strong>Транс:</strong> ${escapeHtml(tranceText.replace(/^Транс:\s*/, ""))}</div>`);
   }
@@ -1279,6 +1297,8 @@ function openCharacterModal(){
   if(gnomeCunningText) copyLines.push(gnomeCunningText);
   if(carry.powerful_build === true) copyLines.push("Мощное телосложение: считается на 1 размер больше для переноски/толкания/тяги/подъёма");
   if(stoneEndurance) copyLines.push("Каменная выносливость: реакция, 1/к/дл отдых: снижает урон (1d12 + мод. Тел)");
+  if(relentlessEnduranceText) copyLines.push(relentlessEnduranceText);
+  if(savageAttacksText) copyLines.push(savageAttacksText);
   if(tranceText) copyLines.push(tranceText);
   if(maskOfTheWildText) copyLines.push(maskOfTheWildText);
   if(sunlightSensitivityText) copyLines.push(sunlightSensitivityText);
