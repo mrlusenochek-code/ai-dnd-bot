@@ -134,7 +134,48 @@ def _kickoff_lore_finalize_if_needed(session_id: str, sess: Any) -> bool:
     return True
 
 
-def _effective_save_mode(requested_mode: str, race_features: Any, ability: str, *, vs_magic: bool = False) -> str:
+def _lucky_scope_enabled(race_features: Any, scope_key: str) -> bool:
+    if not isinstance(race_features, dict):
+        return False
+    features_raw = race_features.get("features")
+    features = features_raw if isinstance(features_raw, dict) else {}
+    lucky_raw = features.get("reroll_ones")
+    lucky = lucky_raw if isinstance(lucky_raw, dict) else {}
+    scopes_raw = lucky.get("scope")
+    scopes = scopes_raw if isinstance(scopes_raw, list) else []
+    scope_norm = str(scope_key or "").strip().lower()
+    for item in scopes:
+        if str(item or "").strip().lower() == scope_norm:
+            return True
+    return False
+
+
+def _normalize_save_tag(raw: str) -> str:
+    key = str(raw or "").strip().lower()
+    aliases = {
+        "poison": "poison",
+        "яд": "poison",
+        "poisoned": "poison",
+        "frightened": "frightened",
+        "испуг": "frightened",
+        "испуган": "frightened",
+        "испуганный": "frightened",
+        "fear": "frightened",
+        "charmed": "charmed",
+        "очарование": "charmed",
+        "очарован": "charmed",
+    }
+    return aliases.get(key, key)
+
+
+def _effective_save_mode(
+    requested_mode: str,
+    race_features: Any,
+    ability: str,
+    *,
+    vs_magic: bool = False,
+    vs_tag: str = "",
+) -> str:
     mode = str(requested_mode or "normal").strip().lower()
     if mode not in ("normal", "advantage", "disadvantage"):
         mode = "normal"
@@ -161,6 +202,14 @@ def _effective_save_mode(requested_mode: str, race_features: Any, ability: str, 
         for item in advantages_vs_magic:
             adv_key = str(item or "").strip().lower()
             if adv_key == ability_key:
+                return "advantage"
+    tag = _normalize_save_tag(vs_tag)
+    if tag:
+        adv_conditions_raw = saves.get("advantage_conditions")
+        adv_conditions = adv_conditions_raw if isinstance(adv_conditions_raw, list) else []
+        for item in adv_conditions:
+            cond_key = _normalize_save_tag(str(item or ""))
+            if cond_key == tag:
                 return "advantage"
     return mode
 
@@ -1778,8 +1827,8 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                         "de" "ps.Character commands: char create <Name> [Class], me, hp <+N|-N|N>, sta <+N|-N|N>, rest|rest long|rest short|rest hd <N>, "
                         "stat <str|dex|con|int|wis|cha> <0..100>, check [adv|dis] <stat_or_skill> [dc N] (ручной бросок, опционально), "
                         "toolcheck [adv|dis] <tool_key> [dc N], "
-                        "save [adv|dis] <str|dex|con|int|wis|cha> [dc N], "
-                        "save magic [adv|dis] <str|dex|con|int|wis|cha> [dc N].",
+                        "save [adv|dis] <str|dex|con|int|wis|cha> [vs <poison|frightened|charmed>] [dc N], "
+                        "save magic [adv|dis] <str|dex|con|int|wis|cha> [vs <poison|frightened|charmed>] [dc N].",
                     )
                     await broadcast_state(session_id)
                     continue
@@ -2124,7 +2173,10 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                         "adv": "advantage",
                         "dis": "disadvantage",
                     }.get(mode, "normal")
-                    ra, rb, roll = roll_check(mapped_mode)
+                    ra, rb, roll = roll_check(
+                        mapped_mode,
+                        reroll_ones=_lucky_scope_enabled(getattr(ch, "race_features", None), "check"),
+                    )
                     check_payload = {
                         "actor_uid": _player_uid(player),
                         "kind": "ability" if key in CHAR_STAT_KEYS else "skill",
@@ -2237,7 +2289,10 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                 if lower.startswith("save"):
                     parts = cmdline.split()
                     if len(parts) < 2:
-                        await ws_error("Usage: save [adv|dis] <str|dex|con|int|wis|cha> [dc N]", request_id=msg_request_id)
+                        await ws_error(
+                            "Usage: save [adv|dis] <str|dex|con|int|wis|cha> [vs <tag>] [dc N]",
+                            request_id=msg_request_id,
+                        )
                         continue
                     is_magic_save = False
                     mode = "roll"
@@ -2249,11 +2304,37 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                         mode = parts[idx].lower()
                         idx += 1
                     if idx >= len(parts):
-                        await ws_error("Usage: save [adv|dis] <str|dex|con|int|wis|cha> [dc N]", request_id=msg_request_id)
+                        await ws_error(
+                            "Usage: save [adv|dis] <str|dex|con|int|wis|cha> [vs <tag>] [dc N]",
+                            request_id=msg_request_id,
+                        )
                         continue
 
-                    ability = parts[idx].lower()
-                    idx += 1
+                    vs_tag = ""
+                    ability = ""
+                    if idx < len(parts) and parts[idx].lower() == "vs":
+                        if idx + 2 >= len(parts):
+                            await ws_error(
+                                "Usage: save [adv|dis] <ability> [vs <tag>] [dc N]",
+                                request_id=msg_request_id,
+                            )
+                            continue
+                        vs_tag = _normalize_save_tag(parts[idx + 1])
+                        ability = parts[idx + 2].lower()
+                        idx += 3
+                    else:
+                        ability = parts[idx].lower()
+                        idx += 1
+                        if idx < len(parts) and parts[idx].lower() == "vs":
+                            if idx + 1 >= len(parts):
+                                await ws_error(
+                                    "Usage: save [adv|dis] <ability> [vs <tag>] [dc N]",
+                                    request_id=msg_request_id,
+                                )
+                                continue
+                            vs_tag = _normalize_save_tag(parts[idx + 1])
+                            idx += 2
+
                     if ability not in CHAR_STAT_KEYS:
                         await ws_error("Unknown ability key", request_id=msg_request_id)
                         continue
@@ -2272,10 +2353,16 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                                 dc = as_int(tok[2:], -1)
                                 idx += 1
                         else:
-                            await ws_error("Usage: save [adv|dis] <str|dex|con|int|wis|cha> [dc N]", request_id=msg_request_id)
+                            await ws_error(
+                                "Usage: save [adv|dis] <ability> [vs <tag>] [dc N]",
+                                request_id=msg_request_id,
+                            )
                             continue
                     if idx != len(parts):
-                        await ws_error("Usage: save [adv|dis] <str|dex|con|int|wis|cha> [dc N]", request_id=msg_request_id)
+                        await ws_error(
+                            "Usage: save [adv|dis] <ability> [vs <tag>] [dc N]",
+                            request_id=msg_request_id,
+                        )
                         continue
                     if dc is not None and dc < 0:
                         await ws_error("DC must be >= 0", request_id=msg_request_id)
@@ -2296,10 +2383,14 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                         getattr(ch, "race_features", None),
                         ability,
                         vs_magic=is_magic_save,
+                        vs_tag=vs_tag,
                     )
                     mod = _ability_mod_from_stats(ch.stats, ability)
 
-                    ra, rb, roll = roll_check(mapped_mode)
+                    ra, rb, roll = roll_check(
+                        mapped_mode,
+                        reroll_ones=_lucky_scope_enabled(getattr(ch, "race_features", None), "save"),
+                    )
                     check_payload = {
                         "actor_uid": _player_uid(player),
                         "kind": "save",
@@ -2312,7 +2403,8 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                     d20_text = str(roll) if rb is None else f"{ra}/{rb}->{roll}"
 
                     save_prefix = "save magic" if is_magic_save else "save"
-                    msg = f"[SAVE] {ch.name}: {save_prefix} {ability} = d20({d20_text}) + {mod:+d} => {total}"
+                    vs_suffix = f" vs {vs_tag}" if vs_tag else ""
+                    msg = f"[SAVE] {ch.name}: {save_prefix} {ability}{vs_suffix} = d20({d20_text}) + {mod:+d} => {total}"
                     if dc is not None:
                         ok = bool(res["success"])
                         msg += f" (DC {dc}) {'SUCCESS' if ok else 'FAIL'}"

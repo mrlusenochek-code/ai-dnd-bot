@@ -128,6 +128,34 @@ def _race_feature(actor: Any, feature_key: str) -> dict[str, Any] | None:
     return feature_raw if isinstance(feature_raw, dict) else None
 
 
+def _has_reroll_ones_scope(actor: Any, scope_key: str) -> bool:
+    reroll_cfg = _race_feature(actor, "reroll_ones")
+    if reroll_cfg is None:
+        return False
+    scope = reroll_cfg.get("scope")
+    scope_items = scope if isinstance(scope, list) else []
+    scope_norm = str(scope_key or "").strip().lower()
+    for item in scope_items:
+        if str(item or "").strip().lower() == scope_norm:
+            return True
+    return False
+
+
+def _roll_check_compat(mode: str, *, rng: Any = None, reroll_ones: bool = False) -> tuple[int, Optional[int], int]:
+    try:
+        if rng is None:
+            return roll_check(mode, reroll_ones=reroll_ones)
+        return roll_check(mode, rng=rng, reroll_ones=reroll_ones)
+    except TypeError:
+        # Backward-compatible path for tests monkeypatching roll_check(mode) signature only.
+        if rng is not None:
+            try:
+                return roll_check(mode, rng=rng)
+            except TypeError:
+                return roll_check(mode)
+        return roll_check(mode)
+
+
 def _apply_savage_attacks_bonus(*, attacker: Any, profile: Any, is_crit: bool, total_damage: int) -> tuple[int, list[dict[str, Any]]]:
     extra_lines: list[dict[str, Any]] = []
     if not is_crit or str(getattr(attacker, "side", "")).lower() != "pc":
@@ -451,7 +479,10 @@ def _auto_resolve_zero_hp_turns(session_id: str, state: Any) -> dict[str, Any] |
                     lines.append({"text": f"Лечение: {heal_amount} HP"})
                     lines.append({"text": f"{current.name}: HP {current.hp_current}/{current.hp_max}"})
                 else:
-                    _roll_a, _roll_b, roll = roll_check("normal")
+                    _roll_a, _roll_b, roll = _roll_check_compat(
+                        "normal",
+                        reroll_ones=_has_reroll_ones_scope(current, "save"),
+                    )
                     lines.append({"text": f"Спасбросок смерти: d20({roll})"})
                     if roll == 20:
                         current.hp_current = 1
@@ -1140,21 +1171,17 @@ def handle_live_combat_action(
 
         has_disadvantage = target.dodge_active
         has_advantage = attacker.help_attack_advantage
-        d20_roll: int
-        attack_roll_repr: str
+        roll_mode = "normal"
         if has_advantage and not has_disadvantage:
-            d20_roll_adv_1 = random.randint(1, 20)
-            d20_roll_adv_2 = random.randint(1, 20)
-            d20_roll = max(d20_roll_adv_1, d20_roll_adv_2)
-            attack_roll_repr = f"d20({d20_roll_adv_1},{d20_roll_adv_2}) -> {d20_roll}"
+            roll_mode = "advantage"
         elif has_disadvantage and not has_advantage:
-            d20_roll_dis_1 = random.randint(1, 20)
-            d20_roll_dis_2 = random.randint(1, 20)
-            d20_roll = min(d20_roll_dis_1, d20_roll_dis_2)
-            attack_roll_repr = f"d20({d20_roll_dis_1},{d20_roll_dis_2}) -> {d20_roll}"
-        else:
-            d20_roll = random.randint(1, 20)
-            attack_roll_repr = f"d20({d20_roll})"
+            roll_mode = "disadvantage"
+        roll_a, roll_b, d20_roll = _roll_check_compat(
+            roll_mode,
+            rng=random,
+            reroll_ones=_has_reroll_ones_scope(attacker, "attack"),
+        )
+        attack_roll_repr = f"d20({roll_a})" if roll_b is None else f"d20({roll_a},{roll_b}) -> {d20_roll}"
 
         stats = attacker.stats if isinstance(attacker.stats, dict) else {}
         inventory = attacker.inventory if isinstance(attacker.inventory, list) else []
@@ -1457,21 +1484,17 @@ def handle_live_combat_action(
 
         has_disadvantage = target.dodge_active
         has_advantage = attacker.help_attack_advantage
-        d20_roll: int
-        attack_roll_repr: str
+        roll_mode = "normal"
         if has_advantage and not has_disadvantage:
-            d20_roll_adv_1 = random.randint(1, 20)
-            d20_roll_adv_2 = random.randint(1, 20)
-            d20_roll = max(d20_roll_adv_1, d20_roll_adv_2)
-            attack_roll_repr = f"d20({d20_roll_adv_1},{d20_roll_adv_2}) -> {d20_roll}"
+            roll_mode = "advantage"
         elif has_disadvantage and not has_advantage:
-            d20_roll_dis_1 = random.randint(1, 20)
-            d20_roll_dis_2 = random.randint(1, 20)
-            d20_roll = min(d20_roll_dis_1, d20_roll_dis_2)
-            attack_roll_repr = f"d20({d20_roll_dis_1},{d20_roll_dis_2}) -> {d20_roll}"
-        else:
-            d20_roll = random.randint(1, 20)
-            attack_roll_repr = f"d20({d20_roll})"
+            roll_mode = "disadvantage"
+        roll_a, roll_b, d20_roll = _roll_check_compat(
+            roll_mode,
+            rng=random,
+            reroll_ones=_has_reroll_ones_scope(attacker, "attack"),
+        )
+        attack_roll_repr = f"d20({roll_a})" if roll_b is None else f"d20({roll_a},{roll_b}) -> {d20_roll}"
 
         stats = attacker.stats if isinstance(attacker.stats, dict) else {}
         inventory = attacker.inventory if isinstance(attacker.inventory, list) else []

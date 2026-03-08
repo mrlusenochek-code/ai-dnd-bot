@@ -728,6 +728,27 @@ function openCharacterModal(){
   const stoneEndurance = (raceFeaturesMeta.stone_endurance && typeof raceFeaturesMeta.stone_endurance === "object")
     ? raceFeaturesMeta.stone_endurance
     : null;
+  const rerollOnes = (raceFeaturesMeta.reroll_ones && typeof raceFeaturesMeta.reroll_ones === "object")
+    ? raceFeaturesMeta.reroll_ones
+    : null;
+  const halflingNimbleness = raceFeaturesMeta.move_through_larger_creatures === true;
+  const naturallyStealthy = raceFeaturesMeta.hide_with_larger_cover === true;
+  const luckyScope = Array.isArray((rerollOnes || {}).scope)
+    ? rerollOnes.scope.map((x) => String(x || "").trim().toLowerCase()).filter(Boolean)
+    : [];
+  const hasLuckyAttack = luckyScope.includes("attack");
+  const hasLuckyCheck = luckyScope.includes("check");
+  const hasLuckySave = luckyScope.includes("save");
+  const luckyText = (hasLuckyAttack || hasLuckyCheck || hasLuckySave)
+    ? "Везучий: переброс 1 на d20 (атака/проверка/спасбросок)"
+    : "";
+  const braveText = saveAdvantageConditions.includes("frightened")
+    ? "Храбрый: преим. спасброски против испуга"
+    : "";
+  const halflingNimblenessText = halflingNimbleness
+    ? "Проворство полурослика: проходит через существ большего размера"
+    : "";
+  const naturallyStealthyText = naturallyStealthy ? "Природная скрытность" : "";
   const relentlessEndurance = (raceFeaturesMeta.relentless_endurance && typeof raceFeaturesMeta.relentless_endurance === "object")
     ? raceFeaturesMeta.relentless_endurance
     : null;
@@ -913,6 +934,9 @@ function openCharacterModal(){
     .filter(Boolean);
   const hasPoisonResistance = resistances.map((x) => String(x || "").trim().toLowerCase()).includes("poison");
   const hasPoisonSaveAdvantage = saveAdvantageConditions.includes("poison");
+  const stoutResilienceText = (hasPoisonResistance || hasPoisonSaveAdvantage)
+    ? "Коренастая стойкость: преим. против яда; сопротивление яду"
+    : "";
   const dwarvenResilienceParts = [];
   if(hasPoisonResistance) dwarvenResilienceParts.push("сопротивление яду");
   if(hasPoisonSaveAdvantage) dwarvenResilienceParts.push("преимущество против яда");
@@ -1176,6 +1200,21 @@ function openCharacterModal(){
   if(stoneEndurance){
     details.push("<div class=\"char-line\"><strong>Каменная выносливость:</strong> реакция, 1/к/дл отдых: снижает урон (1d12 + мод. Тел)</div>");
   }
+  if(luckyText){
+    details.push(`<div class="char-line"><strong>Везучий:</strong> ${escapeHtml(luckyText.replace(/^Везучий:\s*/, ""))}</div>`);
+  }
+  if(braveText){
+    details.push(`<div class="char-line"><strong>Храбрый:</strong> ${escapeHtml(braveText.replace(/^Храбрый:\s*/, ""))}</div>`);
+  }
+  if(halflingNimblenessText){
+    details.push(`<div class="char-line"><strong>Проворство полурослика:</strong> ${escapeHtml(halflingNimblenessText.replace(/^Проворство полурослика:\s*/, ""))}</div>`);
+  }
+  if(naturallyStealthyText){
+    details.push(`<div class="char-line"><strong>Природная скрытность:</strong> ${escapeHtml(naturallyStealthyText.replace(/^Природная скрытность:\s*/, ""))}</div>`);
+  }
+  if(stoutResilienceText){
+    details.push(`<div class="char-line"><strong>Коренастая стойкость:</strong> ${escapeHtml(stoutResilienceText.replace(/^Коренастая стойкость:\s*/, ""))}</div>`);
+  }
   if(relentlessEnduranceText){
     details.push(`<div class="char-line"><strong>Неукротимая стойкость:</strong> ${escapeHtml(relentlessEnduranceText.replace(/^Неукротимая стойкость:\s*/, ""))}</div>`);
   }
@@ -1297,6 +1336,11 @@ function openCharacterModal(){
   if(gnomeCunningText) copyLines.push(gnomeCunningText);
   if(carry.powerful_build === true) copyLines.push("Мощное телосложение: считается на 1 размер больше для переноски/толкания/тяги/подъёма");
   if(stoneEndurance) copyLines.push("Каменная выносливость: реакция, 1/к/дл отдых: снижает урон (1d12 + мод. Тел)");
+  if(luckyText) copyLines.push(luckyText);
+  if(braveText) copyLines.push(braveText);
+  if(halflingNimblenessText) copyLines.push(halflingNimblenessText);
+  if(naturallyStealthyText) copyLines.push(naturallyStealthyText);
+  if(stoutResilienceText) copyLines.push(stoutResilienceText);
   if(relentlessEnduranceText) copyLines.push(relentlessEnduranceText);
   if(savageAttacksText) copyLines.push(savageAttacksText);
   if(tranceText) copyLines.push(tranceText);

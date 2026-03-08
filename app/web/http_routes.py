@@ -775,6 +775,9 @@ def _build_race_features(selected_race: dict | None) -> dict[str, Any]:
                 saves["advantage"] = abilities
 
         if mtype == "save_advantage":
+            vs_key = str(mech.get("vs") or "").strip().lower()
+            if vs_key == "frightened":
+                save_advantage_conditions.append("frightened")
             abilities = []
             save_items = _as_list(mech.get("saves"))
             if not save_items:
@@ -790,6 +793,22 @@ def _build_race_features(selected_race: dict | None) -> dict[str, Any]:
                         save_advantage_vs_magic.append(ability)
             elif abilities:
                 saves["advantage"] = abilities
+
+        if mtype == "reroll_ones":
+            scope = _uniq_lower_str_list(mech.get("scope"))
+            features["reroll_ones"] = {"scope": scope}
+
+        if mtype == "move_through_larger_creatures":
+            features["move_through_larger_creatures"] = True
+
+        if mtype == "hide_with_larger_cover":
+            features["hide_with_larger_cover"] = True
+
+        if mtype == "poison_resilience":
+            if bool(mech.get("save_advantage")):
+                save_advantage_conditions.append("poison")
+            if bool(mech.get("damage_resistance")):
+                resist.append("poison")
 
         if mtype == "fey_ancestry":
             save_advantage_conditions.append("charmed")

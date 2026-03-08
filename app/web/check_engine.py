@@ -17,7 +17,7 @@ def _as_int(v: Any, default: int = 0) -> int:
         return default
 
 
-def roll_check(mode: str, *, rng: Optional[_Rng] = None) -> tuple[int, Optional[int], int]:
+def roll_check(mode: str, *, rng: Optional[_Rng] = None, reroll_ones: bool = False) -> tuple[int, Optional[int], int]:
     """
     PHB: d20 roll with (dis)advantage.
     Returns: (roll_a, roll_b_or_none, chosen_roll)
@@ -28,14 +28,34 @@ def roll_check(mode: str, *, rng: Optional[_Rng] = None) -> tuple[int, Optional[
     if normalized == "advantage":
         r1 = r.randint(1, 20)
         r2 = r.randint(1, 20)
-        return r1, r2, max(r1, r2)
+        chosen_idx = 0 if r1 >= r2 else 1
+        chosen = max(r1, r2)
+        if reroll_ones and chosen == 1:
+            rerolled = r.randint(1, 20)
+            if chosen_idx == 0:
+                r1 = rerolled
+            else:
+                r2 = rerolled
+            chosen = max(r1, r2)
+        return r1, r2, chosen
 
     if normalized == "disadvantage":
         r1 = r.randint(1, 20)
         r2 = r.randint(1, 20)
-        return r1, r2, min(r1, r2)
+        chosen_idx = 0 if r1 <= r2 else 1
+        chosen = min(r1, r2)
+        if reroll_ones and chosen == 1:
+            rerolled = r.randint(1, 20)
+            if chosen_idx == 0:
+                r1 = rerolled
+            else:
+                r2 = rerolled
+            chosen = min(r1, r2)
+        return r1, r2, chosen
 
     x = r.randint(1, 20)
+    if reroll_ones and x == 1:
+        x = r.randint(1, 20)
     return x, None, x
 
 
