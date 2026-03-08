@@ -54,6 +54,10 @@ CHAT_COMBAT_ACTION_PATTERNS: list[tuple[str, re.Pattern[str]]] = [
         re.compile(r"(копыт\w*|бью\s+копыт\w*|топч\w*)", re.IGNORECASE),
     ),
     (
+        "combat_vampiric_bite",
+        re.compile(r"(укус\s+вампир\w*|кусаю|впива\w+|пью\s+кров\w*|vampiric\s+bite)", re.IGNORECASE),
+    ),
+    (
         "combat_attack",
         re.compile(
             r"(атак|напад|удар|бью|рубл|колю|выпад|тыч|пыр|замах|метаю|швыряю|стреля|выстрел|стрел|лук|арбалет|режу|вступаю\s+в\s+бой|вступить\s+в\s+бой|вхожу\s+в\s+бой|войти\s+в\s+бой|врываюсь\s+в\s+бой)",

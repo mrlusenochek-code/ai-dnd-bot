@@ -795,6 +795,49 @@ def _build_race_features(selected_race: dict | None) -> dict[str, Any]:
             if no_need_items:
                 needs["no_need"] = no_need_items
 
+        if mtype == "no_need":
+            no_need_items = _uniq_lower_str_list(mech.get("no_need"))
+            if no_need_items:
+                existing_no_need = _uniq_lower_str_list(needs.get("no_need"))
+                merged_no_need: list[str] = []
+                for item in [*existing_no_need, *no_need_items]:
+                    if item and item not in merged_no_need:
+                        merged_no_need.append(item)
+                needs["no_need"] = merged_no_need
+
+        if mtype == "spider_climb":
+            climb_equals_walk = bool(mech.get("climb_speed_equals_walk"))
+            at_level = max(0, as_int(mech.get("at_level"), 0))
+            ceiling_hands_free = bool(mech.get("can_climb_ceiling_hands_free"))
+            if climb_equals_walk:
+                speeds["climb_ft"] = max(0, as_int(speeds.get("walk_ft"), 0))
+            features["spider_climb"] = {
+                "at_level": at_level,
+                "can_climb_ceiling_hands_free": ceiling_hands_free,
+                "climb_speed_equals_walk": climb_equals_walk,
+            }
+
+        if mtype == "ancestral_legacy":
+            features["ancestral_legacy"] = dict(mech)
+
+        if mtype == "vampiric_bite":
+            bite_cfg = dict(mech)
+            weapon_raw = bite_cfg.get("weapon")
+            weapon = weapon_raw if isinstance(weapon_raw, dict) else {}
+            weapon_norm = {
+                "damage_dice": str(weapon.get("damage_dice") or "1d4").strip().lower(),
+                "damage_type": str(weapon.get("damage_type") or "piercing").strip().lower(),
+                "ability": str(weapon.get("ability") or "con").strip().lower(),
+            }
+            bite_cfg["weapon"] = weapon_norm
+            bite_cfg["advantage_when_hp_below_half"] = bool(bite_cfg.get("advantage_when_hp_below_half"))
+            bite_cfg["uses"] = str(bite_cfg.get("uses") or "per_long_rest").strip().lower()
+            bite_cfg["uses_formula"] = str(bite_cfg.get("uses_formula") or "proficiency_bonus").strip().lower()
+            empower_raw = bite_cfg.get("empower_options")
+            empower_list = empower_raw if isinstance(empower_raw, list) else []
+            bite_cfg["empower_options"] = _uniq_lower_str_list(empower_list)
+            features["vampiric_bite"] = bite_cfg
+
         if mtype == "sentry_rest":
             features["sentry_rest"] = dict(mech)
 
@@ -1268,11 +1311,18 @@ async def api_character_create(payload: dict):
         race_flex_asi_available = False
         effective_race_key = ""
         custom_lineage_variable_trait_options: list[str] = []
+        base_race_language_keys: set[str] = set()
         if isinstance(effective_race, dict):
             effective_traits = effective_race.get("traits")
             effective_traits_list = effective_traits if isinstance(effective_traits, list) else []
             effective_asi = effective_race.get("asi")
             effective_asi_list = effective_asi if isinstance(effective_asi, list) else []
+            effective_languages = effective_race.get("languages")
+            effective_languages_list = effective_languages if isinstance(effective_languages, list) else []
+            for item in effective_languages_list:
+                lang_key = str(item or "").strip().lower()
+                if lang_key:
+                    base_race_language_keys.add(lang_key)
             effective_race_key = str(effective_race.get("key") or "").strip().lower()
             if effective_race_key == "changeling":
                 for asi_item in effective_asi_list:
@@ -1366,6 +1416,10 @@ async def api_character_create(payload: dict):
                                     from_items.append(skill_key)
                             if from_items and not required_race_skill_options:
                                 required_race_skill_options = from_items
+                    elif mtype == "ancestral_legacy":
+                        fallback_count = max(as_int(mech.get("fallback_choose_skills"), 0), 0)
+                        if fallback_count > 0:
+                            required_race_skill_count = max(required_race_skill_count, fallback_count)
                     elif mtype in {"choose_feat", "feat_choice"}:
                         count = max(as_int(mech.get("count"), as_int(mech.get("choose"), 0)), 0)
                         if count > 0:
@@ -1493,7 +1547,7 @@ async def api_character_create(payload: dict):
         elif race_choice_feats:
             raise HTTPException(status_code=400, detail="Race feat choice is not available for selected race")
 
-        if race_choice_size and effective_race_key != "custom_lineage":
+        if race_choice_size and effective_race_key not in {"custom_lineage", "dhampir"}:
             raise HTTPException(status_code=400, detail="Race size choice is not available for selected race")
         if race_choice_variable_trait and effective_race_key != "custom_lineage":
             raise HTTPException(status_code=400, detail="Variable trait choice is not available for selected race")
@@ -1523,6 +1577,20 @@ async def api_character_create(payload: dict):
                     status_code=400,
                     detail="Custom Lineage skill choice is only available with skill_proficiency_choice_1",
                 )
+        if effective_race_key == "dhampir":
+            if race_choice_size not in {"small", "medium"}:
+                raise HTTPException(status_code=400, detail="Dhampir size choice is required")
+            if race_choice_flex_asi_variant not in {"2_1", "1_1_1"}:
+                raise HTTPException(status_code=400, detail="Dhampir flexible ASI choice is required")
+            if len(race_choice_skills) != 2:
+                raise HTTPException(status_code=400, detail="Dhampir ancestral legacy requires exactly 2 skill choices")
+            if len(race_choice_languages) != 1:
+                raise HTTPException(status_code=400, detail="Dhampir extra language choice is required")
+            dhampir_lang = race_choice_languages[0]
+            if dhampir_lang == "common":
+                raise HTTPException(status_code=400, detail="Dhampir extra language must not duplicate Common")
+            if dhampir_lang in base_race_language_keys:
+                raise HTTPException(status_code=400, detail="Dhampir extra language must be distinct from base languages")
 
         if selected_race is not None:
             # When a preset race is selected, keep mechanics by base race id.

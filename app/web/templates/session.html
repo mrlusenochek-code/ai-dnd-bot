@@ -706,16 +706,22 @@ function openCharacterModal(){
     ? `Подводное дыхание: 1 час (1/дл отдых)${breatheUnderwaterUntilText ? `, активно до ${breatheUnderwaterUntilText}` : ""}`
     : "";
   const raceFeaturesMeta = (rf.features && typeof rf.features === "object") ? rf.features : {};
+  const raceKey = String(rf.race_key || "").trim().toLowerCase();
   const creatureType = String(rf.creature_type || "").trim().toLowerCase();
   const creatureTypeRu = {
     "construct": "Конструкт",
     "fey": "Фея",
+    "humanoid": "Гуманоид",
   };
   const creatureTypeText = creatureType ? `Тип существа: ${creatureTypeRu[creatureType] || creatureType}` : "";
   const raceNeeds = (rf.needs && typeof rf.needs === "object") ? rf.needs : {};
   const noNeedList = Array.isArray(raceNeeds.no_need)
     ? raceNeeds.no_need.map((x) => String(x || "").trim().toLowerCase()).filter(Boolean)
     : [];
+  const noNeedRuMap = { "eat": "есть", "drink": "пить", "breathe": "дышать", "sleep": "спать" };
+  const noNeedRu = noNeedList.map((x) => noNeedRuMap[x] || x).filter(Boolean);
+  const noNeedText = noNeedRu.length ? `Не нужно: ${noNeedRu.join(", ")}` : "";
+  const noNeedBreatheText = noNeedList.includes("breathe") ? "Не нужно дышать" : "";
   const innateSpells = Array.isArray(rf.innate_spells)
     ? rf.innate_spells.filter((x) => x && typeof x === "object")
     : [];
@@ -735,6 +741,25 @@ function openCharacterModal(){
   const growthToSize = sizeChange ? String(sizeChange.to || sizeChange.size || "").trim().toLowerCase() : "";
   const growthSpurtText = sizeChange
     ? `Скачок роста: на ${growthAtLevel !== null ? growthAtLevel : 5} ур. размер становится Средним`
+    : "";
+  const spiderClimb = (raceFeaturesMeta.spider_climb && typeof raceFeaturesMeta.spider_climb === "object")
+    ? raceFeaturesMeta.spider_climb
+    : null;
+  const spiderClimbAtLevel = spiderClimb && Number.isFinite(Number(spiderClimb.at_level))
+    ? Number(spiderClimb.at_level)
+    : 3;
+  const spiderClimbText = spiderClimb
+    ? `Паучье лазание: скорость лазания = ходьба; с ${spiderClimbAtLevel} уровня можно лазать по стенам/потолкам, руки свободны`
+    : "";
+  const vampiricBite = (raceFeaturesMeta.vampiric_bite && typeof raceFeaturesMeta.vampiric_bite === "object")
+    ? raceFeaturesMeta.vampiric_bite
+    : null;
+  const vampiricBiteWeapon = vampiricBite && typeof vampiricBite.weapon === "object" ? vampiricBite.weapon : {};
+  const vampiricBiteDice = String(vampiricBiteWeapon.damage_dice || "1d4").trim().toLowerCase();
+  const vampiricBiteDamageType = String(vampiricBiteWeapon.damage_type || "piercing").trim().toLowerCase();
+  const vampiricBiteAbility = String(vampiricBiteWeapon.ability || "con").trim().toLowerCase();
+  const vampiricBiteText = vampiricBite
+    ? `Укус вампира: ${vampiricBiteDice} ${vampiricBiteDamageType} (${vampiricBiteAbility.toUpperCase()}), преимущество при HP <= 1/2, усиление (БМ/дл отдых)`
     : "";
   const stoneEndurance = (raceFeaturesMeta.stone_endurance && typeof raceFeaturesMeta.stone_endurance === "object")
     ? raceFeaturesMeta.stone_endurance
@@ -1048,8 +1073,6 @@ function openCharacterModal(){
   const hasPoisonedSaveAdvantage = saveAdvantageConditions.includes("poisoned");
   const hasParalyzedSaveAdvantage = saveAdvantageConditions.includes("paralyzed");
   const hasDiseaseImmunity = immunityConditions.includes("diseased") || immunityConditions.includes("disease");
-  const noNeedRuMap = { "eat": "есть", "drink": "пить", "breathe": "дышать" };
-  const noNeedRu = noNeedList.map((x) => noNeedRuMap[x] || x).filter(Boolean);
   const mechanicalNatureParts = [];
   if(hasPoisonResistance) mechanicalNatureParts.push("сопротивление яду");
   if(hasDiseaseImmunity) mechanicalNatureParts.push("иммунитет к болезням");
@@ -1176,7 +1199,14 @@ function openCharacterModal(){
     ? choices.skills.map((x) => String(x || "").trim().toLowerCase()).filter(Boolean)
     : [];
   const survivorSkillRu = survivorSkills.length ? getSkillNameRu(survivorSkills[0]) : "";
-  const survivorText = survivorSkillRu ? `Выживший: ${survivorSkillRu}` : "";
+  const survivorText = (raceKey === "centaur" && survivorSkillRu) ? `Выживший: ${survivorSkillRu}` : "";
+  const ancestralLegacy = (raceFeaturesMeta.ancestral_legacy && typeof raceFeaturesMeta.ancestral_legacy === "object")
+    ? raceFeaturesMeta.ancestral_legacy
+    : null;
+  const ancestralLegacySkillsRu = survivorSkills.map((x) => getSkillNameRu(x)).filter(Boolean);
+  const ancestralLegacyText = ancestralLegacy
+    ? `Наследие предков: ${ancestralLegacySkillsRu.length ? ancestralLegacySkillsRu.join(", ") : "выбор навыков при создании"}`
+    : "";
   const draconicKey = String(draconicChoice.key || "").trim().toLowerCase();
   const draconicDamage = String(draconicChoice.damage_type || "").trim().toLowerCase();
   const draconicBreath = (draconicChoice.breath && typeof draconicChoice.breath === "object") ? draconicChoice.breath : {};
@@ -1346,6 +1376,14 @@ function openCharacterModal(){
   if(mechanicalNatureText){
     details.push(`<div class="char-line"><strong>Механическая природа:</strong> ${escapeHtml(mechanicalNatureText.replace(/^Механическая природа:\s*/, ""))}</div>`);
   }
+  if(noNeedBreatheText){
+    details.push(`<div class="char-line"><strong>Природа:</strong> ${escapeHtml(noNeedBreatheText)}</div>`);
+  }else if(noNeedText){
+    details.push(`<div class="char-line"><strong>Не нужно:</strong> ${escapeHtml(noNeedText.replace(/^Не нужно:\s*/, ""))}</div>`);
+  }
+  if(spiderClimbText){
+    details.push(`<div class="char-line"><strong>Паучье лазание:</strong> ${escapeHtml(spiderClimbText.replace(/^Паучье лазание:\s*/, ""))}</div>`);
+  }
   if(sentryRestText){
     details.push(`<div class="char-line"><strong>Отдых стража:</strong> ${escapeHtml(sentryRestText.replace(/^Отдых стража:\s*/, ""))}</div>`);
   }
@@ -1387,6 +1425,9 @@ function openCharacterModal(){
   }
   if(survivorText){
     details.push(`<div class="char-line"><strong>Выживший:</strong> ${escapeHtml(survivorText.replace(/^Выживший:\s*/, ""))}</div>`);
+  }
+  if(ancestralLegacyText){
+    details.push(`<div class="char-line"><strong>Наследие предков:</strong> ${escapeHtml(ancestralLegacyText.replace(/^Наследие предков:\s*/, ""))}</div>`);
   }
   if(stoneEndurance){
     details.push("<div class=\"char-line\"><strong>Каменная выносливость:</strong> реакция, 1/к/дл отдых: снижает урон (1d12 + мод. Тел)</div>");
@@ -1462,6 +1503,9 @@ function openCharacterModal(){
   }
   if(breathWeaponText){
     details.push(`<div class="char-line"><strong>Оружие дыхания:</strong> ${escapeHtml(breathWeaponText.replace(/^Оружие дыхания:\s*/, ""))}</div>`);
+  }
+  if(vampiricBiteText){
+    details.push(`<div class="char-line"><strong>Укус вампира:</strong> ${escapeHtml(vampiricBiteText.replace(/^Укус вампира:\s*/, ""))}</div>`);
   }
   if(growthSpurtText){
     details.push(`<div class="char-line"><strong>Скачок роста:</strong> ${escapeHtml(growthSpurtText.replace(/^Скачок роста:\s*/, ""))}</div>`);
@@ -1544,6 +1588,9 @@ function openCharacterModal(){
   if(creatureTypeText) copyLines.push(creatureTypeText);
   if(resistancesRu.length) copyLines.push(`Сопротивления: ${resistancesRu.join(", ")}`);
   if(mechanicalNatureText) copyLines.push(mechanicalNatureText);
+  if(noNeedBreatheText) copyLines.push(noNeedBreatheText);
+  else if(noNeedText) copyLines.push(noNeedText);
+  if(spiderClimbText) copyLines.push(spiderClimbText);
   if(sentryRestText) copyLines.push(sentryRestText);
   if(builtForSuccessText) copyLines.push(builtForSuccessText);
   if(mendingHealText) copyLines.push(mendingHealText);
@@ -1558,6 +1605,7 @@ function openCharacterModal(){
   if(chargeText) copyLines.push(chargeText);
   if(equineBuildText) copyLines.push(equineBuildText);
   if(survivorText) copyLines.push(survivorText);
+  if(ancestralLegacyText) copyLines.push(ancestralLegacyText);
   if(stoneEndurance) copyLines.push("Каменная выносливость: реакция, 1/к/дл отдых: снижает урон (1d12 + мод. Тел)");
   if(luckyText) copyLines.push(luckyText);
   if(braveText) copyLines.push(braveText);
@@ -1583,6 +1631,7 @@ function openCharacterModal(){
   if(telepathicInsightText) copyLines.push(telepathicInsightText);
   if(draconicAncestryText) copyLines.push(draconicAncestryText);
   if(breathWeaponText) copyLines.push(breathWeaponText);
+  if(vampiricBiteText) copyLines.push(vampiricBiteText);
   if(growthSpurtText) copyLines.push(growthSpurtText);
   if(breatheUnderwaterText) copyLines.push(breatheUnderwaterText);
   if(healingHandsText) copyLines.push(healingHandsText);

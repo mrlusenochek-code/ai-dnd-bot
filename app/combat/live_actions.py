@@ -289,6 +289,25 @@ def _maybe_apply_built_for_success(actor: Any, d20_roll: int, lines: list[dict[s
     return roll_out + bonus
 
 
+def _maybe_apply_vampiric_bite_bonus(actor: Any, d20_roll: int, lines: list[dict[str, Any]]) -> int:
+    roll_out = int(d20_roll)
+    if str(getattr(actor, "side", "")).lower() != "pc":
+        return roll_out
+    race_features = actor.race_features if isinstance(actor.race_features, dict) else {}
+    runtime_raw = race_features.get("runtime")
+    runtime = dict(runtime_raw) if isinstance(runtime_raw, dict) else {}
+    if not bool(runtime.get("vampiric_bite_bonus_armed")):
+        return roll_out
+    bonus = max(0, int(runtime.get("vampiric_bite_bonus_value") or 0))
+    runtime["vampiric_bite_bonus_armed"] = False
+    runtime["vampiric_bite_bonus_value"] = 0
+    race_features["runtime"] = runtime
+    actor.race_features = race_features
+    if bonus > 0:
+        lines.append({"text": f"Укус вампира: бонус к следующему d20 +{bonus}.", "muted": True})
+    return max(1, min(20, roll_out + bonus))
+
+
 def _has_nimble_escape(actor: Any) -> bool:
     race_features = getattr(actor, "race_features", None)
     rf = race_features if isinstance(race_features, dict) else {}
@@ -708,7 +727,7 @@ def _auto_resolve_zero_hp_turns(session_id: str, state: Any) -> dict[str, Any] |
 
 
 def handle_live_combat_action(
-    action: str, session_id: str, *, distance_ft: int | None = None
+    action: str, session_id: str, *, distance_ft: int | None = None, empower: str | None = None
 ) -> tuple[Optional[dict[str, Any]], Optional[str]]:
     state = get_combat(session_id)
     if state is not None and state.active:
@@ -1356,6 +1375,225 @@ def handle_live_combat_action(
 
         return None, "Combat state is inconsistent"
 
+    if action == "combat_vampiric_bite":
+        state = get_combat(session_id)
+        if state is None or not state.active:
+            return None, "Combat is not active"
+        if not state.order:
+            end_combat(session_id)
+            return (
+                {
+                    "status": "Бой завершён",
+                    "open": False,
+                    "lines": [{"text": "Бой завершён: целей не осталось.", "muted": True}],
+                },
+                None,
+            )
+
+        attacker_key = state.order[state.turn_index]
+        attacker = state.combatants.get(attacker_key)
+        if attacker is None:
+            return None, "Combat state is inconsistent"
+        blocked = _spend_action_or_block(state, attacker)
+        if blocked is not None:
+            return blocked, None
+        if str(getattr(attacker, "side", "")).lower() != "pc":
+            return None, "Укус вампира доступен только персонажу игрока."
+
+        target = _first_living_opponent(state, attacker.side)
+        if target is None:
+            end_combat(session_id)
+            return (
+                {
+                    "status": "Бой завершён",
+                    "open": False,
+                    "lines": [{"text": "Бой завершён: целей не осталось.", "muted": True}],
+                },
+                None,
+            )
+
+        race_features = attacker.race_features if isinstance(attacker.race_features, dict) else {}
+        features_raw = race_features.get("features")
+        features = features_raw if isinstance(features_raw, dict) else {}
+        bite_raw = features.get("vampiric_bite")
+        bite_cfg = bite_raw if isinstance(bite_raw, dict) else {}
+        weapon_raw = bite_cfg.get("weapon")
+        weapon = weapon_raw if isinstance(weapon_raw, dict) else {}
+        damage_dice = str(weapon.get("damage_dice") or "1d4").strip().lower()
+        damage_type = str(weapon.get("damage_type") or "piercing").strip().lower()
+
+        attacker_stats = attacker.stats if isinstance(attacker.stats, dict) else {}
+        con_raw = attacker_stats.get("con")
+        con_stat = int(con_raw) if isinstance(con_raw, int) else 50
+        con_mod = ability_mod_from_stat100(con_stat)
+        prof = proficiency_bonus(max(1, int(getattr(attacker, "level", 1) or 1)))
+        attack_bonus = con_mod + prof
+        damage_bonus = con_mod
+
+        hp_current = max(0, int(getattr(attacker, "hp_current", 0)))
+        hp_max = max(1, int(getattr(attacker, "hp_max", 1)))
+        low_hp_advantage = bool(bite_cfg.get("advantage_when_hp_below_half")) and (hp_current * 2 <= hp_max)
+        has_disadvantage = target.dodge_active
+        has_advantage = attacker.help_attack_advantage or low_hp_advantage
+        roll_mode = "normal"
+        if has_advantage and not has_disadvantage:
+            roll_mode = "advantage"
+        elif has_disadvantage and not has_advantage:
+            roll_mode = "disadvantage"
+        roll_a, roll_b, d20_roll = _roll_check_compat(
+            roll_mode,
+            rng=random,
+            reroll_ones=_has_reroll_ones_scope(attacker, "attack"),
+        )
+        bonus_lines: list[dict[str, Any]] = []
+        d20_roll = _maybe_apply_built_for_success(attacker, d20_roll, bonus_lines)
+        d20_roll = _maybe_apply_vampiric_bite_bonus(attacker, d20_roll, bonus_lines)
+        attack_roll_repr = f"d20({roll_a})" if roll_b is None else f"d20({roll_a},{roll_b}) -> {d20_roll}"
+
+        parsed = parse_dice(damage_dice)
+        if parsed is None:
+            n, sides = 1, 4
+        else:
+            n, sides = parsed
+        damage_roll = sum(random.randint(1, max(1, sides)) for _ in range(max(1, n)))
+
+        resolution = resolve_attack_roll(
+            target_ac=target.ac,
+            d20_roll=d20_roll,
+            attack_bonus=attack_bonus,
+            damage_roll=damage_roll,
+            damage_bonus=damage_bonus,
+        )
+        attacker.help_attack_advantage = False
+        total_damage = int(resolution.total_damage)
+        extra_outcome_lines: list[dict[str, Any]] = []
+        extra_outcome_lines.extend(bonus_lines)
+        damage_done = 0
+        if resolution.is_hit:
+            pre_hp = target.hp_current
+            damage_to_apply, relentless_lines = _apply_relentless_endurance_if_needed(target=target, incoming_damage=total_damage)
+            extra_outcome_lines.extend(relentless_lines)
+            state = apply_damage(session_id, target.key, damage_to_apply, source=attacker.key)
+            if state is None:
+                return None, "Combat is not active"
+            target = state.combatants.get(target.key, target)
+            damage_done = max(0, int(damage_to_apply))
+            if target.side == "pc":
+                if pre_hp > 0 and target.hp_current == 0:
+                    leftover = total_damage - pre_hp
+                    if leftover >= target.hp_max:
+                        target.is_dead = True
+                        target.is_stable = False
+                        extra_outcome_lines.append({"text": f"Мгновенная смерть: {target.name} погибает."})
+                        _revert_shapechanger_on_death(target, extra_outcome_lines)
+                elif pre_hp == 0 and not target.is_dead:
+                    fail_step = 2 if resolution.is_crit else 1
+                    target.death_failures = _clamp_death_counter(target.death_failures + fail_step)
+                    if target.death_failures >= 3:
+                        target.is_dead = True
+                        target.is_stable = False
+                        extra_outcome_lines.append({"text": f"Смерть: {target.name} погибает."})
+                        _revert_shapechanger_on_death(target, extra_outcome_lines)
+                    else:
+                        extra_outcome_lines.append({"text": "Смертельный урон при 0 HP: провал спасброска смерти."})
+
+        attack_line = (
+            f"Бросок атаки (Укус вампира): {attack_roll_repr} + {resolution.attack_bonus} = "
+            f"{resolution.total_to_hit} vs AC {resolution.target_ac}"
+        )
+        if resolution.is_crit:
+            result_line = "Результат: критическое попадание"
+        elif resolution.is_hit:
+            result_line = "Результат: попадание"
+        else:
+            result_line = "Результат: промах"
+        if resolution.is_hit:
+            roll_damage = resolution.damage_roll * 2 if resolution.is_crit else resolution.damage_roll
+            damage_line = f"Урон: {roll_damage} + {resolution.damage_bonus} = {total_damage} {damage_type}"
+        else:
+            damage_line = "Урон: 0 (промах)"
+
+        lines: list[dict[str, Any]] = [
+            {"text": f"Атака: {attacker.name} → {target.name}", "muted": True},
+            {"text": f"Укус вампира: {damage_dice} {damage_type} (CON, +PROF к атаке).", "muted": True},
+            {"text": attack_line},
+            {"text": result_line},
+            {"text": damage_line},
+            {"text": f"{target.name}: HP {target.hp_current}/{target.hp_max}"},
+        ]
+        lines.extend(extra_outcome_lines)
+
+        empower_key = str(empower or "").strip().lower()
+        if empower_key and empower_key not in {"heal", "bonus"}:
+            empower_key = ""
+        if empower_key:
+            race_features = attacker.race_features if isinstance(attacker.race_features, dict) else {}
+            runtime_raw = race_features.get("runtime")
+            runtime = dict(runtime_raw) if isinstance(runtime_raw, dict) else {}
+            level = max(1, int(getattr(attacker, "level", 1) or 1))
+            uses_max = max(1, int(proficiency_bonus(level)))
+            uses_used = max(0, int(runtime.get("vampiric_bite_uses_used") or 0))
+            target_rf = target.race_features if isinstance(getattr(target, "race_features", None), dict) else {}
+            target_type = str(target_rf.get("creature_type") or "").strip().lower()
+            blocked_by_type = target_type in {"construct", "undead"}
+            if not resolution.is_hit or damage_done <= 0:
+                lines.append({"text": "Усиление укуса не сработало: нужно попасть по цели.", "muted": True})
+            elif blocked_by_type:
+                lines.append({"text": "Усиление укуса не сработало: цель — construct/undead.", "muted": True})
+            elif uses_used >= uses_max:
+                lines.append({"text": "Усиление укуса недоступно: лимит БМ/дл отдых исчерпан.", "muted": True})
+            else:
+                runtime["vampiric_bite_uses_used"] = uses_used + 1
+                if empower_key == "heal":
+                    pre_hp = max(0, int(getattr(attacker, "hp_current", 0)))
+                    hp_max_actor = max(1, int(getattr(attacker, "hp_max", 1)))
+                    healed_to = min(hp_max_actor, pre_hp + damage_done)
+                    healed = max(0, healed_to - pre_hp)
+                    attacker.hp_current = healed_to
+                    lines.append({"text": f"Усиление укуса: восстановлено {healed} HP.", "muted": True})
+                    lines.append({"text": f"{attacker.name}: HP {attacker.hp_current}/{attacker.hp_max}"})
+                elif empower_key == "bonus":
+                    runtime["vampiric_bite_bonus_armed"] = True
+                    runtime["vampiric_bite_bonus_value"] = max(0, int(damage_done))
+                    lines.append(
+                        {"text": f"Усиление укуса: +{int(damage_done)} к следующей проверке/атаке.", "muted": True}
+                    )
+                race_features["runtime"] = runtime
+                attacker.race_features = race_features
+
+        if target.hp_current <= 0:
+            lines.append({"text": f"{target.name} повержен."})
+
+        side_pc_alive = _is_side_alive(state, "pc")
+        side_enemy_alive = _is_side_alive(state, "enemy")
+        if not side_pc_alive or not side_enemy_alive:
+            if not side_enemy_alive:
+                lines.append({"text": "Победа: противники повержены.", "muted": True})
+            if not side_pc_alive:
+                lines.append({"text": "Поражение: все герои выбыли.", "muted": True})
+            end_combat(session_id)
+            return (
+                {
+                    "status": "Бой завершён",
+                    "open": False,
+                    "lines": lines,
+                },
+                None,
+            )
+
+        state = advance_turn(session_id)
+        if state is None:
+            return None, "Combat is not active"
+        lines.append({"text": f"Ход автоматически передан: {current_turn_label(state)}", "muted": True})
+        return (
+            {
+                "status": _combat_status(state),
+                "open": True,
+                "lines": lines,
+            },
+            None,
+        )
+
     if action == "combat_attack":
         state = get_combat(session_id)
         if state is None or not state.active:
@@ -1405,6 +1643,7 @@ def handle_live_combat_action(
         )
         bfs_lines: list[dict[str, Any]] = []
         d20_roll = _maybe_apply_built_for_success(attacker, d20_roll, bfs_lines)
+        d20_roll = _maybe_apply_vampiric_bite_bonus(attacker, d20_roll, bfs_lines)
         attack_roll_repr = f"d20({roll_a})" if roll_b is None else f"d20({roll_a},{roll_b}) -> {d20_roll}"
 
         stats = attacker.stats if isinstance(attacker.stats, dict) else {}
@@ -1756,6 +1995,7 @@ def handle_live_combat_action(
         )
         bfs_lines: list[dict[str, Any]] = []
         d20_roll = _maybe_apply_built_for_success(attacker, d20_roll, bfs_lines)
+        d20_roll = _maybe_apply_vampiric_bite_bonus(attacker, d20_roll, bfs_lines)
         attack_roll_repr = f"d20({roll_a})" if roll_b is None else f"d20({roll_a},{roll_b}) -> {d20_roll}"
 
         stats = attacker.stats if isinstance(attacker.stats, dict) else {}

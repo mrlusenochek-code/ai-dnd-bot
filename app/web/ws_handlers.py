@@ -262,6 +262,17 @@ def _tireless_precision_bonus_for_check(
     return value, f"1d4({value})"
 
 
+def _detect_vampiric_bite_empower(text: str) -> str | None:
+    src = str(text or "").strip().lower()
+    if not src:
+        return None
+    if re.search(r"(леч|исцел|восстанов)", src, re.IGNORECASE):
+        return "heal"
+    if re.search(r"(усил|бонус|сосред)", src, re.IGNORECASE):
+        return "bonus"
+    return None
+
+
 def _apply_short_rest_spend_hd_with_racial_reroll(
     *,
     hp: int,
@@ -633,6 +644,26 @@ def _consume_built_for_success_for_d20(ch: Character) -> tuple[int, Optional[str
     return bonus, f"1d4 (Создан для успеха: {bonus})", True
 
 
+def _consume_vampiric_bite_bonus_for_d20(ch: Character) -> tuple[int, Optional[str], bool]:
+    race_features = getattr(ch, "race_features", None)
+    rf = dict(race_features) if isinstance(race_features, dict) else {}
+    runtime_raw = rf.get("runtime")
+    runtime = dict(runtime_raw) if isinstance(runtime_raw, dict) else {}
+    if not bool(runtime.get("vampiric_bite_bonus_armed")):
+        return 0, None, False
+    bonus = max(0, as_int(runtime.get("vampiric_bite_bonus_value"), 0))
+    runtime["vampiric_bite_bonus_armed"] = False
+    runtime["vampiric_bite_bonus_value"] = 0
+    if runtime:
+        rf["runtime"] = runtime
+    else:
+        rf.pop("runtime", None)
+    ch.race_features = rf
+    if bonus <= 0:
+        return 0, None, True
+    return bonus, f"Укус вампира: +{bonus}", True
+
+
 def _apply_fury_of_small_arm(ch: Character) -> tuple[Optional[str], bool]:
     race_features = getattr(ch, "race_features", None)
     rf = dict(race_features) if isinstance(race_features, dict) else {}
@@ -850,6 +881,15 @@ def _reset_racial_rest_uses(ch: Character) -> bool:
     if "fury_of_small_armed" in runtime:
         runtime.pop("fury_of_small_armed", None)
         changed = True
+    if "vampiric_bite_uses_used" in runtime:
+        runtime.pop("vampiric_bite_uses_used", None)
+        changed = True
+    if "vampiric_bite_bonus_armed" in runtime:
+        runtime.pop("vampiric_bite_bonus_armed", None)
+        changed = True
+    if "vampiric_bite_bonus_value" in runtime:
+        runtime.pop("vampiric_bite_bonus_value", None)
+        changed = True
     if not changed:
         return False
     if runtime:
@@ -913,6 +953,15 @@ def _reset_combatant_racial_rest_uses(session_id: str, actor_key: str) -> bool:
     if "fury_of_small_armed" in runtime:
         runtime.pop("fury_of_small_armed", None)
         changed = True
+    if "vampiric_bite_uses_used" in runtime:
+        runtime.pop("vampiric_bite_uses_used", None)
+        changed = True
+    if "vampiric_bite_bonus_armed" in runtime:
+        runtime.pop("vampiric_bite_bonus_armed", None)
+        changed = True
+    if "vampiric_bite_bonus_value" in runtime:
+        runtime.pop("vampiric_bite_bonus_value", None)
+        changed = True
     if not changed:
         return False
     if runtime:
@@ -930,6 +979,7 @@ async def _persist_relentless_endurance_used_from_combat_state(db, sess, session
     relentless_used_uids: set[int] = set()
     built_for_success_runtime_by_uid: dict[int, dict[str, Any]] = {}
     fury_of_small_runtime_by_uid: dict[int, dict[str, Any]] = {}
+    vampiric_bite_runtime_by_uid: dict[int, dict[str, Any]] = {}
     for key, actor in (state.combatants or {}).items():
         actor_key = str(key or "").strip().lower()
         if not actor_key.startswith("pc_"):
@@ -955,13 +1005,36 @@ async def _persist_relentless_endurance_used_from_combat_state(db, sess, session
             if "fury_of_small_armed" in runtime:
                 fury_runtime["fury_of_small_armed"] = bool(runtime.get("fury_of_small_armed"))
             fury_of_small_runtime_by_uid[int(uid_raw)] = fury_runtime
-    if not relentless_used_uids and not built_for_success_runtime_by_uid and not fury_of_small_runtime_by_uid:
+        if (
+            "vampiric_bite_uses_used" in runtime
+            or "vampiric_bite_bonus_armed" in runtime
+            or "vampiric_bite_bonus_value" in runtime
+        ):
+            vamp_runtime: dict[str, Any] = {}
+            if "vampiric_bite_uses_used" in runtime:
+                vamp_runtime["vampiric_bite_uses_used"] = max(0, as_int(runtime.get("vampiric_bite_uses_used"), 0))
+            if "vampiric_bite_bonus_armed" in runtime:
+                vamp_runtime["vampiric_bite_bonus_armed"] = bool(runtime.get("vampiric_bite_bonus_armed"))
+            if "vampiric_bite_bonus_value" in runtime:
+                vamp_runtime["vampiric_bite_bonus_value"] = max(0, as_int(runtime.get("vampiric_bite_bonus_value"), 0))
+            vampiric_bite_runtime_by_uid[int(uid_raw)] = vamp_runtime
+    if (
+        not relentless_used_uids
+        and not built_for_success_runtime_by_uid
+        and not fury_of_small_runtime_by_uid
+        and not vampiric_bite_runtime_by_uid
+    ):
         return False
 
     _uid_map, chars_by_uid, _ = await _load_actor_context(db, sess)
     changed = False
     for uid, ch in chars_by_uid.items():
-        if uid not in relentless_used_uids and uid not in built_for_success_runtime_by_uid and uid not in fury_of_small_runtime_by_uid:
+        if (
+            uid not in relentless_used_uids
+            and uid not in built_for_success_runtime_by_uid
+            and uid not in fury_of_small_runtime_by_uid
+            and uid not in vampiric_bite_runtime_by_uid
+        ):
             continue
         ch = chars_by_uid.get(uid)
         if ch is None:
@@ -997,6 +1070,23 @@ async def _persist_relentless_endurance_used_from_combat_state(db, sess, session
                 value = bool(fury_runtime.get("fury_of_small_armed"))
                 if bool(runtime.get("fury_of_small_armed")) != value:
                     runtime["fury_of_small_armed"] = value
+                    local_changed = True
+        vamp_runtime = vampiric_bite_runtime_by_uid.get(uid)
+        if isinstance(vamp_runtime, dict):
+            if "vampiric_bite_uses_used" in vamp_runtime:
+                value = max(0, as_int(vamp_runtime.get("vampiric_bite_uses_used"), 0))
+                if max(0, as_int(runtime.get("vampiric_bite_uses_used"), 0)) != value:
+                    runtime["vampiric_bite_uses_used"] = value
+                    local_changed = True
+            if "vampiric_bite_bonus_armed" in vamp_runtime:
+                value = bool(vamp_runtime.get("vampiric_bite_bonus_armed"))
+                if bool(runtime.get("vampiric_bite_bonus_armed")) != value:
+                    runtime["vampiric_bite_bonus_armed"] = value
+                    local_changed = True
+            if "vampiric_bite_bonus_value" in vamp_runtime:
+                value = max(0, as_int(vamp_runtime.get("vampiric_bite_bonus_value"), 0))
+                if max(0, as_int(runtime.get("vampiric_bite_bonus_value"), 0)) != value:
+                    runtime["vampiric_bite_bonus_value"] = value
                     local_changed = True
         if local_changed:
             race_features["runtime"] = runtime
@@ -1387,6 +1477,7 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                 if action in {
                     "combat_attack",
                     "combat_hooves_attack",
+                    "combat_vampiric_bite",
                     "combat_end_turn",
                     "combat_dodge",
                     "combat_dash",
@@ -1997,13 +2088,17 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                         all_patches: list[dict[str, Any]] = []
                         async with lock:
                             move_distance_ft: Optional[int] = None
+                            bite_empower: Optional[str] = None
                             if combat_action == "combat_move":
                                 m_dist = COMBAT_MOVE_DISTANCE_RE.search(cmdline)
                                 move_distance_ft = as_int(m_dist.group(1), 0) if m_dist else 0
+                            elif combat_action == "combat_vampiric_bite":
+                                bite_empower = _detect_vampiric_bite_empower(text)
                             combat_patch, combat_err = handle_live_combat_action(
                                 combat_action,
                                 session_id,
                                 distance_ft=move_distance_ft,
+                                empower=bite_empower,
                             )
                             if combat_err:
                                 await ws_error(combat_err, request_id=msg_request_id)
@@ -2589,7 +2684,11 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                     res = build_check_result(check_payload, mod=mod, roll_a=ra, roll_b=rb, roll=roll)
                     base_total = int(res["total"])
                     bfs_bonus, bfs_bonus_text, bfs_changed = _consume_built_for_success_for_d20(ch)
+                    vamp_bonus, vamp_bonus_text, vamp_changed = _consume_vampiric_bite_bonus_for_d20(ch)
                     if bfs_changed:
+                        flag_modified(ch, "race_features")
+                        await db.commit()
+                    if vamp_changed:
                         flag_modified(ch, "race_features")
                         await db.commit()
                     tp_bonus, tp_bonus_text = _tireless_precision_bonus_for_check(
@@ -2597,7 +2696,7 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                         kind=str(check_payload["kind"]),
                         key=key,
                     )
-                    total = base_total + tp_bonus + bfs_bonus
+                    total = base_total + tp_bonus + bfs_bonus + vamp_bonus
                     rolls_text = str(roll) if rb is None else f"{ra}/{rb}->{roll}"
 
                     msg = f"[CHECK] {ch.name}: {key} = {rolls_text} + {mod:+d} => {total}"
@@ -2605,9 +2704,23 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                         msg = f"[CHECK] {ch.name}: {key} = {rolls_text} + {mod:+d} + {tp_bonus_text} => {total}"
                     if bfs_bonus > 0 and bfs_bonus_text:
                         msg = f"[CHECK] {ch.name}: {key} = {rolls_text} + {mod:+d} + {bfs_bonus_text} => {total}"
+                    if vamp_bonus > 0 and vamp_bonus_text:
+                        msg = f"[CHECK] {ch.name}: {key} = {rolls_text} + {mod:+d} + {vamp_bonus_text} => {total}"
                     if tp_bonus > 0 and tp_bonus_text and bfs_bonus > 0 and bfs_bonus_text:
                         msg = (
                             f"[CHECK] {ch.name}: {key} = {rolls_text} + {mod:+d} + {tp_bonus_text} + {bfs_bonus_text} => {total}"
+                        )
+                    if tp_bonus > 0 and tp_bonus_text and vamp_bonus > 0 and vamp_bonus_text:
+                        msg = (
+                            f"[CHECK] {ch.name}: {key} = {rolls_text} + {mod:+d} + {tp_bonus_text} + {vamp_bonus_text} => {total}"
+                        )
+                    if bfs_bonus > 0 and bfs_bonus_text and vamp_bonus > 0 and vamp_bonus_text:
+                        msg = (
+                            f"[CHECK] {ch.name}: {key} = {rolls_text} + {mod:+d} + {bfs_bonus_text} + {vamp_bonus_text} => {total}"
+                        )
+                    if tp_bonus > 0 and tp_bonus_text and bfs_bonus > 0 and bfs_bonus_text and vamp_bonus > 0 and vamp_bonus_text:
+                        msg = (
+                            f"[CHECK] {ch.name}: {key} = {rolls_text} + {mod:+d} + {tp_bonus_text} + {bfs_bonus_text} + {vamp_bonus_text} => {total}"
                         )
                     if dc is not None:
                         ok = total >= dc
@@ -2680,17 +2793,25 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                     }
                     res = build_check_result(check_payload, mod=mod, roll_a=ra, roll_b=rb, roll=roll)
                     base_total = int(res["total"])
+                    vamp_bonus, vamp_bonus_text, vamp_changed = _consume_vampiric_bite_bonus_for_d20(ch)
+                    if vamp_changed:
+                        flag_modified(ch, "race_features")
+                        await db.commit()
                     tp_bonus, tp_bonus_text = _tireless_precision_bonus_for_check(
                         getattr(ch, "race_features", None),
                         kind="tool",
                         key=tool_key,
                     )
-                    total = base_total + tp_bonus
+                    total = base_total + tp_bonus + vamp_bonus
                     d20_text = str(roll) if rb is None else f"{ra}/{rb}->{roll}"
 
                     msg = f"[TOOL] {ch.name}: {tool_key} = d20({d20_text}) + {mod:+d} => {total}"
                     if tp_bonus > 0 and tp_bonus_text:
                         msg = f"[TOOL] {ch.name}: {tool_key} = d20({d20_text}) + {mod:+d} + {tp_bonus_text} => {total}"
+                    if vamp_bonus > 0 and vamp_bonus_text:
+                        msg = f"[TOOL] {ch.name}: {tool_key} = d20({d20_text}) + {mod:+d} + {vamp_bonus_text} => {total}"
+                    if tp_bonus > 0 and tp_bonus_text and vamp_bonus > 0 and vamp_bonus_text:
+                        msg = f"[TOOL] {ch.name}: {tool_key} = d20({d20_text}) + {mod:+d} + {tp_bonus_text} + {vamp_bonus_text} => {total}"
                     if dc is not None:
                         ok = total >= dc
                         msg += f" (DC {dc}) {'SUCCESS' if ok else 'FAIL'}"
@@ -3342,13 +3463,17 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                         all_patches: list[dict[str, Any]] = []
                         outcome_summary: list[str] = []
                         move_distance_ft: Optional[int] = None
+                        bite_empower: Optional[str] = None
                         if combat_action == "combat_move":
                             m_dist = COMBAT_MOVE_DISTANCE_RE.search(cmdline)
                             move_distance_ft = as_int(m_dist.group(1), 0) if m_dist else 0
+                        elif combat_action == "combat_vampiric_bite":
+                            bite_empower = _detect_vampiric_bite_empower(text)
                         combat_patch, combat_err = handle_live_combat_action(
                             combat_action,
                             session_id,
                             distance_ft=move_distance_ft,
+                            empower=bite_empower,
                         )
                         if combat_err:
                             await ws_error(combat_err)

@@ -760,6 +760,16 @@ function getSkillChoiceConfig(traits){
     const mech = (t.mechanics && typeof t.mechanics === "object") ? t.mechanics : {};
     const mtype = String(mech.type || "").trim().toLowerCase();
     if(mtype !== "choose_skill_proficiency" && mtype !== "choose_skill_proficiencies"){
+      if(mtype === "ancestral_legacy"){
+        const count = Number(mech.fallback_choose_skills ?? 0);
+        if(count > 0){
+          out.required = true;
+          out.count = count;
+          out.from = [];
+          out.traitKey = traitKey || "ancestral_legacy";
+          return out;
+        }
+      }
       continue;
     }
     const count = Number(mech.count ?? mech.choose ?? 0);
@@ -1156,6 +1166,7 @@ function renderRaceChoices(){
   const ctx = getCurrentRaceContext();
   const raceKey = String(((ctx.race && ctx.race.id) || ctx.details.key || "")).trim().toLowerCase();
   const isCustomLineage = raceKey === "custom_lineage";
+  const isDhampir = raceKey === "dhampir";
   const langCfg = getLanguageChoiceConfig(ctx.effectiveTraits);
   const asiCfg = getAsiChoiceConfig(ctx.effectiveTraits, ctx.details.asi, raceKey);
   const flexAsiCfg = getFlexAsiChoiceConfig(ctx.details.asi);
@@ -1171,7 +1182,7 @@ function renderRaceChoices(){
     : ["darkvision_60", "skill_proficiency_choice_1"];
   const variableTraitValue = String(variableTraitSel.value || "").trim().toLowerCase();
   const needsCustomLineageSkill = isCustomLineage && variableTraitValue === "skill_proficiency_choice_1";
-  const needsSize = isCustomLineage;
+  const needsSize = isCustomLineage || isDhampir;
   const needsLanguage = !!langCfg.required;
   const needsAsi = !!asiCfg.required || !!flexAsiCfg.required;
   const needsFlexAsi = !!flexAsiCfg.required;
@@ -1357,8 +1368,21 @@ function renderRaceChoices(){
     first2.textContent = "(выберите язык)";
     langSel2.appendChild(first2);
 
+    const blockedLanguages = new Set();
+    if(isCustomLineage || isDhampir){
+      blockedLanguages.add("common");
+    }
+    if(isDhampir){
+      const baseRaceLanguages = Array.isArray(ctx.details.languages)
+        ? ctx.details.languages
+        : (Array.isArray(ctx.race && ctx.race.languages) ? ctx.race.languages : []);
+      for(const lang of baseRaceLanguages){
+        const langKey = String(lang || "").trim().toLowerCase();
+        if(langKey) blockedLanguages.add(langKey);
+      }
+    }
     const options = buildLanguageOptions(langCfg.allowAny ? [] : langCfg.allowedKeys)
-      .filter((item) => !isCustomLineage || String(item.key || "").trim().toLowerCase() !== "common");
+      .filter((item) => !blockedLanguages.has(String(item.key || "").trim().toLowerCase()));
     for(const item of options){
       const opt = document.createElement("option");
       opt.value = item.key;
@@ -1377,8 +1401,21 @@ function renderRaceChoices(){
       const refreshLangPair = () => {
         const current1 = String(langSel.value || "").trim().toLowerCase();
         const current2 = String(langSel2.value || "").trim().toLowerCase();
+        const blockedLanguages = new Set();
+        if(isCustomLineage || isDhampir){
+          blockedLanguages.add("common");
+        }
+        if(isDhampir){
+          const baseRaceLanguages = Array.isArray(ctx.details.languages)
+            ? ctx.details.languages
+            : (Array.isArray(ctx.race && ctx.race.languages) ? ctx.race.languages : []);
+          for(const lang of baseRaceLanguages){
+            const langKey = String(lang || "").trim().toLowerCase();
+            if(langKey) blockedLanguages.add(langKey);
+          }
+        }
         const options = buildLanguageOptions(langCfg.allowAny ? [] : langCfg.allowedKeys)
-          .filter((item) => !isCustomLineage || String(item.key || "").trim().toLowerCase() !== "common");
+          .filter((item) => !blockedLanguages.has(String(item.key || "").trim().toLowerCase()));
         langSel.innerHTML = "";
         langSel2.innerHTML = "";
         const f1 = document.createElement("option");
@@ -1554,10 +1591,12 @@ function renderRaceChoices(){
       skillSel2.disabled = false;
       skillSel2.required = true;
     }else{
-      const isCentaurSurvivor = String(raceChoiceState.skillTraitKey || "") === "survivor_skill_choice";
+      const skillTraitKey = String(raceChoiceState.skillTraitKey || "");
+      const isCentaurSurvivor = skillTraitKey === "survivor_skill_choice";
+      const isAncestralLegacy = skillTraitKey === "ancestral_legacy";
       skillLabel.textContent = needsCustomLineageSkill
         ? "Навык (для выборочной особенности, обязательно)"
-        : (isCentaurSurvivor ? "Выживший (навык)" : "Навык (обязательно)");
+        : (isAncestralLegacy ? "Наследие предков (2 навыка, обязательно)" : (isCentaurSurvivor ? "Выживший (навык)" : "Навык (обязательно)"));
       skillSel2.style.display = "none";
       skillSel2.disabled = true;
       skillSel2.required = false;
