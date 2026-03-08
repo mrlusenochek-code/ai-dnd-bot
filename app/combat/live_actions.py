@@ -385,6 +385,43 @@ def _movement_budget_for_actor(actor: Any) -> tuple[int, int]:
     return move_speed_ft, move_remaining_ft
 
 
+def _resolve_actor_mode_speed(actor: Any, movement_mode: str) -> int:
+    speed_ft = max(0, int(getattr(actor, "speed_ft", 30)))
+    speeds = actor.movement_speeds if isinstance(getattr(actor, "movement_speeds", None), dict) else {}
+    mode_speed_raw = speeds.get(movement_mode)
+    if isinstance(mode_speed_raw, int) and not isinstance(mode_speed_raw, bool):
+        return max(0, int(mode_speed_raw))
+    return speed_ft
+
+
+def _set_movement_mode_without_budget_reset(actor: Any, mode: str) -> None:
+    mover_mode = str(mode or "").strip().lower() or "walk"
+    _, remaining = _movement_budget_for_actor(actor)
+    actor.movement_mode = mover_mode
+    actor.move_speed_ft = _resolve_actor_mode_speed(actor, mover_mode)
+    actor.move_remaining_ft = remaining
+    actor.move_remaining = remaining
+
+
+def _charge_hooves_text() -> str:
+    return "Разбег: можно бонусным действием ударить копытами (напиши 'копыта')."
+
+
+def _has_charge_feature(actor: Any) -> bool:
+    cfg = _race_feature(actor, "charge")
+    return isinstance(cfg, dict) and bool(cfg)
+
+
+def _has_equine_climb_penalty(actor: Any) -> int:
+    race_features = getattr(actor, "race_features", None)
+    rf = race_features if isinstance(race_features, dict) else {}
+    movement = rf.get("movement") if isinstance(rf.get("movement"), dict) else {}
+    extra = movement.get("climb_extra_cost_ft_per_ft")
+    if isinstance(extra, int) and not isinstance(extra, bool) and extra > 0:
+        return int(extra)
+    return 0
+
+
 def handle_live_combat_reaction(
     action: str, session_id: str, actor_key: str
 ) -> tuple[Optional[dict[str, Any]], Optional[str]]:
@@ -710,6 +747,36 @@ def handle_live_combat_action(
             None,
         )
 
+    if action in {"combat_mode_walk", "combat_mode_swim", "combat_mode_climb"}:
+        state = get_combat(session_id)
+        if state is None or not state.active:
+            return None, "Combat is not active"
+        if not state.order:
+            end_combat(session_id)
+            return (
+                {
+                    "status": "Бой завершён",
+                    "open": False,
+                    "lines": [{"text": "Бой завершён: целей не осталось.", "muted": True}],
+                },
+                None,
+            )
+        actor_key = state.order[state.turn_index]
+        actor = state.combatants.get(actor_key)
+        if actor is None:
+            return None, "Combat state is inconsistent"
+        mode = action.replace("combat_mode_", "", 1)
+        mode_ru = {"walk": "ходьбы", "swim": "плавания", "climb": "лазания"}.get(mode, mode)
+        _set_movement_mode_without_budget_reset(actor, mode)
+        return (
+            {
+                "status": _combat_status(state),
+                "open": True,
+                "lines": [{"text": f"{actor.name} переключается в режим {mode_ru}.", "muted": True}],
+            },
+            None,
+        )
+
     if action == "combat_land":
         state = get_combat(session_id)
         if state is None or not state.active:
@@ -851,16 +918,34 @@ def handle_live_combat_action(
 
         _mode_speed, remaining = _movement_budget_for_actor(mover)
         mover.move_speed_ft = _mode_speed
-        if dist > remaining:
+        mode = str(getattr(mover, "movement_mode", "") or "walk").strip().lower() or "walk"
+        climb_extra_cost = _has_equine_climb_penalty(mover)
+        move_cost = dist
+        extra_lines: list[dict[str, Any]] = []
+        if mode == "climb" and climb_extra_cost > 0:
+            move_cost = dist * (1 + climb_extra_cost)
+            extra_lines.append(
+                {
+                    "text": (
+                        f"Лошадиное телосложение: лазание стоит +{climb_extra_cost} фт за 1 фт "
+                        f"(потрачено {move_cost} фт)."
+                    ),
+                    "muted": True,
+                }
+            )
+        if move_cost > remaining:
             return None, f"Недостаточно перемещения: осталось {remaining} фт."
 
-        mover.move_remaining_ft = remaining - dist
+        mover.move_remaining_ft = remaining - move_cost
         mover.move_remaining = mover.move_remaining_ft
+        mover.moved_this_turn_ft = max(0, int(getattr(mover, "moved_this_turn_ft", 0))) + dist
+        lines = [{"text": f"{mover.name} перемещается на {dist} фт (осталось {mover.move_remaining_ft} фт)."}]
+        lines.extend(extra_lines)
         return (
             {
                 "status": _combat_status(state),
                 "open": True,
-                "lines": [{"text": f"{mover.name} перемещается на {dist} фт (осталось {mover.move_remaining_ft} фт)."}],
+                "lines": lines,
             },
             None,
         )
@@ -1348,6 +1433,15 @@ def handle_live_combat_action(
             fury_bonus = _maybe_apply_fury_of_small(attacker, extra_outcome_lines)
             if fury_bonus > 0:
                 total_damage += fury_bonus
+            moved_this_turn_ft = max(0, int(getattr(attacker, "moved_this_turn_ft", 0)))
+            if (
+                _has_charge_feature(attacker)
+                and moved_this_turn_ft >= 30
+                and bool(profile.is_melee_weapon)
+                and bool(getattr(attacker, "bonus_action_available", False))
+            ):
+                attacker.charge_hooves_available = True
+                extra_outcome_lines.append({"text": _charge_hooves_text(), "muted": True})
             bonus_damage, bonus_damage_type = _aasimar_bonus_damage_for_hit(attacker)
             if bonus_damage > 0:
                 total_damage += bonus_damage
@@ -1418,6 +1512,16 @@ def handle_live_combat_action(
                 {
                     "status": "Бой завершён",
                     "open": False,
+                    "lines": lines,
+                },
+                None,
+            )
+
+        if bool(getattr(attacker, "charge_hooves_available", False)):
+            return (
+                {
+                    "status": _combat_status(state),
+                    "open": True,
                     "lines": lines,
                 },
                 None,
@@ -1568,6 +1672,164 @@ def handle_live_combat_action(
         if state is None:
             return None, "Combat is not active"
         lines.append({"text": f"Ход автоматически передан: {current_turn_label(state)}", "muted": True})
+        return (
+            {
+                "status": _combat_status(state),
+                "open": True,
+                "lines": lines,
+            },
+            None,
+        )
+
+    if action == "combat_hooves_attack":
+        state = get_combat(session_id)
+        if state is None or not state.active:
+            return None, "Combat is not active"
+        if not state.order:
+            end_combat(session_id)
+            return (
+                {
+                    "status": "Бой завершён",
+                    "open": False,
+                    "lines": [{"text": "Бой завершён: целей не осталось.", "muted": True}],
+                },
+                None,
+            )
+
+        attacker_key = state.order[state.turn_index]
+        attacker = state.combatants.get(attacker_key)
+        if attacker is None:
+            return None, "Combat state is inconsistent"
+        if not bool(getattr(attacker, "charge_hooves_available", False)):
+            return None, "Копыта недоступны: сначала нужен Разбег."
+        blocked = _spend_bonus_action_or_block(state, attacker)
+        if blocked is not None:
+            return blocked, None
+
+        target = _first_living_opponent(state, attacker.side)
+        if target is None:
+            end_combat(session_id)
+            return (
+                {
+                    "status": "Бой завершён",
+                    "open": False,
+                    "lines": [{"text": "Бой завершён: целей не осталось.", "muted": True}],
+                },
+                None,
+            )
+
+        has_disadvantage = target.dodge_active
+        has_advantage = attacker.help_attack_advantage
+        roll_mode = "normal"
+        if has_advantage and not has_disadvantage:
+            roll_mode = "advantage"
+        elif has_disadvantage and not has_advantage:
+            roll_mode = "disadvantage"
+        roll_a, roll_b, d20_roll = _roll_check_compat(
+            roll_mode,
+            rng=random,
+            reroll_ones=_has_reroll_ones_scope(attacker, "attack"),
+        )
+        bfs_lines: list[dict[str, Any]] = []
+        d20_roll = _maybe_apply_built_for_success(attacker, d20_roll, bfs_lines)
+        attack_roll_repr = f"d20({roll_a})" if roll_b is None else f"d20({roll_a},{roll_b}) -> {d20_roll}"
+
+        stats = attacker.stats if isinstance(attacker.stats, dict) else {}
+        profile = compute_attack_profile(
+            stats=stats,
+            inventory=[],
+            equip_map={},
+            level=attacker.level,
+            race_features=getattr(attacker, "race_features", None),
+        )
+        parsed = parse_dice(profile.damage_dice)
+        if parsed is None:
+            n, sides = 1, 4
+        else:
+            n, sides = parsed
+        damage_roll = sum(random.randint(1, sides) for _ in range(n))
+
+        resolution = resolve_attack_roll(
+            target_ac=target.ac,
+            d20_roll=d20_roll,
+            attack_bonus=profile.attack_bonus,
+            damage_roll=damage_roll,
+            damage_bonus=profile.damage_bonus,
+        )
+        attacker.help_attack_advantage = False
+        attacker.charge_hooves_available = False
+
+        total_damage = int(resolution.total_damage)
+        extra_outcome_lines: list[dict[str, Any]] = []
+        extra_outcome_lines.extend(bfs_lines)
+        if resolution.is_hit:
+            pre_hp = target.hp_current
+            damage_to_apply, relentless_lines = _apply_relentless_endurance_if_needed(target=target, incoming_damage=total_damage)
+            extra_outcome_lines.extend(relentless_lines)
+            state = apply_damage(session_id, target.key, damage_to_apply, source=attacker.key)
+            if state is None:
+                return None, "Combat is not active"
+            target = state.combatants.get(target.key, target)
+            if target.side == "pc":
+                if pre_hp > 0 and target.hp_current == 0:
+                    leftover = total_damage - pre_hp
+                    if leftover >= target.hp_max:
+                        target.is_dead = True
+                        target.is_stable = False
+                        extra_outcome_lines.append({"text": f"Мгновенная смерть: {target.name} погибает."})
+                elif pre_hp == 0 and not target.is_dead:
+                    fail_step = 2 if resolution.is_crit else 1
+                    target.death_failures = _clamp_death_counter(target.death_failures + fail_step)
+                    if target.death_failures >= 3:
+                        target.is_dead = True
+                        target.is_stable = False
+                        extra_outcome_lines.append({"text": f"Смерть: {target.name} погибает."})
+                    else:
+                        extra_outcome_lines.append({"text": "Смертельный урон при 0 HP: провал спасброска смерти."})
+
+        attack_line = (
+            f"Бросок атаки (Копыта): {attack_roll_repr} + {resolution.attack_bonus} = "
+            f"{resolution.total_to_hit} vs AC {resolution.target_ac}"
+        )
+        if resolution.is_crit:
+            attack_line += " (крит)"
+        elif resolution.is_hit:
+            attack_line += " (попадание)"
+        else:
+            attack_line += " (промах)"
+        lines: list[dict[str, Any]] = [
+            {"text": f"Атака: {attacker.name} -> {target.name}"},
+            {"text": "Копыта: бонусная атака после Разбега.", "muted": True},
+            {"text": attack_line, "muted": True},
+        ]
+        lines.extend(extra_outcome_lines)
+        if resolution.is_hit:
+            lines.extend(
+                [
+                    {"text": f"Урон: {profile.damage_dice} + {resolution.damage_bonus:+d} = {total_damage} {profile.damage_type}"},
+                    {"text": f"HP врага: {target.hp_current}/{target.hp_max}"},
+                ]
+            )
+            if target.hp_current <= 0:
+                lines.append({"text": f"{target.name} повержен."})
+
+        side_pc_alive = _is_side_alive(state, "pc")
+        side_enemy_alive = _is_side_alive(state, "enemy")
+        if not side_pc_alive or not side_enemy_alive:
+            if not side_enemy_alive:
+                lines.append({"text": "Победа: противники повержены.", "muted": True})
+            if not side_pc_alive:
+                lines.append({"text": "Поражение: все герои выбыли.", "muted": True})
+            end_combat(session_id)
+            return (
+                {
+                    "status": "Бой завершён",
+                    "open": False,
+                    "lines": lines,
+                },
+                None,
+            )
+
         return (
             {
                 "status": _combat_status(state),

@@ -707,7 +707,11 @@ function openCharacterModal(){
     : "";
   const raceFeaturesMeta = (rf.features && typeof rf.features === "object") ? rf.features : {};
   const creatureType = String(rf.creature_type || "").trim().toLowerCase();
-  const creatureTypeText = creatureType ? `Тип существа: ${creatureType === "construct" ? "конструкт" : creatureType}` : "";
+  const creatureTypeRu = {
+    "construct": "Конструкт",
+    "fey": "Фея",
+  };
+  const creatureTypeText = creatureType ? `Тип существа: ${creatureTypeRu[creatureType] || creatureType}` : "";
   const raceNeeds = (rf.needs && typeof rf.needs === "object") ? rf.needs : {};
   const noNeedList = Array.isArray(raceNeeds.no_need)
     ? raceNeeds.no_need.map((x) => String(x || "").trim().toLowerCase()).filter(Boolean)
@@ -794,6 +798,21 @@ function openCharacterModal(){
     : "";
   const nimbleEscapeText = nimbleEscape
     ? "Ловкое бегство: отход бонусным действием"
+    : "";
+  const charge = (raceFeaturesMeta.charge && typeof raceFeaturesMeta.charge === "object")
+    ? raceFeaturesMeta.charge
+    : null;
+  const chargeMoveFt = charge && Number.isFinite(Number(charge.move_ft)) ? Number(charge.move_ft) : 30;
+  const chargeBonusAttack = String((charge && charge.bonus_attack) || "").trim().toLowerCase();
+  const chargeText = charge
+    ? `Разбег: после ${chargeMoveFt} фт движения и попадания рукопашным оружием -> бонус-атака ${chargeBonusAttack === "hooves" ? "копытами" : "копытами"}`
+    : "";
+  const movementMeta = (rf.movement && typeof rf.movement === "object") ? rf.movement : {};
+  const climbExtraCost = Number.isFinite(Number(movementMeta.climb_extra_cost_ft_per_ft))
+    ? Number(movementMeta.climb_extra_cost_ft_per_ft)
+    : null;
+  const equineBuildText = (carry.powerful_build === true || climbExtraCost !== null)
+    ? `Лошадиное телосложение: мощное телосложение; лазание стоит x${1 + (climbExtraCost !== null ? climbExtraCost : 4)} движения`
     : "";
   const stonecunning = (raceFeaturesMeta.stonecunning && typeof raceFeaturesMeta.stonecunning === "object")
     ? raceFeaturesMeta.stonecunning
@@ -1121,6 +1140,11 @@ function openCharacterModal(){
   const tirelessPrecisionText = (tirelessSkillRu && tirelessToolRu)
     ? `Неустанная скрупулёзность: навык ${tirelessSkillRu}, инструмент ${tirelessToolRu}, бонус 1d4`
     : "";
+  const survivorSkills = Array.isArray(choices.skills)
+    ? choices.skills.map((x) => String(x || "").trim().toLowerCase()).filter(Boolean)
+    : [];
+  const survivorSkillRu = survivorSkills.length ? getSkillNameRu(survivorSkills[0]) : "";
+  const survivorText = survivorSkillRu ? `Выживший: ${survivorSkillRu}` : "";
   const draconicKey = String(draconicChoice.key || "").trim().toLowerCase();
   const draconicDamage = String(draconicChoice.damage_type || "").trim().toLowerCase();
   const draconicBreath = (draconicChoice.breath && typeof draconicChoice.breath === "object") ? draconicChoice.breath : {};
@@ -1327,6 +1351,15 @@ function openCharacterModal(){
   if(carry.powerful_build === true){
     details.push("<div class=\"char-line\"><strong>Мощное телосложение:</strong> считается на 1 размер больше для переноски/толкания/тяги/подъёма</div>");
   }
+  if(chargeText){
+    details.push(`<div class="char-line"><strong>Разбег:</strong> ${escapeHtml(chargeText.replace(/^Разбег:\s*/, ""))}</div>`);
+  }
+  if(equineBuildText){
+    details.push(`<div class="char-line"><strong>Лошадиное телосложение:</strong> ${escapeHtml(equineBuildText.replace(/^Лошадиное телосложение:\s*/, ""))}</div>`);
+  }
+  if(survivorText){
+    details.push(`<div class="char-line"><strong>Выживший:</strong> ${escapeHtml(survivorText.replace(/^Выживший:\s*/, ""))}</div>`);
+  }
   if(stoneEndurance){
     details.push("<div class=\"char-line\"><strong>Каменная выносливость:</strong> реакция, 1/к/дл отдых: снижает урон (1d12 + мод. Тел)</div>");
   }
@@ -1485,6 +1518,9 @@ function openCharacterModal(){
   if(feyAncestryText) copyLines.push(feyAncestryText);
   if(gnomeCunningText) copyLines.push(gnomeCunningText);
   if(carry.powerful_build === true) copyLines.push("Мощное телосложение: считается на 1 размер больше для переноски/толкания/тяги/подъёма");
+  if(chargeText) copyLines.push(chargeText);
+  if(equineBuildText) copyLines.push(equineBuildText);
+  if(survivorText) copyLines.push(survivorText);
   if(stoneEndurance) copyLines.push("Каменная выносливость: реакция, 1/к/дл отдых: снижает урон (1d12 + мод. Тел)");
   if(luckyText) copyLines.push(luckyText);
   if(braveText) copyLines.push(braveText);

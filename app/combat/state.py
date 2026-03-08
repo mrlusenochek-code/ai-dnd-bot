@@ -32,6 +32,8 @@ class Combatant:
     move_speed_ft: int = 30
     move_remaining_ft: int = 30
     move_remaining: int = 30
+    moved_this_turn_ft: int = 0
+    charge_hooves_available: bool = False
     is_dead: bool = False
     is_stable: bool = False
     death_successes: int = 0
@@ -393,6 +395,8 @@ def combatant_to_dict(c: Combatant) -> dict[str, Any]:
         "move_speed_ft": max(0, int(c.move_speed_ft)),
         "move_remaining_ft": max(0, int(c.move_remaining_ft)),
         "move_remaining": max(0, int(c.move_remaining)),
+        "moved_this_turn_ft": max(0, int(c.moved_this_turn_ft)),
+        "charge_hooves_available": bool(c.charge_hooves_available),
         "is_dead": bool(c.is_dead),
         "is_stable": bool(c.is_stable),
         "death_successes": max(0, min(int(c.death_successes), 3)),
@@ -511,6 +515,12 @@ def combatant_from_dict(raw: Any) -> Combatant | None:
         if isinstance(raw_move_remaining_ft, int) and not isinstance(raw_move_remaining_ft, bool)
         else move_speed_ft_norm
     )
+    raw_moved_this_turn_ft = raw.get("moved_this_turn_ft", 0)
+    moved_this_turn_ft_norm = (
+        max(0, int(raw_moved_this_turn_ft))
+        if isinstance(raw_moved_this_turn_ft, int) and not isinstance(raw_moved_this_turn_ft, bool)
+        else 0
+    )
 
     return Combatant(
         key=key,
@@ -535,6 +545,8 @@ def combatant_from_dict(raw: Any) -> Combatant | None:
         move_speed_ft=move_speed_ft_norm,
         move_remaining_ft=move_remaining_ft_norm,
         move_remaining=move_remaining_norm,
+        moved_this_turn_ft=moved_this_turn_ft_norm,
+        charge_hooves_available=bool(raw.get("charge_hooves_available", False)),
         is_dead=bool(is_dead),
         is_stable=bool(is_stable),
         death_successes=death_successes_norm,

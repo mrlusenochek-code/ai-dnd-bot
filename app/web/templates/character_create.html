@@ -374,6 +374,8 @@ let raceChoiceState = {
   asiCount: 0,
   skillRequired: false,
   skillCount: 0,
+  skillOptions: [],
+  skillTraitKey: "",
   featRequired: false,
   toolRequired: false,
   toolCount: 0,
@@ -705,10 +707,11 @@ function getFlexAsiChoiceConfig(asiItems){
 }
 
 function getSkillChoiceConfig(traits){
-  const out = { required: false, count: 0 };
+  const out = { required: false, count: 0, from: [], traitKey: "" };
   const items = Array.isArray(traits) ? traits : [];
   for(const t of items){
     if(!t || typeof t !== "object") continue;
+    const traitKey = String(t.key || "").trim().toLowerCase();
     const mech = (t.mechanics && typeof t.mechanics === "object") ? t.mechanics : {};
     const mtype = String(mech.type || "").trim().toLowerCase();
     if(mtype !== "choose_skill_proficiency" && mtype !== "choose_skill_proficiencies"){
@@ -716,8 +719,13 @@ function getSkillChoiceConfig(traits){
     }
     const count = Number(mech.count ?? mech.choose ?? 0);
     if(count === 1 || count === 2){
+      const fromRaw = mech.from;
+      const fromList = Array.isArray(fromRaw) ? fromRaw : [fromRaw];
+      const from = fromList.map((x) => String(x || "").trim().toLowerCase()).filter(Boolean);
       out.required = true;
       out.count = count;
+      out.from = Array.from(new Set(from));
+      out.traitKey = traitKey;
       return out;
     }
   }
@@ -865,6 +873,8 @@ function fillSkillSelect(sel, prev, opts){
   const prevValue = String(prev || "");
   const options = (opts && typeof opts === "object") ? opts : {};
   const blockedValue = String(options.blockedValue || "").trim().toLowerCase();
+  const allowedRaw = Array.isArray(options.allowed) ? options.allowed : [];
+  const allowed = new Set(allowedRaw.map((x) => String(x || "").trim().toLowerCase()).filter(Boolean));
   sel.innerHTML = "";
   const first = document.createElement("option");
   first.value = "";
@@ -874,6 +884,7 @@ function fillSkillSelect(sel, prev, opts){
     return String(SKILL_LABELS_RU[a] || a).localeCompare(String(SKILL_LABELS_RU[b] || b), "ru", { sensitivity: "base" });
   });
   for(const key of keys){
+    if(allowed.size > 0 && !allowed.has(key)) continue;
     if(blockedValue && key === blockedValue && key !== prevValue) continue;
     const opt = document.createElement("option");
     opt.value = key;
@@ -1100,6 +1111,8 @@ function renderRaceChoices(){
     asiCount: needsFlexAsi ? 2 : Number(asiCfg.count || 2),
     skillRequired: needsSkill,
     skillCount: Number(skillCfg.count || 0),
+    skillOptions: Array.isArray(skillCfg.from) ? skillCfg.from.slice() : [],
+    skillTraitKey: String(skillCfg.traitKey || "").trim().toLowerCase(),
     featRequired: needsFeat,
     toolRequired: needsTool,
     toolCount: Number(toolCfg.choices || 0),
@@ -1279,9 +1292,15 @@ function renderRaceChoices(){
     const refreshSkillPair = () => {
       const current1 = String(skillSel1.value || "").trim().toLowerCase();
       const current2 = String(skillSel2.value || "").trim().toLowerCase();
-      fillSkillSelect(skillSel1, current1, { blockedValue: skillCount >= 2 ? current2 : "" });
+      fillSkillSelect(skillSel1, current1, {
+        blockedValue: skillCount >= 2 ? current2 : "",
+        allowed: raceChoiceState.skillOptions,
+      });
       if(skillCount >= 2){
-        fillSkillSelect(skillSel2, current2, { blockedValue: current1 });
+        fillSkillSelect(skillSel2, current2, {
+          blockedValue: current1,
+          allowed: raceChoiceState.skillOptions,
+        });
       }
     };
     refreshSkillPair();
@@ -1294,7 +1313,8 @@ function renderRaceChoices(){
       skillSel2.disabled = false;
       skillSel2.required = true;
     }else{
-      skillLabel.textContent = "Навык (обязательно)";
+      const isCentaurSurvivor = String(raceChoiceState.skillTraitKey || "") === "survivor_skill_choice";
+      skillLabel.textContent = isCentaurSurvivor ? "Выживший (навык)" : "Навык (обязательно)";
       skillSel2.style.display = "none";
       skillSel2.disabled = true;
       skillSel2.required = false;

@@ -1236,6 +1236,7 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
 
                 if action in {
                     "combat_attack",
+                    "combat_hooves_attack",
                     "combat_end_turn",
                     "combat_dodge",
                     "combat_dash",
@@ -1243,6 +1244,9 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                     "combat_disengage",
                     "combat_takeoff",
                     "combat_land",
+                    "combat_mode_walk",
+                    "combat_mode_swim",
+                    "combat_mode_climb",
                     "combat_escape",
                     "combat_use_object",
                     "combat_help",

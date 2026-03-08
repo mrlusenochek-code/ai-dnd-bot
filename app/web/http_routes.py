@@ -674,6 +674,8 @@ def _build_race_features(selected_race: dict | None) -> dict[str, Any]:
             damage_dice = str(mech.get("damage_dice") or "").strip().lower()
             damage_type = str(mech.get("damage_type") or "").strip().lower()
             kind = str(mech.get("kind") or "").strip().lower()
+            if not kind:
+                kind = "unarmed"
             ability = str(mech.get("ability") or "").strip().lower()
             if kind == "unarmed" and not ability:
                 ability = "str"
@@ -734,6 +736,14 @@ def _build_race_features(selected_race: dict | None) -> dict[str, Any]:
 
         if mtype == "surprise_attack":
             features["surprise_attack"] = dict(mech)
+
+        if mtype == "charge_bonus_attack":
+            features["charge"] = dict(mech)
+
+        if mtype == "equine_build":
+            carry["powerful_build"] = True
+            movement["climb_extra_cost_ft_per_ft"] = max(0, as_int(mech.get("climb_extra_cost_ft_per_ft"), 4))
+            movement["climb_requires_hands_and_feet"] = bool(mech.get("climb_requires_hands_and_feet", True))
 
         if mtype == "bonus_damage" and tkey == "fury_of_the_small":
             features["fury_of_the_small"] = dict(mech)
@@ -1224,6 +1234,7 @@ async def api_character_create(payload: dict):
         required_race_asi_bonus = 0
         required_race_asi_exclude: set[str] = set()
         required_race_skill_count = 0
+        required_race_skill_options: list[str] = []
         required_race_language_count = 0
         race_language_choice_available = False
         race_flex_asi_available = False
@@ -1286,6 +1297,15 @@ async def api_character_create(payload: dict):
                         count = max(as_int(mech.get("count"), as_int(mech.get("choose"), 0)), 0)
                         if count > 0:
                             required_race_skill_count = max(required_race_skill_count, count)
+                            from_items: list[str] = []
+                            from_raw = mech.get("from")
+                            from_list = from_raw if isinstance(from_raw, list) else [from_raw]
+                            for item in from_list:
+                                skill_key = str(item or "").strip().lower()
+                                if skill_key and skill_key not in from_items:
+                                    from_items.append(skill_key)
+                            if from_items and not required_race_skill_options:
+                                required_race_skill_options = from_items
                     elif mtype in {"choose_language", "language_choice"}:
                         count = max(as_int(mech.get("count"), as_int(mech.get("choose"), 0)), 0)
                         if count > 0:
@@ -1362,6 +1382,10 @@ async def api_character_create(payload: dict):
                     status_code=400,
                     detail=f"Exactly {required_race_skill_count} race skill choice(s) required",
                 )
+            if required_race_skill_options:
+                for skill in race_choice_skills:
+                    if skill not in required_race_skill_options:
+                        raise HTTPException(status_code=400, detail=f"Invalid race skill choice: {skill}")
         elif race_choice_skills:
             raise HTTPException(status_code=400, detail="Race skill choice is not available for selected race")
 

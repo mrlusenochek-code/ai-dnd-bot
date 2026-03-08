@@ -29,11 +29,27 @@ INV_MACHINE_LINE_RE = re.compile(
 ZONE_SET_MACHINE_LINE_RE = re.compile(r"^\s*(?:\(\s*)?@@ZONE_SET\s*\((?P<args>.*?)\)\s*(?:\))?\s*$", re.IGNORECASE)
 CHAT_COMBAT_ACTION_PATTERNS: list[tuple[str, re.Pattern[str]]] = [
     (
+        "combat_hooves_attack",
+        re.compile(r"(копыт\w*|бью\s+копыт\w*|топч\w*)", re.IGNORECASE),
+    ),
+    (
         "combat_attack",
         re.compile(
             r"(атак|напад|удар|бью|рубл|колю|выпад|тыч|пыр|замах|метаю|швыряю|стреля|выстрел|стрел|лук|арбалет|режу|вступаю\s+в\s+бой|вступить\s+в\s+бой|вхожу\s+в\s+бой|войти\s+в\s+бой|врываюсь\s+в\s+бой)",
             re.IGNORECASE,
         ),
+    ),
+    (
+        "combat_mode_walk",
+        re.compile(r"(?:\bиду\b(?!\s+\d)|по\s+земле|перехожу\s+на\s+шаг)", re.IGNORECASE),
+    ),
+    (
+        "combat_mode_swim",
+        re.compile(r"(плыв\w*|ныря\w*)", re.IGNORECASE),
+    ),
+    (
+        "combat_mode_climb",
+        re.compile(r"(лез\w*|карабка\w*)", re.IGNORECASE),
     ),
     ("combat_dodge", re.compile(r"(уклон|уворач|уворот|в защиту|защищаюсь|оборон|в оборону|блок|щит|стойк|додж)", re.IGNORECASE)),
     ("combat_help", re.compile(r"(помога|помочь|помогу|поддерж|страх|отвлек|координ|даю преимущество|открываю окно|прикрываю)", re.IGNORECASE)),

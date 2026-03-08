@@ -66,6 +66,8 @@ def advance_turn_in_state(state: CombatState) -> CombatState:
         current_combatant.action_available = True
         current_combatant.bonus_action_available = True
         current_combatant.reaction_available = True
+        current_combatant.moved_this_turn_ft = 0
+        current_combatant.charge_hooves_available = False
         mode = str(getattr(current_combatant, "movement_mode", "") or "walk").strip().lower() or "walk"
         speeds = current_combatant.movement_speeds if isinstance(current_combatant.movement_speeds, dict) else {}
         mode_speed_raw = speeds.get(mode)
