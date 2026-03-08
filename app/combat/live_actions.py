@@ -201,18 +201,19 @@ def _apply_relentless_endurance_if_needed(*, target: Any, incoming_damage: int) 
     return max(0, pre_hp - 1), extra_lines
 
 
-def _built_for_success_bonus_for_attack(actor: Any) -> tuple[int, list[dict[str, Any]]]:
+def _maybe_apply_built_for_success(actor: Any, d20_roll: int, lines: list[dict[str, Any]]) -> int:
+    roll_out = int(d20_roll)
     extra_lines: list[dict[str, Any]] = []
     if str(getattr(actor, "side", "")).lower() != "pc":
-        return 0, extra_lines
+        return roll_out
     built_cfg = _race_feature(actor, "built_for_success")
     if built_cfg is None:
-        return 0, extra_lines
+        return roll_out
     race_features = actor.race_features if isinstance(actor.race_features, dict) else {}
     runtime_raw = race_features.get("runtime")
     runtime = dict(runtime_raw) if isinstance(runtime_raw, dict) else {}
     if not bool(runtime.get("built_for_success_armed")):
-        return 0, extra_lines
+        return roll_out
     level = max(1, int(getattr(actor, "level", 1) or 1))
     uses_max = max(1, int(proficiency_bonus(level)))
     used = max(0, int(runtime.get("built_for_success_used") or 0))
@@ -221,14 +222,16 @@ def _built_for_success_bonus_for_attack(actor: Any) -> tuple[int, list[dict[str,
         race_features["runtime"] = runtime
         actor.race_features = race_features
         extra_lines.append({"text": "Создан для успеха: заряды исчерпаны до долгого отдыха.", "muted": True})
-        return 0, extra_lines
+        lines.extend(extra_lines)
+        return roll_out
     bonus = random.randint(1, 4)
     runtime["built_for_success_used"] = used + 1
     runtime["built_for_success_armed"] = False
     race_features["runtime"] = runtime
     actor.race_features = race_features
     extra_lines.append({"text": f"Создан для успеха: +{bonus} (1d4).", "muted": True})
-    return bonus, extra_lines
+    lines.extend(extra_lines)
+    return roll_out + bonus
 
 
 def _breath_weapon_dice_for_level(progression: list[dict[str, Any]], level: int) -> str:
@@ -513,7 +516,10 @@ def _auto_resolve_zero_hp_turns(session_id: str, state: Any) -> dict[str, Any] |
                         "normal",
                         reroll_ones=_has_reroll_ones_scope(current, "save"),
                     )
+                    roll_extras: list[dict[str, Any]] = []
+                    roll = _maybe_apply_built_for_success(current, roll, roll_extras)
                     lines.append({"text": f"Спасбросок смерти: d20({roll})"})
+                    lines.extend(roll_extras)
                     if roll == 20:
                         current.hp_current = 1
                         current.is_stable = False
@@ -1109,6 +1115,8 @@ def handle_live_combat_action(
             return blocked, None
 
         _, _, roll = roll_check("normal")
+        bfs_lines: list[dict[str, Any]] = []
+        roll = _maybe_apply_built_for_success(attacker, roll, bfs_lines)
         dex = attacker.stats.get("dex", 50) if isinstance(attacker.stats, dict) else 50
         dex_mod = ability_mod_from_stat100(dex)
         dc = 13
@@ -1118,6 +1126,7 @@ def handle_live_combat_action(
             {"text": f"Побег: {attacker.name} пытается выйти из боя", "muted": True},
             {"text": f"Бросок побега: d20({roll}) + {dex_mod:+d} = {total} vs DC {dc}", "muted": True},
         ]
+        lines.extend(bfs_lines)
 
         if success:
             lines.append({"text": "Результат: побег успешен", "muted": True})
@@ -1211,8 +1220,8 @@ def handle_live_combat_action(
             rng=random,
             reroll_ones=_has_reroll_ones_scope(attacker, "attack"),
         )
-        built_for_success_bonus, built_for_success_lines = _built_for_success_bonus_for_attack(attacker)
-        d20_roll += built_for_success_bonus
+        bfs_lines: list[dict[str, Any]] = []
+        d20_roll = _maybe_apply_built_for_success(attacker, d20_roll, bfs_lines)
         attack_roll_repr = f"d20({roll_a})" if roll_b is None else f"d20({roll_a},{roll_b}) -> {d20_roll}"
 
         stats = attacker.stats if isinstance(attacker.stats, dict) else {}
@@ -1241,7 +1250,7 @@ def handle_live_combat_action(
         )
         attacker.help_attack_advantage = False
         extra_outcome_lines: list[dict[str, Any]] = []
-        extra_outcome_lines.extend(built_for_success_lines)
+        extra_outcome_lines.extend(bfs_lines)
         total_damage = int(resolution.total_damage)
         if resolution.is_hit:
             total_damage, savage_lines = _apply_savage_attacks_bonus(
@@ -1527,6 +1536,8 @@ def handle_live_combat_action(
             rng=random,
             reroll_ones=_has_reroll_ones_scope(attacker, "attack"),
         )
+        bfs_lines: list[dict[str, Any]] = []
+        d20_roll = _maybe_apply_built_for_success(attacker, d20_roll, bfs_lines)
         attack_roll_repr = f"d20({roll_a})" if roll_b is None else f"d20({roll_a},{roll_b}) -> {d20_roll}"
 
         stats = attacker.stats if isinstance(attacker.stats, dict) else {}
@@ -1555,6 +1566,7 @@ def handle_live_combat_action(
         )
         attacker.help_attack_advantage = False
         extra_outcome_lines: list[dict[str, Any]] = []
+        extra_outcome_lines.extend(bfs_lines)
         total_damage = int(resolution.total_damage)
         if resolution.is_hit:
             total_damage, savage_lines = _apply_savage_attacks_bonus(
@@ -1675,6 +1687,8 @@ def handle_live_combat_action(
             )
 
         _, _, roll = roll_check("normal")
+        bfs_lines: list[dict[str, Any]] = []
+        roll = _maybe_apply_built_for_success(actor, roll, bfs_lines)
         wis = actor.stats.get("wis", 50) if isinstance(actor.stats, dict) else 50
         wis_mod = ability_mod_from_stat100(wis)
         total = roll + wis_mod
@@ -1683,6 +1697,7 @@ def handle_live_combat_action(
             {"text": f"Стабилизация: {actor.name} пытается помочь {target.name}."},
             {"text": f"Проверка Medicine: d20({roll}) + {wis_mod:+d} = {total} vs DC 10"},
         ]
+        lines.extend(bfs_lines)
 
         if total >= 10:
             target.is_stable = True
