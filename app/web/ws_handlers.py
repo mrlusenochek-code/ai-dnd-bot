@@ -134,7 +134,7 @@ def _kickoff_lore_finalize_if_needed(session_id: str, sess: Any) -> bool:
     return True
 
 
-def _effective_save_mode(requested_mode: str, race_features: Any, ability: str) -> str:
+def _effective_save_mode(requested_mode: str, race_features: Any, ability: str, *, vs_magic: bool = False) -> str:
     mode = str(requested_mode or "normal").strip().lower()
     if mode not in ("normal", "advantage", "disadvantage"):
         mode = "normal"
@@ -155,6 +155,13 @@ def _effective_save_mode(requested_mode: str, race_features: Any, ability: str) 
         adv_key = str(item or "").strip().lower()
         if adv_key == ability_key:
             return "advantage"
+    if vs_magic:
+        adv_magic_raw = saves.get("advantage_vs_magic")
+        advantages_vs_magic = adv_magic_raw if isinstance(adv_magic_raw, list) else []
+        for item in advantages_vs_magic:
+            adv_key = str(item or "").strip().lower()
+            if adv_key == ability_key:
+                return "advantage"
     return mode
 
 
@@ -1723,7 +1730,8 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                         "de" "ps.Character commands: char create <Name> [Class], me, hp <+N|-N|N>, sta <+N|-N|N>, rest|rest long|rest short|rest hd <N>, "
                         "stat <str|dex|con|int|wis|cha> <0..100>, check [adv|dis] <stat_or_skill> [dc N] (ручной бросок, опционально), "
                         "toolcheck [adv|dis] <tool_key> [dc N], "
-                        "save [adv|dis] <str|dex|con|int|wis|cha> [dc N].",
+                        "save [adv|dis] <str|dex|con|int|wis|cha> [dc N], "
+                        "save magic [adv|dis] <str|dex|con|int|wis|cha> [dc N].",
                     )
                     await broadcast_state(session_id)
                     continue
@@ -2183,8 +2191,12 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                     if len(parts) < 2:
                         await ws_error("Usage: save [adv|dis] <str|dex|con|int|wis|cha> [dc N]", request_id=msg_request_id)
                         continue
+                    is_magic_save = False
                     mode = "roll"
                     idx = 1
+                    if idx < len(parts) and parts[idx].lower() == "magic":
+                        is_magic_save = True
+                        idx += 1
                     if idx < len(parts) and parts[idx].lower() in ("adv", "dis"):
                         mode = parts[idx].lower()
                         idx += 1
@@ -2231,7 +2243,12 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                         "adv": "advantage",
                         "dis": "disadvantage",
                     }.get(mode, "normal")
-                    mapped_mode = _effective_save_mode(requested_mode, getattr(ch, "race_features", None), ability)
+                    mapped_mode = _effective_save_mode(
+                        requested_mode,
+                        getattr(ch, "race_features", None),
+                        ability,
+                        vs_magic=is_magic_save,
+                    )
                     mod = _ability_mod_from_stats(ch.stats, ability)
 
                     ra, rb, roll = roll_check(mapped_mode)
@@ -2246,7 +2263,8 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                     total = int(res["total"])
                     d20_text = str(roll) if rb is None else f"{ra}/{rb}->{roll}"
 
-                    msg = f"[SAVE] {ch.name}: {ability} = d20({d20_text}) + {mod:+d} => {total}"
+                    save_prefix = "save magic" if is_magic_save else "save"
+                    msg = f"[SAVE] {ch.name}: {save_prefix} {ability} = d20({d20_text}) + {mod:+d} => {total}"
                     if dc is not None:
                         ok = bool(res["success"])
                         msg += f" (DC {dc}) {'SUCCESS' if ok else 'FAIL'}"

@@ -663,6 +663,20 @@ function openCharacterModal(){
   const saveAdvantageConditionsRu = saveAdvantageConditions
     .map((k) => _SAVE_CONDITION_RU[k] || k)
     .filter(Boolean);
+  const saveAdvantageVsMagic = Array.isArray(saves.advantage_vs_magic)
+    ? saves.advantage_vs_magic.map((x) => String(x || "").trim().toLowerCase()).filter(Boolean)
+    : [];
+  const _ABILITY_EN_UPPER = {
+    "str": "STR",
+    "dex": "DEX",
+    "con": "CON",
+    "int": "INT",
+    "wis": "WIS",
+    "cha": "CHA",
+  };
+  const saveAdvantageVsMagicRu = saveAdvantageVsMagic
+    .map((k) => _ABILITY_EN_UPPER[k] || k.toUpperCase())
+    .filter(Boolean);
   const telepathicInsightText = saveAdvantagesRu.length
     ? `Телепатическая проницательность: преим. спасброски: ${saveAdvantagesRu.join(", ")}`
     : "";
@@ -691,6 +705,9 @@ function openCharacterModal(){
     ? `Подводное дыхание: 1 час (1/дл отдых)${breatheUnderwaterUntilText ? `, активно до ${breatheUnderwaterUntilText}` : ""}`
     : "";
   const raceFeaturesMeta = (rf.features && typeof rf.features === "object") ? rf.features : {};
+  const innateSpells = Array.isArray(rf.innate_spells)
+    ? rf.innate_spells.filter((x) => x && typeof x === "object")
+    : [];
   const breathWeapon = (raceFeaturesMeta.breath_weapon && typeof raceFeaturesMeta.breath_weapon === "object")
     ? raceFeaturesMeta.breath_weapon
     : null;
@@ -717,6 +734,24 @@ function openCharacterModal(){
   const stonecunningText = stonecunning
     ? "Знание камня: преимущество/экспертиза по Истории (каменная кладка)"
     : "";
+  const talkWithSmallBeasts = (raceFeaturesMeta.talk_with_small_beasts && typeof raceFeaturesMeta.talk_with_small_beasts === "object")
+    ? raceFeaturesMeta.talk_with_small_beasts
+    : null;
+  const talkWithSmallBeastsText = talkWithSmallBeasts ? "Речь малых зверей" : "";
+  const expertise = (raceFeaturesMeta.expertise && typeof raceFeaturesMeta.expertise === "object")
+    ? raceFeaturesMeta.expertise
+    : null;
+  const expertiseText = expertise ? "Знания изобретателя" : "";
+  const tinker = (raceFeaturesMeta.tinker && typeof raceFeaturesMeta.tinker === "object")
+    ? raceFeaturesMeta.tinker
+    : null;
+  const tinkerText = tinker ? "Жестянщик: владение инструментами жестянщика; создание малых устройств" : "";
+  const hasMinorIllusionAtWill = innateSpells.some((spell) => {
+    const name = String(spell.name || "").trim().toLowerCase();
+    const frequency = String(spell.frequency || "").trim().toLowerCase();
+    return name === "minor_illusion" && frequency === "at_will";
+  });
+  const naturalIllusionistText = hasMinorIllusionAtWill ? "Природный иллюзионист: Малая иллюзия (заговор)" : "";
   const trance = (raceFeaturesMeta.trance && typeof raceFeaturesMeta.trance === "object")
     ? raceFeaturesMeta.trance
     : null;
@@ -879,6 +914,9 @@ function openCharacterModal(){
   if(hasMagicSleepImmunity) feyAncestryParts.push("иммунитет к магическому сну");
   const feyAncestryText = feyAncestryParts.length
     ? `Наследие фей: ${feyAncestryParts.join("; ")}`
+    : "";
+  const gnomeCunningText = saveAdvantageVsMagicRu.length
+    ? `Гномья хитрость: преим. спасброски ${saveAdvantageVsMagicRu.join("/")} против магии`
     : "";
 
   const prof = (rf.proficiencies && typeof rf.proficiencies === "object") ? rf.proficiencies : {};
@@ -1117,6 +1155,9 @@ function openCharacterModal(){
   if(feyAncestryText){
     details.push(`<div class="char-line"><strong>Наследие фей:</strong> ${escapeHtml(feyAncestryText.replace(/^Наследие фей:\s*/, ""))}</div>`);
   }
+  if(gnomeCunningText){
+    details.push(`<div class="char-line"><strong>Гномья хитрость:</strong> ${escapeHtml(gnomeCunningText.replace(/^Гномья хитрость:\s*/, ""))}</div>`);
+  }
   if(carry.powerful_build === true){
     details.push("<div class=\"char-line\"><strong>Мощное телосложение:</strong> считается на 1 размер больше для переноски/толкания/тяги/подъёма</div>");
   }
@@ -1134,6 +1175,18 @@ function openCharacterModal(){
   }
   if(stonecunningText){
     details.push(`<div class="char-line"><strong>Знание камня:</strong> ${escapeHtml(stonecunningText.replace(/^Знание камня:\s*/, ""))}</div>`);
+  }
+  if(naturalIllusionistText){
+    details.push(`<div class="char-line"><strong>Природный иллюзионист:</strong> ${escapeHtml(naturalIllusionistText.replace(/^Природный иллюзионист:\s*/, ""))}</div>`);
+  }
+  if(talkWithSmallBeastsText){
+    details.push(`<div class="char-line"><strong>Речь малых зверей:</strong> ${escapeHtml(talkWithSmallBeastsText.replace(/^Речь малых зверей:\s*/, ""))}</div>`);
+  }
+  if(expertiseText){
+    details.push(`<div class="char-line"><strong>Знания изобретателя:</strong> ${escapeHtml(expertiseText.replace(/^Знания изобретателя:\s*/, ""))}</div>`);
+  }
+  if(tinkerText){
+    details.push(`<div class="char-line"><strong>Жестянщик:</strong> ${escapeHtml(tinkerText.replace(/^Жестянщик:\s*/, ""))}</div>`);
   }
   if(telepathyText){
     details.push(`<div class="char-line"><strong>Телепатия:</strong> ${escapeHtml(telepathyText.replace(/^Телепатия:\s*/, ""))}</div>`);
@@ -1223,12 +1276,17 @@ function openCharacterModal(){
   if(saveAdvantageConditionsRu.length) copyLines.push(`Преим. против: ${saveAdvantageConditionsRu.join(", ")} (спасброски)`);
   if(dwarvenResilienceText) copyLines.push(dwarvenResilienceText);
   if(feyAncestryText) copyLines.push(feyAncestryText);
+  if(gnomeCunningText) copyLines.push(gnomeCunningText);
   if(carry.powerful_build === true) copyLines.push("Мощное телосложение: считается на 1 размер больше для переноски/толкания/тяги/подъёма");
   if(stoneEndurance) copyLines.push("Каменная выносливость: реакция, 1/к/дл отдых: снижает урон (1d12 + мод. Тел)");
   if(tranceText) copyLines.push(tranceText);
   if(maskOfTheWildText) copyLines.push(maskOfTheWildText);
   if(sunlightSensitivityText) copyLines.push(sunlightSensitivityText);
   if(stonecunningText) copyLines.push(stonecunningText);
+  if(naturalIllusionistText) copyLines.push(naturalIllusionistText);
+  if(talkWithSmallBeastsText) copyLines.push(talkWithSmallBeastsText);
+  if(expertiseText) copyLines.push(expertiseText);
+  if(tinkerText) copyLines.push(tinkerText);
   if(telepathyText) copyLines.push(telepathyText);
   if(blackBloodText) copyLines.push(blackBloodText);
   if(telepathicInsightText) copyLines.push(telepathicInsightText);

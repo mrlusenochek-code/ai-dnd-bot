@@ -552,6 +552,7 @@ def _build_race_features(selected_race: dict | None) -> dict[str, Any]:
     features: dict[str, Any] = {}
     saves: dict[str, Any] = {}
     save_advantage_conditions: list[str] = []
+    save_advantage_vs_magic: list[str] = []
     allowed_save_abilities = {"str", "dex", "con", "int", "wis", "cha"}
     race_key = str(selected_race.get("key") or "").strip().lower()
     speed_notes_ru = str(selected_race.get("speed_notes_ru") or details.get("speed_notes_ru") or "").strip().lower()
@@ -769,15 +770,51 @@ def _build_race_features(selected_race: dict | None) -> dict[str, Any]:
 
         if mtype == "save_advantage":
             abilities = []
-            for item in _as_list(mech.get("saves")):
+            save_items = _as_list(mech.get("saves"))
+            if not save_items:
+                save_items = _as_list(mech.get("stats"))
+            for item in save_items:
                 ability = str(item or "").strip().lower()
                 if ability in allowed_save_abilities and ability not in abilities:
                     abilities.append(ability)
-            if abilities:
+            is_magic_only = str(mech.get("vs") or "").strip().lower() == "magic"
+            if abilities and is_magic_only:
+                for ability in abilities:
+                    if ability not in save_advantage_vs_magic:
+                        save_advantage_vs_magic.append(ability)
+            elif abilities:
                 saves["advantage"] = abilities
+
+        if mtype == "learn_cantrip":
+            spell_key = str(mech.get("spell_key") or "").strip().lower()
+            ability = str(mech.get("ability") or "").strip().lower()
+            if spell_key:
+                _append_innate_spell(
+                    ability=ability,
+                    spell_obj={
+                        "spell_ref": spell_key,
+                        "kind": "cantrip",
+                        "frequency": "at_will",
+                        "level": 0,
+                    },
+                )
+
+        if mtype == "talk_with_small_beasts":
+            features["talk_with_small_beasts"] = dict(mech)
+
+        if mtype == "expertise":
+            features["expertise"] = dict(mech)
+
+        if mtype == "tinker":
+            features["tinker"] = dict(mech)
+            tool_prof = str(mech.get("tool_proficiency") or "").strip().lower()
+            if tool_prof:
+                tool_profs.append(tool_prof)
 
     if save_advantage_conditions:
         saves["advantage_conditions"] = sorted(set(save_advantage_conditions))
+    if save_advantage_vs_magic:
+        saves["advantage_vs_magic"] = sorted(set(save_advantage_vs_magic))
     if race_key == "dwarf" or ("тяж" in speed_notes_ru and "не сниж" in speed_notes_ru and "скорост" in speed_notes_ru):
         movement["ignore_heavy_armor_speed_penalty"] = True
 
