@@ -1361,6 +1361,33 @@ function openCharacterModal(){
   const githPsionicsText = (raceKey === "gith" && githPsionicSpellRows.length > 0)
     ? `${githPsionicsTitle}: ${githPsionicSpellRows.join("; ")}${githNoMaterialComponents ? ". Без материальных компонентов." : ""}`
     : "";
+  const hareTrigger = (raceFeaturesMeta.hare_trigger && typeof raceFeaturesMeta.hare_trigger === "object")
+    ? raceFeaturesMeta.hare_trigger
+    : null;
+  const luckyFootwork = (raceFeaturesMeta.lucky_footwork && typeof raceFeaturesMeta.lucky_footwork === "object")
+    ? raceFeaturesMeta.lucky_footwork
+    : null;
+  const rabbitHop = (raceFeaturesMeta.rabbit_hop && typeof raceFeaturesMeta.rabbit_hop === "object")
+    ? raceFeaturesMeta.rabbit_hop
+    : null;
+  const harengonPerceptionText = (raceKey === "harengon" && profSkills.includes("perception"))
+    ? "Длинные уши: владение Восприятие"
+    : "";
+  const hareTriggerText = (raceKey === "harengon" && hareTrigger)
+    ? "Заячье сердце: +БМ к инициативе"
+    : "";
+  const luckyFootworkText = (raceKey === "harengon" && luckyFootwork)
+    ? "Сильные ноги: реакцией после провала спасброска Ловкости добавьте 1к4 (нельзя, если вы сбиты с ног или скорость 0)"
+    : "";
+  const rabbitHopPb = Number.isFinite(Number(ch.level))
+    ? (Number(ch.level) >= 17 ? 6 : (Number(ch.level) >= 13 ? 5 : (Number(ch.level) >= 9 ? 4 : (Number(ch.level) >= 5 ? 3 : 2))))
+    : 2;
+  const rabbitHopUsesMax = rabbitHopPb;
+  const rabbitHopUsed = Number.isFinite(Number(runtime.rabbit_hop_uses_used)) ? Number(runtime.rabbit_hop_uses_used) : 0;
+  const rabbitHopRemaining = Math.max(0, rabbitHopUsesMax - rabbitHopUsed);
+  const rabbitHopText = (raceKey === "harengon" && rabbitHop)
+    ? `Кроличий прыжок: бонусным действием 5×БМ футов без провоцированных атак; использований БМ/дл. отдых; требует скорость > 0. Осталось: ${rabbitHopRemaining}/${rabbitHopUsesMax}`
+    : "";
   const grungPoisonousSkin = (raceFeaturesMeta.poisonous_skin && typeof raceFeaturesMeta.poisonous_skin === "object")
     ? raceFeaturesMeta.poisonous_skin
     : null;
@@ -1586,6 +1613,18 @@ function openCharacterModal(){
   if(githPsionicsText){
     details.push(`<div class="char-line"><strong>${escapeHtml(githPsionicsTitle)}:</strong> ${escapeHtml(githPsionicsText.replace(new RegExp(`^${githPsionicsTitle}:\\s*`), ""))}</div>`);
   }
+  if(hareTriggerText){
+    details.push(`<div class="char-line"><strong>Заячье сердце:</strong> ${escapeHtml(hareTriggerText.replace(/^Заячье сердце:\s*/, ""))}</div>`);
+  }
+  if(harengonPerceptionText){
+    details.push(`<div class="char-line"><strong>Длинные уши:</strong> ${escapeHtml(harengonPerceptionText.replace(/^Длинные уши:\s*/, ""))}</div>`);
+  }
+  if(luckyFootworkText){
+    details.push(`<div class="char-line"><strong>Сильные ноги:</strong> ${escapeHtml(luckyFootworkText.replace(/^Сильные ноги:\s*/, ""))}</div>`);
+  }
+  if(rabbitHopText){
+    details.push(`<div class="char-line"><strong>Кроличий прыжок:</strong> ${escapeHtml(rabbitHopText.replace(/^Кроличий прыжок:\s*/, ""))}</div>`);
+  }
   if(grungPerceptionText){
     details.push(`<div class="char-line"><strong>Владение:</strong> ${escapeHtml(grungPerceptionText.replace(/^Владение:\s*/, ""))}</div>`);
   }
@@ -1804,6 +1843,10 @@ function openCharacterModal(){
   if(githMartialProdigyText) copyLines.push(githMartialProdigyText);
   if(decadentMasteryText) copyLines.push(decadentMasteryText);
   if(githPsionicsText) copyLines.push(githPsionicsText);
+  if(hareTriggerText) copyLines.push(hareTriggerText);
+  if(harengonPerceptionText) copyLines.push(harengonPerceptionText);
+  if(luckyFootworkText) copyLines.push(luckyFootworkText);
+  if(rabbitHopText) copyLines.push(rabbitHopText);
   if(grungPerceptionText) copyLines.push(grungPerceptionText);
   if(grungAmphibiousText) copyLines.push(grungAmphibiousText);
   if(grungImmunityText) copyLines.push(grungImmunityText);

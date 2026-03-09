@@ -1203,6 +1203,7 @@ function renderRaceChoices(){
   const subraceKey = String(((ctx.selectedSubrace && ctx.selectedSubrace.key) || "")).trim().toLowerCase();
   const isCustomLineage = raceKey === "custom_lineage";
   const isDhampir = raceKey === "dhampir";
+  const isHarengon = raceKey === "harengon";
   const isGithyanki = raceKey === "gith" && subraceKey === "githyanki";
   const langCfg = getLanguageChoiceConfig(ctx.effectiveTraits);
   const asiCfg = getAsiChoiceConfig(ctx.effectiveTraits, ctx.details.asi, raceKey);
@@ -1219,7 +1220,7 @@ function renderRaceChoices(){
     : ["darkvision_60", "skill_proficiency_choice_1"];
   const variableTraitValue = String(variableTraitSel.value || "").trim().toLowerCase();
   const needsCustomLineageSkill = isCustomLineage && variableTraitValue === "skill_proficiency_choice_1";
-  const needsSize = isCustomLineage || isDhampir;
+  const needsSize = isCustomLineage || isDhampir || isHarengon;
   const needsLanguage = !!langCfg.required;
   const needsAsi = !!asiCfg.required || !!flexAsiCfg.required;
   const needsFlexAsi = !!flexAsiCfg.required;
@@ -1429,7 +1430,7 @@ function renderRaceChoices(){
     langSel2.appendChild(first2);
 
     const blockedLanguages = new Set();
-    if(isCustomLineage || isDhampir){
+    if(isCustomLineage || isDhampir || isHarengon){
       blockedLanguages.add("common");
     }
     if(isDhampir){
@@ -1462,7 +1463,7 @@ function renderRaceChoices(){
         const current1 = String(langSel.value || "").trim().toLowerCase();
         const current2 = String(langSel2.value || "").trim().toLowerCase();
         const blockedLanguages = new Set();
-        if(isCustomLineage || isDhampir){
+        if(isCustomLineage || isDhampir || isHarengon){
           blockedLanguages.add("common");
         }
         if(isDhampir){

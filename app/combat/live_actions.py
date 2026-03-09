@@ -456,6 +456,29 @@ def _is_poisoned_condition_active(actor: Any) -> bool:
     return max(0, int(poisoned.get("remaining_rounds") or 0)) > 0
 
 
+def _is_prone_condition_active(actor: Any) -> bool:
+    race_features, runtime, conditions = _conditions_runtime(actor)
+    _ = race_features
+    _ = runtime
+    prone_raw = conditions.get("prone")
+    prone = dict(prone_raw) if isinstance(prone_raw, dict) else {}
+    if bool(prone.get("active")):
+        return True
+    return max(0, int(prone.get("remaining_rounds") or 0)) > 0
+
+
+def _actor_current_speed_ft(actor: Any) -> int:
+    move_speed = max(0, int(getattr(actor, "move_speed_ft", 0) or 0))
+    if move_speed > 0:
+        return move_speed
+    return max(0, int(getattr(actor, "speed_ft", 0) or 0))
+
+
+def _proficiency_bonus_for_actor(actor: Any) -> int:
+    level = max(1, int(getattr(actor, "level", 1) or 1))
+    return max(2, int(proficiency_bonus(level)))
+
+
 def _set_poisoned_condition(actor: Any, *, save_dc: int, rounds: int, source: str) -> None:
     race_features, runtime, conditions = _conditions_runtime(actor)
     poisoned_raw = conditions.get("poisoned")
@@ -583,6 +606,14 @@ def _maybe_apply_grung_contact_poison_on_melee_hit(
     rounds = 10 if duration_key == "1_minute" else max(1, int(contact.get("rounds") or 10))
     _set_poisoned_condition(attacker, save_dc=dc, rounds=rounds, source="grung_contact_poison")
     lines.append({"text": f"{attacker.name} получает состояние «отравлен» (до {rounds} раундов, повторы в конце хода).", "muted": True})
+
+
+def _rabbit_hop_runtime(actor: Any) -> tuple[dict[str, Any], dict[str, Any], int]:
+    race_features = actor.race_features if isinstance(getattr(actor, "race_features", None), dict) else {}
+    runtime_raw = race_features.get("runtime")
+    runtime = dict(runtime_raw) if isinstance(runtime_raw, dict) else {}
+    used = max(0, int(runtime.get("rabbit_hop_uses_used") or 0))
+    return race_features, runtime, used
 
 
 def _breath_weapon_dice_for_level(progression: list[dict[str, Any]], level: int) -> str:
@@ -1338,6 +1369,129 @@ def handle_live_combat_action(
                 "lines": [
                     {"text": f"{attacker.name} прячется (Шустрый побег).", "muted": True},
                     {"text": "Скрытность: преимущество на следующую атаку.", "muted": True},
+                ],
+            },
+            None,
+        )
+
+    if action == "combat_rabbit_hop":
+        state = get_combat(session_id)
+        if state is None or not state.active:
+            return None, "Combat is not active"
+        if not state.order:
+            end_combat(session_id)
+            return (
+                {
+                    "status": "Бой завершён",
+                    "open": False,
+                    "lines": [{"text": "Бой завершён: целей не осталось.", "muted": True}],
+                },
+                None,
+            )
+
+        attacker_key = state.order[state.turn_index]
+        attacker = state.combatants.get(attacker_key)
+        if attacker is None:
+            return None, "Combat state is inconsistent"
+        if str(getattr(attacker, "side", "")).lower() != "pc":
+            return None, "Кроличий прыжок доступен только персонажу игрока."
+        rabbit_cfg = _race_feature(attacker, "rabbit_hop")
+        if rabbit_cfg is None:
+            return None, "Кроличий прыжок недоступен."
+        if _actor_current_speed_ft(attacker) <= 0:
+            return None, "Кроличий прыжок недоступен: скорость должна быть больше 0."
+        uses_max = _proficiency_bonus_for_actor(attacker)
+        race_features, runtime, used = _rabbit_hop_runtime(attacker)
+        if used >= uses_max:
+            return None, "Кроличий прыжок исчерпан до долгого отдыха."
+        blocked = _spend_bonus_action_or_block(state, attacker)
+        if blocked is not None:
+            return blocked, None
+        used += 1
+        runtime["rabbit_hop_uses_used"] = used
+        runtime["rabbit_hop_no_oa"] = True
+        runtime["rabbit_hop_no_oa_round"] = max(1, int(getattr(state, "round_no", 1) or 1))
+        race_features["runtime"] = runtime
+        attacker.race_features = race_features
+
+        distance_ft = 5 * _proficiency_bonus_for_actor(attacker)
+        remaining = max(0, uses_max - used)
+        return (
+            {
+                "status": _combat_status(state),
+                "open": True,
+                "lines": [
+                    {"text": f"Кроличий прыжок: {attacker.name} перемещается на {distance_ft} фт (без провоцированных атак)."},
+                    {"text": f"Осталось: {remaining}/{uses_max}.", "muted": True},
+                ],
+            },
+            None,
+        )
+
+    if action == "combat_lucky_footwork":
+        state = get_combat(session_id)
+        if state is None or not state.active:
+            return None, "Combat is not active"
+        if not state.order:
+            end_combat(session_id)
+            return (
+                {
+                    "status": "Бой завершён",
+                    "open": False,
+                    "lines": [{"text": "Бой завершён: целей не осталось.", "muted": True}],
+                },
+                None,
+            )
+
+        actor_key = state.order[state.turn_index]
+        actor = state.combatants.get(actor_key)
+        if actor is None:
+            return None, "Combat state is inconsistent"
+        if str(getattr(actor, "side", "")).lower() != "pc":
+            return None, "Сильные ноги доступны только персонажу игрока."
+        lucky_cfg = _race_feature(actor, "lucky_footwork")
+        if lucky_cfg is None:
+            return None, "Сильные ноги недоступны."
+        if _is_prone_condition_active(actor):
+            return None, "Сильные ноги недоступны: вы сбиты с ног."
+        if _actor_current_speed_ft(actor) <= 0:
+            return None, "Сильные ноги недоступны: скорость должна быть больше 0."
+
+        race_features = actor.race_features if isinstance(actor.race_features, dict) else {}
+        runtime_raw = race_features.get("runtime")
+        runtime = dict(runtime_raw) if isinstance(runtime_raw, dict) else {}
+        failed_raw = runtime.get("last_failed_dex_save")
+        failed = dict(failed_raw) if isinstance(failed_raw, dict) else {}
+        dc = max(0, int(failed.get("dc") or 0))
+        total = int(failed.get("total") or 0)
+        if dc <= 0:
+            return None, "Нет проваленного спасброска Ловкости для «Сильных ног»."
+        blocked = _spend_reaction_or_block(state, actor)
+        if blocked is not None:
+            return blocked, None
+        bonus = random.randint(1, 4)
+        new_total = total + bonus
+        success = new_total >= dc
+        failed["bonus"] = bonus
+        failed["new_total"] = new_total
+        failed["used_reaction"] = True
+        failed["resolved"] = True
+        failed["success"] = success
+        runtime["last_dex_save_result"] = failed
+        runtime.pop("last_failed_dex_save", None)
+        race_features["runtime"] = runtime
+        actor.race_features = race_features
+        return (
+            {
+                "status": _combat_status(state),
+                "open": True,
+                "lines": [
+                    {
+                        "text": (
+                            f"Сильные ноги: +{bonus} (1d4) к спасброску Ловкости -> "
+                            f"{new_total} vs DC {dc} ({'успех' if success else 'провал'})."
+                        )
+                    }
                 ],
             },
             None,

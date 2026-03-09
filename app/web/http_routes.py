@@ -759,6 +759,15 @@ def _build_race_features(selected_race: dict | None) -> dict[str, Any]:
         if mtype == "surprise_attack":
             features["surprise_attack"] = dict(mech)
 
+        if mtype == "initiative_bonus" and tkey == "hare_trigger":
+            features["hare_trigger"] = dict(mech)
+
+        if mtype == "lucky_footwork":
+            features["lucky_footwork"] = dict(mech)
+
+        if mtype == "rabbit_hop":
+            features["rabbit_hop"] = dict(mech)
+
         if mtype == "charge_bonus_attack":
             features["charge"] = dict(mech)
 
@@ -1632,7 +1641,7 @@ async def api_character_create(payload: dict):
         elif race_choice_feats:
             raise HTTPException(status_code=400, detail="Race feat choice is not available for selected race")
 
-        if race_choice_size and effective_race_key not in {"custom_lineage", "dhampir"}:
+        if race_choice_size and effective_race_key not in {"custom_lineage", "dhampir", "harengon"}:
             raise HTTPException(status_code=400, detail="Race size choice is not available for selected race")
         if race_choice_variable_trait and effective_race_key != "custom_lineage":
             raise HTTPException(status_code=400, detail="Variable trait choice is not available for selected race")
@@ -1676,6 +1685,21 @@ async def api_character_create(payload: dict):
                 raise HTTPException(status_code=400, detail="Dhampir extra language must not duplicate Common")
             if dhampir_lang in base_race_language_keys:
                 raise HTTPException(status_code=400, detail="Dhampir extra language must be distinct from base languages")
+        if effective_race_key == "harengon":
+            if race_choice_size not in {"small", "medium"}:
+                raise HTTPException(status_code=400, detail="Harengon size choice is required")
+            if race_choice_flex_asi_variant not in {"2_1", "1_1_1"}:
+                raise HTTPException(status_code=400, detail="Harengon flexible ASI choice is required")
+            if len(race_choice_languages) != 1:
+                raise HTTPException(status_code=400, detail="Harengon extra language choice is required")
+            harengon_lang = race_choice_languages[0]
+            if harengon_lang == "common":
+                raise HTTPException(status_code=400, detail="Harengon extra language must not duplicate Common")
+            if harengon_lang in base_race_language_keys:
+                raise HTTPException(
+                    status_code=400,
+                    detail="Harengon extra language must not duplicate base race languages",
+                )
         if effective_race_key == "fairy":
             if race_choice_innate_ability not in {"int", "wis", "cha"}:
                 raise HTTPException(

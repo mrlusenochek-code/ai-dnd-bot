@@ -112,6 +112,14 @@ CHAT_COMBAT_ACTION_PATTERNS: list[tuple[str, re.Pattern[str]]] = [
     ("combat_disengage", re.compile(r"(отхож|отход|отступ|отступаю|вырываюсь|разрыв дистанц|разрыва[юл]|разорва[лю]|отпрыг|отскоч|дисенгейдж)", re.IGNORECASE)),
     ("combat_hide", re.compile(r"(засад\w*|пряч\w*|скрываюсь\s+в\s+тени|hide\b)", re.IGNORECASE)),
     (
+        "combat_rabbit_hop",
+        re.compile(r"(кролич\w+\s+прыж\w*|прыж\w+\s+зайц\w*|rabbit\s+hop|прыгаю\s+рывком)", re.IGNORECASE),
+    ),
+    (
+        "combat_lucky_footwork",
+        re.compile(r"(сильн\w+\s+ног\w*|lucky\s+footwork|добавляю\s+1к4\s+к\s+ловк\w+\s+сейв\w*)", re.IGNORECASE),
+    ),
+    (
         "combat_grung_poison_weapon",
         re.compile(
             r"(смазыва\w*\s+оруж\w*\s+ядом|наношу\s+яд|яд\s+на\s+оруж\w*|poison\s+weapon|apply\s+poison)",

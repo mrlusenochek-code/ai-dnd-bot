@@ -35,6 +35,18 @@ def advance_turn_in_state(state: CombatState) -> CombatState:
         race_features = ending_combatant.race_features if isinstance(ending_combatant.race_features, dict) else {}
         runtime_raw = race_features.get("runtime")
         runtime = dict(runtime_raw) if isinstance(runtime_raw, dict) else {}
+        if "rabbit_hop_no_oa" in runtime:
+            runtime.pop("rabbit_hop_no_oa", None)
+            runtime.pop("rabbit_hop_no_oa_round", None)
+            if runtime:
+                race_features["runtime"] = runtime
+            else:
+                race_features.pop("runtime", None)
+            ending_combatant.race_features = race_features
+    if ending_combatant is not None:
+        race_features = ending_combatant.race_features if isinstance(ending_combatant.race_features, dict) else {}
+        runtime_raw = race_features.get("runtime")
+        runtime = dict(runtime_raw) if isinstance(runtime_raw, dict) else {}
         conditions_raw = runtime.get("conditions")
         conditions = dict(conditions_raw) if isinstance(conditions_raw, dict) else {}
         poisoned_raw = conditions.get("poisoned")

@@ -472,6 +472,125 @@ def _mode_with_poisoned_disadvantage(mode: str, race_features: Any) -> str:
     return "disadvantage"
 
 
+def _has_hare_trigger_feature(race_features: Any) -> bool:
+    if not isinstance(race_features, dict):
+        return False
+    features_raw = race_features.get("features")
+    features = features_raw if isinstance(features_raw, dict) else {}
+    return isinstance(features.get("hare_trigger"), dict)
+
+
+def _roll_initiative_with_racial_bonus(ch: Character | None, *, rng: Any = None) -> tuple[int, int]:
+    dex = 50
+    level = 1
+    race_features: Any = {}
+    if ch is not None:
+        level = max(1, as_int(getattr(ch, "level", 1), 1))
+        stats = ch.stats
+        if isinstance(stats, dict):
+            dex_raw = stats.get("dex", 50)
+            if isinstance(dex_raw, int):
+                dex = int(dex_raw)
+        race_features = getattr(ch, "race_features", None)
+    base = roll_initiative(dex, rng=(rng if rng is not None else random))
+    bonus = proficiency_bonus(level) if _has_hare_trigger_feature(race_features) else 0
+    return base + bonus, bonus
+
+
+def _harengon_mark_failed_dex_save_context(
+    *,
+    session_id: str,
+    player_uid: int | None,
+    ch: Character,
+    dc: int,
+    total: int,
+) -> bool:
+    if player_uid is None:
+        return False
+    race_features = getattr(ch, "race_features", None)
+    rf = dict(race_features) if isinstance(race_features, dict) else {}
+    features_raw = rf.get("features")
+    features = dict(features_raw) if isinstance(features_raw, dict) else {}
+    lucky_cfg = features.get("lucky_footwork")
+    if not isinstance(lucky_cfg, dict):
+        return False
+    runtime_raw = rf.get("runtime")
+    runtime = dict(runtime_raw) if isinstance(runtime_raw, dict) else {}
+    runtime["last_failed_dex_save"] = {
+        "dc": max(0, int(dc)),
+        "total": int(total),
+        "at": utcnow().isoformat(),
+    }
+    rf["runtime"] = runtime
+    ch.race_features = rf
+
+    state = get_combat(session_id)
+    if state is not None and state.active:
+        actor_key = f"pc_{player_uid}"
+        actor = state.combatants.get(actor_key)
+        if actor is not None:
+            actor_rf = actor.race_features if isinstance(actor.race_features, dict) else {}
+            actor_runtime_raw = actor_rf.get("runtime")
+            actor_runtime = dict(actor_runtime_raw) if isinstance(actor_runtime_raw, dict) else {}
+            actor_runtime["last_failed_dex_save"] = {
+                "dc": max(0, int(dc)),
+                "total": int(total),
+                "at": utcnow().isoformat(),
+            }
+            actor_rf["runtime"] = actor_runtime
+            actor.race_features = actor_rf
+    return True
+
+
+def _reset_harengon_long_rest(ch: Character) -> bool:
+    race_features = getattr(ch, "race_features", None)
+    rf = dict(race_features) if isinstance(race_features, dict) else {}
+    runtime_raw = rf.get("runtime")
+    runtime = dict(runtime_raw) if isinstance(runtime_raw, dict) else {}
+    changed = False
+    if "rabbit_hop_uses_used" in runtime:
+        runtime["rabbit_hop_uses_used"] = 0
+        changed = True
+    if "last_failed_dex_save" in runtime:
+        runtime.pop("last_failed_dex_save", None)
+        changed = True
+    if "last_dex_save_result" in runtime:
+        runtime.pop("last_dex_save_result", None)
+        changed = True
+    if not changed:
+        return False
+    rf["runtime"] = runtime
+    ch.race_features = rf
+    return True
+
+
+def _reset_combatant_harengon_long_rest(session_id: str, actor_key: str) -> bool:
+    state = get_combat(session_id)
+    if state is None or not state.active:
+        return False
+    actor = state.combatants.get(actor_key)
+    if actor is None:
+        return False
+    race_features = actor.race_features if isinstance(actor.race_features, dict) else {}
+    runtime_raw = race_features.get("runtime")
+    runtime = dict(runtime_raw) if isinstance(runtime_raw, dict) else {}
+    changed = False
+    if "rabbit_hop_uses_used" in runtime:
+        runtime["rabbit_hop_uses_used"] = 0
+        changed = True
+    if "last_failed_dex_save" in runtime:
+        runtime.pop("last_failed_dex_save", None)
+        changed = True
+    if "last_dex_save_result" in runtime:
+        runtime.pop("last_dex_save_result", None)
+        changed = True
+    if not changed:
+        return False
+    race_features["runtime"] = runtime
+    actor.race_features = race_features
+    return True
+
+
 def _apply_grung_water_immersion(
     ch: Character,
     *,
@@ -1021,6 +1140,12 @@ def _reset_racial_rest_uses(ch: Character) -> bool:
     if "grung_weapon_poison_armed" in runtime:
         runtime.pop("grung_weapon_poison_armed", None)
         changed = True
+    if "last_failed_dex_save" in runtime:
+        runtime.pop("last_failed_dex_save", None)
+        changed = True
+    if "last_dex_save_result" in runtime:
+        runtime.pop("last_dex_save_result", None)
+        changed = True
     if not changed:
         return False
     if runtime:
@@ -1105,6 +1230,12 @@ def _reset_combatant_racial_rest_uses(session_id: str, actor_key: str) -> bool:
     if "grung_weapon_poison_armed" in runtime:
         runtime.pop("grung_weapon_poison_armed", None)
         changed = True
+    if "last_failed_dex_save" in runtime:
+        runtime.pop("last_failed_dex_save", None)
+        changed = True
+    if "last_dex_save_result" in runtime:
+        runtime.pop("last_dex_save_result", None)
+        changed = True
     if not changed:
         return False
     if runtime:
@@ -1127,6 +1258,8 @@ async def _persist_relentless_endurance_used_from_combat_state(db, sess, session
     nimble_hide_runtime_by_uid: dict[int, dict[str, Any]] = {}
     grung_poison_runtime_by_uid: dict[int, bool] = {}
     conditions_runtime_by_uid: dict[int, dict[str, Any]] = {}
+    rabbit_hop_runtime_by_uid: dict[int, dict[str, Any]] = {}
+    lucky_footwork_runtime_by_uid: dict[int, dict[str, Any]] = {}
     for key, actor in (state.combatants or {}).items():
         actor_key = str(key or "").strip().lower()
         if not actor_key.startswith("pc_"):
@@ -1180,6 +1313,18 @@ async def _persist_relentless_endurance_used_from_combat_state(db, sess, session
             conds = dict(cond_raw) if isinstance(cond_raw, dict) else {}
             if conds:
                 conditions_runtime_by_uid[int(uid_raw)] = conds
+        if "rabbit_hop_uses_used" in runtime:
+            rabbit_hop_runtime_by_uid[int(uid_raw)] = {
+                "rabbit_hop_uses_used": max(0, as_int(runtime.get("rabbit_hop_uses_used"), 0))
+            }
+        if "last_failed_dex_save" in runtime or "last_dex_save_result" in runtime:
+            lucky_runtime: dict[str, Any] = {}
+            if isinstance(runtime.get("last_failed_dex_save"), dict):
+                lucky_runtime["last_failed_dex_save"] = dict(runtime.get("last_failed_dex_save"))
+            if isinstance(runtime.get("last_dex_save_result"), dict):
+                lucky_runtime["last_dex_save_result"] = dict(runtime.get("last_dex_save_result"))
+            if lucky_runtime:
+                lucky_footwork_runtime_by_uid[int(uid_raw)] = lucky_runtime
     if (
         not relentless_used_uids
         and not built_for_success_runtime_by_uid
@@ -1189,6 +1334,8 @@ async def _persist_relentless_endurance_used_from_combat_state(db, sess, session
         and not nimble_hide_runtime_by_uid
         and not grung_poison_runtime_by_uid
         and not conditions_runtime_by_uid
+        and not rabbit_hop_runtime_by_uid
+        and not lucky_footwork_runtime_by_uid
     ):
         return False
 
@@ -1204,6 +1351,8 @@ async def _persist_relentless_endurance_used_from_combat_state(db, sess, session
             and uid not in nimble_hide_runtime_by_uid
             and uid not in grung_poison_runtime_by_uid
             and uid not in conditions_runtime_by_uid
+            and uid not in rabbit_hop_runtime_by_uid
+            and uid not in lucky_footwork_runtime_by_uid
         ):
             continue
         ch = chars_by_uid.get(uid)
@@ -1280,6 +1429,30 @@ async def _persist_relentless_endurance_used_from_combat_state(db, sess, session
             current_conditions = dict(runtime.get("conditions")) if isinstance(runtime.get("conditions"), dict) else {}
             if current_conditions != conditions_runtime:
                 runtime["conditions"] = dict(conditions_runtime)
+                local_changed = True
+        rabbit_runtime = rabbit_hop_runtime_by_uid.get(uid)
+        if isinstance(rabbit_runtime, dict):
+            value = max(0, as_int(rabbit_runtime.get("rabbit_hop_uses_used"), 0))
+            if max(0, as_int(runtime.get("rabbit_hop_uses_used"), 0)) != value:
+                runtime["rabbit_hop_uses_used"] = value
+                local_changed = True
+        lucky_runtime = lucky_footwork_runtime_by_uid.get(uid)
+        if isinstance(lucky_runtime, dict):
+            current_failed = dict(runtime.get("last_failed_dex_save")) if isinstance(runtime.get("last_failed_dex_save"), dict) else {}
+            target_failed = dict(lucky_runtime.get("last_failed_dex_save")) if isinstance(lucky_runtime.get("last_failed_dex_save"), dict) else {}
+            if current_failed != target_failed:
+                if target_failed:
+                    runtime["last_failed_dex_save"] = target_failed
+                else:
+                    runtime.pop("last_failed_dex_save", None)
+                local_changed = True
+            current_result = dict(runtime.get("last_dex_save_result")) if isinstance(runtime.get("last_dex_save_result"), dict) else {}
+            target_result = dict(lucky_runtime.get("last_dex_save_result")) if isinstance(lucky_runtime.get("last_dex_save_result"), dict) else {}
+            if current_result != target_result:
+                if target_result:
+                    runtime["last_dex_save_result"] = target_result
+                else:
+                    runtime.pop("last_dex_save_result", None)
                 local_changed = True
         if local_changed:
             race_features["runtime"] = runtime
@@ -1684,6 +1857,8 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                     "combat_mode_climb",
                     "combat_escape",
                     "combat_grung_poison_weapon",
+                    "combat_rabbit_hop",
+                    "combat_lucky_footwork",
                     "combat_fury_of_small",
                     "combat_use_object",
                     "combat_help",
@@ -2055,6 +2230,9 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                 if combat_action in {"combat_fury_of_small", "combat_fury_of_the_small"} and not combat_active:
                     await ws_error("Разъярённая мелкота доступна только в бою.", request_id=msg_request_id)
                     continue
+                if combat_action in {"combat_rabbit_hop", "combat_lucky_footwork"} and not combat_active:
+                    await ws_error("Эта особенность доступна только в бою.", request_id=msg_request_id)
+                    continue
                 if combat_action == "combat_grung_poison_weapon" and not combat_active:
                     await ws_error("Яд грунга на оружии доступен только в бою.", request_id=msg_request_id)
                     continue
@@ -2397,7 +2575,7 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                         continue
                     else:
                         await ws_error(
-                            "Combat Lock: в бою доступны только боевые команды (атака/конец хода/уклон/движение/рывок/отход/засада/взлёт/приземление/помощь/побег/разъярённая мелкота/яд грунга на оружии/каменная выносливость/исцеляющие руки/небесное преобразование/незримая поступь/подводное дыхание/оружие дыхания) или OOC.",
+                            "Combat Lock: в бою доступны только боевые команды (атака/конец хода/уклон/движение/рывок/отход/засада/взлёт/приземление/помощь/побег/разъярённая мелкота/яд грунга на оружии/кроличий прыжок/сильные ноги/каменная выносливость/исцеляющие руки/небесное преобразование/незримая поступь/подводное дыхание/оружие дыхания) или OOC.",
                             request_id=msg_request_id,
                         )
                         continue
@@ -2498,9 +2676,12 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                         flag_modified(ch, "race_features")
                     if water_changed:
                         flag_modified(ch, "race_features")
+                    if _reset_harengon_long_rest(ch):
+                        flag_modified(ch, "race_features")
                     player_uid = _player_uid(player)
                     player_key = f"pc_{player_uid}" if player_uid is not None else ""
                     _reset_combatant_racial_rest_uses(session_id, player_key)
+                    _reset_combatant_harengon_long_rest(session_id, player_key)
                     await db.commit()
                     water_suffix = f" Водная зависимость (грунг): уровень штрафа {max(0, int(water_level))}."
                     await add_system_event(db, sess, f"Долгий отдых: врождённые заклинания восстановлены.{water_suffix if water_changed else ''}")
@@ -2621,9 +2802,12 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                     water_level, water_changed = _apply_grung_water_dependency_long_rest(ch)
                     if water_changed:
                         flag_modified(ch, "race_features")
+                    if _reset_harengon_long_rest(ch):
+                        flag_modified(ch, "race_features")
                     player_uid = _player_uid(player)
                     player_key = f"pc_{player_uid}" if player_uid is not None else ""
                     _reset_combatant_racial_rest_uses(session_id, player_key)
+                    _reset_combatant_harengon_long_rest(session_id, player_key)
                     await db.commit()
                     await add_system_event(
                         db,
@@ -2952,6 +3136,20 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                     if dc is not None:
                         ok = total >= dc
                         msg += f" (DC {dc}) {'SUCCESS' if ok else 'FAIL'}"
+                        if (
+                            ability == "dex"
+                            and not ok
+                            and _harengon_mark_failed_dex_save_context(
+                                session_id=session_id,
+                                player_uid=_player_uid(player),
+                                ch=ch,
+                                dc=dc,
+                                total=total,
+                            )
+                        ):
+                            flag_modified(ch, "race_features")
+                            await db.commit()
+                            msg += " | Можно реакцией «Сильные ноги» добавить 1d4."
                     await add_system_event(db, sess, msg)
                     await broadcast_state(session_id)
                     continue
@@ -3341,26 +3539,27 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                                 )
                             )
                             chars_by_pid = {ch.player_id: ch for ch in qc.scalars().all()}
+                        hare_trigger_rows: list[str] = []
                         for spx in sps_active:
                             ch = chars_by_pid.get(spx.player_id)
-                            dex = 50
-                            stats = ch.stats if ch is not None else None
-                            if isinstance(stats, dict):
-                                dex_raw = stats.get("dex", 50)
-                                if isinstance(dex_raw, int):
-                                    dex = int(dex_raw)
-                            val = roll_initiative(dex, rng=random)
+                            val, hare_bonus = _roll_initiative_with_racial_bonus(ch, rng=random)
                             _set_init_value(sess, spx.player_id, val)
+                            if hare_bonus > 0:
+                                nm = names.get(str(spx.player_id), str(spx.player_id))
+                                hare_trigger_rows.append(f"  #{spx.join_order} {nm}: +{hare_bonus} (Заячье сердце)")
                         await db.commit()
                         init_map = _get_init_map(sess)
                         lines = []
                         for spx in sps_active:
                             nm = names.get(str(spx.player_id), str(spx.player_id))
                             lines.append(f"  #{spx.join_order} {nm}: {init_map.get(str(spx.player_id), 0)}")
+                        bonus_text = ""
+                        if hare_trigger_rows:
+                            bonus_text = "\nИнициатива (Заячье сердце):\n" + "\n".join(hare_trigger_rows)
                         await add_system_event(
                             db,
                             sess,
-                            "Инициатива: всем брошено 1d20 + мод ЛОВ:\n" + "\n".join(lines),
+                            "Инициатива: всем брошено 1d20 + мод ЛОВ:\n" + "\n".join(lines) + bonus_text,
                         )
                         await broadcast_state(session_id)
                         continue
@@ -3451,6 +3650,9 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
 
                 if combat_action in {"combat_fury_of_small", "combat_fury_of_the_small"} and not combat_active:
                     await ws_error("Разъярённая мелкота доступна только в бою.", request_id=msg_request_id)
+                    continue
+                if combat_action in {"combat_rabbit_hop", "combat_lucky_footwork"} and not combat_active:
+                    await ws_error("Эта особенность доступна только в бою.", request_id=msg_request_id)
                     continue
                 if combat_action == "combat_grung_poison_weapon" and not combat_active:
                     await ws_error("Яд грунга на оружии доступен только в бою.", request_id=msg_request_id)
