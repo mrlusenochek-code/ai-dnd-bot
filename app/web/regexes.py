@@ -15,6 +15,7 @@ INNATE_SPELL_KEY_PATTERNS: dict[str, re.Pattern[str]] = {
     "faerie_fire": re.compile(r"волшебн[а-яё]*\s+ог(?:н|он)[а-яё]*|faerie\s+fire", re.IGNORECASE),
     "detect_magic": re.compile(r"обнаружени[ея]\s+магии|detect\s+magic", re.IGNORECASE),
     "disguise_self": re.compile(r"маскировк\w*|disguise\s+self", re.IGNORECASE),
+    "hex": re.compile(r"сглаз\w*|\bhex\b", re.IGNORECASE),
     "druidcraft": re.compile(r"искусств(?:о|а)\s+друид\w*|druidcraft", re.IGNORECASE),
     "enlarge_reduce": re.compile(
         r"увеличени[ея]\s*/?\s*уменьшени[ея]|enlarge\s*/?\s*reduce|enlarge\s+reduce",
@@ -120,6 +121,21 @@ CHAT_COMBAT_ACTION_PATTERNS: list[tuple[str, re.Pattern[str]]] = [
         re.compile(r"(сильн\w+\s+ног\w*|lucky\s+footwork|добавляю\s+1к4\s+к\s+ловк\w+\s+сейв\w*)", re.IGNORECASE),
     ),
     (
+        "combat_eerie_token_create",
+        re.compile(r"(созда\w+\s+жутк\w+\s+сувенир\w*|жутк\w+\s+сувенир\w*|создат\w+\s+сувенир\w*|eerie\s+token)", re.IGNORECASE),
+    ),
+    (
+        "combat_eerie_token_message",
+        re.compile(
+            r"(переда\w+\s+сообщени\w+\s+сувенир\w*|телепатическ\w+\s+сообщени\w*|send\s+message)",
+            re.IGNORECASE,
+        ),
+    ),
+    (
+        "combat_eerie_token_view",
+        re.compile(r"(смотрю\s+через\s+сувенир\w*|вхож\w+\s+в\s+транс|remote\s+view|scry\s+token)", re.IGNORECASE),
+    ),
+    (
         "combat_grung_poison_weapon",
         re.compile(
             r"(смазыва\w*\s+оруж\w*\s+ядом|наношу\s+яд|яд\s+на\s+оруж\w*|poison\s+weapon|apply\s+poison)",
@@ -162,6 +178,7 @@ CHAT_COMBAT_ACTION_PATTERNS: list[tuple[str, re.Pattern[str]]] = [
             r"мала[яй]\s+иллюз\w*|minor\s+illusion|"
             r"танцующ[а-яё]*\s+огн[а-яё]*|dancing\s+lights|волшебн[а-яё]*\s+ог(?:н|он)[а-яё]*|faerie\s+fire|"
             r"обнаружени[ея]\s+магии|detect\s+magic|маскировк\w*|disguise\s+self|"
+            r"сглаз\w*|\bhex\b|"
             r"искусств(?:о|а)\s+друид\w*|druidcraft|"
             r"увеличени[ея]\s*/?\s*уменьшени[ея]|enlarge\s*/?\s*reduce|enlarge\s+reduce|"
             r"(?:заклинани[ея]\s+)?щит\b|shield|"

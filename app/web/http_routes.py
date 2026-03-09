@@ -846,13 +846,19 @@ def _build_race_features(selected_race: dict | None) -> dict[str, Any]:
                         "shared_recharge": shared_recharge,
                     }
                 )
-            features["firbolg_magic"] = {
+            shared_magic_cfg = {
                 "ability": ability,
                 "spells": normalized_spells,
                 "shared_group": shared_group,
                 "shared_recharge": shared_recharge,
                 "special": dict(mech.get("special")) if isinstance(mech.get("special"), dict) else {},
+                "allow_spell_slots": bool(mech.get("allow_spell_slots")),
             }
+            if tkey:
+                features[tkey] = shared_magic_cfg
+            # Keep backward-compatible key used by existing Firbolg UI/tests.
+            if tkey == "firbolg_magic":
+                features["firbolg_magic"] = shared_magic_cfg
 
         if mtype == "invisibility_burst":
             features["hidden_step"] = dict(mech)
@@ -895,6 +901,9 @@ def _build_race_features(selected_race: dict | None) -> dict[str, Any]:
 
         if mtype == "ancestral_legacy":
             features["ancestral_legacy"] = dict(mech)
+
+        if mtype == "eerie_token":
+            features["eerie_token"] = dict(mech)
 
         if mtype == "vampiric_bite":
             bite_cfg = dict(mech)
@@ -1641,7 +1650,7 @@ async def api_character_create(payload: dict):
         elif race_choice_feats:
             raise HTTPException(status_code=400, detail="Race feat choice is not available for selected race")
 
-        if race_choice_size and effective_race_key not in {"custom_lineage", "dhampir", "harengon"}:
+        if race_choice_size and effective_race_key not in {"custom_lineage", "dhampir", "harengon", "hexblood"}:
             raise HTTPException(status_code=400, detail="Race size choice is not available for selected race")
         if race_choice_variable_trait and effective_race_key != "custom_lineage":
             raise HTTPException(status_code=400, detail="Variable trait choice is not available for selected race")
@@ -1700,6 +1709,25 @@ async def api_character_create(payload: dict):
                     status_code=400,
                     detail="Harengon extra language must not duplicate base race languages",
                 )
+        if effective_race_key == "hexblood":
+            if race_choice_size not in {"small", "medium"}:
+                raise HTTPException(status_code=400, detail="Hexblood size choice is required")
+            if race_choice_flex_asi_variant not in {"2_1", "1_1_1"}:
+                raise HTTPException(status_code=400, detail="Hexblood flexible ASI choice is required")
+            if len(race_choice_languages) != 1:
+                raise HTTPException(status_code=400, detail="Hexblood extra language choice is required")
+            hexblood_lang = race_choice_languages[0]
+            if hexblood_lang == "common":
+                raise HTTPException(status_code=400, detail="Hexblood extra language must not duplicate Common")
+            if hexblood_lang in base_race_language_keys:
+                raise HTTPException(status_code=400, detail="Hexblood extra language must be distinct from base languages")
+            if race_choice_innate_ability not in {"int", "wis", "cha"}:
+                raise HTTPException(
+                    status_code=400,
+                    detail="Hexblood innate spellcasting ability choice required (int/wis/cha)",
+                )
+            if len(race_choice_skills) != 2:
+                raise HTTPException(status_code=400, detail="Hexblood ancestral legacy requires exactly 2 skill choices")
         if effective_race_key == "fairy":
             if race_choice_innate_ability not in {"int", "wis", "cha"}:
                 raise HTTPException(
@@ -1715,7 +1743,7 @@ async def api_character_create(payload: dict):
                 raise HTTPException(status_code=400, detail="Fairy extra language must be distinct from base languages")
             if race_choice_flex_asi_variant not in {"2_1", "1_1_1"}:
                 raise HTTPException(status_code=400, detail="Fairy flexible ASI choice is required")
-        elif race_choice_innate_ability:
+        elif race_choice_innate_ability and effective_race_key not in {"hexblood"}:
             raise HTTPException(
                 status_code=400,
                 detail="Race innate spellcasting ability choice is not available for selected race",
@@ -1809,6 +1837,16 @@ async def api_character_create(payload: dict):
             runtime.setdefault("grung_weapon_poison_armed", False)
             runtime.setdefault("water_last_immersion_at", "")
             runtime.setdefault("water_dependency_exhaustion_level", 0)
+            race_features["runtime"] = runtime
+        if isinstance(race_features, dict) and str(race_features.get("race_key") or "").strip().lower() == "hexblood":
+            runtime_raw = race_features.get("runtime")
+            runtime = dict(runtime_raw) if isinstance(runtime_raw, dict) else {}
+            runtime.setdefault("innate_shared_uses", {})
+            runtime.setdefault("eerie_token_uses_used", 0)
+            runtime.setdefault("eerie_token_active", False)
+            runtime.setdefault("eerie_token_consumed", False)
+            runtime.setdefault("eerie_token_created_at", "")
+            runtime.setdefault("eerie_token_expires_on_next_long_rest", True)
             race_features["runtime"] = runtime
         if isinstance(race_features, dict) and selected_subrace is not None:
             race_features["subrace"] = {

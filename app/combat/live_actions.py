@@ -616,6 +616,27 @@ def _rabbit_hop_runtime(actor: Any) -> tuple[dict[str, Any], dict[str, Any], int
     return race_features, runtime, used
 
 
+def _eerie_token_runtime(actor: Any) -> tuple[dict[str, Any], dict[str, Any]]:
+    race_features = actor.race_features if isinstance(getattr(actor, "race_features", None), dict) else {}
+    runtime_raw = race_features.get("runtime")
+    runtime = dict(runtime_raw) if isinstance(runtime_raw, dict) else {}
+    return race_features, runtime
+
+
+def _extract_eerie_message_text(raw_text: str) -> str:
+    txt = str(raw_text or "").strip()
+    if not txt:
+        return ""
+    m = re.search(
+        r"(?:переда\w+\s+сообщени\w+\s+сувенир\w*|телепатическ\w+\s+сообщени\w*|send\s+message)\s*[:\-]?\s*(.*)$",
+        txt,
+        flags=re.IGNORECASE,
+    )
+    if m:
+        return str(m.group(1) or "").strip().strip("\"'«»")
+    return ""
+
+
 def _breath_weapon_dice_for_level(progression: list[dict[str, Any]], level: int) -> str:
     lvl = max(1, int(level))
     out = "2d6"
@@ -1026,7 +1047,12 @@ def _auto_resolve_zero_hp_turns(session_id: str, state: Any) -> dict[str, Any] |
 
 
 def handle_live_combat_action(
-    action: str, session_id: str, *, distance_ft: int | None = None, empower: str | None = None
+    action: str,
+    session_id: str,
+    *,
+    distance_ft: int | None = None,
+    empower: str | None = None,
+    raw_text: str | None = None,
 ) -> tuple[Optional[dict[str, Any]], Optional[str]]:
     state = get_combat(session_id)
     if state is not None and state.active:
@@ -1492,6 +1518,150 @@ def handle_live_combat_action(
                             f"{new_total} vs DC {dc} ({'успех' if success else 'провал'})."
                         )
                     }
+                ],
+            },
+            None,
+        )
+
+    if action == "combat_eerie_token_create":
+        state = get_combat(session_id)
+        if state is None or not state.active:
+            return None, "Combat is not active"
+        if not state.order:
+            end_combat(session_id)
+            return (
+                {
+                    "status": "Бой завершён",
+                    "open": False,
+                    "lines": [{"text": "Бой завершён: целей не осталось.", "muted": True}],
+                },
+                None,
+            )
+
+        actor_key = state.order[state.turn_index]
+        actor = state.combatants.get(actor_key)
+        if actor is None:
+            return None, "Combat state is inconsistent"
+        if str(getattr(actor, "side", "")).lower() != "pc":
+            return None, "Жуткий сувенир доступен только персонажу игрока."
+        eerie_cfg = _race_feature(actor, "eerie_token")
+        if eerie_cfg is None:
+            return None, "Жуткий сувенир недоступен."
+        uses_max = max(1, int(eerie_cfg.get("uses_max") or 1))
+        race_features, runtime = _eerie_token_runtime(actor)
+        used = max(0, int(runtime.get("eerie_token_uses_used") or 0))
+        if used >= uses_max:
+            return None, "Жуткий сувенир уже использован до долгого отдыха."
+        blocked = _spend_bonus_action_or_block(state, actor)
+        if blocked is not None:
+            return blocked, None
+        runtime["eerie_token_uses_used"] = used + 1
+        runtime["eerie_token_active"] = True
+        runtime["eerie_token_consumed"] = False
+        runtime["eerie_token_created_at"] = datetime.now(timezone.utc).isoformat()
+        runtime["eerie_token_expires_on_next_long_rest"] = True
+        race_features["runtime"] = runtime
+        actor.race_features = race_features
+        return (
+            {
+                "status": _combat_status(state),
+                "open": True,
+                "lines": [
+                    {"text": f"{actor.name} создаёт Жуткий сувенир.", "muted": True},
+                    {"text": f"Жуткий сувенир: активен. Осталось использований: {max(0, uses_max - used - 1)}/{uses_max}.", "muted": True},
+                ],
+            },
+            None,
+        )
+
+    if action == "combat_eerie_token_message":
+        state = get_combat(session_id)
+        if state is None or not state.active:
+            return None, "Combat is not active"
+        if not state.order:
+            end_combat(session_id)
+            return (
+                {
+                    "status": "Бой завершён",
+                    "open": False,
+                    "lines": [{"text": "Бой завершён: целей не осталось.", "muted": True}],
+                },
+                None,
+            )
+
+        actor_key = state.order[state.turn_index]
+        actor = state.combatants.get(actor_key)
+        if actor is None:
+            return None, "Combat state is inconsistent"
+        if str(getattr(actor, "side", "")).lower() != "pc":
+            return None, "Жуткий сувенир доступен только персонажу игрока."
+        eerie_cfg = _race_feature(actor, "eerie_token")
+        if eerie_cfg is None:
+            return None, "Жуткий сувенир недоступен."
+        race_features, runtime = _eerie_token_runtime(actor)
+        if not bool(runtime.get("eerie_token_active")) or bool(runtime.get("eerie_token_consumed")):
+            return None, "Нет активного Жуткого сувенира."
+        message = _extract_eerie_message_text(raw_text or "")
+        if not message:
+            return None, "Укажите текст сообщения после команды (до 25 слов)."
+        words = [w for w in re.findall(r"\S+", message) if w.strip()]
+        max_words = max(1, int(eerie_cfg.get("message_words_max") or 25))
+        if len(words) > max_words:
+            return None, f"Сообщение слишком длинное: максимум {max_words} слов."
+        blocked = _spend_action_or_block(state, actor)
+        if blocked is not None:
+            return blocked, None
+        return (
+            {
+                "status": _combat_status(state),
+                "open": True,
+                "lines": [
+                    {"text": "Жуткий сувенир: сообщение (<=25 слов) отправлено носителю (до 10 миль).", "muted": True},
+                ],
+            },
+            None,
+        )
+
+    if action == "combat_eerie_token_view":
+        state = get_combat(session_id)
+        if state is None or not state.active:
+            return None, "Combat is not active"
+        if not state.order:
+            end_combat(session_id)
+            return (
+                {
+                    "status": "Бой завершён",
+                    "open": False,
+                    "lines": [{"text": "Бой завершён: целей не осталось.", "muted": True}],
+                },
+                None,
+            )
+
+        actor_key = state.order[state.turn_index]
+        actor = state.combatants.get(actor_key)
+        if actor is None:
+            return None, "Combat state is inconsistent"
+        if str(getattr(actor, "side", "")).lower() != "pc":
+            return None, "Жуткий сувенир доступен только персонажу игрока."
+        eerie_cfg = _race_feature(actor, "eerie_token")
+        if eerie_cfg is None:
+            return None, "Жуткий сувенир недоступен."
+        race_features, runtime = _eerie_token_runtime(actor)
+        if not bool(runtime.get("eerie_token_active")) or bool(runtime.get("eerie_token_consumed")):
+            return None, "Нет активного Жуткого сувенира."
+        blocked = _spend_action_or_block(state, actor)
+        if blocked is not None:
+            return blocked, None
+        runtime["eerie_token_active"] = False
+        runtime["eerie_token_consumed"] = True
+        race_features["runtime"] = runtime
+        actor.race_features = race_features
+        return (
+            {
+                "status": _combat_status(state),
+                "open": True,
+                "lines": [
+                    {"text": "Жуткий сувенир: вы видите/слышите вокруг сувенира 1 минуту (до 10 миль). Сувенир уничтожен.", "muted": True},
                 ],
             },
             None,

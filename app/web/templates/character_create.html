@@ -1204,6 +1204,7 @@ function renderRaceChoices(){
   const isCustomLineage = raceKey === "custom_lineage";
   const isDhampir = raceKey === "dhampir";
   const isHarengon = raceKey === "harengon";
+  const isHexblood = raceKey === "hexblood";
   const isGithyanki = raceKey === "gith" && subraceKey === "githyanki";
   const langCfg = getLanguageChoiceConfig(ctx.effectiveTraits);
   const asiCfg = getAsiChoiceConfig(ctx.effectiveTraits, ctx.details.asi, raceKey);
@@ -1220,7 +1221,7 @@ function renderRaceChoices(){
     : ["darkvision_60", "skill_proficiency_choice_1"];
   const variableTraitValue = String(variableTraitSel.value || "").trim().toLowerCase();
   const needsCustomLineageSkill = isCustomLineage && variableTraitValue === "skill_proficiency_choice_1";
-  const needsSize = isCustomLineage || isDhampir || isHarengon;
+  const needsSize = isCustomLineage || isDhampir || isHarengon || isHexblood;
   const needsLanguage = !!langCfg.required;
   const needsAsi = !!asiCfg.required || !!flexAsiCfg.required;
   const needsFlexAsi = !!flexAsiCfg.required;
@@ -1230,7 +1231,7 @@ function renderRaceChoices(){
   const needsTool = !!toolCfg.required;
   const needsCantrip = !!cantripCfg.required;
   const needsVedalken = !!vedCfg.required;
-  const needsInnateAbility = raceKey === "fairy";
+  const needsInnateAbility = raceKey === "fairy" || isHexblood;
   const needsGithDecadent = isGithyanki;
   const needsAncestry = !!ancestryCfg.required;
   raceChoiceState = {
@@ -1430,10 +1431,10 @@ function renderRaceChoices(){
     langSel2.appendChild(first2);
 
     const blockedLanguages = new Set();
-    if(isCustomLineage || isDhampir || isHarengon){
+    if(isCustomLineage || isDhampir || isHarengon || isHexblood){
       blockedLanguages.add("common");
     }
-    if(isDhampir){
+    if(isDhampir || isHexblood){
       const baseRaceLanguages = Array.isArray(ctx.details.languages)
         ? ctx.details.languages
         : (Array.isArray(ctx.race && ctx.race.languages) ? ctx.race.languages : []);
@@ -1463,10 +1464,10 @@ function renderRaceChoices(){
         const current1 = String(langSel.value || "").trim().toLowerCase();
         const current2 = String(langSel2.value || "").trim().toLowerCase();
         const blockedLanguages = new Set();
-        if(isCustomLineage || isDhampir || isHarengon){
+        if(isCustomLineage || isDhampir || isHarengon || isHexblood){
           blockedLanguages.add("common");
         }
-        if(isDhampir){
+        if(isDhampir || isHexblood){
           const baseRaceLanguages = Array.isArray(ctx.details.languages)
             ? ctx.details.languages
             : (Array.isArray(ctx.race && ctx.race.languages) ? ctx.race.languages : []);

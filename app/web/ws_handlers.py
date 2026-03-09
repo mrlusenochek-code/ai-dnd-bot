@@ -408,6 +408,7 @@ def _apply_innate_spell_usage(ch: Character, spell_key: str) -> tuple[Optional[s
             "detect_thoughts": "Обнаружение мыслей",
             "jump": "Прыжок",
             "misty_step": "Туманный шаг",
+            "hex": "Сглаз",
         }.get(spell_key, display_name)
     return display_name, None, changed
 
@@ -1071,17 +1072,79 @@ def _break_hidden_step_for_character(ch: Character) -> bool:
     return True
 
 
-def _reset_racial_rest_uses(ch: Character) -> bool:
+def _innate_frequency_maps(race_features: dict[str, Any]) -> tuple[dict[str, str], dict[str, str]]:
+    spells_raw = race_features.get("innate_spells")
+    spells = spells_raw if isinstance(spells_raw, list) else []
+    spell_frequency: dict[str, str] = {}
+    shared_frequency: dict[str, str] = {}
+    for item in spells:
+        if not isinstance(item, dict):
+            continue
+        spell_name = str(item.get("name") or "").strip().lower()
+        frequency = str(item.get("frequency") or "").strip().lower()
+        if spell_name and frequency:
+            spell_frequency[spell_name] = frequency
+        shared_group = str(item.get("shared_group") or "").strip().lower()
+        if shared_group and frequency:
+            prev = shared_frequency.get(shared_group)
+            if prev == "shared_1_per_long_rest":
+                continue
+            shared_frequency[shared_group] = frequency
+    return spell_frequency, shared_frequency
+
+
+def _reset_innate_runtime_for_rest(runtime: dict[str, Any], race_features: dict[str, Any], *, long_rest: bool) -> bool:
+    changed = False
+    spell_frequency, shared_frequency = _innate_frequency_maps(race_features)
+
+    uses_raw = runtime.get("innate_spell_uses")
+    uses = dict(uses_raw) if isinstance(uses_raw, dict) else {}
+    if uses:
+        keep_uses: dict[str, Any] = {}
+        for spell_key, value in uses.items():
+            key = str(spell_key or "").strip().lower()
+            freq = spell_frequency.get(key, "")
+            should_reset = long_rest or freq in {"1_per_short_rest", "1_per_short_or_long_rest"}
+            if should_reset:
+                changed = True
+                continue
+            keep_uses[key] = value
+        if keep_uses:
+            runtime["innate_spell_uses"] = keep_uses
+        else:
+            if "innate_spell_uses" in runtime:
+                runtime.pop("innate_spell_uses", None)
+                changed = True
+
+    shared_raw = runtime.get("innate_shared_uses")
+    shared_uses = dict(shared_raw) if isinstance(shared_raw, dict) else {}
+    if shared_uses:
+        keep_shared: dict[str, Any] = {}
+        for group_key, value in shared_uses.items():
+            key = str(group_key or "").strip().lower()
+            freq = shared_frequency.get(key, "")
+            should_reset = long_rest or freq in {"shared_1_per_short_rest", "shared_1_per_short_or_long_rest"}
+            if should_reset:
+                changed = True
+                continue
+            keep_shared[key] = value
+        if keep_shared:
+            runtime["innate_shared_uses"] = keep_shared
+        else:
+            if "innate_shared_uses" in runtime:
+                runtime.pop("innate_shared_uses", None)
+                changed = True
+
+    return changed
+
+
+def _reset_racial_rest_uses(ch: Character, *, long_rest: bool = True) -> bool:
     race_features = getattr(ch, "race_features", None)
     rf = dict(race_features) if isinstance(race_features, dict) else {}
     runtime_raw = rf.get("runtime")
     runtime = dict(runtime_raw) if isinstance(runtime_raw, dict) else {}
     changed = False
-    if "innate_spell_uses" in runtime:
-        runtime.pop("innate_spell_uses", None)
-        changed = True
-    if "innate_shared_uses" in runtime:
-        runtime.pop("innate_shared_uses", None)
+    if _reset_innate_runtime_for_rest(runtime, rf, long_rest=long_rest):
         changed = True
     if "hidden_step" in runtime:
         runtime.pop("hidden_step", None)
@@ -1146,6 +1209,25 @@ def _reset_racial_rest_uses(ch: Character) -> bool:
     if "last_dex_save_result" in runtime:
         runtime.pop("last_dex_save_result", None)
         changed = True
+    if long_rest:
+        if "eerie_token_uses_used" in runtime:
+            runtime.pop("eerie_token_uses_used", None)
+            changed = True
+        if "eerie_token_active" in runtime:
+            runtime.pop("eerie_token_active", None)
+            changed = True
+        if "eerie_token_consumed" in runtime:
+            runtime.pop("eerie_token_consumed", None)
+            changed = True
+        if "eerie_token_created_at" in runtime:
+            runtime.pop("eerie_token_created_at", None)
+            changed = True
+        if "eerie_token_expires_on_next_long_rest" in runtime:
+            runtime.pop("eerie_token_expires_on_next_long_rest", None)
+            changed = True
+        if "eerie_token_remote_view_rounds_left" in runtime:
+            runtime.pop("eerie_token_remote_view_rounds_left", None)
+            changed = True
     if not changed:
         return False
     if runtime:
@@ -1156,7 +1238,7 @@ def _reset_racial_rest_uses(ch: Character) -> bool:
     return True
 
 
-def _reset_combatant_racial_rest_uses(session_id: str, actor_key: str) -> bool:
+def _reset_combatant_racial_rest_uses(session_id: str, actor_key: str, *, long_rest: bool = True) -> bool:
     state = get_combat(session_id)
     if state is None or not state.active:
         return False
@@ -1167,11 +1249,7 @@ def _reset_combatant_racial_rest_uses(session_id: str, actor_key: str) -> bool:
     runtime_raw = race_features.get("runtime")
     runtime = dict(runtime_raw) if isinstance(runtime_raw, dict) else {}
     changed = False
-    if "innate_spell_uses" in runtime:
-        runtime.pop("innate_spell_uses", None)
-        changed = True
-    if "innate_shared_uses" in runtime:
-        runtime.pop("innate_shared_uses", None)
+    if _reset_innate_runtime_for_rest(runtime, race_features, long_rest=long_rest):
         changed = True
     if "hidden_step" in runtime:
         runtime.pop("hidden_step", None)
@@ -1236,6 +1314,25 @@ def _reset_combatant_racial_rest_uses(session_id: str, actor_key: str) -> bool:
     if "last_dex_save_result" in runtime:
         runtime.pop("last_dex_save_result", None)
         changed = True
+    if long_rest:
+        if "eerie_token_uses_used" in runtime:
+            runtime.pop("eerie_token_uses_used", None)
+            changed = True
+        if "eerie_token_active" in runtime:
+            runtime.pop("eerie_token_active", None)
+            changed = True
+        if "eerie_token_consumed" in runtime:
+            runtime.pop("eerie_token_consumed", None)
+            changed = True
+        if "eerie_token_created_at" in runtime:
+            runtime.pop("eerie_token_created_at", None)
+            changed = True
+        if "eerie_token_expires_on_next_long_rest" in runtime:
+            runtime.pop("eerie_token_expires_on_next_long_rest", None)
+            changed = True
+        if "eerie_token_remote_view_rounds_left" in runtime:
+            runtime.pop("eerie_token_remote_view_rounds_left", None)
+            changed = True
     if not changed:
         return False
     if runtime:
@@ -1859,6 +1956,9 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                     "combat_grung_poison_weapon",
                     "combat_rabbit_hop",
                     "combat_lucky_footwork",
+                    "combat_eerie_token_create",
+                    "combat_eerie_token_message",
+                    "combat_eerie_token_view",
                     "combat_fury_of_small",
                     "combat_use_object",
                     "combat_help",
@@ -2233,6 +2333,9 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                 if combat_action in {"combat_rabbit_hop", "combat_lucky_footwork"} and not combat_active:
                     await ws_error("Эта особенность доступна только в бою.", request_id=msg_request_id)
                     continue
+                if combat_action in {"combat_eerie_token_create", "combat_eerie_token_message", "combat_eerie_token_view"} and not combat_active:
+                    await ws_error("Жуткий сувенир доступен только в бою.", request_id=msg_request_id)
+                    continue
                 if combat_action == "combat_grung_poison_weapon" and not combat_active:
                     await ws_error("Яд грунга на оружии доступен только в бою.", request_id=msg_request_id)
                     continue
@@ -2492,6 +2595,7 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                                 session_id,
                                 distance_ft=move_distance_ft,
                                 empower=bite_empower,
+                                raw_text=text,
                             )
                             if combat_err:
                                 await ws_error(combat_err, request_id=msg_request_id)
@@ -2575,7 +2679,7 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                         continue
                     else:
                         await ws_error(
-                            "Combat Lock: в бою доступны только боевые команды (атака/конец хода/уклон/движение/рывок/отход/засада/взлёт/приземление/помощь/побег/разъярённая мелкота/яд грунга на оружии/кроличий прыжок/сильные ноги/каменная выносливость/исцеляющие руки/небесное преобразование/незримая поступь/подводное дыхание/оружие дыхания) или OOC.",
+                            "Combat Lock: в бою доступны только боевые команды (атака/конец хода/уклон/движение/рывок/отход/засада/взлёт/приземление/помощь/побег/разъярённая мелкота/яд грунга на оружии/кроличий прыжок/сильные ноги/жуткий сувенир/каменная выносливость/исцеляющие руки/небесное преобразование/незримая поступь/подводное дыхание/оружие дыхания) или OOC.",
                             request_id=msg_request_id,
                         )
                         continue
@@ -2670,7 +2774,7 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                     if not ch:
                         await ws_error("No character. Use: char create ...", request_id=msg_request_id)
                         continue
-                    changed = _reset_racial_rest_uses(ch)
+                    changed = _reset_racial_rest_uses(ch, long_rest=True)
                     water_level, water_changed = _apply_grung_water_dependency_long_rest(ch)
                     if changed:
                         flag_modified(ch, "race_features")
@@ -2680,7 +2784,7 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                         flag_modified(ch, "race_features")
                     player_uid = _player_uid(player)
                     player_key = f"pc_{player_uid}" if player_uid is not None else ""
-                    _reset_combatant_racial_rest_uses(session_id, player_key)
+                    _reset_combatant_racial_rest_uses(session_id, player_key, long_rest=True)
                     _reset_combatant_harengon_long_rest(session_id, player_key)
                     await db.commit()
                     water_suffix = f" Водная зависимость (грунг): уровень штрафа {max(0, int(water_level))}."
@@ -2797,7 +2901,7 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                     ch.hp = hp
                     ch.sta = sta
                     ch.hit_dice_remaining = hd_after
-                    if _reset_racial_rest_uses(ch):
+                    if _reset_racial_rest_uses(ch, long_rest=True):
                         flag_modified(ch, "race_features")
                     water_level, water_changed = _apply_grung_water_dependency_long_rest(ch)
                     if water_changed:
@@ -2806,7 +2910,7 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                         flag_modified(ch, "race_features")
                     player_uid = _player_uid(player)
                     player_key = f"pc_{player_uid}" if player_uid is not None else ""
-                    _reset_combatant_racial_rest_uses(session_id, player_key)
+                    _reset_combatant_racial_rest_uses(session_id, player_key, long_rest=True)
                     _reset_combatant_harengon_long_rest(session_id, player_key)
                     await db.commit()
                     await add_system_event(
@@ -2838,11 +2942,11 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                     )
                     ch.hp = hp
                     ch.sta = sta
-                    if _reset_racial_rest_uses(ch):
+                    if _reset_racial_rest_uses(ch, long_rest=False):
                         flag_modified(ch, "race_features")
                     player_uid = _player_uid(player)
                     player_key = f"pc_{player_uid}" if player_uid is not None else ""
-                    _reset_combatant_racial_rest_uses(session_id, player_key)
+                    _reset_combatant_racial_rest_uses(session_id, player_key, long_rest=False)
                     await db.commit()
                     await add_system_event(
                         db,
@@ -3654,6 +3758,9 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                 if combat_action in {"combat_rabbit_hop", "combat_lucky_footwork"} and not combat_active:
                     await ws_error("Эта особенность доступна только в бою.", request_id=msg_request_id)
                     continue
+                if combat_action in {"combat_eerie_token_create", "combat_eerie_token_message", "combat_eerie_token_view"} and not combat_active:
+                    await ws_error("Жуткий сувенир доступен только в бою.", request_id=msg_request_id)
+                    continue
                 if combat_action == "combat_grung_poison_weapon" and not combat_active:
                     await ws_error("Яд грунга на оружии доступен только в бою.", request_id=msg_request_id)
                     continue
@@ -3921,6 +4028,7 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                             session_id,
                             distance_ft=move_distance_ft,
                             empower=bite_empower,
+                            raw_text=text,
                         )
                         if combat_err:
                             await ws_error(combat_err)

@@ -1084,6 +1084,8 @@ function openCharacterModal(){
     "detect_thoughts": "Обнаружение мыслей",
     "jump": "Прыжок",
     "misty_step": "Туманный шаг",
+    "disguise_self": "Маскировка",
+    "hex": "Сглаз",
   };
   const infernalLegacySpells = innateSpells
     .filter((spell) => {
@@ -1255,6 +1257,51 @@ function openCharacterModal(){
   const ancestralLegacySkillsRu = survivorSkills.map((x) => getSkillNameRu(x)).filter(Boolean);
   const ancestralLegacyText = ancestralLegacy
     ? `Наследие предков: ${ancestralLegacySkillsRu.length ? ancestralLegacySkillsRu.join(", ") : "выбор навыков при создании"}`
+    : "";
+  const hexbloodMagic = (raceFeaturesMeta.hex_magic && typeof raceFeaturesMeta.hex_magic === "object")
+    ? raceFeaturesMeta.hex_magic
+    : null;
+  const hexbloodSpells = innateSpells
+    .filter((spell) => {
+      const key = String((spell && spell.name) || "").trim().toLowerCase();
+      return key === "disguise_self" || key === "hex";
+    })
+    .map((spell) => String((spell && spell.name) || "").trim().toLowerCase())
+    .filter(Boolean);
+  const hexbloodSpellNamesRu = hexbloodSpells
+    .map((k) => _INNATE_SPELL_RU[k] || k)
+    .filter(Boolean);
+  const hexbloodAbilityKey = String(
+    ((choices && choices.innate_spellcasting_ability) || (hexbloodMagic && hexbloodMagic.ability) || "")
+  ).trim().toLowerCase();
+  const _ABILITY_RU = {"int": "INT", "wis": "WIS", "cha": "CHA"};
+  const hexbloodAbilityRu = _ABILITY_RU[hexbloodAbilityKey] || hexbloodAbilityKey.toUpperCase();
+  const sharedUses = (runtime.innate_shared_uses && typeof runtime.innate_shared_uses === "object")
+    ? runtime.innate_shared_uses
+    : {};
+  const hexbloodSharedUsed = Number.isFinite(Number(sharedUses.hex_magic)) ? Number(sharedUses.hex_magic) : 0;
+  const hexbloodCooldownText = hexbloodSharedUsed >= 1 ? "израсходовано до дл. отдыха" : "доступно";
+  const hexbloodAllowSlots = !!(hexbloodMagic && hexbloodMagic.allow_spell_slots === true);
+  const hexbloodMagicText = (raceKey === "hexblood" && hexbloodSpellNamesRu.length > 0)
+    ? `Ведьмовская магия: ${hexbloodSpellNamesRu.join(" и ")}; общий откат: длительный отдых (${hexbloodCooldownText}); заклинательная характеристика: ${hexbloodAbilityRu || "—"}${hexbloodAllowSlots ? "; можно кастовать ячейками, если есть" : ""}`
+    : "";
+  const eerieToken = (raceFeaturesMeta.eerie_token && typeof raceFeaturesMeta.eerie_token === "object")
+    ? raceFeaturesMeta.eerie_token
+    : null;
+  const eerieUsesMax = Number.isFinite(Number((eerieToken && eerieToken.uses_max))) ? Number(eerieToken.uses_max) : 1;
+  const eerieUsesUsed = Number.isFinite(Number(runtime.eerie_token_uses_used)) ? Number(runtime.eerie_token_uses_used) : 0;
+  const eerieActive = Boolean(runtime.eerie_token_active);
+  const eerieConsumed = Boolean(runtime.eerie_token_consumed);
+  const eerieCreatedAt = String(runtime.eerie_token_created_at || "").trim();
+  const eerieStatus = eerieActive ? "активен" : (eerieConsumed ? "уничтожен" : "не активен");
+  const eerieCreatedLabel = (() => {
+    if(!eerieCreatedAt) return "—";
+    const dt = new Date(eerieCreatedAt);
+    if(Number.isNaN(dt.getTime())) return "—";
+    return dt.toLocaleString("ru-RU");
+  })();
+  const eerieTokenText = (raceKey === "hexblood" && eerieToken)
+    ? `Жуткий сувенир: создание бонусным действием, 1/дл. отдых; действием — телепатическое сообщение до 25 слов (10 миль); действием — «взор» на 1 минуту (10 миль), после чего сувенир уничтожается. Статус: ${eerieStatus}; использовано ${eerieUsesUsed}/${eerieUsesMax}; создан: ${eerieCreatedLabel}`
     : "";
   const draconicKey = String(draconicChoice.key || "").trim().toLowerCase();
   const draconicDamage = String(draconicChoice.damage_type || "").trim().toLowerCase();
@@ -1670,6 +1717,12 @@ function openCharacterModal(){
   if(ancestralLegacyText){
     details.push(`<div class="char-line"><strong>Наследие предков:</strong> ${escapeHtml(ancestralLegacyText.replace(/^Наследие предков:\s*/, ""))}</div>`);
   }
+  if(hexbloodMagicText){
+    details.push(`<div class="char-line"><strong>Ведьмовская магия:</strong> ${escapeHtml(hexbloodMagicText.replace(/^Ведьмовская магия:\s*/, ""))}</div>`);
+  }
+  if(eerieTokenText){
+    details.push(`<div class="char-line"><strong>Жуткий сувенир:</strong> ${escapeHtml(eerieTokenText.replace(/^Жуткий сувенир:\s*/, ""))}</div>`);
+  }
   if(stoneEndurance){
     details.push("<div class=\"char-line\"><strong>Каменная выносливость:</strong> реакция, 1/к/дл отдых: снижает урон (1d12 + мод. Тел)</div>");
   }
@@ -1866,6 +1919,8 @@ function openCharacterModal(){
   if(equineBuildText) copyLines.push(equineBuildText);
   if(survivorText) copyLines.push(survivorText);
   if(ancestralLegacyText) copyLines.push(ancestralLegacyText);
+  if(hexbloodMagicText) copyLines.push(hexbloodMagicText);
+  if(eerieTokenText) copyLines.push(eerieTokenText);
   if(stoneEndurance) copyLines.push("Каменная выносливость: реакция, 1/к/дл отдых: снижает урон (1d12 + мод. Тел)");
   if(luckyText) copyLines.push(luckyText);
   if(braveText) copyLines.push(braveText);
