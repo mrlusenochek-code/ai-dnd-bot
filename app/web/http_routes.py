@@ -709,6 +709,16 @@ def _build_race_features(selected_race: dict | None) -> dict[str, Any]:
 
         if mtype == "amphibious":
             breath["amphibious"] = True
+            features["amphibious"] = True
+
+        if mtype == "poisonous_skin":
+            features["poisonous_skin"] = dict(mech)
+
+        if mtype == "standing_leap":
+            features["standing_leap"] = dict(mech)
+
+        if mtype == "water_dependency":
+            features["water_dependency"] = dict(mech)
 
         if mtype == "breathe_underwater":
             underwater: dict[str, Any] = {}
@@ -1769,6 +1779,13 @@ async def api_character_create(payload: dict):
             race_kit = (custom_race.strip().lower().replace(" ", "_") if custom_race else "human")[:40]
 
         race_features = _build_race_features(effective_race)
+        if isinstance(race_features, dict) and str(race_features.get("race_key") or "").strip().lower() == "grung":
+            runtime_raw = race_features.get("runtime")
+            runtime = dict(runtime_raw) if isinstance(runtime_raw, dict) else {}
+            runtime.setdefault("grung_weapon_poison_armed", False)
+            runtime.setdefault("water_last_immersion_at", "")
+            runtime.setdefault("water_dependency_exhaustion_level", 0)
+            race_features["runtime"] = runtime
         if isinstance(race_features, dict) and selected_subrace is not None:
             race_features["subrace"] = {
                 "key": str(selected_subrace.get("key") or "").strip(),

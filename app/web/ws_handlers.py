@@ -452,6 +452,82 @@ def _apply_breathe_underwater_usage(ch: Character, *, now: Optional[datetime] = 
     return until_dt.isoformat(), until_dt.astimezone().strftime("%H:%M"), None, True
 
 
+def _mode_with_poisoned_disadvantage(mode: str, race_features: Any) -> str:
+    mode_norm = str(mode or "normal").strip().lower()
+    if mode_norm not in {"normal", "advantage", "disadvantage"}:
+        mode_norm = "normal"
+    if not isinstance(race_features, dict):
+        return mode_norm
+    runtime_raw = race_features.get("runtime")
+    runtime = runtime_raw if isinstance(runtime_raw, dict) else {}
+    conditions_raw = runtime.get("conditions")
+    conditions = conditions_raw if isinstance(conditions_raw, dict) else {}
+    poisoned_raw = conditions.get("poisoned")
+    poisoned = poisoned_raw if isinstance(poisoned_raw, dict) else {}
+    poisoned_active = bool(poisoned.get("active")) or max(0, as_int(poisoned.get("remaining_rounds"), 0)) > 0
+    if not poisoned_active:
+        return mode_norm
+    if mode_norm == "advantage":
+        return "normal"
+    return "disadvantage"
+
+
+def _apply_grung_water_immersion(
+    ch: Character,
+    *,
+    now: Optional[datetime] = None,
+) -> tuple[Optional[str], Optional[int], Optional[str], bool]:
+    race_features = getattr(ch, "race_features", None)
+    rf = dict(race_features) if isinstance(race_features, dict) else {}
+    features_raw = rf.get("features")
+    features = dict(features_raw) if isinstance(features_raw, dict) else {}
+    water_dep_raw = features.get("water_dependency")
+    water_dep = dict(water_dep_raw) if isinstance(water_dep_raw, dict) else {}
+    if not water_dep:
+        return None, None, "Зависимость от воды отсутствует у вашей расы.", False
+
+    now_dt = now if isinstance(now, datetime) else utcnow()
+    runtime_raw = rf.get("runtime")
+    runtime = dict(runtime_raw) if isinstance(runtime_raw, dict) else {}
+    runtime["water_last_immersion_at"] = now_dt.isoformat()
+    runtime["water_dependency_exhaustion_level"] = 0
+    rf["runtime"] = runtime
+    ch.race_features = rf
+    return now_dt.isoformat(), 0, None, True
+
+
+def _apply_grung_water_dependency_long_rest(
+    ch: Character,
+    *,
+    now: Optional[datetime] = None,
+) -> tuple[int, bool]:
+    race_features = getattr(ch, "race_features", None)
+    rf = dict(race_features) if isinstance(race_features, dict) else {}
+    features_raw = rf.get("features")
+    features = dict(features_raw) if isinstance(features_raw, dict) else {}
+    water_dep_raw = features.get("water_dependency")
+    water_dep = dict(water_dep_raw) if isinstance(water_dep_raw, dict) else {}
+    if not water_dep:
+        return 0, False
+
+    now_dt = now if isinstance(now, datetime) else utcnow()
+    runtime_raw = rf.get("runtime")
+    runtime = dict(runtime_raw) if isinstance(runtime_raw, dict) else {}
+    last_immersion = _parse_iso_datetime(runtime.get("water_last_immersion_at"))
+    level_before = max(0, as_int(runtime.get("water_dependency_exhaustion_level"), 0))
+    hours_since = None
+    if isinstance(last_immersion, datetime):
+        delta = now_dt - last_immersion
+        hours_since = delta.total_seconds() / 3600.0
+    if hours_since is None or hours_since > 24.0:
+        runtime["water_dependency_exhaustion_level"] = level_before + 1
+    else:
+        runtime["water_dependency_exhaustion_level"] = level_before
+    rf["runtime"] = runtime
+    ch.race_features = rf
+    return max(0, as_int(runtime.get("water_dependency_exhaustion_level"), 0)), True
+
+
 def _apply_healing_hands_usage(ch: Character) -> tuple[Optional[int], Optional[str], bool]:
     race_features = getattr(ch, "race_features", None)
     rf = dict(race_features) if isinstance(race_features, dict) else {}
@@ -942,6 +1018,9 @@ def _reset_racial_rest_uses(ch: Character) -> bool:
     if "vampiric_bite_bonus_value" in runtime:
         runtime.pop("vampiric_bite_bonus_value", None)
         changed = True
+    if "grung_weapon_poison_armed" in runtime:
+        runtime.pop("grung_weapon_poison_armed", None)
+        changed = True
     if not changed:
         return False
     if runtime:
@@ -1023,6 +1102,9 @@ def _reset_combatant_racial_rest_uses(session_id: str, actor_key: str) -> bool:
     if "vampiric_bite_bonus_value" in runtime:
         runtime.pop("vampiric_bite_bonus_value", None)
         changed = True
+    if "grung_weapon_poison_armed" in runtime:
+        runtime.pop("grung_weapon_poison_armed", None)
+        changed = True
     if not changed:
         return False
     if runtime:
@@ -1043,6 +1125,8 @@ async def _persist_relentless_endurance_used_from_combat_state(db, sess, session
     vampiric_bite_runtime_by_uid: dict[int, dict[str, Any]] = {}
     hidden_step_runtime_by_uid: dict[int, dict[str, Any]] = {}
     nimble_hide_runtime_by_uid: dict[int, dict[str, Any]] = {}
+    grung_poison_runtime_by_uid: dict[int, bool] = {}
+    conditions_runtime_by_uid: dict[int, dict[str, Any]] = {}
     for key, actor in (state.combatants or {}).items():
         actor_key = str(key or "").strip().lower()
         if not actor_key.startswith("pc_"):
@@ -1089,6 +1173,13 @@ async def _persist_relentless_endurance_used_from_combat_state(db, sess, session
             hide_raw = runtime.get("nimble_escape_hide")
             hide_cfg = dict(hide_raw) if isinstance(hide_raw, dict) else {}
             nimble_hide_runtime_by_uid[int(uid_raw)] = hide_cfg
+        if "grung_weapon_poison_armed" in runtime:
+            grung_poison_runtime_by_uid[int(uid_raw)] = bool(runtime.get("grung_weapon_poison_armed"))
+        if "conditions" in runtime:
+            cond_raw = runtime.get("conditions")
+            conds = dict(cond_raw) if isinstance(cond_raw, dict) else {}
+            if conds:
+                conditions_runtime_by_uid[int(uid_raw)] = conds
     if (
         not relentless_used_uids
         and not built_for_success_runtime_by_uid
@@ -1096,6 +1187,8 @@ async def _persist_relentless_endurance_used_from_combat_state(db, sess, session
         and not vampiric_bite_runtime_by_uid
         and not hidden_step_runtime_by_uid
         and not nimble_hide_runtime_by_uid
+        and not grung_poison_runtime_by_uid
+        and not conditions_runtime_by_uid
     ):
         return False
 
@@ -1109,6 +1202,8 @@ async def _persist_relentless_endurance_used_from_combat_state(db, sess, session
             and uid not in vampiric_bite_runtime_by_uid
             and uid not in hidden_step_runtime_by_uid
             and uid not in nimble_hide_runtime_by_uid
+            and uid not in grung_poison_runtime_by_uid
+            and uid not in conditions_runtime_by_uid
         ):
             continue
         ch = chars_by_uid.get(uid)
@@ -1174,6 +1269,17 @@ async def _persist_relentless_endurance_used_from_combat_state(db, sess, session
             current_hide = dict(runtime.get("nimble_escape_hide")) if isinstance(runtime.get("nimble_escape_hide"), dict) else {}
             if current_hide != nimble_runtime:
                 runtime["nimble_escape_hide"] = dict(nimble_runtime)
+                local_changed = True
+        if uid in grung_poison_runtime_by_uid:
+            poison_armed_value = bool(grung_poison_runtime_by_uid.get(uid))
+            if bool(runtime.get("grung_weapon_poison_armed")) != poison_armed_value:
+                runtime["grung_weapon_poison_armed"] = poison_armed_value
+                local_changed = True
+        conditions_runtime = conditions_runtime_by_uid.get(uid)
+        if isinstance(conditions_runtime, dict):
+            current_conditions = dict(runtime.get("conditions")) if isinstance(runtime.get("conditions"), dict) else {}
+            if current_conditions != conditions_runtime:
+                runtime["conditions"] = dict(conditions_runtime)
                 local_changed = True
         if local_changed:
             race_features["runtime"] = runtime
@@ -1577,6 +1683,7 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                     "combat_mode_swim",
                     "combat_mode_climb",
                     "combat_escape",
+                    "combat_grung_poison_weapon",
                     "combat_fury_of_small",
                     "combat_use_object",
                     "combat_help",
@@ -1948,6 +2055,37 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                 if combat_action in {"combat_fury_of_small", "combat_fury_of_the_small"} and not combat_active:
                     await ws_error("Разъярённая мелкота доступна только в бою.", request_id=msg_request_id)
                     continue
+                if combat_action == "combat_grung_poison_weapon" and not combat_active:
+                    await ws_error("Яд грунга на оружии доступен только в бою.", request_id=msg_request_id)
+                    continue
+                if combat_action == "water_immerse":
+                    if combat_active:
+                        await ws_error("Во время боя погружение в воду недоступно.", request_id=msg_request_id)
+                        continue
+                    ch = await get_character(db, sess.id, player.id)
+                    if not ch:
+                        await ws_error("Персонаж не найден.", request_id=msg_request_id)
+                        continue
+                    immersion_iso, water_level, immersion_err, changed = _apply_grung_water_immersion(ch)
+                    if immersion_err:
+                        await ws_error(immersion_err, request_id=msg_request_id)
+                        continue
+                    if changed:
+                        flag_modified(ch, "race_features")
+                        await db.commit()
+                    actor_name = str(getattr(ch, "name", "") or player.display_name).strip() or player.display_name
+                    immersion_hhmm = ""
+                    immersion_dt = _parse_iso_datetime(immersion_iso)
+                    if isinstance(immersion_dt, datetime):
+                        immersion_hhmm = immersion_dt.astimezone().strftime("%H:%M")
+                    await add_system_event(
+                        db,
+                        sess,
+                        f"{actor_name}: погружение в воду засчитано (1 час/день). "
+                        f"Последнее погружение: {immersion_hhmm or 'сейчас'}. Штраф воды: {max(0, as_int(water_level, 0))}.",
+                    )
+                    await broadcast_state(session_id)
+                    continue
 
                 if combat_action in {"combat_shapechanger_shift", "combat_shapechanger_revert"}:
                     ch = await get_character(db, sess.id, player.id)
@@ -2259,7 +2397,7 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                         continue
                     else:
                         await ws_error(
-                            "Combat Lock: в бою доступны только боевые команды (атака/конец хода/уклон/движение/рывок/отход/засада/взлёт/приземление/помощь/побег/разъярённая мелкота/каменная выносливость/исцеляющие руки/небесное преобразование/незримая поступь/подводное дыхание/оружие дыхания) или OOC.",
+                            "Combat Lock: в бою доступны только боевые команды (атака/конец хода/уклон/движение/рывок/отход/засада/взлёт/приземление/помощь/побег/разъярённая мелкота/яд грунга на оружии/каменная выносливость/исцеляющие руки/небесное преобразование/незримая поступь/подводное дыхание/оружие дыхания) или OOC.",
                             request_id=msg_request_id,
                         )
                         continue
@@ -2355,13 +2493,17 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                         await ws_error("No character. Use: char create ...", request_id=msg_request_id)
                         continue
                     changed = _reset_racial_rest_uses(ch)
+                    water_level, water_changed = _apply_grung_water_dependency_long_rest(ch)
                     if changed:
+                        flag_modified(ch, "race_features")
+                    if water_changed:
                         flag_modified(ch, "race_features")
                     player_uid = _player_uid(player)
                     player_key = f"pc_{player_uid}" if player_uid is not None else ""
                     _reset_combatant_racial_rest_uses(session_id, player_key)
                     await db.commit()
-                    await add_system_event(db, sess, "Долгий отдых: врождённые заклинания восстановлены.")
+                    water_suffix = f" Водная зависимость (грунг): уровень штрафа {max(0, int(water_level))}."
+                    await add_system_event(db, sess, f"Долгий отдых: врождённые заклинания восстановлены.{water_suffix if water_changed else ''}")
                     await broadcast_state(session_id)
                     continue
 
@@ -2476,6 +2618,9 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                     ch.hit_dice_remaining = hd_after
                     if _reset_racial_rest_uses(ch):
                         flag_modified(ch, "race_features")
+                    water_level, water_changed = _apply_grung_water_dependency_long_rest(ch)
+                    if water_changed:
+                        flag_modified(ch, "race_features")
                     player_uid = _player_uid(player)
                     player_key = f"pc_{player_uid}" if player_uid is not None else ""
                     _reset_combatant_racial_rest_uses(session_id, player_key)
@@ -2485,7 +2630,8 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                         sess,
                         f"[REST] long {ch.name}: HP {old_hp}->{int(ch.hp or 0)}/{int(ch.hp_max or 0)}, "
                         f"STA {old_sta}->{int(ch.sta or 0)}/{int(ch.sta_max or 0)}, "
-                        f"HD {hd_before}->{hd_after}/{hd_max} (d{max(1, as_int(getattr(ch, 'hit_die', 8), 8))})",
+                        f"HD {hd_before}->{hd_after}/{hd_max} (d{max(1, as_int(getattr(ch, 'hit_die', 8), 8))}), "
+                        f"water_dep={max(0, int(water_level))}",
                     )
                     await broadcast_state(session_id)
                     continue
@@ -2750,6 +2896,7 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                         "adv": "advantage",
                         "dis": "disadvantage",
                     }.get(mode, "normal")
+                    mapped_mode = _mode_with_poisoned_disadvantage(mapped_mode, getattr(ch, "race_features", None))
                     ra, rb, roll = roll_check(
                         mapped_mode,
                         reroll_ones=_lucky_scope_enabled(getattr(ch, "race_features", None), "check"),
@@ -2863,6 +3010,7 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                         "dis": "disadvantage",
                     }.get(mode, "normal")
                     mod = 0
+                    mapped_mode = _mode_with_poisoned_disadvantage(mapped_mode, getattr(ch, "race_features", None))
                     ra, rb, roll = roll_check(mapped_mode)
                     check_payload = {
                         "actor_uid": _player_uid(player),
@@ -3303,6 +3451,37 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
 
                 if combat_action in {"combat_fury_of_small", "combat_fury_of_the_small"} and not combat_active:
                     await ws_error("Разъярённая мелкота доступна только в бою.", request_id=msg_request_id)
+                    continue
+                if combat_action == "combat_grung_poison_weapon" and not combat_active:
+                    await ws_error("Яд грунга на оружии доступен только в бою.", request_id=msg_request_id)
+                    continue
+                if combat_action == "water_immerse":
+                    if combat_active:
+                        await ws_error("Во время боя погружение в воду недоступно.", request_id=msg_request_id)
+                        continue
+                    ch = await get_character(db, sess.id, player.id)
+                    if not ch:
+                        await ws_error("Персонаж не найден.", request_id=msg_request_id)
+                        continue
+                    immersion_iso, water_level, immersion_err, changed = _apply_grung_water_immersion(ch)
+                    if immersion_err:
+                        await ws_error(immersion_err, request_id=msg_request_id)
+                        continue
+                    if changed:
+                        flag_modified(ch, "race_features")
+                        await db.commit()
+                    actor_name = str(getattr(ch, "name", "") or player.display_name).strip() or player.display_name
+                    immersion_hhmm = ""
+                    immersion_dt = _parse_iso_datetime(immersion_iso)
+                    if isinstance(immersion_dt, datetime):
+                        immersion_hhmm = immersion_dt.astimezone().strftime("%H:%M")
+                    await add_system_event(
+                        db,
+                        sess,
+                        f"{actor_name}: погружение в воду засчитано (1 час/день). "
+                        f"Последнее погружение: {immersion_hhmm or 'сейчас'}. Штраф воды: {max(0, as_int(water_level, 0))}.",
+                    )
+                    await broadcast_state(session_id)
                     continue
 
                 if combat_action in {"combat_shapechanger_shift", "combat_shapechanger_revert"}:

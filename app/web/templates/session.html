@@ -1018,6 +1018,7 @@ function openCharacterModal(){
     "deep_speech": "Глубинная речь",
     "thieves_cant": "Воровской жаргон",
     "gith": "Гит",
+    "grung": "Грунг",
     "quori": "Кворийский",
     "leonin": "Леонинский",
     "tabaxi": "Табаксийский",
@@ -1360,6 +1361,51 @@ function openCharacterModal(){
   const githPsionicsText = (raceKey === "gith" && githPsionicSpellRows.length > 0)
     ? `${githPsionicsTitle}: ${githPsionicSpellRows.join("; ")}${githNoMaterialComponents ? ". Без материальных компонентов." : ""}`
     : "";
+  const grungPoisonousSkin = (raceFeaturesMeta.poisonous_skin && typeof raceFeaturesMeta.poisonous_skin === "object")
+    ? raceFeaturesMeta.poisonous_skin
+    : null;
+  const grungStandingLeap = (raceFeaturesMeta.standing_leap && typeof raceFeaturesMeta.standing_leap === "object")
+    ? raceFeaturesMeta.standing_leap
+    : null;
+  const grungWaterDependency = (raceFeaturesMeta.water_dependency && typeof raceFeaturesMeta.water_dependency === "object")
+    ? raceFeaturesMeta.water_dependency
+    : null;
+  const grungAmphibious = raceFeaturesMeta.amphibious === true || breath.amphibious === true;
+  const grungHasPoisonImmunity = Array.isArray(immunities.damage)
+    && immunities.damage.map((x) => String(x || "").trim().toLowerCase()).includes("poison");
+  const grungHasPoisonedConditionImmunity = immunityConditions.includes("poisoned");
+  const grungPerceptionSkills = (rf.proficiencies && typeof rf.proficiencies === "object" && Array.isArray(rf.proficiencies.skills))
+    ? rf.proficiencies.skills.map((x) => String(x || "").trim().toLowerCase()).filter(Boolean)
+    : [];
+  const grungPerceptionText = (raceKey === "grung" && grungPerceptionSkills.includes("perception"))
+    ? "Владение: Восприятие"
+    : "";
+  const grungAmphibiousText = (raceKey === "grung" && grungAmphibious)
+    ? "Амфибия: дышит воздухом и под водой"
+    : "";
+  const grungImmunityText = (raceKey === "grung" && grungHasPoisonImmunity && grungHasPoisonedConditionImmunity)
+    ? "Иммунитет: урон ядом и состояние «отравленный»"
+    : "";
+  const grungPoisonousSkinText = (raceKey === "grung" && grungPoisonousSkin)
+    ? "Ядовитая кожа: Контакт: Сл 12 Телосложение или «отравлен» на 1 минуту (повтор в конце хода); Яд на оружии: при попадании Сл 12 или 2к4 урона ядом"
+    : "";
+  const grungStandingLeapText = (raceKey === "grung" && grungStandingLeap)
+    ? "Прыжок с места: длина 25, высота 15"
+    : "";
+  const grungWaterLastImmersionIso = String(runtime.water_last_immersion_at || "").trim();
+  let grungWaterLastImmersionText = "нет данных";
+  if(grungWaterLastImmersionIso){
+    const dt = new Date(grungWaterLastImmersionIso);
+    if(!Number.isNaN(dt.getTime())){
+      grungWaterLastImmersionText = dt.toLocaleString("ru-RU", { hour: "2-digit", minute: "2-digit", day: "2-digit", month: "2-digit" });
+    }
+  }
+  const grungWaterPenalty = Number.isFinite(Number(runtime.water_dependency_exhaustion_level))
+    ? Number(runtime.water_dependency_exhaustion_level)
+    : 0;
+  const grungWaterDependencyText = (raceKey === "grung" && grungWaterDependency)
+    ? `Зависимость от воды: 1 час/день, иначе истощение 1. Последнее погружение: ${grungWaterLastImmersionText}; уровень штрафа: ${grungWaterPenalty}`
+    : "";
   const combatState = (lastState && typeof lastState.combat === "object" && lastState.combat) ? lastState.combat : null;
   const combatants = (combatState && typeof combatState.combatants === "object" && combatState.combatants) ? combatState.combatants : {};
   const myCombatantKey = me && me.uid !== null && me.uid !== undefined ? (`pc_${String(me.uid)}`) : "";
@@ -1539,6 +1585,24 @@ function openCharacterModal(){
   }
   if(githPsionicsText){
     details.push(`<div class="char-line"><strong>${escapeHtml(githPsionicsTitle)}:</strong> ${escapeHtml(githPsionicsText.replace(new RegExp(`^${githPsionicsTitle}:\\s*`), ""))}</div>`);
+  }
+  if(grungPerceptionText){
+    details.push(`<div class="char-line"><strong>Владение:</strong> ${escapeHtml(grungPerceptionText.replace(/^Владение:\s*/, ""))}</div>`);
+  }
+  if(grungAmphibiousText){
+    details.push(`<div class="char-line"><strong>Амфибия:</strong> ${escapeHtml(grungAmphibiousText.replace(/^Амфибия:\s*/, ""))}</div>`);
+  }
+  if(grungImmunityText){
+    details.push(`<div class="char-line"><strong>Иммунитет:</strong> ${escapeHtml(grungImmunityText.replace(/^Иммунитет:\s*/, ""))}</div>`);
+  }
+  if(grungPoisonousSkinText){
+    details.push(`<div class="char-line"><strong>Ядовитая кожа:</strong> ${escapeHtml(grungPoisonousSkinText.replace(/^Ядовитая кожа:\s*/, ""))}</div>`);
+  }
+  if(grungStandingLeapText){
+    details.push(`<div class="char-line"><strong>Прыжок с места:</strong> ${escapeHtml(grungStandingLeapText.replace(/^Прыжок с места:\s*/, ""))}</div>`);
+  }
+  if(grungWaterDependencyText){
+    details.push(`<div class="char-line"><strong>Зависимость от воды:</strong> ${escapeHtml(grungWaterDependencyText.replace(/^Зависимость от воды:\s*/, ""))}</div>`);
   }
   if(carry.powerful_build === true){
     details.push("<div class=\"char-line\"><strong>Мощное телосложение:</strong> считается на 1 размер больше для переноски/толкания/тяги/подъёма</div>");
@@ -1740,6 +1804,12 @@ function openCharacterModal(){
   if(githMartialProdigyText) copyLines.push(githMartialProdigyText);
   if(decadentMasteryText) copyLines.push(decadentMasteryText);
   if(githPsionicsText) copyLines.push(githPsionicsText);
+  if(grungPerceptionText) copyLines.push(grungPerceptionText);
+  if(grungAmphibiousText) copyLines.push(grungAmphibiousText);
+  if(grungImmunityText) copyLines.push(grungImmunityText);
+  if(grungPoisonousSkinText) copyLines.push(grungPoisonousSkinText);
+  if(grungStandingLeapText) copyLines.push(grungStandingLeapText);
+  if(grungWaterDependencyText) copyLines.push(grungWaterDependencyText);
   if(saveAdvantageConditionsRu.length) copyLines.push(`Преим. против: ${saveAdvantageConditionsRu.join(", ")} (спасброски)`);
   if(dwarvenResilienceText) copyLines.push(dwarvenResilienceText);
   if(feyAncestryText) copyLines.push(feyAncestryText);

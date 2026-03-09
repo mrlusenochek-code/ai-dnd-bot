@@ -112,6 +112,13 @@ CHAT_COMBAT_ACTION_PATTERNS: list[tuple[str, re.Pattern[str]]] = [
     ("combat_disengage", re.compile(r"(отхож|отход|отступ|отступаю|вырываюсь|разрыв дистанц|разрыва[юл]|разорва[лю]|отпрыг|отскоч|дисенгейдж)", re.IGNORECASE)),
     ("combat_hide", re.compile(r"(засад\w*|пряч\w*|скрываюсь\s+в\s+тени|hide\b)", re.IGNORECASE)),
     (
+        "combat_grung_poison_weapon",
+        re.compile(
+            r"(смазыва\w*\s+оруж\w*\s+ядом|наношу\s+яд|яд\s+на\s+оруж\w*|poison\s+weapon|apply\s+poison)",
+            re.IGNORECASE,
+        ),
+    ),
+    (
         "combat_takeoff",
         re.compile(r"(взлетаю|взлёт|поднимаюсь\s+в\s+воздух|в\s+воздух)", re.IGNORECASE),
     ),
@@ -127,6 +134,13 @@ CHAT_COMBAT_ACTION_PATTERNS: list[tuple[str, re.Pattern[str]]] = [
         "breathe_underwater",
         re.compile(
             r"(дышу\s+под\s+водой|ныряю|задерживаю\s+дыхание\s+под\s+водой|breathe\s+underwater)",
+            re.IGNORECASE,
+        ),
+    ),
+    (
+        "water_immerse",
+        re.compile(
+            r"(погружаюсь\s+в\s+воду|час\s+в\s+воде|купал(?:ся|ась)|immerse\s+in\s+water)",
             re.IGNORECASE,
         ),
     ),

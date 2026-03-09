@@ -406,6 +406,185 @@ def _maybe_apply_fury_of_small(*, actor: Any, target: Any, lines: list[dict[str,
     return bonus
 
 
+def _has_damage_immunity(actor: Any, damage_type: str) -> bool:
+    race_features = getattr(actor, "race_features", None)
+    rf = race_features if isinstance(race_features, dict) else {}
+    immunities_raw = rf.get("immunities")
+    immunities = immunities_raw if isinstance(immunities_raw, dict) else {}
+    damage_raw = immunities.get("damage")
+    damage_items = damage_raw if isinstance(damage_raw, list) else []
+    needle = str(damage_type or "").strip().lower()
+    if not needle:
+        return False
+    for item in damage_items:
+        if str(item or "").strip().lower() == needle:
+            return True
+    return False
+
+
+def _has_condition_immunity(actor: Any, condition_key: str) -> bool:
+    race_features = getattr(actor, "race_features", None)
+    rf = race_features if isinstance(race_features, dict) else {}
+    immunities_raw = rf.get("immunities")
+    immunities = immunities_raw if isinstance(immunities_raw, dict) else {}
+    cond_raw = immunities.get("conditions")
+    cond_items = cond_raw if isinstance(cond_raw, list) else []
+    needle = str(condition_key or "").strip().lower()
+    if not needle:
+        return False
+    for item in cond_items:
+        if str(item or "").strip().lower() == needle:
+            return True
+    return False
+
+
+def _conditions_runtime(actor: Any) -> tuple[dict[str, Any], dict[str, Any], dict[str, Any]]:
+    race_features = actor.race_features if isinstance(getattr(actor, "race_features", None), dict) else {}
+    runtime_raw = race_features.get("runtime")
+    runtime = dict(runtime_raw) if isinstance(runtime_raw, dict) else {}
+    conditions_raw = runtime.get("conditions")
+    conditions = dict(conditions_raw) if isinstance(conditions_raw, dict) else {}
+    return race_features, runtime, conditions
+
+
+def _is_poisoned_condition_active(actor: Any) -> bool:
+    _rf, _runtime, conditions = _conditions_runtime(actor)
+    poisoned_raw = conditions.get("poisoned")
+    poisoned = dict(poisoned_raw) if isinstance(poisoned_raw, dict) else {}
+    if bool(poisoned.get("active")):
+        return True
+    return max(0, int(poisoned.get("remaining_rounds") or 0)) > 0
+
+
+def _set_poisoned_condition(actor: Any, *, save_dc: int, rounds: int, source: str) -> None:
+    race_features, runtime, conditions = _conditions_runtime(actor)
+    poisoned_raw = conditions.get("poisoned")
+    poisoned = dict(poisoned_raw) if isinstance(poisoned_raw, dict) else {}
+    poisoned["active"] = True
+    poisoned["save_dc"] = max(1, int(save_dc))
+    poisoned["remaining_rounds"] = max(1, int(rounds))
+    poisoned["repeat_save"] = "end_of_turn"
+    poisoned["source"] = str(source or "effect").strip().lower() or "effect"
+    conditions["poisoned"] = poisoned
+    runtime["conditions"] = conditions
+    race_features["runtime"] = runtime
+    actor.race_features = race_features
+
+
+def _consume_grung_weapon_poison_on_hit(
+    *,
+    session_id: str,
+    attacker: Any,
+    target: Any,
+    profile: Any,
+    lines: list[dict[str, Any]],
+) -> tuple[Any, Any]:
+    race_features = attacker.race_features if isinstance(attacker.race_features, dict) else {}
+    features_raw = race_features.get("features")
+    features = features_raw if isinstance(features_raw, dict) else {}
+    poison_skin_raw = features.get("poisonous_skin")
+    poison_skin = poison_skin_raw if isinstance(poison_skin_raw, dict) else {}
+    weapon_poison_raw = poison_skin.get("weapon_poison")
+    weapon_poison = weapon_poison_raw if isinstance(weapon_poison_raw, dict) else {}
+    if not weapon_poison:
+        return get_combat(session_id), target
+
+    runtime_raw = race_features.get("runtime")
+    runtime = dict(runtime_raw) if isinstance(runtime_raw, dict) else {}
+    if not bool(runtime.get("grung_weapon_poison_armed")):
+        return get_combat(session_id), target
+
+    damage_type = str(getattr(profile, "damage_type", "") or "").strip().lower()
+    if damage_type != "piercing":
+        return get_combat(session_id), target
+
+    runtime["grung_weapon_poison_armed"] = False
+    race_features["runtime"] = runtime
+    attacker.race_features = race_features
+
+    dc = max(1, int(weapon_poison.get("save_dc") or 12))
+    target_stats = target.stats if isinstance(getattr(target, "stats", None), dict) else {}
+    con_stat = int(target_stats.get("con", 50)) if isinstance(target_stats.get("con"), int) else 50
+    con_mod = ability_mod_from_stat100(con_stat)
+    save_roll = random.randint(1, 20)
+    save_total = save_roll + con_mod
+    save_success = save_total >= dc
+    lines.append(
+        {
+            "text": f"Яд грунга (оружие): спасбросок ТЕЛ цели d20({save_roll}) {con_mod:+d} = {save_total} vs DC {dc} -> {'успех' if save_success else 'провал'}.",
+            "muted": True,
+        }
+    )
+    if save_success:
+        return get_combat(session_id), target
+
+    damage_expr = str(weapon_poison.get("damage") or "2d4").strip().lower()
+    parsed = parse_dice(damage_expr)
+    if parsed is None:
+        n, sides = 2, 4
+    else:
+        n, sides = parsed
+    poison_rolls = [random.randint(1, max(1, sides)) for _ in range(max(1, n))]
+    poison_damage = sum(poison_rolls)
+    poison_damage_type = str(weapon_poison.get("damage_type") or "poison").strip().lower() or "poison"
+    if _has_damage_immunity(target, poison_damage_type):
+        poison_damage = 0
+        lines.append({"text": "Цель иммунна к урону ядом: доп. урон = 0.", "muted": True})
+    else:
+        lines.append({"text": f"Яд грунга (оружие): +{poison_damage} ({damage_expr}) урона ядом.", "muted": True})
+    if poison_damage <= 0:
+        return get_combat(session_id), target
+    state = apply_damage(session_id, target.key, poison_damage, source=attacker.key)
+    if state is None:
+        return None, target
+    return state, state.combatants.get(target.key, target)
+
+
+def _maybe_apply_grung_contact_poison_on_melee_hit(
+    *,
+    attacker: Any,
+    target: Any,
+    is_melee_hit: bool,
+    lines: list[dict[str, Any]],
+) -> None:
+    if not is_melee_hit:
+        return
+    target_features_raw = getattr(target, "race_features", None)
+    target_features = target_features_raw if isinstance(target_features_raw, dict) else {}
+    target_race_features_raw = target_features.get("features")
+    target_race_features = target_race_features_raw if isinstance(target_race_features_raw, dict) else {}
+    poison_skin_raw = target_race_features.get("poisonous_skin")
+    poison_skin = poison_skin_raw if isinstance(poison_skin_raw, dict) else {}
+    if not poison_skin:
+        return
+    contact_raw = poison_skin.get("contact_condition")
+    contact = contact_raw if isinstance(contact_raw, dict) else {}
+    if not contact:
+        return
+    dc = max(1, int(poison_skin.get("contact_save_dc") or 12))
+    if _has_condition_immunity(attacker, "poisoned"):
+        lines.append({"text": "Ядовитая кожа: атакующий иммунен к состоянию «отравлен».", "muted": True})
+        return
+    attacker_stats = attacker.stats if isinstance(getattr(attacker, "stats", None), dict) else {}
+    con_stat = int(attacker_stats.get("con", 50)) if isinstance(attacker_stats.get("con"), int) else 50
+    con_mod = ability_mod_from_stat100(con_stat)
+    save_roll = random.randint(1, 20)
+    save_total = save_roll + con_mod
+    save_success = save_total >= dc
+    lines.append(
+        {
+            "text": f"Ядовитая кожа (контакт): спасбросок ТЕЛ d20({save_roll}) {con_mod:+d} = {save_total} vs DC {dc} -> {'успех' if save_success else 'провал'}.",
+            "muted": True,
+        }
+    )
+    if save_success:
+        return
+    duration_key = str(contact.get("duration") or "").strip().lower()
+    rounds = 10 if duration_key == "1_minute" else max(1, int(contact.get("rounds") or 10))
+    _set_poisoned_condition(attacker, save_dc=dc, rounds=rounds, source="grung_contact_poison")
+    lines.append({"text": f"{attacker.name} получает состояние «отравлен» (до {rounds} раундов, повторы в конце хода).", "muted": True})
+
+
 def _breath_weapon_dice_for_level(progression: list[dict[str, Any]], level: int) -> str:
     lvl = max(1, int(level))
     out = "2d6"
@@ -1209,6 +1388,69 @@ def handle_live_combat_action(
             None,
         )
 
+    if action == "combat_grung_poison_weapon":
+        state = get_combat(session_id)
+        if state is None or not state.active:
+            return None, "Combat is not active"
+        if not state.order:
+            end_combat(session_id)
+            return (
+                {
+                    "status": "Бой завершён",
+                    "open": False,
+                    "lines": [{"text": "Бой завершён: целей не осталось.", "muted": True}],
+                },
+                None,
+            )
+
+        attacker_key = state.order[state.turn_index]
+        attacker = state.combatants.get(attacker_key)
+        if attacker is None:
+            return None, "Combat state is inconsistent"
+        if str(getattr(attacker, "side", "")).lower() != "pc":
+            return None, "Яд грунга на оружии доступен только персонажу игрока."
+        poison_skin = _race_feature(attacker, "poisonous_skin")
+        if poison_skin is None:
+            return None, "Ядовитая кожа недоступна."
+        weapon_poison_raw = poison_skin.get("weapon_poison")
+        weapon_poison = weapon_poison_raw if isinstance(weapon_poison_raw, dict) else {}
+        if not weapon_poison:
+            return None, "Яд на оружии недоступен."
+        blocked = _spend_bonus_action_or_block(state, attacker)
+        if blocked is not None:
+            return blocked, None
+
+        stats = attacker.stats if isinstance(attacker.stats, dict) else {}
+        inventory = attacker.inventory if isinstance(attacker.inventory, list) else []
+        equip_map = attacker.equip if isinstance(attacker.equip, dict) else {}
+        profile = compute_attack_profile(
+            stats=stats,
+            inventory=inventory,
+            equip_map=equip_map,
+            level=attacker.level,
+            race_features=getattr(attacker, "race_features", None),
+        )
+        if str(getattr(profile, "damage_type", "") or "").strip().lower() != "piercing":
+            return None, "Нужно колющее оружие в экипировке."
+
+        race_features = attacker.race_features if isinstance(attacker.race_features, dict) else {}
+        runtime_raw = race_features.get("runtime")
+        runtime = dict(runtime_raw) if isinstance(runtime_raw, dict) else {}
+        runtime["grung_weapon_poison_armed"] = True
+        race_features["runtime"] = runtime
+        attacker.race_features = race_features
+        return (
+            {
+                "status": _combat_status(state),
+                "open": True,
+                "lines": [
+                    {"text": f"{attacker.name} наносит яд грунга на оружие.", "muted": True},
+                    {"text": "Следующее попадание колющей атакой: цель делает спасбросок ТЕЛ (DC 12) или получает 2d4 урона ядом.", "muted": True},
+                ],
+            },
+            None,
+        )
+
     if action == "combat_use_object":
         state = get_combat(session_id)
         if state is None or not state.active:
@@ -1671,7 +1913,7 @@ def handle_live_combat_action(
         hp_current = max(0, int(getattr(attacker, "hp_current", 0)))
         hp_max = max(1, int(getattr(attacker, "hp_max", 1)))
         low_hp_advantage = bool(bite_cfg.get("advantage_when_hp_below_half")) and (hp_current * 2 <= hp_max)
-        has_disadvantage = target.dodge_active
+        has_disadvantage = target.dodge_active or _is_poisoned_condition_active(attacker)
         hidden_step_advantage = _is_hidden_step_active(attacker)
         has_advantage = attacker.help_attack_advantage or low_hp_advantage or hidden_step_advantage
         roll_mode = "normal"
@@ -1720,6 +1962,12 @@ def handle_live_combat_action(
             if state is None:
                 return None, "Combat is not active"
             target = state.combatants.get(target.key, target)
+            _maybe_apply_grung_contact_poison_on_melee_hit(
+                attacker=attacker,
+                target=target,
+                is_melee_hit=True,
+                lines=extra_outcome_lines,
+            )
             damage_done = max(0, int(damage_to_apply))
             if target.side == "pc":
                 if pre_hp > 0 and target.hp_current == 0:
@@ -1874,7 +2122,7 @@ def handle_live_combat_action(
                 None,
             )
 
-        has_disadvantage = target.dodge_active
+        has_disadvantage = target.dodge_active or _is_poisoned_condition_active(attacker)
         nimble_escape_hide_advantage = _is_nimble_escape_hide_active(attacker)
         hidden_step_advantage = _is_hidden_step_active(attacker)
         has_advantage = attacker.help_attack_advantage or hidden_step_advantage or nimble_escape_hide_advantage
@@ -1967,6 +2215,24 @@ def handle_live_combat_action(
             if state is None:
                 return None, "Combat is not active"
             target = state.combatants.get(target.key, target)
+            state_after_poison, target_after_poison = _consume_grung_weapon_poison_on_hit(
+                session_id=session_id,
+                attacker=attacker,
+                target=target,
+                profile=profile,
+                lines=extra_outcome_lines,
+            )
+            if state_after_poison is None:
+                return None, "Combat is not active"
+            if state_after_poison is not None:
+                state = state_after_poison
+                target = target_after_poison
+            _maybe_apply_grung_contact_poison_on_melee_hit(
+                attacker=attacker,
+                target=target,
+                is_melee_hit=bool(getattr(profile, "is_melee_weapon", False)),
+                lines=extra_outcome_lines,
+            )
             if target.side == "pc":
                 if pre_hp > 0 and target.hp_current == 0:
                     leftover = total_damage - pre_hp
@@ -2243,7 +2509,7 @@ def handle_live_combat_action(
                 None,
             )
 
-        has_disadvantage = target.dodge_active
+        has_disadvantage = target.dodge_active or _is_poisoned_condition_active(attacker)
         hidden_step_advantage = _is_hidden_step_active(attacker)
         has_advantage = attacker.help_attack_advantage or hidden_step_advantage
         roll_mode = "normal"
@@ -2301,6 +2567,12 @@ def handle_live_combat_action(
             if state is None:
                 return None, "Combat is not active"
             target = state.combatants.get(target.key, target)
+            _maybe_apply_grung_contact_poison_on_melee_hit(
+                attacker=attacker,
+                target=target,
+                is_melee_hit=True,
+                lines=extra_outcome_lines,
+            )
             if target.side == "pc":
                 if pre_hp > 0 and target.hp_current == 0:
                     leftover = total_damage - pre_hp
@@ -2409,7 +2681,7 @@ def handle_live_combat_action(
                 None,
             )
 
-        has_disadvantage = target.dodge_active
+        has_disadvantage = target.dodge_active or _is_poisoned_condition_active(attacker)
         hidden_step_advantage = _is_hidden_step_active(attacker)
         has_advantage = attacker.help_attack_advantage or hidden_step_advantage
         roll_mode = "normal"
@@ -2488,6 +2760,24 @@ def handle_live_combat_action(
             if state is None:
                 return None, "Combat is not active"
             target = state.combatants.get(target.key, target)
+            state_after_poison, target_after_poison = _consume_grung_weapon_poison_on_hit(
+                session_id=session_id,
+                attacker=attacker,
+                target=target,
+                profile=profile,
+                lines=extra_outcome_lines,
+            )
+            if state_after_poison is None:
+                return None, "Combat is not active"
+            if state_after_poison is not None:
+                state = state_after_poison
+                target = target_after_poison
+            _maybe_apply_grung_contact_poison_on_melee_hit(
+                attacker=attacker,
+                target=target,
+                is_melee_hit=bool(getattr(profile, "is_melee_weapon", False)),
+                lines=extra_outcome_lines,
+            )
             if target.side == "pc":
                 if pre_hp > 0 and target.hp_current == 0:
                     leftover = total_damage - pre_hp
