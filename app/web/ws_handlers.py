@@ -818,6 +818,36 @@ def _mode_with_sunlight_disadvantage(
     return "disadvantage"
 
 
+def _mode_with_keen_smell_advantage(
+    mode: str,
+    race_features: Any,
+    *,
+    check_name: str,
+    check_tag: str = "",
+) -> str:
+    mode_norm = str(mode or "normal").strip().lower()
+    if mode_norm not in {"normal", "advantage", "disadvantage"}:
+        mode_norm = "normal"
+    if str(check_tag or "").strip().lower() != "smell":
+        return mode_norm
+    name_key = str(check_name or "").strip().lower()
+    if name_key not in {"perception", "survival", "investigation"}:
+        return mode_norm
+    if not isinstance(race_features, dict):
+        return mode_norm
+    features_raw = race_features.get("features")
+    features = features_raw if isinstance(features_raw, dict) else {}
+    keen_smell_raw = features.get("keen_smell")
+    keen_smell = keen_smell_raw if isinstance(keen_smell_raw, dict) else {}
+    checks_raw = keen_smell.get("checks")
+    checks = [str(x or "").strip().lower() for x in checks_raw] if isinstance(checks_raw, list) else []
+    if f"{name_key}_smell" not in checks:
+        return mode_norm
+    if mode_norm == "disadvantage":
+        return "normal"
+    return "advantage"
+
+
 def _set_sunlight_bright_for_session_combatants(session_id: str, *, sunlight_bright: bool) -> bool:
     state = get_combat(session_id)
     if state is None or not state.active:
@@ -4096,12 +4126,19 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                         await ws_error("Usage: check [adv|dis] <stat_or_skill> [dc N]", request_id=msg_request_id)
                         continue
 
-                    key = parts[idx].lower()
+                    key_tokens: list[str] = [parts[idx].lower()]
                     idx += 1
                     while idx < len(parts) and not parts[idx].lower().startswith("dc"):
-                        key += f" {parts[idx].lower()}"
+                        key_tokens.append(parts[idx].lower())
                         idx += 1
-                    key = _normalize_check_name(key)
+                    check_tag = ""
+                    if key_tokens and key_tokens[-1] == "smell":
+                        check_tag = "smell"
+                        key_tokens = key_tokens[:-1]
+                    key = _normalize_check_name(" ".join(key_tokens))
+                    if not key:
+                        await ws_error("Usage: check [adv|dis] <stat_or_skill> [smell] [dc N]", request_id=msg_request_id)
+                        continue
                     dc: Optional[int] = None
                     if idx < len(parts):
                         tok = parts[idx].lower()
@@ -4181,6 +4218,12 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                         getattr(ch, "race_features", None),
                         sunlight_bright=bool(settings_get(sess, "sunlight_bright", False)),
                         check_name=key,
+                    )
+                    mapped_mode = _mode_with_keen_smell_advantage(
+                        mapped_mode,
+                        getattr(ch, "race_features", None),
+                        check_name=key,
+                        check_tag=check_tag,
                     )
                     ra, rb, roll = roll_check(
                         mapped_mode,

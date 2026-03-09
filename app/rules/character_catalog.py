@@ -2387,7 +2387,7 @@ EXTERNAL_RACE_CATALOG: list[dict[str, Any]] = [{
     "key": "natural_armor_loxodon",
     "name_ru": "Природный доспех",
     "summary_ru": "Если вы не носите броню, КД = 12 + модиф. Телосложения. Можно использовать, если доспехи дают меньший КД. Щит работает как обычно.",
-    "mechanics": {"type": "natural_armor", "ac_formula": "12 + con_mod", "shield_applies": True},
+    "mechanics": {"type": "natural_armor", "ac_formula": "12 + con_mod", "shield_applies": True, "allow_when_armored_if_better": True},
    },
    {
     "key": "trunk",

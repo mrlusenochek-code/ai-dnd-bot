@@ -717,9 +717,17 @@ def _build_race_features(selected_race: dict | None) -> dict[str, Any]:
                 nat_obj["requires_unarmored"] = bool(mech.get("requires_unarmored"))
             else:
                 nat_obj["requires_unarmored"] = True
+            if mech.get("allow_when_armored_if_better") is not None:
+                nat_obj["allow_when_armored_if_better"] = bool(mech.get("allow_when_armored_if_better"))
             # only set if we actually found something useful
             if nat_obj:
                 out_nat = nat_obj
+
+        if mtype == "trunk":
+            features["trunk"] = dict(mech)
+
+        if mtype == "advantage_on_checks" and tkey == "keen_smell":
+            features["keen_smell"] = dict(mech)
 
         if mtype == "natural_weapon":
             weapon_key = str(t.get("key") or mech.get("key") or "").strip().lower()

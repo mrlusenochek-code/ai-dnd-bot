@@ -1723,6 +1723,24 @@ function openCharacterModal(){
   const locathahLimitedAmphibiousText = (raceKey === "locathah" && locathahLimitedAmph)
     ? `Частичная земноводность: нужно погружаться в воду раз в 4 часа, иначе начинаете задыхаться. Последнее погружение: ${locathahLastImmersionText}; прошло часов: ${locathahHoursSinceImmersion.toFixed(1)}; задыхаетесь: ${locathahSuffocating ? "да" : "нет"}`
     : "";
+  const loxodonSerenityText = (raceKey === "loxodon")
+    ? "Спокойствие локсодонов: преимущество на спасброски от очарования/испуга"
+    : "";
+  const loxodonNaturalArmorText = (raceKey === "loxodon")
+    ? "Природный доспех: без брони КД = 12 + модиф. ТЕЛ; можно использовать, если броня хуже; щит работает"
+    : "";
+  const loxodonTrunk = (raceFeaturesMeta.trunk && typeof raceFeaturesMeta.trunk === "object")
+    ? raceFeaturesMeta.trunk
+    : null;
+  const loxodonTrunkText = (raceKey === "loxodon" && loxodonTrunk)
+    ? "Хобот: досягаемость 5 фт, переноска/толкать/тянуть, безоружный удар; нельзя держать оружие/щит, точные действия и соматику"
+    : "";
+  const loxodonKeenSmell = (raceFeaturesMeta.keen_smell && typeof raceFeaturesMeta.keen_smell === "object")
+    ? raceFeaturesMeta.keen_smell
+    : null;
+  const loxodonKeenSmellText = (raceKey === "loxodon" && loxodonKeenSmell)
+    ? "Обострённый нюх: преимущество на проверки Восприятия/Выживания/Расследования, основанные на запахе (например: check perception smell)"
+    : "";
   const combatState = (lastState && typeof lastState.combat === "object" && lastState.combat) ? lastState.combat : null;
   const combatants = (combatState && typeof combatState.combatants === "object" && combatState.combatants) ? combatState.combatants : {};
   const myCombatantKey = me && me.uid !== null && me.uid !== undefined ? (`pc_${String(me.uid)}`) : "";
@@ -2014,6 +2032,18 @@ function openCharacterModal(){
   if(locathahLimitedAmphibiousText){
     details.push(`<div class="char-line"><strong>Частичная земноводность:</strong> ${escapeHtml(locathahLimitedAmphibiousText.replace(/^Частичная земноводность:\s*/, ""))}</div>`);
   }
+  if(loxodonSerenityText){
+    details.push(`<div class="char-line"><strong>Спокойствие локсодонов:</strong> ${escapeHtml(loxodonSerenityText.replace(/^Спокойствие локсодонов:\s*/, ""))}</div>`);
+  }
+  if(loxodonNaturalArmorText){
+    details.push(`<div class="char-line"><strong>Природный доспех:</strong> ${escapeHtml(loxodonNaturalArmorText.replace(/^Природный доспех:\s*/, ""))}</div>`);
+  }
+  if(loxodonTrunkText){
+    details.push(`<div class="char-line"><strong>Хобот:</strong> ${escapeHtml(loxodonTrunkText.replace(/^Хобот:\s*/, ""))}</div>`);
+  }
+  if(loxodonKeenSmellText){
+    details.push(`<div class="char-line"><strong>Обострённый нюх:</strong> ${escapeHtml(loxodonKeenSmellText.replace(/^Обострённый нюх:\s*/, ""))}</div>`);
+  }
   if(carry.powerful_build === true){
     details.push("<div class=\"char-line\"><strong>Мощное телосложение:</strong> считается на 1 размер больше для переноски/толкания/тяги/подъёма</div>");
   }
@@ -2263,6 +2293,10 @@ function openCharacterModal(){
   if(locathahSkillsText) copyLines.push(locathahSkillsText);
   if(locathahLeviathansWillText) copyLines.push(locathahLeviathansWillText);
   if(locathahLimitedAmphibiousText) copyLines.push(locathahLimitedAmphibiousText);
+  if(loxodonSerenityText) copyLines.push(loxodonSerenityText);
+  if(loxodonNaturalArmorText) copyLines.push(loxodonNaturalArmorText);
+  if(loxodonTrunkText) copyLines.push(loxodonTrunkText);
+  if(loxodonKeenSmellText) copyLines.push(loxodonKeenSmellText);
   if(saveAdvantageConditionsRu.length) copyLines.push(`Преим. против: ${saveAdvantageConditionsRu.join(", ")} (спасброски)`);
   if(dwarvenResilienceText) copyLines.push(dwarvenResilienceText);
   if(feyAncestryText) copyLines.push(feyAncestryText);

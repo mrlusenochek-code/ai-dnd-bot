@@ -270,10 +270,12 @@ def compute_ac(*, stats: dict, inventory: list[dict], equip_map: dict[str, str],
     nat_ac_base: int | None = None
     nat_no_armor_stack = False
     nat_requires_unarmored = True
+    nat_allow_when_armored_if_better = False
     if isinstance(nat, dict):
         nat_no_armor_stack = bool(nat.get("no_armor_stack"))
         if nat.get("requires_unarmored") is not None:
             nat_requires_unarmored = bool(nat.get("requires_unarmored"))
+        nat_allow_when_armored_if_better = bool(nat.get("allow_when_armored_if_better"))
         if nat.get("ac") is not None:
             nat_ac_base = _safe_int(nat.get("ac"), None)  # type: ignore[arg-type]
         elif nat.get("ac_formula"):
@@ -307,7 +309,7 @@ def compute_ac(*, stats: dict, inventory: list[dict], equip_map: dict[str, str],
     armor_def = _item_def_for_inventory_entry(armor_entry) if armor_entry else None
     armor_equip = armor_def.equip if armor_def else None
     armor_is_worn = bool(armor_equip and armor_equip.base_ac is not None)
-    if armor_is_worn and nat_requires_unarmored:
+    if armor_is_worn and nat_requires_unarmored and not nat_allow_when_armored_if_better:
         nat_ac_base = None
     if armor_equip and armor_equip.base_ac is not None:
         # If race natural armor does not stack with worn armor, ignore it.
