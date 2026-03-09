@@ -293,6 +293,13 @@ CHAT_COMBAT_ACTION_PATTERNS: list[tuple[str, re.Pattern[str]]] = [
         ),
     ),
     (
+        "arm_past_life_knowledge",
+        re.compile(
+            r"(вспоминаю\s+прошлую\s+жизн\w*|знани\w+\s+из\s+прошл\w+\s+жизн\w*|past\s+life\s+knowledge|reborn\s+knowledge)",
+            re.IGNORECASE,
+        ),
+    ),
+    (
         "combat_fury_of_small",
         re.compile(
             r"(разъяр[её]нн\w+\s+мелкот\w*|ярост\w+\s+мелкот\w*|ярост\w+\s+мал\w*|выпускаю\s+ярост\w*|"

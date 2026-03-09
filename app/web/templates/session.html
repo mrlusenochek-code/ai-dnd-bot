@@ -658,6 +658,8 @@ function openCharacterModal(){
   const _SAVE_CONDITION_RU = {
     "poison": "яд",
     "poisoned": "отравление",
+    "disease": "болезни",
+    "death_saves": "спасброски смерти",
     "charmed": "очарование",
     "paralyzed": "паралич",
     "frightened": "испуг",
@@ -1772,6 +1774,33 @@ function openCharacterModal(){
   const owlinStealthText = (raceKey === "owlin" && profSkills.includes("stealth"))
     ? "Владение: Скрытность"
     : "";
+  const rebornDeathlessNature = (raceFeaturesMeta.deathless_nature && typeof raceFeaturesMeta.deathless_nature === "object")
+    ? raceFeaturesMeta.deathless_nature
+    : null;
+  const rebornPastLife = (raceFeaturesMeta.knowledge_from_a_past_life && typeof raceFeaturesMeta.knowledge_from_a_past_life === "object")
+    ? raceFeaturesMeta.knowledge_from_a_past_life
+    : null;
+  const rebornHasDiseaseSaveAdvantage = saveAdvantageConditions.includes("disease");
+  const rebornHasPoisonedSaveAdvantage = saveAdvantageConditions.includes("poison") || saveAdvantageConditions.includes("poisoned");
+  const rebornHasDeathSaveAdvantage = saveAdvantageConditions.includes("death_saves");
+  const rebornLongRestHours = Number.isFinite(Number(rebornDeathlessNature && rebornDeathlessNature.long_rest_hours))
+    ? Number(rebornDeathlessNature.long_rest_hours)
+    : 4;
+  const rebornPb = Number.isFinite(Number(ch.level))
+    ? Math.max(2, Math.floor((Math.max(1, Number(ch.level)) - 1) / 4) + 2)
+    : 2;
+  const rebornPastLifeUsed = Number.isFinite(Number(runtime.knowledge_past_life_uses_used))
+    ? Number(runtime.knowledge_past_life_uses_used)
+    : 0;
+  const rebornPastLifeRemaining = Math.max(0, rebornPb - rebornPastLifeUsed);
+  const rebornPastLifePending = runtime.knowledge_from_a_past_life_pending && typeof runtime.knowledge_from_a_past_life_pending === "object";
+  const rebornPastLifeArmed = !!runtime.knowledge_past_life_armed;
+  const rebornDeathlessNatureText = (raceKey === "reborn" && rebornDeathlessNature)
+    ? `Бессмертная природа: преимущество на спасброски от болезней и отравления${rebornHasDeathSaveAdvantage ? "; преимущество на спасброски смерти" : ""}; ${hasPoisonResistance ? "сопротивление урону ядом; " : ""}не нужно есть/пить/дышать/спать; магия не может усыпить; длительный отдых ${rebornLongRestHours} часа, оставаясь в сознании`
+    : "";
+  const rebornPastLifeText = (raceKey === "reborn" && rebornPastLife)
+    ? `Знания из прошлой жизни: после броска d20 к проверке навыка можно добавить 1к6; использований: БМ/дл. отдых. Осталось: ${rebornPastLifeRemaining}/${rebornPb}${rebornPastLifePending ? "; ожидает применение к последней проваленной проверке" : (rebornPastLifeArmed ? "; готово к следующей проверке навыка" : "")}`
+    : "";
   const orcMenacingText = (raceKey === "orc" && profSkills.includes("intimidation"))
     ? "Угрожающий: владение Запугивание"
     : "";
@@ -2103,6 +2132,12 @@ function openCharacterModal(){
   if(owlinStealthText){
     details.push(`<div class="char-line"><strong>Владение:</strong> ${escapeHtml(owlinStealthText.replace(/^Владение:\s*/, ""))}</div>`);
   }
+  if(rebornDeathlessNatureText){
+    details.push(`<div class="char-line"><strong>Бессмертная природа:</strong> ${escapeHtml(rebornDeathlessNatureText.replace(/^Бессмертная природа:\s*/, ""))}</div>`);
+  }
+  if(rebornPastLifeText){
+    details.push(`<div class="char-line"><strong>Знания из прошлой жизни:</strong> ${escapeHtml(rebornPastLifeText.replace(/^Знания из прошлой жизни:\s*/, ""))}</div>`);
+  }
   if(orcMenacingText){
     details.push(`<div class="char-line"><strong>Угрожающий:</strong> ${escapeHtml(orcMenacingText.replace(/^Угрожающий:\s*/, ""))}</div>`);
   }
@@ -2368,6 +2403,8 @@ function openCharacterModal(){
   if(minotaurHammeringHornsText) copyLines.push(minotaurHammeringHornsText);
   if(owlinFlightText) copyLines.push(owlinFlightText);
   if(owlinStealthText) copyLines.push(owlinStealthText);
+  if(rebornDeathlessNatureText) copyLines.push(rebornDeathlessNatureText);
+  if(rebornPastLifeText) copyLines.push(rebornPastLifeText);
   if(orcMenacingText) copyLines.push(orcMenacingText);
   if(orcAggressiveText) copyLines.push(orcAggressiveText);
   if(saveAdvantageConditionsRu.length) copyLines.push(`Преим. против: ${saveAdvantageConditionsRu.join(", ")} (спасброски)`);

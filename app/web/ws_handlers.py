@@ -163,6 +163,10 @@ def _normalize_save_tag(raw: str) -> str:
         "poison": "poison",
         "яд": "poison",
         "poisoned": "poison",
+        "disease": "disease",
+        "болезнь": "disease",
+        "болезни": "disease",
+        "diseased": "disease",
         "frightened": "frightened",
         "испуг": "frightened",
         "испуган": "frightened",
@@ -1066,6 +1070,166 @@ def _kender_mark_fearless_pending(
     actor_rf["runtime"] = actor_runtime
     actor.race_features = actor_rf
     return True
+
+
+def _sync_character_runtime_to_combat_actor(session_id: str, player_uid: int | None, runtime: dict[str, Any]) -> None:
+    if player_uid is None:
+        return
+    state = get_combat(session_id)
+    if state is None or not state.active:
+        return
+    actor = state.combatants.get(f"pc_{player_uid}")
+    if actor is None:
+        return
+    actor_rf = actor.race_features if isinstance(actor.race_features, dict) else {}
+    actor_runtime = dict(actor_rf.get("runtime")) if isinstance(actor_rf.get("runtime"), dict) else {}
+    runtime_keys = {
+        "knowledge_past_life_uses_used",
+        "knowledge_past_life_armed",
+        "knowledge_from_a_past_life_pending",
+        "knowledge_from_a_past_life_last_result",
+    }
+    for key in runtime_keys:
+        if key in runtime:
+            actor_runtime[key] = runtime[key]
+        else:
+            actor_runtime.pop(key, None)
+    if actor_runtime:
+        actor_rf["runtime"] = actor_runtime
+    else:
+        actor_rf.pop("runtime", None)
+    actor.race_features = actor_rf
+
+
+def _reborn_past_life_feature(ch: Character) -> dict[str, Any]:
+    race_features = getattr(ch, "race_features", None)
+    rf = dict(race_features) if isinstance(race_features, dict) else {}
+    features_raw = rf.get("features")
+    features = dict(features_raw) if isinstance(features_raw, dict) else {}
+    feature_raw = features.get("knowledge_from_a_past_life")
+    return dict(feature_raw) if isinstance(feature_raw, dict) else {}
+
+
+def _reborn_past_life_uses_max(ch: Character, feature: dict[str, Any] | None = None) -> int:
+    cfg = feature if isinstance(feature, dict) else _reborn_past_life_feature(ch)
+    if not cfg:
+        return 0
+    formula = str(cfg.get("uses_formula") or "").strip().lower()
+    if formula == "proficiency_bonus":
+        level = max(1, as_int(getattr(ch, "level", 1), 1))
+        return max(1, int(proficiency_bonus(level)))
+    uses_max = max(0, as_int(cfg.get("uses_max"), 0))
+    return uses_max
+
+
+def _reborn_mark_past_life_pending(
+    *,
+    session_id: str,
+    player_uid: int | None,
+    ch: Character,
+    dc: int,
+    total: int,
+    skill_key: str,
+) -> bool:
+    feature = _reborn_past_life_feature(ch)
+    if not feature:
+        return False
+    uses_max = _reborn_past_life_uses_max(ch, feature)
+    race_features = getattr(ch, "race_features", None)
+    rf = dict(race_features) if isinstance(race_features, dict) else {}
+    runtime = dict(rf.get("runtime")) if isinstance(rf.get("runtime"), dict) else {}
+    used = max(0, as_int(runtime.get("knowledge_past_life_uses_used"), 0))
+    if uses_max <= 0 or used >= uses_max:
+        return False
+    pending = {
+        "kind": "skill",
+        "dc": max(0, int(dc)),
+        "total": int(total),
+        "skill": str(skill_key or "").strip().lower(),
+        "at": utcnow().isoformat(),
+    }
+    runtime["knowledge_from_a_past_life_pending"] = pending
+    rf["runtime"] = runtime
+    ch.race_features = rf
+    _sync_character_runtime_to_combat_actor(session_id, player_uid, runtime)
+    return True
+
+
+def _apply_or_arm_reborn_past_life_knowledge(
+    *,
+    session_id: str,
+    player_uid: int | None,
+    ch: Character,
+) -> tuple[Optional[str], Optional[str], bool]:
+    feature = _reborn_past_life_feature(ch)
+    if not feature:
+        return "Знания из прошлой жизни недоступны вашей расе.", None, False
+
+    race_features = getattr(ch, "race_features", None)
+    rf = dict(race_features) if isinstance(race_features, dict) else {}
+    runtime = dict(rf.get("runtime")) if isinstance(rf.get("runtime"), dict) else {}
+    uses_max = _reborn_past_life_uses_max(ch, feature)
+    used = max(0, as_int(runtime.get("knowledge_past_life_uses_used"), 0))
+    if uses_max <= 0 or used >= uses_max:
+        return "Знания из прошлой жизни уже использованы до долгого отдыха.", None, False
+
+    pending = dict(runtime.get("knowledge_from_a_past_life_pending")) if isinstance(runtime.get("knowledge_from_a_past_life_pending"), dict) else {}
+    if pending:
+        bonus = random.randint(1, 6)
+        total_before = int(pending.get("total") or 0)
+        dc = max(0, int(pending.get("dc") or 0))
+        total_after = total_before + bonus
+        runtime["knowledge_past_life_uses_used"] = used + 1
+        runtime["knowledge_past_life_armed"] = False
+        runtime.pop("knowledge_from_a_past_life_pending", None)
+        runtime["knowledge_from_a_past_life_last_result"] = {
+            **pending,
+            "bonus": bonus,
+            "total_after": total_after,
+            "success": total_after >= dc if dc > 0 else True,
+            "resolved_at": utcnow().isoformat(),
+        }
+        rf["runtime"] = runtime
+        ch.race_features = rf
+        _sync_character_runtime_to_combat_actor(session_id, player_uid, runtime)
+        outcome = "УСПЕХ" if dc > 0 and total_after >= dc else "FAIL"
+        skill_key = str(pending.get("skill") or "").strip().lower()
+        return None, f"Знания из прошлой жизни: +1d6 ({bonus}) к {skill_key} => {total_after} (DC {dc}) {outcome}", True
+
+    if bool(runtime.get("knowledge_past_life_armed")):
+        return "Знания из прошлой жизни уже готовы: следующая проверка навыка получит +1к6.", None, False
+
+    runtime["knowledge_past_life_armed"] = True
+    rf["runtime"] = runtime
+    ch.race_features = rf
+    _sync_character_runtime_to_combat_actor(session_id, player_uid, runtime)
+    return None, "Знания из прошлой жизни: готово. Следующая проверка навыка получит +1к6 (PB/дл. отдых).", True
+
+
+def _consume_reborn_past_life_for_skill_check(ch: Character, *, kind: str) -> tuple[int, Optional[str], bool]:
+    if str(kind or "").strip().lower() != "skill":
+        return 0, None, False
+    feature = _reborn_past_life_feature(ch)
+    if not feature:
+        return 0, None, False
+    race_features = getattr(ch, "race_features", None)
+    rf = dict(race_features) if isinstance(race_features, dict) else {}
+    runtime = dict(rf.get("runtime")) if isinstance(rf.get("runtime"), dict) else {}
+    if not bool(runtime.get("knowledge_past_life_armed")):
+        return 0, None, False
+    uses_max = _reborn_past_life_uses_max(ch, feature)
+    used = max(0, as_int(runtime.get("knowledge_past_life_uses_used"), 0))
+    if uses_max <= 0 or used >= uses_max:
+        runtime["knowledge_past_life_armed"] = False
+        rf["runtime"] = runtime
+        ch.race_features = rf
+        return 0, None, True
+    bonus = random.randint(1, 6)
+    runtime["knowledge_past_life_uses_used"] = used + 1
+    runtime["knowledge_past_life_armed"] = False
+    rf["runtime"] = runtime
+    ch.race_features = rf
+    return bonus, f"1d6 (Знания из прошлой жизни: {bonus})", True
 
 
 def _reset_harengon_long_rest(ch: Character) -> bool:
@@ -1985,7 +2149,19 @@ def _reset_racial_rest_uses(ch: Character, *, long_rest: bool = True) -> bool:
     if "aggressive_used_turn_id" in runtime:
         runtime.pop("aggressive_used_turn_id", None)
         changed = True
+    if "knowledge_past_life_armed" in runtime:
+        runtime.pop("knowledge_past_life_armed", None)
+        changed = True
+    if "knowledge_from_a_past_life_pending" in runtime:
+        runtime.pop("knowledge_from_a_past_life_pending", None)
+        changed = True
+    if "knowledge_from_a_past_life_last_result" in runtime:
+        runtime.pop("knowledge_from_a_past_life_last_result", None)
+        changed = True
     if long_rest:
+        if "knowledge_past_life_uses_used" in runtime:
+            runtime["knowledge_past_life_uses_used"] = 0
+            changed = True
         if "fearless_auto_success_used" in runtime:
             runtime.pop("fearless_auto_success_used", None)
             changed = True
@@ -2120,7 +2296,19 @@ def _reset_combatant_racial_rest_uses(session_id: str, actor_key: str, *, long_r
     if "aggressive_used_turn_id" in runtime:
         runtime.pop("aggressive_used_turn_id", None)
         changed = True
+    if "knowledge_past_life_armed" in runtime:
+        runtime.pop("knowledge_past_life_armed", None)
+        changed = True
+    if "knowledge_from_a_past_life_pending" in runtime:
+        runtime.pop("knowledge_from_a_past_life_pending", None)
+        changed = True
+    if "knowledge_from_a_past_life_last_result" in runtime:
+        runtime.pop("knowledge_from_a_past_life_last_result", None)
+        changed = True
     if long_rest:
+        if "knowledge_past_life_uses_used" in runtime:
+            runtime["knowledge_past_life_uses_used"] = 0
+            changed = True
         if "fearless_auto_success_used" in runtime:
             runtime.pop("fearless_auto_success_used", None)
             changed = True
@@ -3310,6 +3498,28 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                     await broadcast_state(session_id)
                     continue
 
+                if combat_action == "arm_past_life_knowledge":
+                    ch = await get_character(db, sess.id, player.id)
+                    if not ch:
+                        await ws_error("Персонаж не найден.", request_id=msg_request_id)
+                        continue
+                    past_life_err, past_life_msg, changed = _apply_or_arm_reborn_past_life_knowledge(
+                        session_id=session_id,
+                        player_uid=_player_uid(player),
+                        ch=ch,
+                    )
+                    if past_life_err:
+                        await ws_error(past_life_err, request_id=msg_request_id)
+                        continue
+                    if changed:
+                        flag_modified(ch, "race_features")
+                        await db.commit()
+                    if past_life_msg:
+                        actor_name = str(getattr(ch, "name", "") or player.display_name).strip() or player.display_name
+                        await add_system_event(db, sess, f"{actor_name}: {past_life_msg}")
+                    await broadcast_state(session_id)
+                    continue
+
                 handled_mind_link, mind_link_err, mind_link_msg = await _handle_kalashtar_mind_link_action(
                     db,
                     sess,
@@ -3449,6 +3659,8 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                         pass
                     elif (lower.startswith("gm ") or lower.startswith("gm:")) and is_admin_user:
                         pass
+                    elif combat_action == "arm_past_life_knowledge":
+                        pass
                     elif combat_action in {"mind_link_set", "mind_link_clear", "mind_link_say", "mind_link_reply"}:
                         pass
                     elif combat_action == "rest_long":
@@ -3538,7 +3750,7 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                         turn_key: Optional[str] = None
                         if combat_state and combat_state.order and 0 <= combat_state.turn_index < len(combat_state.order):
                             turn_key = combat_state.order[combat_state.turn_index]
-                        reaction_actions = {"combat_saving_face", "combat_lucky_footwork", "combat_fearless"}
+                        reaction_actions = {"combat_saving_face", "combat_lucky_footwork", "combat_fearless", "arm_past_life_knowledge"}
                         if combat_action not in reaction_actions:
                             if not turn_key or turn_key != player_key:
                                 current_name = current_turn_label(combat_state) if combat_state else "другой участник"
@@ -3713,7 +3925,7 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                         continue
                     else:
                         await ws_error(
-                            "Combat Lock: в бою доступны только боевые команды (атака/конец хода/уклон/движение/рывок/отход/засада/взлёт/приземление/помощь/побег/пресмыкайся/разъярённая мелкота/яд грунга на оружии/голодная пасть/кроличий прыжок/сильные ноги/сохранить лицо/насмешка/бесстрашие/устрашающий рёв/агрессивный/жуткий сувенир/каменная выносливость/исцеляющие руки/небесное преобразование/незримая поступь/подводное дыхание/оружие дыхания) или OOC/телепатия (mind link).",
+                            "Combat Lock: в бою доступны только боевые команды (атака/конец хода/уклон/движение/рывок/отход/засада/взлёт/приземление/помощь/побег/пресмыкайся/разъярённая мелкота/яд грунга на оружии/голодная пасть/кроличий прыжок/сильные ноги/сохранить лицо/насмешка/бесстрашие/устрашающий рёв/агрессивный/жуткий сувенир/каменная выносливость/исцеляющие руки/небесное преобразование/незримая поступь/подводное дыхание/оружие дыхания) или OOC/телепатия (mind link) / знания reborn.",
                             request_id=msg_request_id,
                         )
                         continue
@@ -4303,43 +4515,41 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                     base_total = int(res["total"])
                     bfs_bonus, bfs_bonus_text, bfs_changed = _consume_built_for_success_for_d20(ch)
                     vamp_bonus, vamp_bonus_text, vamp_changed = _consume_vampiric_bite_bonus_for_d20(ch)
+                    past_life_bonus, past_life_bonus_text, past_life_changed = _consume_reborn_past_life_for_skill_check(
+                        ch,
+                        kind=str(check_payload["kind"]),
+                    )
                     if bfs_changed:
                         flag_modified(ch, "race_features")
-                        await db.commit()
                     if vamp_changed:
                         flag_modified(ch, "race_features")
+                    if past_life_changed:
+                        flag_modified(ch, "race_features")
+                        runtime_now = (
+                            dict(ch.race_features.get("runtime"))
+                            if isinstance(getattr(ch, "race_features", None), dict)
+                            and isinstance(ch.race_features.get("runtime"), dict)
+                            else {}
+                        )
+                        _sync_character_runtime_to_combat_actor(session_id, _player_uid(player), runtime_now)
+                    if bfs_changed or vamp_changed or past_life_changed:
                         await db.commit()
                     tp_bonus, tp_bonus_text = _tireless_precision_bonus_for_check(
                         getattr(ch, "race_features", None),
                         kind=str(check_payload["kind"]),
                         key=key,
                     )
-                    total = base_total + tp_bonus + bfs_bonus + vamp_bonus
+                    total = base_total + tp_bonus + bfs_bonus + vamp_bonus + past_life_bonus
                     rolls_text = str(roll) if rb is None else f"{ra}/{rb}->{roll}"
-
-                    msg = f"[CHECK] {ch.name}: {key} = {rolls_text} + {mod:+d} => {total}"
-                    if tp_bonus > 0 and tp_bonus_text:
-                        msg = f"[CHECK] {ch.name}: {key} = {rolls_text} + {mod:+d} + {tp_bonus_text} => {total}"
-                    if bfs_bonus > 0 and bfs_bonus_text:
-                        msg = f"[CHECK] {ch.name}: {key} = {rolls_text} + {mod:+d} + {bfs_bonus_text} => {total}"
-                    if vamp_bonus > 0 and vamp_bonus_text:
-                        msg = f"[CHECK] {ch.name}: {key} = {rolls_text} + {mod:+d} + {vamp_bonus_text} => {total}"
-                    if tp_bonus > 0 and tp_bonus_text and bfs_bonus > 0 and bfs_bonus_text:
-                        msg = (
-                            f"[CHECK] {ch.name}: {key} = {rolls_text} + {mod:+d} + {tp_bonus_text} + {bfs_bonus_text} => {total}"
-                        )
-                    if tp_bonus > 0 and tp_bonus_text and vamp_bonus > 0 and vamp_bonus_text:
-                        msg = (
-                            f"[CHECK] {ch.name}: {key} = {rolls_text} + {mod:+d} + {tp_bonus_text} + {vamp_bonus_text} => {total}"
-                        )
-                    if bfs_bonus > 0 and bfs_bonus_text and vamp_bonus > 0 and vamp_bonus_text:
-                        msg = (
-                            f"[CHECK] {ch.name}: {key} = {rolls_text} + {mod:+d} + {bfs_bonus_text} + {vamp_bonus_text} => {total}"
-                        )
-                    if tp_bonus > 0 and tp_bonus_text and bfs_bonus > 0 and bfs_bonus_text and vamp_bonus > 0 and vamp_bonus_text:
-                        msg = (
-                            f"[CHECK] {ch.name}: {key} = {rolls_text} + {mod:+d} + {tp_bonus_text} + {bfs_bonus_text} + {vamp_bonus_text} => {total}"
-                        )
+                    bonus_texts = [
+                        text
+                        for text in (tp_bonus_text, bfs_bonus_text, vamp_bonus_text, past_life_bonus_text)
+                        if isinstance(text, str) and text
+                    ]
+                    msg = f"[CHECK] {ch.name}: {key} = {rolls_text} + {mod:+d}"
+                    if bonus_texts:
+                        msg += " + " + " + ".join(bonus_texts)
+                    msg += f" => {total}"
                     if dc is not None:
                         ok = total >= dc
                         msg += f" (DC {dc}) {'SUCCESS' if ok else 'FAIL'}"
@@ -4357,6 +4567,17 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                                 flag_modified(ch, "race_features")
                                 await db.commit()
                                 msg += f" | Можно реакцией «Сохранить лицо» добавить +{sf_bonus}."
+                            if _reborn_mark_past_life_pending(
+                                session_id=session_id,
+                                player_uid=_player_uid(player),
+                                ch=ch,
+                                dc=dc,
+                                total=total,
+                                skill_key=key,
+                            ):
+                                flag_modified(ch, "race_features")
+                                await db.commit()
+                                msg += " | Можно применить «Знания из прошлой жизни» и добавить 1к6 после броска."
                     await add_system_event(db, sess, msg)
                     await broadcast_state(session_id)
                     continue
@@ -4916,6 +5137,28 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                     await broadcast_state(session_id)
                     continue
 
+                if combat_action == "arm_past_life_knowledge":
+                    ch = await get_character(db, sess.id, player.id)
+                    if not ch:
+                        await ws_error("Персонаж не найден.", request_id=msg_request_id)
+                        continue
+                    past_life_err, past_life_msg, changed = _apply_or_arm_reborn_past_life_knowledge(
+                        session_id=session_id,
+                        player_uid=_player_uid(player),
+                        ch=ch,
+                    )
+                    if past_life_err:
+                        await ws_error(past_life_err, request_id=msg_request_id)
+                        continue
+                    if changed:
+                        flag_modified(ch, "race_features")
+                        await db.commit()
+                    if past_life_msg:
+                        actor_name = str(getattr(ch, "name", "") or player.display_name).strip() or player.display_name
+                        await add_system_event(db, sess, f"{actor_name}: {past_life_msg}")
+                    await broadcast_state(session_id)
+                    continue
+
                 handled_mind_link, mind_link_err, mind_link_msg = await _handle_kalashtar_mind_link_action(
                     db,
                     sess,
@@ -5049,6 +5292,8 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                     continue
 
                 if combat_active:
+                    if combat_action == "arm_past_life_knowledge":
+                        pass
                     innate_spell_key = _detect_innate_spell_key(text) if combat_action == "combat_innate_spell" else None
                     actor_label = await _event_actor_label(db, sess, player)
                     pid = str(player.id)
@@ -5150,7 +5395,7 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                         turn_key: Optional[str] = None
                         if combat_state and combat_state.order and 0 <= combat_state.turn_index < len(combat_state.order):
                             turn_key = combat_state.order[combat_state.turn_index]
-                        reaction_actions = {"combat_saving_face", "combat_lucky_footwork", "combat_fearless"}
+                        reaction_actions = {"combat_saving_face", "combat_lucky_footwork", "combat_fearless", "arm_past_life_knowledge"}
                         if combat_action not in reaction_actions:
                             if not turn_key or turn_key != player_key:
                                 current_name = current_turn_label(combat_state) if combat_state else "другой участник"

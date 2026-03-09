@@ -1271,6 +1271,7 @@ function renderRaceChoices(){
   const isHarengon = raceKey === "harengon";
   const isHexblood = raceKey === "hexblood";
   const isOwlin = raceKey === "owlin";
+  const isReborn = raceKey === "reborn";
   const isHobgoblin = raceKey === "hobgoblin";
   const isKalashtar = raceKey === "kalashtar";
   const isKender = raceKey === "kender";
@@ -1290,7 +1291,7 @@ function renderRaceChoices(){
     : ["darkvision_60", "skill_proficiency_choice_1"];
   const variableTraitValue = String(variableTraitSel.value || "").trim().toLowerCase();
   const needsCustomLineageSkill = isCustomLineage && variableTraitValue === "skill_proficiency_choice_1";
-  const needsSize = isCustomLineage || isDhampir || isHarengon || isHexblood || isOwlin;
+  const needsSize = isCustomLineage || isDhampir || isHarengon || isHexblood || isOwlin || isReborn;
   const needsLanguage = !!langCfg.required;
   const needsAsi = !!asiCfg.required || !!flexAsiCfg.required;
   const needsFlexAsi = !!flexAsiCfg.required;
@@ -1510,10 +1511,10 @@ function renderRaceChoices(){
     langSel2.appendChild(first2);
 
     const blockedLanguages = new Set();
-    if(isCustomLineage || isDhampir || isHarengon || isHexblood || isOwlin || isKalashtar || isKender){
+    if(isCustomLineage || isDhampir || isHarengon || isHexblood || isOwlin || isReborn || isKalashtar || isKender){
       blockedLanguages.add("common");
     }
-    if(isDhampir || isHexblood || isOwlin || isKalashtar || isKender){
+    if(isDhampir || isHexblood || isOwlin || isReborn || isKalashtar || isKender){
       const baseRaceLanguages = Array.isArray(ctx.details.languages)
         ? ctx.details.languages
         : (Array.isArray(ctx.race && ctx.race.languages) ? ctx.race.languages : []);
@@ -1543,10 +1544,10 @@ function renderRaceChoices(){
         const current1 = String(langSel.value || "").trim().toLowerCase();
         const current2 = String(langSel2.value || "").trim().toLowerCase();
         const blockedLanguages = new Set();
-        if(isCustomLineage || isDhampir || isHarengon || isHexblood || isOwlin || isKalashtar || isKender){
+        if(isCustomLineage || isDhampir || isHarengon || isHexblood || isOwlin || isReborn || isKalashtar || isKender){
           blockedLanguages.add("common");
         }
-        if(isDhampir || isHexblood || isOwlin || isKalashtar || isKender){
+        if(isDhampir || isHexblood || isOwlin || isReborn || isKalashtar || isKender){
           const baseRaceLanguages = Array.isArray(ctx.details.languages)
             ? ctx.details.languages
             : (Array.isArray(ctx.race && ctx.race.languages) ? ctx.race.languages : []);

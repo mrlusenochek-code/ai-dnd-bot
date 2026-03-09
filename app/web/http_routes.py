@@ -1121,6 +1121,31 @@ def _build_race_features(selected_race: dict | None) -> dict[str, Any]:
         if mtype == "save_advantage_conditions":
             save_advantage_conditions.extend(_uniq_lower_str_list(mech.get("conditions")))
 
+        if mtype == "deathless_nature":
+            save_advantage_conditions.extend(_uniq_lower_str_list(mech.get("advantage_on_saves")))
+            resist.extend(_uniq_lower_str_list(mech.get("damage_resistance")))
+            no_need_items = _uniq_lower_str_list(mech.get("no_need"))
+            if no_need_items:
+                needs["no_need"] = no_need_items
+            if bool(mech.get("cannot_be_magically_slept")) and "magic_sleep" not in immune_cond:
+                immune_cond.append("magic_sleep")
+            features["deathless_nature"] = {
+                "advantage_on_saves": _uniq_lower_str_list(mech.get("advantage_on_saves")),
+                "damage_resistance": _uniq_lower_str_list(mech.get("damage_resistance")),
+                "no_need": no_need_items,
+                "cannot_be_magically_slept": bool(mech.get("cannot_be_magically_slept")),
+                "long_rest_hours": max(0, as_int(mech.get("long_rest_hours"), 0)),
+                "remain_conscious": bool(mech.get("remain_conscious")),
+            }
+
+        if mtype == "add_d6_to_skill_check" and tkey == "knowledge_from_a_past_life":
+            features["knowledge_from_a_past_life"] = {
+                "dice": str(mech.get("dice") or "1d6").strip().lower() or "1d6",
+                "timing": str(mech.get("timing") or "after_seeing_d20").strip().lower() or "after_seeing_d20",
+                "uses": str(mech.get("uses") or "per_long_rest").strip().lower() or "per_long_rest",
+                "uses_formula": str(mech.get("uses_formula") or "proficiency_bonus").strip().lower() or "proficiency_bonus",
+            }
+
         if mtype == "dream_immunity":
             features["dream_immunity"] = {"not_sleep_immunity": bool(mech.get("not_sleep_immunity"))}
 
@@ -1782,7 +1807,7 @@ async def api_character_create(payload: dict):
         elif race_choice_martial_weapons:
             raise HTTPException(status_code=400, detail="Martial weapon choice is not available for selected race")
 
-        if race_choice_size and effective_race_key not in {"custom_lineage", "dhampir", "harengon", "hexblood", "owlin"}:
+        if race_choice_size and effective_race_key not in {"custom_lineage", "dhampir", "harengon", "hexblood", "owlin", "reborn"}:
             raise HTTPException(status_code=400, detail="Race size choice is not available for selected race")
         if race_choice_variable_trait and effective_race_key != "custom_lineage":
             raise HTTPException(status_code=400, detail="Variable trait choice is not available for selected race")
@@ -1872,6 +1897,20 @@ async def api_character_create(payload: dict):
                 raise HTTPException(status_code=400, detail="Owlin extra language must not duplicate Common")
             if owlin_lang in base_race_language_keys:
                 raise HTTPException(status_code=400, detail="Owlin extra language must be distinct from base race languages")
+        if effective_race_key == "reborn":
+            if race_choice_size not in {"small", "medium"}:
+                raise HTTPException(status_code=400, detail="Reborn size choice is required")
+            if race_choice_flex_asi_variant not in {"2_1", "1_1_1"}:
+                raise HTTPException(status_code=400, detail="Reborn flexible ASI choice is required")
+            if len(race_choice_languages) != 1:
+                raise HTTPException(status_code=400, detail="Reborn extra language choice is required")
+            reborn_lang = race_choice_languages[0]
+            if reborn_lang == "common":
+                raise HTTPException(status_code=400, detail="Reborn extra language must not duplicate Common")
+            if reborn_lang in base_race_language_keys:
+                raise HTTPException(status_code=400, detail="Reborn extra language must be distinct from base race languages")
+            if len(race_choice_skills) != 2:
+                raise HTTPException(status_code=400, detail="Reborn ancestral legacy requires exactly 2 skill choices")
         if effective_race_key == "fairy":
             if race_choice_innate_ability not in {"int", "wis", "cha"}:
                 raise HTTPException(
@@ -2050,6 +2089,12 @@ async def api_character_create(payload: dict):
             runtime.setdefault("goring_rush_available", False)
             runtime.setdefault("hammering_horns_available", False)
             runtime.setdefault("hammering_horns_target_id", "")
+            race_features["runtime"] = runtime
+        if isinstance(race_features, dict) and str(race_features.get("race_key") or "").strip().lower() == "reborn":
+            runtime_raw = race_features.get("runtime")
+            runtime = dict(runtime_raw) if isinstance(runtime_raw, dict) else {}
+            runtime.setdefault("knowledge_past_life_uses_used", 0)
+            runtime.setdefault("knowledge_past_life_armed", False)
             race_features["runtime"] = runtime
         if isinstance(race_features, dict) and selected_subrace is not None:
             race_features["subrace"] = {

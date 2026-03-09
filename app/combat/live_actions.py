@@ -143,6 +143,18 @@ def _has_reroll_ones_scope(actor: Any, scope_key: str) -> bool:
     return False
 
 
+def _has_death_save_advantage(actor: Any) -> bool:
+    if str(getattr(actor, "side", "")).lower() != "pc":
+        return False
+    race_features = getattr(actor, "race_features", None)
+    rf = race_features if isinstance(race_features, dict) else {}
+    saves_raw = rf.get("saves")
+    saves = saves_raw if isinstance(saves_raw, dict) else {}
+    adv_conditions_raw = saves.get("advantage_conditions")
+    adv_conditions = adv_conditions_raw if isinstance(adv_conditions_raw, list) else []
+    return any(str(item or "").strip().lower() == "death_saves" for item in adv_conditions)
+
+
 def _roll_check_compat(mode: str, *, rng: Any = None, reroll_ones: bool = False) -> tuple[int, Optional[int], int]:
     try:
         if rng is None:
@@ -1202,12 +1214,15 @@ def _auto_resolve_zero_hp_turns(session_id: str, state: Any) -> dict[str, Any] |
                     lines.append({"text": f"Лечение: {heal_amount} HP"})
                     lines.append({"text": f"{current.name}: HP {current.hp_current}/{current.hp_max}"})
                 else:
+                    death_save_mode = "advantage" if _has_death_save_advantage(current) else "normal"
                     _roll_a, _roll_b, roll = _roll_check_compat(
-                        "normal",
+                        death_save_mode,
                         reroll_ones=_has_reroll_ones_scope(current, "save"),
                     )
                     roll_extras: list[dict[str, Any]] = []
                     roll = _maybe_apply_built_for_success(current, roll, roll_extras)
+                    if death_save_mode == "advantage" and _roll_b is not None:
+                        lines.append({"text": f"Бессмертная природа: спасбросок смерти с преимуществом ({_roll_a}/{_roll_b}->{roll}).", "muted": True})
                     lines.append({"text": f"Спасбросок смерти: d20({roll})"})
                     lines.extend(roll_extras)
                     if roll == 20:
