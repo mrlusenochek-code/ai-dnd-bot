@@ -806,6 +806,14 @@ def _build_race_features(selected_race: dict | None) -> dict[str, Any]:
         if mtype == "saving_face":
             features["saving_face"] = dict(mech)
 
+        if mtype == "fearless_vs_frightened":
+            features["fearless_vs_frightened"] = dict(mech)
+            if bool(mech.get("advantage")) and "frightened" not in save_advantage_conditions:
+                save_advantage_conditions.append("frightened")
+
+        if mtype == "taunt":
+            features["taunt"] = dict(mech)
+
         if mtype == "charge_bonus_attack":
             features["charge"] = dict(mech)
 
@@ -1820,7 +1828,25 @@ async def api_character_create(payload: dict):
                     status_code=400,
                     detail="Kalashtar extra language must be distinct from Common and Quori",
                 )
-        elif race_choice_innate_ability and effective_race_key not in {"hexblood"}:
+        if effective_race_key == "kender":
+            if race_choice_flex_asi_variant not in {"2_1", "1_1_1"}:
+                raise HTTPException(status_code=400, detail="Kender flexible ASI choice is required")
+            if len(race_choice_languages) != 1:
+                raise HTTPException(status_code=400, detail="Kender extra language choice is required")
+            kender_lang = race_choice_languages[0]
+            if kender_lang in base_race_language_keys:
+                raise HTTPException(
+                    status_code=400,
+                    detail="Kender extra language must not duplicate Common/base languages",
+                )
+            allowed_kender_skills = {"insight", "investigation", "sleight_of_hand", "stealth", "survival"}
+            if len(race_choice_skills) != 1:
+                raise HTTPException(status_code=400, detail="Kender aptitude requires exactly 1 skill choice")
+            if race_choice_skills[0] not in allowed_kender_skills:
+                raise HTTPException(status_code=400, detail="Invalid Kender aptitude skill choice")
+            if race_choice_innate_ability not in {"int", "wis", "cha"}:
+                raise HTTPException(status_code=400, detail="Kender taunt ability choice required (int/wis/cha)")
+        elif race_choice_innate_ability and effective_race_key not in {"hexblood", "kender"}:
             raise HTTPException(
                 status_code=400,
                 detail="Race innate spellcasting ability choice is not available for selected race",
@@ -1936,6 +1962,12 @@ async def api_character_create(payload: dict):
             runtime.setdefault("mind_link_target_id", "")
             runtime.setdefault("mind_link_reply_until", "")
             runtime.setdefault("mind_link_last_set_at", "")
+            race_features["runtime"] = runtime
+        if isinstance(race_features, dict) and str(race_features.get("race_key") or "").strip().lower() == "kender":
+            runtime_raw = race_features.get("runtime")
+            runtime = dict(runtime_raw) if isinstance(runtime_raw, dict) else {}
+            runtime.setdefault("fearless_auto_success_used", 0)
+            runtime.setdefault("fearless_pending_failed_frightened_save", {})
             race_features["runtime"] = runtime
         if isinstance(race_features, dict) and selected_subrace is not None:
             race_features["subrace"] = {
@@ -2135,6 +2167,16 @@ async def api_character_create(payload: dict):
             race_features["features"] = features_dict
         if isinstance(race_features, dict) and race_choice_innate_ability:
             choices_dict["innate_spellcasting_ability"] = race_choice_innate_ability
+            if str(race_features.get("race_key") or "").strip().lower() == "kender":
+                choices_dict["taunt_ability"] = race_choice_innate_ability
+                rf_features = race_features.get("features")
+                features_dict: dict[str, Any] = rf_features if isinstance(rf_features, dict) else {}
+                taunt_raw = features_dict.get("taunt")
+                taunt_cfg = dict(taunt_raw) if isinstance(taunt_raw, dict) else {}
+                if taunt_cfg:
+                    taunt_cfg["chosen_ability"] = race_choice_innate_ability
+                    features_dict["taunt"] = taunt_cfg
+                    race_features["features"] = features_dict
             innate_raw = race_features.get("innate_spells")
             innate_spells = innate_raw if isinstance(innate_raw, list) else []
             for spell_item in innate_spells:

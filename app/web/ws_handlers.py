@@ -924,6 +924,59 @@ def _hobgoblin_mark_saving_face_pending(
     return min(max(0, allies), 5)
 
 
+def _kender_mark_fearless_pending(
+    *,
+    session_id: str,
+    player_uid: int | None,
+    ch: Character,
+    dc: int,
+    total: int,
+    ability: str,
+    vs_tag: str,
+) -> bool:
+    if player_uid is None:
+        return False
+    race_features = getattr(ch, "race_features", None)
+    rf = dict(race_features) if isinstance(race_features, dict) else {}
+    features_raw = rf.get("features")
+    features = dict(features_raw) if isinstance(features_raw, dict) else {}
+    fearless_cfg = features.get("fearless_vs_frightened")
+    if not isinstance(fearless_cfg, dict):
+        return False
+    runtime_raw = rf.get("runtime")
+    runtime = dict(runtime_raw) if isinstance(runtime_raw, dict) else {}
+    uses_used = max(0, as_int(runtime.get("fearless_auto_success_used"), 0))
+    uses_max = max(1, as_int(fearless_cfg.get("auto_success_max"), 1))
+    if uses_used >= uses_max:
+        return False
+    actor_key = f"pc_{player_uid}"
+    state = get_combat(session_id)
+    actor = state.combatants.get(actor_key) if state is not None and state.active else None
+    if actor is None:
+        return False
+    if not bool(getattr(actor, "reaction_available", True)):
+        return False
+    pending = {
+        "kind": "save",
+        "dc": max(0, int(dc)),
+        "total": int(total),
+        "ability": str(ability or "").strip().lower(),
+        "vs_tag": str(vs_tag or "").strip().lower(),
+        "at": utcnow().isoformat(),
+    }
+    runtime["fearless_pending_failed_frightened_save"] = pending
+    rf["runtime"] = runtime
+    ch.race_features = rf
+
+    actor_rf = actor.race_features if isinstance(actor.race_features, dict) else {}
+    actor_runtime_raw = actor_rf.get("runtime")
+    actor_runtime = dict(actor_runtime_raw) if isinstance(actor_runtime_raw, dict) else {}
+    actor_runtime["fearless_pending_failed_frightened_save"] = pending
+    actor_rf["runtime"] = actor_runtime
+    actor.race_features = actor_rf
+    return True
+
+
 def _reset_harengon_long_rest(ch: Character) -> bool:
     race_features = getattr(ch, "race_features", None)
     rf = dict(race_features) if isinstance(race_features, dict) else {}
@@ -1609,6 +1662,15 @@ def _reset_racial_rest_uses(ch: Character, *, long_rest: bool = True) -> bool:
         runtime.pop("saving_face_pending", None)
         changed = True
     if long_rest:
+        if "fearless_auto_success_used" in runtime:
+            runtime.pop("fearless_auto_success_used", None)
+            changed = True
+        if "fearless_pending_failed_frightened_save" in runtime:
+            runtime.pop("fearless_pending_failed_frightened_save", None)
+            changed = True
+        if "fearless_last_result" in runtime:
+            runtime.pop("fearless_last_result", None)
+            changed = True
         if "eerie_token_uses_used" in runtime:
             runtime.pop("eerie_token_uses_used", None)
             changed = True
@@ -1720,6 +1782,15 @@ def _reset_combatant_racial_rest_uses(session_id: str, actor_key: str, *, long_r
         runtime.pop("saving_face_pending", None)
         changed = True
     if long_rest:
+        if "fearless_auto_success_used" in runtime:
+            runtime.pop("fearless_auto_success_used", None)
+            changed = True
+        if "fearless_pending_failed_frightened_save" in runtime:
+            runtime.pop("fearless_pending_failed_frightened_save", None)
+            changed = True
+        if "fearless_last_result" in runtime:
+            runtime.pop("fearless_last_result", None)
+            changed = True
         if "eerie_token_uses_used" in runtime:
             runtime.pop("eerie_token_uses_used", None)
             changed = True
@@ -1763,6 +1834,7 @@ async def _persist_relentless_endurance_used_from_combat_state(db, sess, session
     rabbit_hop_runtime_by_uid: dict[int, dict[str, Any]] = {}
     lucky_footwork_runtime_by_uid: dict[int, dict[str, Any]] = {}
     saving_face_runtime_by_uid: dict[int, dict[str, Any]] = {}
+    fearless_runtime_by_uid: dict[int, dict[str, Any]] = {}
     for key, actor in (state.combatants or {}).items():
         actor_key = str(key or "").strip().lower()
         if not actor_key.startswith("pc_"):
@@ -1836,6 +1908,14 @@ async def _persist_relentless_endurance_used_from_combat_state(db, sess, session
                 sf_runtime["saving_face_pending"] = dict(runtime.get("saving_face_pending"))
             if sf_runtime:
                 saving_face_runtime_by_uid[int(uid_raw)] = sf_runtime
+        if "fearless_auto_success_used" in runtime or isinstance(runtime.get("fearless_pending_failed_frightened_save"), dict):
+            fearless_runtime: dict[str, Any] = {}
+            if "fearless_auto_success_used" in runtime:
+                fearless_runtime["fearless_auto_success_used"] = max(0, as_int(runtime.get("fearless_auto_success_used"), 0))
+            if isinstance(runtime.get("fearless_pending_failed_frightened_save"), dict):
+                fearless_runtime["fearless_pending_failed_frightened_save"] = dict(runtime.get("fearless_pending_failed_frightened_save"))
+            if fearless_runtime:
+                fearless_runtime_by_uid[int(uid_raw)] = fearless_runtime
     if (
         not relentless_used_uids
         and not built_for_success_runtime_by_uid
@@ -1848,6 +1928,7 @@ async def _persist_relentless_endurance_used_from_combat_state(db, sess, session
         and not rabbit_hop_runtime_by_uid
         and not lucky_footwork_runtime_by_uid
         and not saving_face_runtime_by_uid
+        and not fearless_runtime_by_uid
     ):
         return False
 
@@ -1866,6 +1947,7 @@ async def _persist_relentless_endurance_used_from_combat_state(db, sess, session
             and uid not in rabbit_hop_runtime_by_uid
             and uid not in lucky_footwork_runtime_by_uid
             and uid not in saving_face_runtime_by_uid
+            and uid not in fearless_runtime_by_uid
         ):
             continue
         ch = chars_by_uid.get(uid)
@@ -1980,6 +2062,28 @@ async def _persist_relentless_endurance_used_from_combat_state(db, sess, session
                     runtime["saving_face_pending"] = pending_target
                 else:
                     runtime.pop("saving_face_pending", None)
+                local_changed = True
+        fearless_runtime = fearless_runtime_by_uid.get(uid)
+        if isinstance(fearless_runtime, dict):
+            uses_val = max(0, as_int(fearless_runtime.get("fearless_auto_success_used"), 0))
+            if max(0, as_int(runtime.get("fearless_auto_success_used"), 0)) != uses_val:
+                runtime["fearless_auto_success_used"] = uses_val
+                local_changed = True
+            pending_target = (
+                dict(fearless_runtime.get("fearless_pending_failed_frightened_save"))
+                if isinstance(fearless_runtime.get("fearless_pending_failed_frightened_save"), dict)
+                else {}
+            )
+            pending_current = (
+                dict(runtime.get("fearless_pending_failed_frightened_save"))
+                if isinstance(runtime.get("fearless_pending_failed_frightened_save"), dict)
+                else {}
+            )
+            if pending_current != pending_target:
+                if pending_target:
+                    runtime["fearless_pending_failed_frightened_save"] = pending_target
+                else:
+                    runtime.pop("fearless_pending_failed_frightened_save", None)
                 local_changed = True
         if local_changed:
             race_features["runtime"] = runtime
@@ -2387,6 +2491,8 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                     "combat_rabbit_hop",
                     "combat_lucky_footwork",
                     "combat_saving_face",
+                    "combat_taunt",
+                    "combat_fearless",
                     "combat_eerie_token_create",
                     "combat_eerie_token_message",
                     "combat_eerie_token_view",
@@ -2778,7 +2884,7 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                 if combat_action in {"combat_fury_of_small", "combat_fury_of_the_small"} and not combat_active:
                     await ws_error("Разъярённая мелкота доступна только в бою.", request_id=msg_request_id)
                     continue
-                if combat_action in {"combat_rabbit_hop", "combat_lucky_footwork", "combat_saving_face"} and not combat_active:
+                if combat_action in {"combat_rabbit_hop", "combat_lucky_footwork", "combat_saving_face", "combat_taunt", "combat_fearless"} and not combat_active:
                     await ws_error("Эта особенность доступна только в бою.", request_id=msg_request_id)
                     continue
                 if combat_action in {"combat_eerie_token_create", "combat_eerie_token_message", "combat_eerie_token_view"} and not combat_active:
@@ -2956,11 +3062,13 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                         turn_key: Optional[str] = None
                         if combat_state and combat_state.order and 0 <= combat_state.turn_index < len(combat_state.order):
                             turn_key = combat_state.order[combat_state.turn_index]
-                        if not turn_key or turn_key != player_key:
-                            current_name = current_turn_label(combat_state) if combat_state else "другой участник"
-                            await add_system_event(db, sess, f"Сейчас ходит {current_name}. Дождись своего хода.")
-                            await broadcast_state(session_id)
-                            continue
+                        reaction_actions = {"combat_saving_face", "combat_lucky_footwork", "combat_fearless"}
+                        if combat_action not in reaction_actions:
+                            if not turn_key or turn_key != player_key:
+                                current_name = current_turn_label(combat_state) if combat_state else "другой участник"
+                                await add_system_event(db, sess, f"Сейчас ходит {current_name}. Дождись своего хода.")
+                                await broadcast_state(session_id)
+                                continue
 
                         if combat_action == "combat_innate_spell":
                             if not innate_spell_key:
@@ -3129,7 +3237,7 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                         continue
                     else:
                         await ws_error(
-                            "Combat Lock: в бою доступны только боевые команды (атака/конец хода/уклон/движение/рывок/отход/засада/взлёт/приземление/помощь/побег/разъярённая мелкота/яд грунга на оружии/кроличий прыжок/сильные ноги/сохранить лицо/жуткий сувенир/каменная выносливость/исцеляющие руки/небесное преобразование/незримая поступь/подводное дыхание/оружие дыхания) или OOC/телепатия (mind link).",
+                            "Combat Lock: в бою доступны только боевые команды (атака/конец хода/уклон/движение/рывок/отход/засада/взлёт/приземление/помощь/побег/разъярённая мелкота/яд грунга на оружии/кроличий прыжок/сильные ноги/сохранить лицо/насмешка/бесстрашие/жуткий сувенир/каменная выносливость/исцеляющие руки/небесное преобразование/незримая поступь/подводное дыхание/оружие дыхания) или OOC/телепатия (mind link).",
                             request_id=msg_request_id,
                         )
                         continue
@@ -3796,27 +3904,14 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                         ok = total >= dc
                         msg += f" (DC {dc}) {'SUCCESS' if ok else 'FAIL'}"
                         if not ok:
-                            if (
-                                ability == "dex"
-                                and _harengon_mark_failed_dex_save_context(
-                                    session_id=session_id,
-                                    player_uid=_player_uid(player),
-                                    ch=ch,
-                                    dc=dc,
-                                    total=total,
-                                )
-                            ):
-                                flag_modified(ch, "race_features")
-                                await db.commit()
-                                msg += " | Можно реакцией «Сильные ноги» добавить 1d4."
                             sf_bonus = _hobgoblin_mark_saving_face_pending(
                                 session_id=session_id,
                                 player_uid=_player_uid(player),
                                 ch=ch,
-                                kind="save",
+                                kind="tool",
                                 dc=dc,
                                 total=total,
-                                details={"ability": ability},
+                                details={"tool": tool_key},
                             )
                             if sf_bonus > 0:
                                 flag_modified(ch, "race_features")
@@ -3958,6 +4053,48 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                     if dc is not None:
                         ok = total >= dc
                         msg += f" (DC {dc}) {'SUCCESS' if ok else 'FAIL'}"
+                        if not ok:
+                            if (
+                                ability == "dex"
+                                and _harengon_mark_failed_dex_save_context(
+                                    session_id=session_id,
+                                    player_uid=_player_uid(player),
+                                    ch=ch,
+                                    dc=dc,
+                                    total=total,
+                                )
+                            ):
+                                flag_modified(ch, "race_features")
+                                await db.commit()
+                                msg += " | Можно реакцией «Сильные ноги» добавить 1d4."
+                            sf_bonus = _hobgoblin_mark_saving_face_pending(
+                                session_id=session_id,
+                                player_uid=_player_uid(player),
+                                ch=ch,
+                                kind="save",
+                                dc=dc,
+                                total=total,
+                                details={"ability": ability},
+                            )
+                            if sf_bonus > 0:
+                                flag_modified(ch, "race_features")
+                                await db.commit()
+                                msg += f" | Можно реакцией «Сохранить лицо» добавить +{sf_bonus}."
+                            if (
+                                _normalize_save_tag(vs_tag) == "frightened"
+                                and _kender_mark_fearless_pending(
+                                    session_id=session_id,
+                                    player_uid=_player_uid(player),
+                                    ch=ch,
+                                    dc=dc,
+                                    total=total,
+                                    ability=ability,
+                                    vs_tag=vs_tag,
+                                )
+                            ):
+                                flag_modified(ch, "race_features")
+                                await db.commit()
+                                msg += " | Можно реакцией «Бесстрашие» сделать спасбросок успешным (1/дл. отдых)."
                     await add_system_event(db, sess, msg)
                     await broadcast_state(session_id)
                     continue
@@ -4249,7 +4386,7 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                 if combat_action in {"combat_fury_of_small", "combat_fury_of_the_small"} and not combat_active:
                     await ws_error("Разъярённая мелкота доступна только в бою.", request_id=msg_request_id)
                     continue
-                if combat_action in {"combat_rabbit_hop", "combat_lucky_footwork", "combat_saving_face"} and not combat_active:
+                if combat_action in {"combat_rabbit_hop", "combat_lucky_footwork", "combat_saving_face", "combat_taunt", "combat_fearless"} and not combat_active:
                     await ws_error("Эта особенность доступна только в бою.", request_id=msg_request_id)
                     continue
                 if combat_action in {"combat_eerie_token_create", "combat_eerie_token_message", "combat_eerie_token_view"} and not combat_active:
@@ -4433,11 +4570,13 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                         turn_key: Optional[str] = None
                         if combat_state and combat_state.order and 0 <= combat_state.turn_index < len(combat_state.order):
                             turn_key = combat_state.order[combat_state.turn_index]
-                        if not turn_key or turn_key != player_key:
-                            current_name = current_turn_label(combat_state) if combat_state else "другой участник"
-                            await add_system_event(db, sess, f"Сейчас ходит {current_name}. Дождись своего хода.")
-                            await broadcast_state(session_id)
-                            continue
+                        reaction_actions = {"combat_saving_face", "combat_lucky_footwork", "combat_fearless"}
+                        if combat_action not in reaction_actions:
+                            if not turn_key or turn_key != player_key:
+                                current_name = current_turn_label(combat_state) if combat_state else "другой участник"
+                                await add_system_event(db, sess, f"Сейчас ходит {current_name}. Дождись своего хода.")
+                                await broadcast_state(session_id)
+                                continue
 
                         if combat_action == "combat_innate_spell":
                             if not innate_spell_key:

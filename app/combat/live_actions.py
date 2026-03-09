@@ -652,6 +652,83 @@ def _saving_face_state(actor: Any) -> tuple[dict[str, Any], dict[str, Any], dict
     return race_features, runtime, pending
 
 
+def _fearless_state(actor: Any) -> tuple[dict[str, Any], dict[str, Any], dict[str, Any]]:
+    race_features = actor.race_features if isinstance(getattr(actor, "race_features", None), dict) else {}
+    runtime_raw = race_features.get("runtime")
+    runtime = dict(runtime_raw) if isinstance(runtime_raw, dict) else {}
+    pending_raw = runtime.get("fearless_pending_failed_frightened_save")
+    pending = dict(pending_raw) if isinstance(pending_raw, dict) else {}
+    return race_features, runtime, pending
+
+
+def _can_offer_fearless(actor: Any) -> bool:
+    if str(getattr(actor, "side", "")).strip().lower() != "pc":
+        return False
+    if not bool(getattr(actor, "reaction_available", True)):
+        return False
+    fearless_cfg = _race_feature(actor, "fearless_vs_frightened")
+    if fearless_cfg is None:
+        return False
+    _race_features, runtime, _pending = _fearless_state(actor)
+    uses_used = max(0, int(runtime.get("fearless_auto_success_used") or 0))
+    uses_max = max(1, int(fearless_cfg.get("auto_success_max") or 1))
+    return uses_used < uses_max
+
+
+def _is_taunted_attack_disadvantage(attacker: Any, target: Any) -> bool:
+    race_features = attacker.race_features if isinstance(getattr(attacker, "race_features", None), dict) else {}
+    runtime_raw = race_features.get("runtime")
+    runtime = dict(runtime_raw) if isinstance(runtime_raw, dict) else {}
+    taunted_raw = runtime.get("taunted")
+    taunted = dict(taunted_raw) if isinstance(taunted_raw, dict) else {}
+    if not bool(taunted.get("active")):
+        return False
+    taunter_key = str(taunted.get("by_actor_id") or "").strip()
+    if not taunter_key:
+        return False
+    return str(getattr(target, "key", "") or "").strip() != taunter_key
+
+
+def _select_taunt_target(state: Any, actor: Any, raw_text: str | None) -> Any | None:
+    opponents: list[Any] = []
+    actor_side = str(getattr(actor, "side", "") or "")
+    for key in state.order:
+        combatant = state.combatants.get(key)
+        if combatant is None:
+            continue
+        if combatant.side == actor_side:
+            continue
+        if int(getattr(combatant, "hp_current", 0) or 0) <= 0:
+            continue
+        opponents.append(combatant)
+    if not opponents:
+        return None
+    text_norm = str(raw_text or "").strip().lower()
+    if text_norm:
+        best = None
+        best_len = -1
+        for candidate in opponents:
+            name = str(getattr(candidate, "name", "") or "").strip().lower()
+            if not name:
+                continue
+            if name in text_norm and len(name) > best_len:
+                best = candidate
+                best_len = len(name)
+        if best is not None:
+            return best
+    return opponents[0]
+
+
+def _actor_ability_mod(actor: Any, ability_key: str) -> int:
+    key = str(ability_key or "").strip().lower()
+    if key not in {"str", "dex", "con", "int", "wis", "cha"}:
+        return 0
+    stats = getattr(actor, "stats", None)
+    stats_dict = stats if isinstance(stats, dict) else {}
+    score = int(stats_dict.get(key, 50)) if isinstance(stats_dict.get(key), int) else 50
+    return ability_mod_from_stat100(score)
+
+
 def _can_offer_saving_face(actor: Any) -> bool:
     if str(getattr(actor, "side", "")).strip().lower() != "pc":
         return False
@@ -1752,6 +1829,173 @@ def handle_live_combat_action(
             None,
         )
 
+    if action == "combat_taunt":
+        state = get_combat(session_id)
+        if state is None or not state.active:
+            return None, "Combat is not active"
+        if not state.order:
+            end_combat(session_id)
+            return (
+                {
+                    "status": "Бой завершён",
+                    "open": False,
+                    "lines": [{"text": "Бой завершён: целей не осталось.", "muted": True}],
+                },
+                None,
+            )
+        actor_key = state.order[state.turn_index]
+        actor = state.combatants.get(actor_key)
+        if actor is None:
+            return None, "Combat state is inconsistent"
+        if str(getattr(actor, "side", "")).lower() != "pc":
+            return None, "Насмешка доступна только персонажу игрока."
+        taunt_cfg = _race_feature(actor, "taunt")
+        if taunt_cfg is None:
+            return None, "Насмешка недоступна."
+        blocked = _spend_bonus_action_or_block(state, actor)
+        if blocked is not None:
+            return blocked, None
+        target = _select_taunt_target(state, actor, raw_text)
+        if target is None:
+            return None, "Нет подходящей цели для «Насмешки»."
+        chosen_ability = str(taunt_cfg.get("chosen_ability") or "cha").strip().lower()
+        if chosen_ability not in {"int", "wis", "cha"}:
+            chosen_ability = "cha"
+        dc = 8 + _proficiency_bonus_for_actor(actor) + _actor_ability_mod(actor, chosen_ability)
+        wis_mod = _actor_ability_mod(target, "wis")
+        save_roll = random.randint(1, 20)
+        save_total = save_roll + wis_mod
+        save_success = save_total >= dc
+        lines: list[dict[str, Any]] = [
+            {"text": f"Насмешка: {actor.name} выбирает целью {target.name}.", "muted": True},
+            {
+                "text": (
+                    f"Спасбросок МДР цели: d20({save_roll}) {wis_mod:+d} = {save_total} vs DC {dc} "
+                    f"({'успех' if save_success else 'провал'})."
+                ),
+                "muted": True,
+            },
+        ]
+        if save_success:
+            lines.append({"text": "Насмешка: цель устояла (успех спасброска)."})
+        else:
+            target_rf = target.race_features if isinstance(target.race_features, dict) else {}
+            target_runtime_raw = target_rf.get("runtime")
+            target_runtime = dict(target_runtime_raw) if isinstance(target_runtime_raw, dict) else {}
+            target_runtime["taunted"] = {
+                "active": True,
+                "by_actor_id": str(getattr(actor, "key", "") or ""),
+                "expires_on_turn_start_of_actor_id": str(getattr(actor, "key", "") or ""),
+                "source": "kender_taunt",
+            }
+            target_rf["runtime"] = target_runtime
+            target.race_features = target_rf
+            lines.append(
+                {
+                    "text": (
+                        "Насмешка: цель провалила спасбросок Мудрости "
+                        f"(Сл {dc}) — атаки по другим с помехой до начала вашего следующего хода."
+                    )
+                }
+            )
+        return (
+            {
+                "status": _combat_status(state),
+                "open": True,
+                "lines": lines,
+            },
+            None,
+        )
+
+    if action == "combat_fearless":
+        state = get_combat(session_id)
+        if state is None or not state.active:
+            return None, "Combat is not active"
+        if not state.order:
+            end_combat(session_id)
+            return (
+                {
+                    "status": "Бой завершён",
+                    "open": False,
+                    "lines": [{"text": "Бой завершён: целей не осталось.", "muted": True}],
+                },
+                None,
+            )
+        actor_key = state.order[state.turn_index]
+        actor = state.combatants.get(actor_key)
+        if actor is None:
+            return None, "Combat state is inconsistent"
+        selected_actor = actor
+        selected_cfg = _race_feature(selected_actor, "fearless_vs_frightened")
+        _, _, selected_pending = _fearless_state(selected_actor)
+        if (
+            str(getattr(selected_actor, "side", "")).lower() != "pc"
+            or selected_cfg is None
+            or not selected_pending
+        ):
+            fallback_candidates: list[Any] = []
+            for candidate in state.combatants.values():
+                if str(getattr(candidate, "side", "")).lower() != "pc":
+                    continue
+                candidate_cfg = _race_feature(candidate, "fearless_vs_frightened")
+                if candidate_cfg is None:
+                    continue
+                _, _, candidate_pending = _fearless_state(candidate)
+                if candidate_pending:
+                    fallback_candidates.append(candidate)
+            if len(fallback_candidates) == 1:
+                selected_actor = fallback_candidates[0]
+                selected_cfg = _race_feature(selected_actor, "fearless_vs_frightened")
+            elif len(fallback_candidates) > 1:
+                return None, "У нескольких союзников есть «Бесстрашие»: используйте реакцию сразу после своего провала."
+            else:
+                if str(getattr(actor, "side", "")).lower() != "pc":
+                    return None, "Бесстрашие доступно только персонажу игрока."
+                if selected_cfg is None:
+                    return None, "Бесстрашие недоступно."
+                return None, "Нет проваленного спасброска против испуга для «Бесстрашия»."
+
+        actor = selected_actor
+        fearless_cfg = selected_cfg if isinstance(selected_cfg, dict) else None
+        if fearless_cfg is None:
+            return None, "Бесстрашие недоступно."
+        race_features, runtime, pending = _fearless_state(actor)
+        if not pending:
+            return None, "Нет проваленного спасброска против испуга для «Бесстрашия»."
+        uses_used = max(0, int(runtime.get("fearless_auto_success_used") or 0))
+        uses_max = max(1, int(fearless_cfg.get("auto_success_max") or 1))
+        if uses_used >= uses_max:
+            return None, "«Бесстрашие» уже использовано до долгого отдыха."
+        blocked = _spend_reaction_or_block(state, actor)
+        if blocked is not None:
+            return blocked, None
+        dc = max(0, int(pending.get("dc") or 0))
+        total = int(pending.get("total") or 0)
+        runtime["fearless_auto_success_used"] = uses_used + 1
+        pending["resolved"] = True
+        pending["forced_success"] = True
+        pending["used_reaction"] = True
+        pending["new_total"] = max(total, dc)
+        runtime["fearless_last_result"] = pending
+        runtime.pop("fearless_pending_failed_frightened_save", None)
+        race_features["runtime"] = runtime
+        actor.race_features = race_features
+        return (
+            {
+                "status": _combat_status(state),
+                "open": True,
+                "lines": [
+                    {
+                        "text": (
+                            "Бесстрашие: проваленный спасбросок против испуга становится успешным "
+                            f"(DC {dc}, было {total}, стало успех)."
+                        )
+                    }
+                ],
+            },
+            None,
+        )
+
     if action == "combat_eerie_token_create":
         state = get_combat(session_id)
         if state is None or not state.active:
@@ -2466,7 +2710,7 @@ def handle_live_combat_action(
         hp_current = max(0, int(getattr(attacker, "hp_current", 0)))
         hp_max = max(1, int(getattr(attacker, "hp_max", 1)))
         low_hp_advantage = bool(bite_cfg.get("advantage_when_hp_below_half")) and (hp_current * 2 <= hp_max)
-        has_disadvantage = target.dodge_active or _is_poisoned_condition_active(attacker)
+        has_disadvantage = target.dodge_active or _is_poisoned_condition_active(attacker) or _is_taunted_attack_disadvantage(attacker, target)
         hidden_step_advantage = _is_hidden_step_active(attacker)
         has_advantage = attacker.help_attack_advantage or low_hp_advantage or hidden_step_advantage
         roll_mode = "normal"
@@ -2675,7 +2919,7 @@ def handle_live_combat_action(
                 None,
             )
 
-        has_disadvantage = target.dodge_active or _is_poisoned_condition_active(attacker)
+        has_disadvantage = target.dodge_active or _is_poisoned_condition_active(attacker) or _is_taunted_attack_disadvantage(attacker, target)
         nimble_escape_hide_advantage = _is_nimble_escape_hide_active(attacker)
         hidden_step_advantage = _is_hidden_step_active(attacker)
         has_advantage = attacker.help_attack_advantage or hidden_step_advantage or nimble_escape_hide_advantage
@@ -3086,7 +3330,7 @@ def handle_live_combat_action(
                 None,
             )
 
-        has_disadvantage = target.dodge_active or _is_poisoned_condition_active(attacker)
+        has_disadvantage = target.dodge_active or _is_poisoned_condition_active(attacker) or _is_taunted_attack_disadvantage(attacker, target)
         hidden_step_advantage = _is_hidden_step_active(attacker)
         has_advantage = attacker.help_attack_advantage or hidden_step_advantage
         roll_mode = "normal"
@@ -3258,7 +3502,7 @@ def handle_live_combat_action(
                 None,
             )
 
-        has_disadvantage = target.dodge_active or _is_poisoned_condition_active(attacker)
+        has_disadvantage = target.dodge_active or _is_poisoned_condition_active(attacker) or _is_taunted_attack_disadvantage(attacker, target)
         hidden_step_advantage = _is_hidden_step_active(attacker)
         has_advantage = attacker.help_attack_advantage or hidden_step_advantage
         roll_mode = "normal"

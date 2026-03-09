@@ -1272,6 +1272,7 @@ function renderRaceChoices(){
   const isHexblood = raceKey === "hexblood";
   const isHobgoblin = raceKey === "hobgoblin";
   const isKalashtar = raceKey === "kalashtar";
+  const isKender = raceKey === "kender";
   const isGithyanki = raceKey === "gith" && subraceKey === "githyanki";
   const langCfg = getLanguageChoiceConfig(ctx.effectiveTraits);
   const asiCfg = getAsiChoiceConfig(ctx.effectiveTraits, ctx.details.asi, raceKey);
@@ -1298,7 +1299,7 @@ function renderRaceChoices(){
   const needsTool = !!toolCfg.required;
   const needsCantrip = !!cantripCfg.required;
   const needsVedalken = !!vedCfg.required;
-  const needsInnateAbility = raceKey === "fairy" || isHexblood;
+  const needsInnateAbility = raceKey === "fairy" || isHexblood || isKender;
   const needsGithDecadent = isGithyanki;
   const needsAncestry = !!ancestryCfg.required;
   const needsMartialWeapons = isHobgoblin;
@@ -1508,10 +1509,10 @@ function renderRaceChoices(){
     langSel2.appendChild(first2);
 
     const blockedLanguages = new Set();
-    if(isCustomLineage || isDhampir || isHarengon || isHexblood || isKalashtar){
+    if(isCustomLineage || isDhampir || isHarengon || isHexblood || isKalashtar || isKender){
       blockedLanguages.add("common");
     }
-    if(isDhampir || isHexblood || isKalashtar){
+    if(isDhampir || isHexblood || isKalashtar || isKender){
       const baseRaceLanguages = Array.isArray(ctx.details.languages)
         ? ctx.details.languages
         : (Array.isArray(ctx.race && ctx.race.languages) ? ctx.race.languages : []);
@@ -1541,10 +1542,10 @@ function renderRaceChoices(){
         const current1 = String(langSel.value || "").trim().toLowerCase();
         const current2 = String(langSel2.value || "").trim().toLowerCase();
         const blockedLanguages = new Set();
-        if(isCustomLineage || isDhampir || isHarengon || isHexblood || isKalashtar){
+        if(isCustomLineage || isDhampir || isHarengon || isHexblood || isKalashtar || isKender){
           blockedLanguages.add("common");
         }
-        if(isDhampir || isHexblood || isKalashtar){
+        if(isDhampir || isHexblood || isKalashtar || isKender){
           const baseRaceLanguages = Array.isArray(ctx.details.languages)
             ? ctx.details.languages
             : (Array.isArray(ctx.race && ctx.race.languages) ? ctx.race.languages : []);
@@ -2187,6 +2188,12 @@ async function createHero(){
   if(raceIdForValidation === "kalashtar"){
     if(choiceLang === "common" || choiceLang === "quori"){
       setMessage("Для Kalashtar дополнительный язык не может дублировать Common/Quori.", false);
+      return;
+    }
+  }
+  if(raceIdForValidation === "kender"){
+    if(choiceLang === "common"){
+      setMessage("Для Kender дополнительный язык не может дублировать Common.", false);
       return;
     }
   }

@@ -110,6 +110,26 @@ def advance_turn_in_state(state: CombatState) -> CombatState:
     current_key = state.order[state.turn_index]
     current_combatant = state.combatants.get(current_key)
     if current_combatant is not None:
+        current_actor_key = str(getattr(current_combatant, "key", "") or "")
+        if current_actor_key:
+            for combatant in state.combatants.values():
+                race_features = combatant.race_features if isinstance(combatant.race_features, dict) else {}
+                runtime_raw = race_features.get("runtime")
+                runtime = dict(runtime_raw) if isinstance(runtime_raw, dict) else {}
+                taunted_raw = runtime.get("taunted")
+                taunted = dict(taunted_raw) if isinstance(taunted_raw, dict) else {}
+                if not bool(taunted.get("active")):
+                    continue
+                expires_on = str(taunted.get("expires_on_turn_start_of_actor_id") or "").strip()
+                if expires_on != current_actor_key:
+                    continue
+                runtime.pop("taunted", None)
+                if runtime:
+                    race_features["runtime"] = runtime
+                else:
+                    race_features.pop("runtime", None)
+                combatant.race_features = race_features
+    if current_combatant is not None:
         race_features = current_combatant.race_features if isinstance(current_combatant.race_features, dict) else {}
         runtime_raw = race_features.get("runtime")
         runtime = dict(runtime_raw) if isinstance(runtime_raw, dict) else {}

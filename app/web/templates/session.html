@@ -1478,6 +1478,37 @@ function openCharacterModal(){
   const hobgoblinSavingFaceText = (raceKey === "hobgoblin" && savingFace)
     ? `Сохранить лицо: реакцией после провала атаки/проверки/спасброска добавить +N (N=союзники в 30 футах, макс 5), 1/кор/дл отдых (${savingFaceStatus})`
     : "";
+  const kenderFearless = (raceFeaturesMeta.fearless_vs_frightened && typeof raceFeaturesMeta.fearless_vs_frightened === "object")
+    ? raceFeaturesMeta.fearless_vs_frightened
+    : null;
+  const kenderFearlessUsed = Number.isFinite(Number(runtime.fearless_auto_success_used)) ? Number(runtime.fearless_auto_success_used) : 0;
+  const kenderFearlessMax = Number.isFinite(Number(kenderFearless && kenderFearless.auto_success_max))
+    ? Number(kenderFearless.auto_success_max)
+    : 1;
+  const kenderFearlessStatus = kenderFearlessUsed >= kenderFearlessMax ? "израсходовано" : "доступно";
+  const kenderFearlessText = (raceKey === "kender" && kenderFearless)
+    ? `Бесстрашие: преимущество на спасброски против «испуганный»; 1/дл. отдых можно превратить провал в успех (${kenderFearlessStatus})`
+    : "";
+  const kenderAptitudeSkillKey = (raceKey === "kender" && Array.isArray(choices.skills) && choices.skills.length > 0)
+    ? String(choices.skills[0] || "").trim().toLowerCase()
+    : "";
+  const kenderAptitudeSkillRu = kenderAptitudeSkillKey ? getSkillNameRu(kenderAptitudeSkillKey) : "";
+  const kenderAptitudeText = (raceKey === "kender" && kenderAptitudeSkillRu)
+    ? `Любопытство кендеров: владение навыком ${kenderAptitudeSkillRu}`
+    : "";
+  const kenderTaunt = (raceFeaturesMeta.taunt && typeof raceFeaturesMeta.taunt === "object")
+    ? raceFeaturesMeta.taunt
+    : null;
+  const kenderTauntAbility = String(
+    (kenderTaunt && kenderTaunt.chosen_ability)
+    || choices.taunt_ability
+    || choices.innate_spellcasting_ability
+    || ""
+  ).trim().toLowerCase();
+  const kenderTauntAbilityRu = _ABILITY_RU[kenderTauntAbility] || kenderTauntAbility.toUpperCase();
+  const kenderTauntText = (raceKey === "kender" && kenderTaunt)
+    ? `Насмешка: бонусным действием, Сл = 8 + БМ + мод(${kenderTauntAbilityRu || "—"}), дальность 60 фт; при провале цель атакует других с помехой до начала вашего следующего хода`
+    : "";
   const kalashtarDualMindText = (raceKey === "kalashtar" && saveAdvantages.includes("wis"))
     ? "Двойственность разума: преимущество на спасброски Мудрости"
     : "";
@@ -1755,6 +1786,15 @@ function openCharacterModal(){
   if(hobgoblinSavingFaceText){
     details.push(`<div class="char-line"><strong>Сохранить лицо:</strong> ${escapeHtml(hobgoblinSavingFaceText.replace(/^Сохранить лицо:\s*/, ""))}</div>`);
   }
+  if(kenderFearlessText){
+    details.push(`<div class="char-line"><strong>Бесстрашие:</strong> ${escapeHtml(kenderFearlessText.replace(/^Бесстрашие:\s*/, ""))}</div>`);
+  }
+  if(kenderAptitudeText){
+    details.push(`<div class="char-line"><strong>Любопытство кендеров:</strong> ${escapeHtml(kenderAptitudeText.replace(/^Любопытство кендеров:\s*/, ""))}</div>`);
+  }
+  if(kenderTauntText){
+    details.push(`<div class="char-line"><strong>Насмешка:</strong> ${escapeHtml(kenderTauntText.replace(/^Насмешка:\s*/, ""))}</div>`);
+  }
   if(kalashtarDualMindText){
     details.push(`<div class="char-line"><strong>Двойственность разума:</strong> ${escapeHtml(kalashtarDualMindText.replace(/^Двойственность разума:\s*/, ""))}</div>`);
   }
@@ -1997,6 +2037,9 @@ function openCharacterModal(){
   if(rabbitHopText) copyLines.push(rabbitHopText);
   if(hobgoblinMartialTrainingText) copyLines.push(hobgoblinMartialTrainingText);
   if(hobgoblinSavingFaceText) copyLines.push(hobgoblinSavingFaceText);
+  if(kenderFearlessText) copyLines.push(kenderFearlessText);
+  if(kenderAptitudeText) copyLines.push(kenderAptitudeText);
+  if(kenderTauntText) copyLines.push(kenderTauntText);
   if(kalashtarDualMindText) copyLines.push(kalashtarDualMindText);
   if(kalashtarMentalDisciplineText) copyLines.push(kalashtarMentalDisciplineText);
   if(kalashtarMindLinkText) copyLines.push(kalashtarMindLinkText);
