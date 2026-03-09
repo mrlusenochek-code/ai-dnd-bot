@@ -660,6 +660,7 @@ function openCharacterModal(){
     "poisoned": "отравление",
     "charmed": "очарование",
     "paralyzed": "паралич",
+    "frightened": "испуг",
   };
   const saveAdvantageConditionsRu = saveAdvantageConditions
     .map((k) => _SAVE_CONDITION_RU[k] || k)
@@ -1072,6 +1073,11 @@ function openCharacterModal(){
     "darkness": "Тьма",
     "druidcraft": "Искусство друидов",
     "enlarge_reduce": "Увеличение/уменьшение",
+    "mage_hand": "Волшебная рука",
+    "shield": "Щит",
+    "detect_thoughts": "Обнаружение мыслей",
+    "jump": "Прыжок",
+    "misty_step": "Туманный шаг",
   };
   const infernalLegacySpells = innateSpells
     .filter((spell) => {
@@ -1137,6 +1143,12 @@ function openCharacterModal(){
   const prof = (rf.proficiencies && typeof rf.proficiencies === "object") ? rf.proficiencies : {};
   const profSkills = Array.isArray(prof.skills) ? prof.skills.map(x => String(x)).filter(Boolean) : [];
   const profTools = Array.isArray(prof.tools) ? prof.tools.map(x => String(x)).filter(Boolean) : [];
+  const profWeapons = Array.isArray(prof.weapons)
+    ? prof.weapons.map((x) => String(x || "").trim().toLowerCase()).filter(Boolean)
+    : [];
+  const profArmor = Array.isArray(prof.armor)
+    ? prof.armor.map((x) => String(x || "").trim().toLowerCase()).filter(Boolean)
+    : [];
   const choices = (rf.choices && typeof rf.choices === "object") ? rf.choices : {};
   const _ASI_STAT_RU = {
     "str": "Сила",
@@ -1280,6 +1292,69 @@ function openCharacterModal(){
   const featChoiceRu = featChoices.length
     ? (featsNameRuByKey[featChoices[0]] || featChoices[0])
     : "";
+  const subrace = (rf.subrace && typeof rf.subrace === "object") ? rf.subrace : {};
+  const subraceKey = String((subrace.key || choices.subrace_id || "")).trim().toLowerCase();
+  const subraceNameRu = String(subrace.name_ru || "").trim() || ({
+    "githyanki": "Гитъянки",
+    "githzerai": "Гитцерай",
+  }[subraceKey] || subraceKey);
+  const githSubraceText = (raceKey === "gith" && subraceNameRu) ? `Подраса: ${subraceNameRu}` : "";
+  const decadentChoice = (choices.decadent_mastery && typeof choices.decadent_mastery === "object")
+    ? choices.decadent_mastery
+    : {};
+  const decadentLanguageKey = String(decadentChoice.language || "").trim().toLowerCase();
+  const decadentLanguageRu = decadentLanguageKey ? (_LANG_RU[decadentLanguageKey] || decadentLanguageKey) : "";
+  const decadentSkillKey = String(decadentChoice.skill || "").trim().toLowerCase();
+  const decadentSkillRu = decadentSkillKey ? getSkillNameRu(decadentSkillKey) : "";
+  const decadentToolKey = String(decadentChoice.tool || "").trim().toLowerCase();
+  const decadentToolRu = decadentToolKey ? (TOOL_LABELS_RU[decadentToolKey] || decadentToolKey) : "";
+  const decadentMasteryText = (raceKey === "gith" && subraceKey === "githyanki" && decadentLanguageRu && (decadentSkillRu || decadentToolRu))
+    ? `Декадентское мастерство: доп. язык ${decadentLanguageRu}; владение: ${decadentSkillRu || decadentToolRu}`
+    : "";
+  const hasGithMartialProdigy = raceKey === "gith"
+    && subraceKey === "githyanki"
+    && ["light", "medium"].every((x) => profArmor.includes(x))
+    && ["shortsword", "longsword", "greatsword"].every((x) => profWeapons.includes(x));
+  const githMartialProdigyText = hasGithMartialProdigy
+    ? "Воинское воспитание: владение лёгкими/средними доспехами и короткими, длинными, двуручными мечами"
+    : "";
+  const hasGithMentalDiscipline = raceKey === "gith"
+    && subraceKey === "githzerai"
+    && saveAdvantageConditions.includes("charmed")
+    && saveAdvantageConditions.includes("frightened");
+  const githMentalDisciplineText = hasGithMentalDiscipline
+    ? "Ментальная дисциплина: преимущество на спасброски от очарования и испуга"
+    : "";
+  const githPsionicSpellOrder = ["mage_hand", "shield", "detect_thoughts", "jump", "misty_step"];
+  const githPsionicSpellRows = innateSpells
+    .filter((spell) => githPsionicSpellOrder.includes(String(spell.name || "").trim().toLowerCase()))
+    .sort((a, b) => githPsionicSpellOrder.indexOf(String(a.name || "").trim().toLowerCase()) - githPsionicSpellOrder.indexOf(String(b.name || "").trim().toLowerCase()))
+    .map((spell) => {
+      const key = String(spell.name || "").trim().toLowerCase();
+      const spellNameRu = _INNATE_SPELL_RU[key] || key;
+      const spellFrequency = String(spell.frequency || "").trim().toLowerCase();
+      const spellMinLevel = Number.isFinite(Number(spell.min_level)) ? Number(spell.min_level) : null;
+      const parts = [];
+      if(spellFrequency === "at_will"){
+        parts.push("без лимита");
+      }else if(spellFrequency === "1_per_long_rest"){
+        parts.push("1/дл отдых");
+      }
+      if(spellMinLevel !== null && spellMinLevel > 1){
+        parts.push(`с ${spellMinLevel} ур.`);
+      }
+      if(String(spell.note || "").trim().toLowerCase() === "invisible"){
+        parts.push("невидима");
+      }
+      return parts.length ? `${spellNameRu} (${parts.join(", ")})` : spellNameRu;
+    });
+  const githNoMaterialComponents = innateSpells.some((spell) => spell && spell.no_material_components === true);
+  const githPsionicsTitle = subraceKey === "githzerai"
+    ? "Псионика гитцераев"
+    : (subraceKey === "githyanki" ? "Псионика гитъянки" : "Псионика");
+  const githPsionicsText = (raceKey === "gith" && githPsionicSpellRows.length > 0)
+    ? `${githPsionicsTitle}: ${githPsionicSpellRows.join("; ")}${githNoMaterialComponents ? ". Без материальных компонентов." : ""}`
+    : "";
   const combatState = (lastState && typeof lastState.combat === "object" && lastState.combat) ? lastState.combat : null;
   const combatants = (combatState && typeof combatState.combatants === "object" && combatState.combatants) ? combatState.combatants : {};
   const myCombatantKey = me && me.uid !== null && me.uid !== undefined ? (`pc_${String(me.uid)}`) : "";
@@ -1380,6 +1455,9 @@ function openCharacterModal(){
   if(sizeRu){
     details.push(`<div class="char-line"><strong>Размер:</strong> ${escapeHtml(sizeRu)}</div>`);
   }
+  if(githSubraceText){
+    details.push(`<div class="char-line"><strong>Подраса:</strong> ${escapeHtml(githSubraceText.replace(/^Подраса:\s*/, ""))}</div>`);
+  }
   if(speedText){
     details.push(`<div class="char-line"><strong>Скорость:</strong> ${escapeHtml(speedText)}</div>`);
   }
@@ -1444,6 +1522,18 @@ function openCharacterModal(){
   }
   if(gnomeCunningText){
     details.push(`<div class="char-line"><strong>Гномья хитрость:</strong> ${escapeHtml(gnomeCunningText.replace(/^Гномья хитрость:\s*/, ""))}</div>`);
+  }
+  if(githMentalDisciplineText){
+    details.push(`<div class="char-line"><strong>Ментальная дисциплина:</strong> ${escapeHtml(githMentalDisciplineText.replace(/^Ментальная дисциплина:\s*/, ""))}</div>`);
+  }
+  if(githMartialProdigyText){
+    details.push(`<div class="char-line"><strong>Воинское воспитание:</strong> ${escapeHtml(githMartialProdigyText.replace(/^Воинское воспитание:\s*/, ""))}</div>`);
+  }
+  if(decadentMasteryText){
+    details.push(`<div class="char-line"><strong>Декадентское мастерство:</strong> ${escapeHtml(decadentMasteryText.replace(/^Декадентское мастерство:\s*/, ""))}</div>`);
+  }
+  if(githPsionicsText){
+    details.push(`<div class="char-line"><strong>${escapeHtml(githPsionicsTitle)}:</strong> ${escapeHtml(githPsionicsText.replace(new RegExp(`^${githPsionicsTitle}:\\s*`), ""))}</div>`);
   }
   if(carry.powerful_build === true){
     details.push("<div class=\"char-line\"><strong>Мощное телосложение:</strong> считается на 1 размер больше для переноски/толкания/тяги/подъёма</div>");
@@ -1621,6 +1711,7 @@ function openCharacterModal(){
     copyLines.push(`Пол/Раса: ${gender || "—"} / ${race || "—"}`);
   }
   if(sizeRu) copyLines.push(`Размер: ${sizeRu}`);
+  if(githSubraceText) copyLines.push(githSubraceText);
   copyLines.push(`Зона: ${zone}`);
   if(speedText) copyLines.push(`Скорость: ${speedText}`);
   if(hasActiveCombatant && combatModeRu) copyLines.push(`Режим движения: ${combatModeRu}`);
@@ -1640,6 +1731,10 @@ function openCharacterModal(){
   if(healingSpellsAffectConstructText) copyLines.push(healingSpellsAffectConstructText);
   if(hellishResistanceText) copyLines.push(hellishResistanceText);
   if(infernalLegacyText) copyLines.push(infernalLegacyText);
+  if(githMentalDisciplineText) copyLines.push(githMentalDisciplineText);
+  if(githMartialProdigyText) copyLines.push(githMartialProdigyText);
+  if(decadentMasteryText) copyLines.push(decadentMasteryText);
+  if(githPsionicsText) copyLines.push(githPsionicsText);
   if(saveAdvantageConditionsRu.length) copyLines.push(`Преим. против: ${saveAdvantageConditionsRu.join(", ")} (спасброски)`);
   if(dwarvenResilienceText) copyLines.push(dwarvenResilienceText);
   if(feyAncestryText) copyLines.push(feyAncestryText);

@@ -20,6 +20,13 @@ INNATE_SPELL_KEY_PATTERNS: dict[str, re.Pattern[str]] = {
         r"увеличени[ея]\s*/?\s*уменьшени[ея]|enlarge\s*/?\s*reduce|enlarge\s+reduce",
         re.IGNORECASE,
     ),
+    "shield": re.compile(r"(?:заклинани[ея]\s+)?щит\b|\bshield\b", re.IGNORECASE),
+    "detect_thoughts": re.compile(
+        r"обнаружени[ея]\s+мысл\w*|чтени[ея]\s+мысл\w*|detect\s+thoughts",
+        re.IGNORECASE,
+    ),
+    "jump": re.compile(r"прыж\w*|\bjump\b", re.IGNORECASE),
+    "misty_step": re.compile(r"туманн\w+\s+шаг\w*|misty\s+step", re.IGNORECASE),
     "thaumaturgy": re.compile(r"тауматург\w*|thaumaturgy", re.IGNORECASE),
     "hellish_rebuke": re.compile(r"адск\w*\s+(?:возмезди\w*|отпор\w*)|hellish\s+rebuke", re.IGNORECASE),
     "darkness": re.compile(
@@ -90,7 +97,7 @@ CHAT_COMBAT_ACTION_PATTERNS: list[tuple[str, re.Pattern[str]]] = [
         "combat_mode_climb",
         re.compile(r"(лез\w*|карабка\w*)", re.IGNORECASE),
     ),
-    ("combat_dodge", re.compile(r"(уклон|уворач|уворот|в защиту|защищаюсь|оборон|в оборону|блок|щит|стойк|додж)", re.IGNORECASE)),
+    ("combat_dodge", re.compile(r"(уклон|уворач|уворот|в защиту|защищаюсь|оборон|в оборону|блок|стойк|додж)", re.IGNORECASE)),
     ("combat_help", re.compile(r"(помога|помочь|помогу|поддерж|страх|отвлек|координ|даю преимущество|открываю окно|прикрываю)", re.IGNORECASE)),
     (
         "combat_escape",
@@ -134,6 +141,9 @@ CHAT_COMBAT_ACTION_PATTERNS: list[tuple[str, re.Pattern[str]]] = [
             r"обнаружени[ея]\s+магии|detect\s+magic|маскировк\w*|disguise\s+self|"
             r"искусств(?:о|а)\s+друид\w*|druidcraft|"
             r"увеличени[ея]\s*/?\s*уменьшени[ея]|enlarge\s*/?\s*reduce|enlarge\s+reduce|"
+            r"(?:заклинани[ея]\s+)?щит\b|shield|"
+            r"обнаружени[ея]\s+мысл\w*|чтени[ея]\s+мысл\w*|detect\s+thoughts|"
+            r"прыж\w*|jump|туманн\w+\s+шаг\w*|misty\s+step|"
             r"тауматург\w*|thaumaturgy|адск\w*\s+(?:возмезди\w*|отпор\w*)|hellish\s+rebuke|darkness)",
             re.IGNORECASE,
         ),

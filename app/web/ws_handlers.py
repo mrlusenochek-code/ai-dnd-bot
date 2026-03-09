@@ -403,6 +403,11 @@ def _apply_innate_spell_usage(ch: Character, spell_key: str) -> tuple[Optional[s
             "darkness": "тьма",
             "thaumaturgy": "Тауматургия",
             "hellish_rebuke": "Адское возмездие",
+            "mage_hand": "Волшебная рука",
+            "shield": "Щит",
+            "detect_thoughts": "Обнаружение мыслей",
+            "jump": "Прыжок",
+            "misty_step": "Туманный шаг",
         }.get(spell_key, display_name)
     return display_name, None, changed
 

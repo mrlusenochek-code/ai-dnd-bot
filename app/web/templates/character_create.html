@@ -149,6 +149,23 @@
             <select id="choiceTool2" style="display:none;"></select>
           </div>
         </div>
+        <div id="choiceGithDecadentRow" style="display:none;">
+          <label>Декадентское мастерство (гитъянки, обязательно)</label>
+          <div class="row">
+            <select id="choiceGithLang"></select>
+          </div>
+          <div class="row">
+            <select id="choiceGithProfType">
+              <option value="">(выберите тип владения)</option>
+              <option value="skill">Навык</option>
+              <option value="tool">Инструмент</option>
+            </select>
+          </div>
+          <div class="row">
+            <select id="choiceGithSkill" style="display:none;"></select>
+            <select id="choiceGithTool" style="display:none;"></select>
+          </div>
+        </div>
         <div id="choiceCantripRow" style="display:none;">
           <label>Заговор мага (обязательно)</label>
           <select id="choiceCantrip1"></select>
@@ -409,6 +426,7 @@ let raceChoiceState = {
   vedalkenRequired: false,
   vedalkenSkills: [],
   innateAbilityRequired: false,
+  githDecadentRequired: false,
   ancestryRequired: false,
   ancestryOptions: [],
 };
@@ -1164,6 +1182,11 @@ function renderRaceChoices(){
   const toolLabel = document.getElementById("choiceToolLabel");
   const toolSel = document.getElementById("choiceTool1");
   const toolSel2 = document.getElementById("choiceTool2");
+  const githDecadentRow = document.getElementById("choiceGithDecadentRow");
+  const githLangSel = document.getElementById("choiceGithLang");
+  const githProfTypeSel = document.getElementById("choiceGithProfType");
+  const githSkillSel = document.getElementById("choiceGithSkill");
+  const githToolSel = document.getElementById("choiceGithTool");
   const cantripRow = document.getElementById("choiceCantripRow");
   const cantripSel = document.getElementById("choiceCantrip1");
   const vedRow = document.getElementById("choiceVedalkenRow");
@@ -1173,12 +1196,14 @@ function renderRaceChoices(){
   const innateAbilitySel = document.getElementById("choiceInnateAbility");
   const ancestryRow = document.getElementById("choiceAncestryRow");
   const ancestrySel = document.getElementById("choiceAncestry");
-  if(!block || !langRow || !langLabel || !langSel || !langSel2 || !asiRow || !asiLabel || !asiVariantRow || !asiVariantSel || !asiSel1 || !asiSel2 || !asiSel3 || !sizeRow || !sizeSel || !variableTraitRow || !variableTraitSel || !skillRow || !skillLabel || !skillSel1 || !skillSel2 || !featRow || !featSel || !toolRow || !toolLabel || !toolSel || !toolSel2 || !cantripRow || !cantripSel || !vedRow || !vedSkillSel || !vedToolSel || !innateAbilityRow || !innateAbilitySel || !ancestryRow || !ancestrySel) return;
+  if(!block || !langRow || !langLabel || !langSel || !langSel2 || !asiRow || !asiLabel || !asiVariantRow || !asiVariantSel || !asiSel1 || !asiSel2 || !asiSel3 || !sizeRow || !sizeSel || !variableTraitRow || !variableTraitSel || !skillRow || !skillLabel || !skillSel1 || !skillSel2 || !featRow || !featSel || !toolRow || !toolLabel || !toolSel || !toolSel2 || !githDecadentRow || !githLangSel || !githProfTypeSel || !githSkillSel || !githToolSel || !cantripRow || !cantripSel || !vedRow || !vedSkillSel || !vedToolSel || !innateAbilityRow || !innateAbilitySel || !ancestryRow || !ancestrySel) return;
 
   const ctx = getCurrentRaceContext();
   const raceKey = String(((ctx.race && ctx.race.id) || ctx.details.key || "")).trim().toLowerCase();
+  const subraceKey = String(((ctx.selectedSubrace && ctx.selectedSubrace.key) || "")).trim().toLowerCase();
   const isCustomLineage = raceKey === "custom_lineage";
   const isDhampir = raceKey === "dhampir";
+  const isGithyanki = raceKey === "gith" && subraceKey === "githyanki";
   const langCfg = getLanguageChoiceConfig(ctx.effectiveTraits);
   const asiCfg = getAsiChoiceConfig(ctx.effectiveTraits, ctx.details.asi, raceKey);
   const flexAsiCfg = getFlexAsiChoiceConfig(ctx.details.asi);
@@ -1205,6 +1230,7 @@ function renderRaceChoices(){
   const needsCantrip = !!cantripCfg.required;
   const needsVedalken = !!vedCfg.required;
   const needsInnateAbility = raceKey === "fairy";
+  const needsGithDecadent = isGithyanki;
   const needsAncestry = !!ancestryCfg.required;
   raceChoiceState = {
     sizeRequired: needsSize,
@@ -1232,11 +1258,12 @@ function renderRaceChoices(){
     vedalkenRequired: needsVedalken,
     vedalkenSkills: Array.isArray(vedCfg.skills) ? vedCfg.skills.slice() : [],
     innateAbilityRequired: needsInnateAbility,
+    githDecadentRequired: needsGithDecadent,
     ancestryRequired: needsAncestry,
     ancestryOptions: Array.isArray(ancestryCfg.options) ? ancestryCfg.options.slice() : [],
   };
 
-  if(!needsSize && !needsLanguage && !needsAsi && !needsVariableTrait && !needsSkill && !needsFeat && !needsTool && !needsCantrip && !needsVedalken && !needsInnateAbility && !needsAncestry){
+  if(!needsSize && !needsLanguage && !needsAsi && !needsVariableTrait && !needsSkill && !needsFeat && !needsTool && !needsCantrip && !needsVedalken && !needsInnateAbility && !needsGithDecadent && !needsAncestry){
     block.style.display = "none";
     sizeRow.style.display = "none";
     variableTraitRow.style.display = "none";
@@ -1291,6 +1318,21 @@ function renderRaceChoices(){
     toolSel2.disabled = true;
     toolSel2.required = false;
     toolSel2.value = "";
+    githDecadentRow.style.display = "none";
+    githLangSel.disabled = true;
+    githLangSel.required = false;
+    githLangSel.value = "";
+    githProfTypeSel.disabled = true;
+    githProfTypeSel.required = false;
+    githProfTypeSel.value = "";
+    githSkillSel.style.display = "none";
+    githSkillSel.disabled = true;
+    githSkillSel.required = false;
+    githSkillSel.value = "";
+    githToolSel.style.display = "none";
+    githToolSel.disabled = true;
+    githToolSel.required = false;
+    githToolSel.value = "";
     cantripSel.disabled = true;
     cantripSel.required = false;
     cantripSel.value = "";
@@ -1689,6 +1731,76 @@ function renderRaceChoices(){
     toolSel2.value = "";
   }
 
+  if(needsGithDecadent){
+    const prevLang = String(githLangSel.value || "").trim().toLowerCase();
+    const prevType = String(githProfTypeSel.value || "").trim().toLowerCase();
+    const prevSkill = String(githSkillSel.value || "").trim().toLowerCase();
+    const prevTool = String(githToolSel.value || "").trim().toLowerCase();
+    const blockedLanguages = new Set(["common", "gith"]);
+    const baseRaceLanguages = Array.isArray(ctx.details.languages)
+      ? ctx.details.languages
+      : (Array.isArray(ctx.race && ctx.race.languages) ? ctx.race.languages : []);
+    for(const lang of baseRaceLanguages){
+      const langKey = String(lang || "").trim().toLowerCase();
+      if(langKey) blockedLanguages.add(langKey);
+    }
+    const languageOptions = buildLanguageOptions([])
+      .filter((item) => !blockedLanguages.has(String(item.key || "").trim().toLowerCase()));
+    githLangSel.innerHTML = "";
+    const langFirst = document.createElement("option");
+    langFirst.value = "";
+    langFirst.textContent = "(выберите язык)";
+    githLangSel.appendChild(langFirst);
+    for(const item of languageOptions){
+      const opt = document.createElement("option");
+      opt.value = item.key;
+      opt.textContent = item.label;
+      githLangSel.appendChild(opt);
+    }
+    const keepLang = Array.from(githLangSel.options).some((o) => String(o.value) === prevLang);
+    githLangSel.value = keepLang ? prevLang : "";
+    fillSkillSelect(githSkillSel, prevSkill, {});
+    fillToolChoiceSelect(githToolSel, ["any"], prevTool, {});
+    const syncGithDecadentType = () => {
+      const selectedType = String(githProfTypeSel.value || "").trim().toLowerCase();
+      const showSkill = selectedType === "skill";
+      const showTool = selectedType === "tool";
+      githSkillSel.style.display = showSkill ? "" : "none";
+      githSkillSel.disabled = !showSkill;
+      githSkillSel.required = showSkill;
+      if(!showSkill) githSkillSel.value = "";
+      githToolSel.style.display = showTool ? "" : "none";
+      githToolSel.disabled = !showTool;
+      githToolSel.required = showTool;
+      if(!showTool) githToolSel.value = "";
+    };
+    githProfTypeSel.value = (prevType === "skill" || prevType === "tool") ? prevType : "";
+    githProfTypeSel.onchange = syncGithDecadentType;
+    syncGithDecadentType();
+    githDecadentRow.style.display = "";
+    githLangSel.disabled = false;
+    githLangSel.required = true;
+    githProfTypeSel.disabled = false;
+    githProfTypeSel.required = true;
+  }else{
+    githDecadentRow.style.display = "none";
+    githLangSel.disabled = true;
+    githLangSel.required = false;
+    githLangSel.value = "";
+    githProfTypeSel.disabled = true;
+    githProfTypeSel.required = false;
+    githProfTypeSel.onchange = null;
+    githProfTypeSel.value = "";
+    githSkillSel.style.display = "none";
+    githSkillSel.disabled = true;
+    githSkillSel.required = false;
+    githSkillSel.value = "";
+    githToolSel.style.display = "none";
+    githToolSel.disabled = true;
+    githToolSel.required = false;
+    githToolSel.value = "";
+  }
+
   if(needsCantrip){
     const prev = String(cantripSel.value || "");
     fillCantripSelect(cantripSel, cantripCfg.options, prev);
@@ -1763,7 +1875,8 @@ function renderSubraceSelect(race, details){
 
   const opt0 = document.createElement("option");
   opt0.value = "";
-  opt0.textContent = "(нет)";
+  const raceKey = String(((race && race.id) || details.key || "")).trim().toLowerCase();
+  opt0.textContent = raceKey === "gith" ? "(выберите подрасу)" : "(нет)";
   sel.appendChild(opt0);
 
   for(const sr of subs){
@@ -1781,6 +1894,7 @@ function renderSubraceSelect(race, details){
   const hasOptions = sel.options.length > 1;
   row.style.display = hasOptions ? "" : "none";
   sel.disabled = !hasOptions;
+  sel.required = hasOptions && raceKey === "gith";
   sel.onchange = () => {
     const raceSel = document.getElementById("raceId");
     renderRaceDetails(raceSel ? raceSel.value : "");
@@ -1939,6 +2053,12 @@ async function createHero(){
     setMessage("Имя персонажа обязательно", false);
     return;
   }
+  const raceIdForValidation = String((document.getElementById("raceId").value || "")).trim().toLowerCase();
+  const subraceIdForValidation = String((document.getElementById("subraceId") ? document.getElementById("subraceId").value : "") || "").trim().toLowerCase();
+  if(raceIdForValidation === "gith" && !subraceIdForValidation){
+    setMessage("Для расы «Гит» обязательно выбери подрасу.", false);
+    return;
+  }
   const choiceLangEl = document.getElementById("choiceLang1");
   const choiceLangEl2 = document.getElementById("choiceLang2");
   const choiceLang = String(choiceLangEl ? choiceLangEl.value : "").trim().toLowerCase();
@@ -2067,6 +2187,36 @@ async function createHero(){
       return;
     }
   }
+  const choiceGithLangEl = document.getElementById("choiceGithLang");
+  const choiceGithProfTypeEl = document.getElementById("choiceGithProfType");
+  const choiceGithSkillEl = document.getElementById("choiceGithSkill");
+  const choiceGithToolEl = document.getElementById("choiceGithTool");
+  const choiceGithLang = String(choiceGithLangEl ? choiceGithLangEl.value : "").trim().toLowerCase();
+  const choiceGithProfType = String(choiceGithProfTypeEl ? choiceGithProfTypeEl.value : "").trim().toLowerCase();
+  const choiceGithSkill = String(choiceGithSkillEl ? choiceGithSkillEl.value : "").trim().toLowerCase();
+  const choiceGithTool = String(choiceGithToolEl ? choiceGithToolEl.value : "").trim().toLowerCase();
+  if(raceChoiceState.githDecadentRequired){
+    if(!choiceGithLang){
+      setMessage("Для «Декадентского мастерства» выбери дополнительный язык.", false);
+      return;
+    }
+    if(choiceGithLang === "common" || choiceGithLang === "gith"){
+      setMessage("Для «Декадентского мастерства» язык не может быть Common/Gith.", false);
+      return;
+    }
+    if(choiceGithProfType !== "skill" && choiceGithProfType !== "tool"){
+      setMessage("Для «Декадентского мастерства» выбери тип владения: навык или инструмент.", false);
+      return;
+    }
+    if(choiceGithProfType === "skill" && !choiceGithSkill){
+      setMessage("Для «Декадентского мастерства» выбери навык.", false);
+      return;
+    }
+    if(choiceGithProfType === "tool" && !choiceGithTool){
+      setMessage("Для «Декадентского мастерства» выбери инструмент.", false);
+      return;
+    }
+  }
   const choiceCantripEl = document.getElementById("choiceCantrip1");
   const choiceCantrip = String(choiceCantripEl ? choiceCantripEl.value : "").trim().toLowerCase();
   if(raceChoiceState.cantripRequired && !choiceCantrip){
@@ -2153,6 +2303,13 @@ async function createHero(){
     raceChoices.tools = Number(raceChoiceState.toolCount || 0) >= 2
       ? [choiceTool, choiceTool2]
       : [choiceTool];
+  }
+  if(raceChoiceState.githDecadentRequired){
+    raceChoices.decadent_mastery = {
+      language: choiceGithLang,
+      skill: choiceGithProfType === "skill" ? choiceGithSkill : null,
+      tool: choiceGithProfType === "tool" ? choiceGithTool : null,
+    };
   }
   if(choiceCantrip){
     raceChoices.cantrips = [choiceCantrip];

@@ -529,6 +529,11 @@ def _build_race_features(selected_race: dict | None) -> dict[str, Any]:
             entry["spell_level"] = max(0, spell_level)
         if spell_obj.get("min_level") is not None:
             entry["min_level"] = as_int(spell_obj.get("min_level"), 0)
+        note = str(spell_obj.get("note") or "").strip().lower()
+        if note:
+            entry["note"] = note
+        if spell_obj.get("no_material_components") is not None:
+            entry["no_material_components"] = bool(spell_obj.get("no_material_components"))
         innate_spells.append(entry)
 
     # speeds
@@ -633,6 +638,12 @@ def _build_race_features(selected_race: dict | None) -> dict[str, Any]:
                 features["tool_choice"] = {"choose": choose, "from": from_items}
 
         if mtype == "proficiency":
+            skill_profs.extend(_uniq_lower_str_list(mech.get("skills")))
+            weapon_profs.extend(_uniq_lower_str_list(mech.get("weapons")))
+            armor_profs.extend(_uniq_lower_str_list(mech.get("armor")))
+            tool_profs.extend(_uniq_lower_str_list(mech.get("tools")))
+
+        if mtype == "proficiency_bundle":
             skill_profs.extend(_uniq_lower_str_list(mech.get("skills")))
             weapon_profs.extend(_uniq_lower_str_list(mech.get("weapons")))
             armor_profs.extend(_uniq_lower_str_list(mech.get("armor")))
@@ -779,11 +790,15 @@ def _build_race_features(selected_race: dict | None) -> dict[str, Any]:
 
         if mtype == "innate_spellcasting":
             ability = str(mech.get("ability") or "").strip().lower()
+            no_material_components = bool(mech.get("no_material_components"))
             spells = _as_list(mech.get("spells"))
             for spell in spells:
                 if not isinstance(spell, dict):
                     continue
-                _append_innate_spell(ability=ability, spell_obj=spell)
+                spell_obj = dict(spell)
+                if no_material_components:
+                    spell_obj["no_material_components"] = True
+                _append_innate_spell(ability=ability, spell_obj=spell_obj)
 
         if mtype == "innate_spellcasting_shared_cooldown":
             ability = str(mech.get("ability") or "").strip().lower()
@@ -973,6 +988,9 @@ def _build_race_features(selected_race: dict | None) -> dict[str, Any]:
             elif abilities:
                 saves["advantage"] = abilities
 
+        if mtype == "save_advantage_conditions":
+            save_advantage_conditions.extend(_uniq_lower_str_list(mech.get("conditions")))
+
         if mtype == "reroll_ones":
             scope = _uniq_lower_str_list(mech.get("scope"))
             features["reroll_ones"] = {"scope": scope}
@@ -1116,6 +1134,9 @@ async def api_character_create(payload: dict):
     race_choice_draconic_ancestry = ""
     race_choice_size = ""
     race_choice_variable_trait = ""
+    race_choice_decadent_language = ""
+    race_choice_decadent_skill = ""
+    race_choice_decadent_tool = ""
     race_choice_innate_ability = str(payload.get("race_choice_innate_ability") or "").strip().lower()
     if isinstance(race_choices_payload, dict):
         raw_langs = race_choices_payload.get("languages")
@@ -1238,6 +1259,11 @@ async def api_character_create(payload: dict):
         race_choice_draconic_ancestry = str(race_choices_payload.get("draconic_ancestry") or "").strip().lower()
         race_choice_size = str(race_choices_payload.get("size") or "").strip().lower()
         race_choice_variable_trait = str(race_choices_payload.get("variable_trait") or "").strip().lower()
+        raw_decadent_mastery = race_choices_payload.get("decadent_mastery")
+        if isinstance(raw_decadent_mastery, dict):
+            race_choice_decadent_language = str(raw_decadent_mastery.get("language") or "").strip().lower()
+            race_choice_decadent_skill = str(raw_decadent_mastery.get("skill") or "").strip().lower()
+            race_choice_decadent_tool = str(raw_decadent_mastery.get("tool") or "").strip().lower()
 
     if uid <= 0:
         raise HTTPException(status_code=400, detail="Bad uid")
@@ -1283,8 +1309,12 @@ async def api_character_create(payload: dict):
         class_skin = class_name[:60]
 
         selected_race = resolve_race(race_id) if race_id else None
+        selected_race_key = str((selected_race or {}).get("key") or "").strip().lower()
         selected_subrace: dict[str, Any] | None = None
         effective_race: dict[str, Any] | None = selected_race
+
+        if selected_race_key == "gith" and not subrace_id:
+            raise HTTPException(status_code=400, detail="Gith subrace choice is required")
 
         if isinstance(selected_race, dict) and subrace_id:
             subs = selected_race.get("subraces")
@@ -1296,6 +1326,8 @@ async def api_character_create(payload: dict):
                 if k and k == subrace_id:
                     selected_subrace = sr
                     break
+            if selected_race_key == "gith" and selected_subrace is None:
+                raise HTTPException(status_code=400, detail=f"Invalid subrace choice: {subrace_id}")
 
             if selected_subrace is not None:
                 eff = dict(selected_race)
@@ -1655,6 +1687,69 @@ async def api_character_create(payload: dict):
                 detail="Race innate spellcasting ability choice is not available for selected race",
             )
 
+        selected_subrace_key = str((selected_subrace or {}).get("key") or "").strip().lower()
+        is_githyanki = effective_race_key == "gith" and selected_subrace_key == "githyanki"
+        if is_githyanki:
+            allowed_skill_keys = {
+                "acrobatics",
+                "animal_handling",
+                "arcana",
+                "athletics",
+                "deception",
+                "history",
+                "insight",
+                "intimidation",
+                "investigation",
+                "medicine",
+                "nature",
+                "perception",
+                "performance",
+                "persuasion",
+                "religion",
+                "sleight_of_hand",
+                "stealth",
+                "survival",
+            }
+            if not race_choice_decadent_language:
+                raise HTTPException(status_code=400, detail="Githyanki Decadent Mastery language choice is required")
+            if race_choice_decadent_language in {"common", "gith"}:
+                raise HTTPException(
+                    status_code=400,
+                    detail="Githyanki Decadent Mastery language must not duplicate Common or Gith",
+                )
+            if race_choice_decadent_language in base_race_language_keys:
+                raise HTTPException(
+                    status_code=400,
+                    detail="Githyanki Decadent Mastery language must be distinct from base languages",
+                )
+            has_decadent_skill = bool(race_choice_decadent_skill)
+            has_decadent_tool = bool(race_choice_decadent_tool)
+            if has_decadent_skill and has_decadent_tool:
+                raise HTTPException(
+                    status_code=400,
+                    detail="Githyanki Decadent Mastery requires exactly one choice: skill or tool",
+                )
+            if not has_decadent_skill and not has_decadent_tool:
+                raise HTTPException(
+                    status_code=400,
+                    detail="Githyanki Decadent Mastery requires one choice: skill or tool",
+                )
+            if has_decadent_skill and race_choice_decadent_skill not in allowed_skill_keys:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Invalid Githyanki Decadent Mastery skill: {race_choice_decadent_skill}",
+                )
+            if has_decadent_tool and race_choice_decadent_tool not in TIRELESS_PRECISION_TOOL_WHITELIST:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Invalid Githyanki Decadent Mastery tool: {race_choice_decadent_tool}",
+                )
+        elif race_choice_decadent_language or race_choice_decadent_skill or race_choice_decadent_tool:
+            raise HTTPException(
+                status_code=400,
+                detail="Githyanki Decadent Mastery choices are not available for selected race",
+            )
+
         if selected_race is not None:
             # When a preset race is selected, keep mechanics by base race id.
             race_kit = str(selected_race.get("key") or "human").strip()[:40]
@@ -1707,6 +1802,37 @@ async def api_character_create(payload: dict):
             raise HTTPException(status_code=400, detail="Race tool choice is not available for selected race")
         choices = race_features.get("choices") if isinstance(race_features, dict) else None
         choices_dict: dict[str, Any] = choices if isinstance(choices, dict) else {}
+        if isinstance(race_features, dict) and selected_subrace is not None:
+            choices_dict["subrace_id"] = str(selected_subrace.get("key") or "").strip().lower()
+        if isinstance(race_features, dict) and is_githyanki:
+            base_langs = race_features.get("languages")
+            base_langs_list = base_langs if isinstance(base_langs, list) else []
+            merged_langs: list[str] = []
+            for item in [*base_langs_list, race_choice_decadent_language]:
+                lang = str(item or "").strip().lower()
+                if lang and lang not in merged_langs:
+                    merged_langs.append(lang)
+            race_features["languages"] = merged_langs
+
+            prof_raw = race_features.get("proficiencies")
+            prof_dict: dict[str, Any] = prof_raw if isinstance(prof_raw, dict) else {}
+            skills_raw = prof_dict.get("skills")
+            tools_raw = prof_dict.get("tools")
+            skills = [str(item or "").strip().lower() for item in (skills_raw if isinstance(skills_raw, list) else []) if str(item or "").strip()]
+            tools = [str(item or "").strip().lower() for item in (tools_raw if isinstance(tools_raw, list) else []) if str(item or "").strip()]
+            if race_choice_decadent_skill and race_choice_decadent_skill not in skills:
+                skills.append(race_choice_decadent_skill)
+            if race_choice_decadent_tool and race_choice_decadent_tool not in tools:
+                tools.append(race_choice_decadent_tool)
+            prof_dict["skills"] = skills
+            prof_dict["tools"] = tools
+            race_features["proficiencies"] = prof_dict
+
+            choices_dict["decadent_mastery"] = {
+                "language": race_choice_decadent_language,
+                "skill": race_choice_decadent_skill or None,
+                "tool": race_choice_decadent_tool or None,
+            }
         if isinstance(race_features, dict) and race_choice_languages:
             base_langs = race_features.get("languages")
             base_langs_list = base_langs if isinstance(base_langs, list) else []
