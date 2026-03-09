@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import re
 import random
+from types import SimpleNamespace
 from datetime import datetime, timezone
 from typing import Any, Optional
 
@@ -621,6 +622,55 @@ def _eerie_token_runtime(actor: Any) -> tuple[dict[str, Any], dict[str, Any]]:
     runtime_raw = race_features.get("runtime")
     runtime = dict(runtime_raw) if isinstance(runtime_raw, dict) else {}
     return race_features, runtime
+
+
+def _saving_face_allies_within_30ft(state: Any, actor: Any) -> int:
+    side = str(getattr(actor, "side", "")).strip().lower()
+    if not side:
+        return 0
+    allies = 0
+    actor_key = str(getattr(actor, "key", "") or "")
+    for key, combatant in (state.combatants or {}).items():
+        if combatant is None:
+            continue
+        if str(getattr(combatant, "side", "")).strip().lower() != side:
+            continue
+        if str(key or "") == actor_key:
+            continue
+        if int(getattr(combatant, "hp_current", 0) or 0) <= 0 or bool(getattr(combatant, "is_dead", False)):
+            continue
+        allies += 1
+    return allies
+
+
+def _saving_face_state(actor: Any) -> tuple[dict[str, Any], dict[str, Any], dict[str, Any]]:
+    race_features = actor.race_features if isinstance(getattr(actor, "race_features", None), dict) else {}
+    runtime_raw = race_features.get("runtime")
+    runtime = dict(runtime_raw) if isinstance(runtime_raw, dict) else {}
+    pending_raw = runtime.get("saving_face_pending")
+    pending = dict(pending_raw) if isinstance(pending_raw, dict) else {}
+    return race_features, runtime, pending
+
+
+def _can_offer_saving_face(actor: Any) -> bool:
+    if str(getattr(actor, "side", "")).strip().lower() != "pc":
+        return False
+    if not bool(getattr(actor, "reaction_available", True)):
+        return False
+    saving_face_cfg = _race_feature(actor, "saving_face")
+    if saving_face_cfg is None:
+        return False
+    _race_features, runtime, _pending = _saving_face_state(actor)
+    uses_used = max(0, int(runtime.get("saving_face_uses_used") or 0))
+    uses_max = max(1, int(saving_face_cfg.get("uses_max") or 1))
+    return uses_used < uses_max
+
+
+def _set_saving_face_pending(actor: Any, pending: dict[str, Any]) -> None:
+    race_features, runtime, _ = _saving_face_state(actor)
+    runtime["saving_face_pending"] = pending
+    race_features["runtime"] = runtime
+    actor.race_features = race_features
 
 
 def _extract_eerie_message_text(raw_text: str) -> str:
@@ -1519,6 +1569,185 @@ def handle_live_combat_action(
                         )
                     }
                 ],
+            },
+            None,
+        )
+
+    if action == "combat_saving_face":
+        state = get_combat(session_id)
+        if state is None or not state.active:
+            return None, "Combat is not active"
+        if not state.order:
+            end_combat(session_id)
+            return (
+                {
+                    "status": "Бой завершён",
+                    "open": False,
+                    "lines": [{"text": "Бой завершён: целей не осталось.", "muted": True}],
+                },
+                None,
+            )
+        actor_key = state.order[state.turn_index]
+        actor = state.combatants.get(actor_key)
+        if actor is None:
+            return None, "Combat state is inconsistent"
+        selected_actor = actor
+        selected_cfg = _race_feature(selected_actor, "saving_face")
+        _, _, selected_pending = _saving_face_state(selected_actor)
+        if (
+            str(getattr(selected_actor, "side", "")).lower() != "pc"
+            or selected_cfg is None
+            or not selected_pending
+        ):
+            fallback_candidates: list[Any] = []
+            for candidate in state.combatants.values():
+                if str(getattr(candidate, "side", "")).lower() != "pc":
+                    continue
+                candidate_cfg = _race_feature(candidate, "saving_face")
+                if candidate_cfg is None:
+                    continue
+                _, _, candidate_pending = _saving_face_state(candidate)
+                if candidate_pending:
+                    fallback_candidates.append(candidate)
+            if len(fallback_candidates) == 1:
+                selected_actor = fallback_candidates[0]
+                selected_cfg = _race_feature(selected_actor, "saving_face")
+            elif len(fallback_candidates) > 1:
+                return None, "У нескольких союзников есть «Сохранить лицо»: используйте реакцию сразу после своего провала."
+            else:
+                if str(getattr(actor, "side", "")).lower() != "pc":
+                    return None, "Сохранить лицо доступно только персонажу игрока."
+                if selected_cfg is None:
+                    return None, "Сохранить лицо недоступно."
+                return None, "Нет подходящего провала для «Сохранить лицо»."
+
+        actor = selected_actor
+        saving_face_cfg = selected_cfg if isinstance(selected_cfg, dict) else None
+        if saving_face_cfg is None:
+            return None, "Сохранить лицо недоступно."
+        race_features, runtime, pending = _saving_face_state(actor)
+        if not pending:
+            return None, "Нет подходящего провала для «Сохранить лицо»."
+        uses_used = max(0, int(runtime.get("saving_face_uses_used") or 0))
+        uses_max = max(1, int(saving_face_cfg.get("uses_max") or 1))
+        if uses_used >= uses_max:
+            return None, "«Сохранить лицо» уже использовано до отдыха."
+        allies = _saving_face_allies_within_30ft(state, actor)
+        bonus = min(max(0, allies), 5)
+        if bonus <= 0:
+            return None, "Нет союзников в пределах 30 фт: «Сохранить лицо» не срабатывает."
+        blocked = _spend_reaction_or_block(state, actor)
+        if blocked is not None:
+            return blocked, None
+
+        kind = str(pending.get("kind") or "").strip().lower()
+        total_before = int(pending.get("total") or 0)
+        total_after = total_before + bonus
+        dc = max(0, int(pending.get("dc") or 0))
+        ac = max(0, int(pending.get("ac") or 0))
+        lines: list[dict[str, Any]] = []
+        runtime["saving_face_uses_used"] = uses_used + 1
+        runtime.pop("saving_face_pending", None)
+
+        if kind == "attack":
+            target_key = str(pending.get("target_key") or "").strip()
+            target = state.combatants.get(target_key) if target_key else None
+            if target is None or int(getattr(target, "hp_current", 0) or 0) <= 0:
+                lines.append({"text": "Сохранить лицо: цель атаки недоступна.", "muted": True})
+            else:
+                became_hit = total_after >= ac
+                lines.append(
+                    {
+                        "text": (
+                            f"Сохранить лицо: +{bonus} к броску атаки ({total_before} -> {total_after}) "
+                            f"vs AC {ac} ({'попадание' if became_hit else 'промах'})."
+                        )
+                    }
+                )
+                if became_hit:
+                    damage_roll = max(0, int(pending.get("damage_roll") or 0))
+                    damage_bonus = int(pending.get("damage_bonus") or 0)
+                    damage_type = str(pending.get("damage_type") or "").strip().lower() or "physical"
+                    total_damage = max(0, damage_roll + damage_bonus)
+                    total_damage, surprise_lines = _apply_surprise_attack_bonus(
+                        state=state,
+                        attacker=actor,
+                        target=target,
+                        is_hit=True,
+                        is_crit=False,
+                        total_damage=total_damage,
+                    )
+                    lines.extend(surprise_lines)
+                    fury_bonus = _maybe_apply_fury_of_small(actor=actor, target=target, lines=lines)
+                    if fury_bonus > 0:
+                        total_damage += fury_bonus
+                    bonus_damage, bonus_damage_type = _aasimar_bonus_damage_for_hit(actor)
+                    if bonus_damage > 0:
+                        total_damage += bonus_damage
+                        lines.append(
+                            {"text": f"Доп. урон трансформации: +{bonus_damage} {bonus_damage_type} (1/ход).", "muted": True}
+                        )
+                    pre_hp = target.hp_current
+                    damage_to_apply, relentless_lines = _apply_relentless_endurance_if_needed(target=target, incoming_damage=total_damage)
+                    lines.extend(relentless_lines)
+                    state = apply_damage(session_id, target.key, damage_to_apply, source=actor.key)
+                    if state is None:
+                        return None, "Combat is not active"
+                    target = state.combatants.get(target.key, target)
+                    profile = SimpleNamespace(
+                        damage_type=damage_type,
+                        is_melee_weapon=bool(pending.get("is_melee_weapon")),
+                    )
+                    state_after_poison, target_after_poison = _consume_grung_weapon_poison_on_hit(
+                        session_id=session_id,
+                        attacker=actor,
+                        target=target,
+                        profile=profile,
+                        lines=lines,
+                    )
+                    if state_after_poison is None:
+                        return None, "Combat is not active"
+                    state = state_after_poison
+                    target = target_after_poison
+                    _maybe_apply_grung_contact_poison_on_melee_hit(
+                        attacker=actor,
+                        target=target,
+                        is_melee_hit=bool(pending.get("is_melee_weapon")),
+                        lines=lines,
+                    )
+                    lines.append(
+                        {
+                            "text": f"Урон (Сохранить лицо): {max(0, int(damage_to_apply))} {damage_type}. {target.name}: HP {target.hp_current}/{target.hp_max}",
+                            "muted": True,
+                        }
+                    )
+                    if target.side == "pc" and pre_hp > 0 and target.hp_current == 0:
+                        leftover = total_damage - pre_hp
+                        if leftover >= target.hp_max:
+                            target.is_dead = True
+                            target.is_stable = False
+                            lines.append({"text": f"Мгновенная смерть: {target.name} погибает.", "muted": True})
+                            _revert_shapechanger_on_death(target, lines)
+        elif kind in {"check", "save"}:
+            success = total_after >= dc
+            lines.append(
+                {
+                    "text": (
+                        f"Сохранить лицо: +{bonus} к {kind} ({total_before} -> {total_after}) "
+                        f"vs DC {dc} ({'успех' if success else 'провал'})."
+                    )
+                }
+            )
+        else:
+            lines.append({"text": "Сохранить лицо: неподдерживаемый тип контекста.", "muted": True})
+
+        race_features["runtime"] = runtime
+        actor.race_features = race_features
+        return (
+            {
+                "status": _combat_status(state),
+                "open": True,
+                "lines": lines,
             },
             None,
         )
@@ -2591,6 +2820,30 @@ def handle_live_combat_action(
             damage_line = f"Урон: {roll_damage} + {resolution.damage_bonus} = {total_damage}"
         else:
             damage_line = "Урон: 0 (промах)"
+            if _can_offer_saving_face(attacker):
+                pending = {
+                    "kind": "attack",
+                    "total": int(resolution.total_to_hit),
+                    "ac": int(resolution.target_ac),
+                    "target_key": str(getattr(target, "key", "") or ""),
+                    "damage_roll": int(resolution.damage_roll),
+                    "damage_bonus": int(resolution.damage_bonus),
+                    "damage_type": str(getattr(profile, "damage_type", "") or "").strip().lower(),
+                    "is_melee_weapon": bool(getattr(profile, "is_melee_weapon", False)),
+                    "created_at": datetime.now(timezone.utc).isoformat(),
+                }
+                _set_saving_face_pending(attacker, pending)
+                allies = _saving_face_allies_within_30ft(state, attacker)
+                bonus_preview = min(max(0, allies), 5)
+                extra_outcome_lines.append(
+                    {
+                        "text": (
+                            f"Можно реакцией «Сохранить лицо» добавить +{bonus_preview} "
+                            f"(союзники в 30 фт, макс 5)."
+                        ),
+                        "muted": True,
+                    }
+                )
 
         lines: list[dict[str, Any]] = [
             {"text": f"Атака: {attacker.name} → {target.name}", "muted": True},

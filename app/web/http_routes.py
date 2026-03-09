@@ -77,6 +77,31 @@ WIZARD_CANTRIP_WHITELIST = {
     "dancing_lights",
 }
 AUTOGNOME_TOOL_WHITELIST = set(TIRELESS_PRECISION_TOOL_WHITELIST)
+MARTIAL_WEAPON_WHITELIST = {
+    "battleaxe",
+    "flail",
+    "glaive",
+    "greataxe",
+    "greatsword",
+    "halberd",
+    "lance",
+    "longsword",
+    "maul",
+    "morningstar",
+    "pike",
+    "rapier",
+    "scimitar",
+    "shortsword",
+    "trident",
+    "war_pick",
+    "warhammer",
+    "whip",
+    "blowgun",
+    "hand_crossbow",
+    "heavy_crossbow",
+    "longbow",
+    "net",
+}
 
 
 @router.get("/", response_class=HTMLResponse)
@@ -768,6 +793,9 @@ def _build_race_features(selected_race: dict | None) -> dict[str, Any]:
         if mtype == "rabbit_hop":
             features["rabbit_hop"] = dict(mech)
 
+        if mtype == "saving_face":
+            features["saving_face"] = dict(mech)
+
         if mtype == "charge_bonus_attack":
             features["charge"] = dict(mech)
 
@@ -1155,6 +1183,7 @@ async def api_character_create(payload: dict):
     race_choice_feats: list[str] = []
     race_choice_tools: list[str] = []
     race_choice_cantrips: list[str] = []
+    race_choice_martial_weapons: list[str] = []
     race_choice_flex_asi_variant = ""
     race_choice_flex_asi_stats: list[str] = []
     race_choice_tp_skill = ""
@@ -1263,6 +1292,19 @@ async def api_character_create(payload: dict):
                 raise HTTPException(status_code=400, detail=f"Invalid cantrip choice: {cantrip}")
             if cantrip not in race_choice_cantrips:
                 race_choice_cantrips.append(cantrip)
+        raw_martial_weapons = race_choices_payload.get("martial_weapons")
+        raw_martial_weapons_list = raw_martial_weapons if isinstance(raw_martial_weapons, list) else []
+        seen_martial_weapon_keys: set[str] = set()
+        for item in raw_martial_weapons_list:
+            weapon_key = str(item or "").strip().lower()
+            if not weapon_key:
+                continue
+            if weapon_key not in MARTIAL_WEAPON_WHITELIST:
+                raise HTTPException(status_code=400, detail=f"Invalid martial weapon choice: {weapon_key}")
+            if weapon_key in seen_martial_weapon_keys:
+                raise HTTPException(status_code=400, detail="Martial weapon choices must be distinct")
+            seen_martial_weapon_keys.add(weapon_key)
+            race_choice_martial_weapons.append(weapon_key)
         raw_flex_asi = race_choices_payload.get("flex_asi")
         if isinstance(raw_flex_asi, dict):
             race_choice_flex_asi_variant = str(raw_flex_asi.get("variant") or "").strip().lower()
@@ -1409,6 +1451,7 @@ async def api_character_create(payload: dict):
         required_race_skill_count = 0
         required_race_skill_options: list[str] = []
         required_race_feat_count = 0
+        required_race_martial_weapon_count = 0
         required_race_language_count = 0
         race_language_choice_available = False
         race_flex_asi_available = False
@@ -1527,6 +1570,10 @@ async def api_character_create(payload: dict):
                         count = max(as_int(mech.get("count"), as_int(mech.get("choose"), 0)), 0)
                         if count > 0:
                             required_race_feat_count = max(required_race_feat_count, count)
+                    elif mtype == "proficiency_bundle":
+                        choose_martial = max(as_int(mech.get("choose_martial_weapons"), 0), 0)
+                        if choose_martial > 0:
+                            required_race_martial_weapon_count = max(required_race_martial_weapon_count, choose_martial)
                     elif mtype in {"choose_language", "language_choice"}:
                         count = max(as_int(mech.get("count"), as_int(mech.get("choose"), 0)), 0)
                         if count > 0:
@@ -1649,6 +1696,14 @@ async def api_character_create(payload: dict):
                 )
         elif race_choice_feats:
             raise HTTPException(status_code=400, detail="Race feat choice is not available for selected race")
+        if required_race_martial_weapon_count > 0:
+            if len(race_choice_martial_weapons) != required_race_martial_weapon_count:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Exactly {required_race_martial_weapon_count} martial weapon choice(s) required",
+                )
+        elif race_choice_martial_weapons:
+            raise HTTPException(status_code=400, detail="Martial weapon choice is not available for selected race")
 
         if race_choice_size and effective_race_key not in {"custom_lineage", "dhampir", "harengon", "hexblood"}:
             raise HTTPException(status_code=400, detail="Race size choice is not available for selected race")
@@ -1848,6 +1903,11 @@ async def api_character_create(payload: dict):
             runtime.setdefault("eerie_token_created_at", "")
             runtime.setdefault("eerie_token_expires_on_next_long_rest", True)
             race_features["runtime"] = runtime
+        if isinstance(race_features, dict) and str(race_features.get("race_key") or "").strip().lower() == "hobgoblin":
+            runtime_raw = race_features.get("runtime")
+            runtime = dict(runtime_raw) if isinstance(runtime_raw, dict) else {}
+            runtime.setdefault("saving_face_uses_used", 0)
+            race_features["runtime"] = runtime
         if isinstance(race_features, dict) and selected_subrace is not None:
             race_features["subrace"] = {
                 "key": str(selected_subrace.get("key") or "").strip(),
@@ -1955,6 +2015,23 @@ async def api_character_create(payload: dict):
             choices_dict["tools"] = list(race_choice_tools)
         if isinstance(race_features, dict) and race_choice_cantrips:
             choices_dict["cantrips"] = list(race_choice_cantrips)
+        if isinstance(race_features, dict) and race_choice_martial_weapons:
+            prof = race_features.get("proficiencies")
+            prof_dict: dict[str, Any] = prof if isinstance(prof, dict) else {}
+            current_weapons_raw = prof_dict.get("weapons")
+            current_weapons = [
+                str(item or "").strip().lower()
+                for item in (current_weapons_raw if isinstance(current_weapons_raw, list) else [])
+                if str(item or "").strip()
+            ]
+            merged_weapons: list[str] = []
+            for item in [*current_weapons, *race_choice_martial_weapons]:
+                weapon_key = str(item or "").strip().lower()
+                if weapon_key and weapon_key not in merged_weapons:
+                    merged_weapons.append(weapon_key)
+            prof_dict["weapons"] = merged_weapons
+            race_features["proficiencies"] = prof_dict
+            choices_dict["martial_weapons"] = list(race_choice_martial_weapons)
         if isinstance(race_features, dict) and race_choice_flex_asi_variant and race_choice_flex_asi_stats:
             choices_dict["flex_asi"] = {
                 "variant": race_choice_flex_asi_variant,

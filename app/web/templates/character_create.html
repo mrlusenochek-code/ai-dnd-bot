@@ -149,6 +149,13 @@
             <select id="choiceTool2" style="display:none;"></select>
           </div>
         </div>
+        <div id="choiceMartialWeaponRow" style="display:none;">
+          <label id="choiceMartialWeaponLabel">Воинское оружие (2, обязательно)</label>
+          <div class="row">
+            <select id="choiceMartialWeapon1"></select>
+            <select id="choiceMartialWeapon2"></select>
+          </div>
+        </div>
         <div id="choiceGithDecadentRow" style="display:none;">
           <label>Декадентское мастерство (гитъянки, обязательно)</label>
           <div class="row">
@@ -398,6 +405,32 @@ const WIZARD_CANTRIP_LABELS_RU = {
   "light": "Свет",
   "dancing_lights": "Пляшущие огоньки",
 };
+const MARTIAL_WEAPON_LABELS_RU = {
+  "battleaxe": "Боевой топор",
+  "flail": "Цеп",
+  "glaive": "Глефа",
+  "greataxe": "Секира",
+  "greatsword": "Двуручный меч",
+  "halberd": "Алебарда",
+  "lance": "Копье всадника",
+  "longsword": "Длинный меч",
+  "maul": "Кувалда",
+  "morningstar": "Моргенштерн",
+  "pike": "Пика",
+  "rapier": "Рапира",
+  "scimitar": "Ятаган",
+  "shortsword": "Короткий меч",
+  "trident": "Трезубец",
+  "war_pick": "Боевой кирк",
+  "warhammer": "Боевой молот",
+  "whip": "Кнут",
+  "blowgun": "Духовая трубка",
+  "hand_crossbow": "Ручной арбалет",
+  "heavy_crossbow": "Тяжелый арбалет",
+  "longbow": "Длинный лук",
+  "net": "Сеть",
+};
+const MARTIAL_WEAPON_KEYS = Object.keys(MARTIAL_WEAPON_LABELS_RU);
 let featsCatalog = [];
 let classes = [];
 let races = [];
@@ -429,6 +462,8 @@ let raceChoiceState = {
   githDecadentRequired: false,
   ancestryRequired: false,
   ancestryOptions: [],
+  martialWeaponsRequired: false,
+  martialWeaponsCount: 0,
 };
 function _sortByNameRu(a, b){
   const aName = String((a && (a.name_ru || a.name)) || "").trim();
@@ -1096,6 +1131,32 @@ function fillToolChoiceSelect(sel, options, prev, opts){
   sel.value = keepPrev ? prevValue : "";
 }
 
+function fillMartialWeaponSelect(sel, prev, opts){
+  if(!sel) return;
+  const prevValue = String(prev || "").trim().toLowerCase();
+  const settings = (opts && typeof opts === "object") ? opts : {};
+  const blockedValue = String(settings.blockedValue || "").trim().toLowerCase();
+  sel.innerHTML = "";
+  const first = document.createElement("option");
+  first.value = "";
+  first.textContent = "(выберите оружие)";
+  sel.appendChild(first);
+  const sorted = MARTIAL_WEAPON_KEYS.slice().sort((a, b) => {
+    const aLabel = String(MARTIAL_WEAPON_LABELS_RU[a] || a);
+    const bLabel = String(MARTIAL_WEAPON_LABELS_RU[b] || b);
+    return aLabel.localeCompare(bLabel, "ru", { sensitivity: "base" });
+  });
+  for(const key of sorted){
+    if(blockedValue && key === blockedValue && key !== prevValue) continue;
+    const opt = document.createElement("option");
+    opt.value = key;
+    opt.textContent = MARTIAL_WEAPON_LABELS_RU[key] || key;
+    sel.appendChild(opt);
+  }
+  const keepPrev = Array.from(sel.options).some(o => String(o.value) === prevValue);
+  sel.value = keepPrev ? prevValue : "";
+}
+
 function fillCantripSelect(sel, options, prev){
   if(!sel) return;
   const prevValue = String(prev || "");
@@ -1182,6 +1243,10 @@ function renderRaceChoices(){
   const toolLabel = document.getElementById("choiceToolLabel");
   const toolSel = document.getElementById("choiceTool1");
   const toolSel2 = document.getElementById("choiceTool2");
+  const martialWeaponRow = document.getElementById("choiceMartialWeaponRow");
+  const martialWeaponLabel = document.getElementById("choiceMartialWeaponLabel");
+  const martialWeaponSel1 = document.getElementById("choiceMartialWeapon1");
+  const martialWeaponSel2 = document.getElementById("choiceMartialWeapon2");
   const githDecadentRow = document.getElementById("choiceGithDecadentRow");
   const githLangSel = document.getElementById("choiceGithLang");
   const githProfTypeSel = document.getElementById("choiceGithProfType");
@@ -1196,7 +1261,7 @@ function renderRaceChoices(){
   const innateAbilitySel = document.getElementById("choiceInnateAbility");
   const ancestryRow = document.getElementById("choiceAncestryRow");
   const ancestrySel = document.getElementById("choiceAncestry");
-  if(!block || !langRow || !langLabel || !langSel || !langSel2 || !asiRow || !asiLabel || !asiVariantRow || !asiVariantSel || !asiSel1 || !asiSel2 || !asiSel3 || !sizeRow || !sizeSel || !variableTraitRow || !variableTraitSel || !skillRow || !skillLabel || !skillSel1 || !skillSel2 || !featRow || !featSel || !toolRow || !toolLabel || !toolSel || !toolSel2 || !githDecadentRow || !githLangSel || !githProfTypeSel || !githSkillSel || !githToolSel || !cantripRow || !cantripSel || !vedRow || !vedSkillSel || !vedToolSel || !innateAbilityRow || !innateAbilitySel || !ancestryRow || !ancestrySel) return;
+  if(!block || !langRow || !langLabel || !langSel || !langSel2 || !asiRow || !asiLabel || !asiVariantRow || !asiVariantSel || !asiSel1 || !asiSel2 || !asiSel3 || !sizeRow || !sizeSel || !variableTraitRow || !variableTraitSel || !skillRow || !skillLabel || !skillSel1 || !skillSel2 || !featRow || !featSel || !toolRow || !toolLabel || !toolSel || !toolSel2 || !martialWeaponRow || !martialWeaponLabel || !martialWeaponSel1 || !martialWeaponSel2 || !githDecadentRow || !githLangSel || !githProfTypeSel || !githSkillSel || !githToolSel || !cantripRow || !cantripSel || !vedRow || !vedSkillSel || !vedToolSel || !innateAbilityRow || !innateAbilitySel || !ancestryRow || !ancestrySel) return;
 
   const ctx = getCurrentRaceContext();
   const raceKey = String(((ctx.race && ctx.race.id) || ctx.details.key || "")).trim().toLowerCase();
@@ -1205,6 +1270,7 @@ function renderRaceChoices(){
   const isDhampir = raceKey === "dhampir";
   const isHarengon = raceKey === "harengon";
   const isHexblood = raceKey === "hexblood";
+  const isHobgoblin = raceKey === "hobgoblin";
   const isGithyanki = raceKey === "gith" && subraceKey === "githyanki";
   const langCfg = getLanguageChoiceConfig(ctx.effectiveTraits);
   const asiCfg = getAsiChoiceConfig(ctx.effectiveTraits, ctx.details.asi, raceKey);
@@ -1234,6 +1300,7 @@ function renderRaceChoices(){
   const needsInnateAbility = raceKey === "fairy" || isHexblood;
   const needsGithDecadent = isGithyanki;
   const needsAncestry = !!ancestryCfg.required;
+  const needsMartialWeapons = isHobgoblin;
   raceChoiceState = {
     sizeRequired: needsSize,
     languageRequired: needsLanguage,
@@ -1263,9 +1330,11 @@ function renderRaceChoices(){
     githDecadentRequired: needsGithDecadent,
     ancestryRequired: needsAncestry,
     ancestryOptions: Array.isArray(ancestryCfg.options) ? ancestryCfg.options.slice() : [],
+    martialWeaponsRequired: needsMartialWeapons,
+    martialWeaponsCount: needsMartialWeapons ? 2 : 0,
   };
 
-  if(!needsSize && !needsLanguage && !needsAsi && !needsVariableTrait && !needsSkill && !needsFeat && !needsTool && !needsCantrip && !needsVedalken && !needsInnateAbility && !needsGithDecadent && !needsAncestry){
+  if(!needsSize && !needsLanguage && !needsAsi && !needsVariableTrait && !needsSkill && !needsFeat && !needsTool && !needsCantrip && !needsVedalken && !needsInnateAbility && !needsGithDecadent && !needsAncestry && !needsMartialWeapons){
     block.style.display = "none";
     sizeRow.style.display = "none";
     variableTraitRow.style.display = "none";
@@ -1274,6 +1343,7 @@ function renderRaceChoices(){
     skillRow.style.display = "none";
     featRow.style.display = "none";
     toolRow.style.display = "none";
+    martialWeaponRow.style.display = "none";
     cantripRow.style.display = "none";
     langSel.disabled = true;
     langSel.required = false;
@@ -1320,6 +1390,12 @@ function renderRaceChoices(){
     toolSel2.disabled = true;
     toolSel2.required = false;
     toolSel2.value = "";
+    martialWeaponSel1.disabled = true;
+    martialWeaponSel1.required = false;
+    martialWeaponSel1.value = "";
+    martialWeaponSel2.disabled = true;
+    martialWeaponSel2.required = false;
+    martialWeaponSel2.value = "";
     githDecadentRow.style.display = "none";
     githLangSel.disabled = true;
     githLangSel.required = false;
@@ -1731,6 +1807,34 @@ function renderRaceChoices(){
     toolSel2.disabled = true;
     toolSel2.required = false;
     toolSel2.value = "";
+  }
+
+  if(needsMartialWeapons){
+    const refreshMartialWeapons = () => {
+      const current1 = String(martialWeaponSel1.value || "").trim().toLowerCase();
+      const current2 = String(martialWeaponSel2.value || "").trim().toLowerCase();
+      fillMartialWeaponSelect(martialWeaponSel1, current1, { blockedValue: current2 });
+      fillMartialWeaponSelect(martialWeaponSel2, current2, { blockedValue: current1 });
+    };
+    refreshMartialWeapons();
+    martialWeaponSel1.onchange = refreshMartialWeapons;
+    martialWeaponSel2.onchange = refreshMartialWeapons;
+    martialWeaponLabel.textContent = "Воинское оружие (2, обязательно)";
+    martialWeaponRow.style.display = "";
+    martialWeaponSel1.disabled = false;
+    martialWeaponSel1.required = true;
+    martialWeaponSel2.disabled = false;
+    martialWeaponSel2.required = true;
+  }else{
+    martialWeaponRow.style.display = "none";
+    martialWeaponSel1.onchange = null;
+    martialWeaponSel2.onchange = null;
+    martialWeaponSel1.disabled = true;
+    martialWeaponSel1.required = false;
+    martialWeaponSel1.value = "";
+    martialWeaponSel2.disabled = true;
+    martialWeaponSel2.required = false;
+    martialWeaponSel2.value = "";
   }
 
   if(needsGithDecadent){
@@ -2189,6 +2293,20 @@ async function createHero(){
       return;
     }
   }
+  const choiceMartialWeaponEl1 = document.getElementById("choiceMartialWeapon1");
+  const choiceMartialWeaponEl2 = document.getElementById("choiceMartialWeapon2");
+  const choiceMartialWeapon1 = String(choiceMartialWeaponEl1 ? choiceMartialWeaponEl1.value : "").trim().toLowerCase();
+  const choiceMartialWeapon2 = String(choiceMartialWeaponEl2 ? choiceMartialWeaponEl2.value : "").trim().toLowerCase();
+  if(raceChoiceState.martialWeaponsRequired){
+    if(!choiceMartialWeapon1 || !choiceMartialWeapon2){
+      setMessage("Выбери 2 воинских оружия в блоке «Стартовые выборы».", false);
+      return;
+    }
+    if(choiceMartialWeapon1 === choiceMartialWeapon2){
+      setMessage("Воинские оружия должны быть разными.", false);
+      return;
+    }
+  }
   const choiceGithLangEl = document.getElementById("choiceGithLang");
   const choiceGithProfTypeEl = document.getElementById("choiceGithProfType");
   const choiceGithSkillEl = document.getElementById("choiceGithSkill");
@@ -2315,6 +2433,9 @@ async function createHero(){
   }
   if(choiceCantrip){
     raceChoices.cantrips = [choiceCantrip];
+  }
+  if(raceChoiceState.martialWeaponsRequired){
+    raceChoices.martial_weapons = [choiceMartialWeapon1, choiceMartialWeapon2];
   }
   if(choiceVedSkill || choiceVedTool){
     raceChoices.tireless_precision = {

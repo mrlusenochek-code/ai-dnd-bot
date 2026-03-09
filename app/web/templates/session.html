@@ -1223,6 +1223,31 @@ function openCharacterModal(){
     "weavers_tools": "Инструменты ткача",
     "woodcarvers_tools": "Инструменты резчика по дереву",
   };
+  const WEAPON_LABELS_RU = {
+    "battleaxe": "Боевой топор",
+    "flail": "Цеп",
+    "glaive": "Глефа",
+    "greataxe": "Секира",
+    "greatsword": "Двуручный меч",
+    "halberd": "Алебарда",
+    "lance": "Копье всадника",
+    "longsword": "Длинный меч",
+    "maul": "Кувалда",
+    "morningstar": "Моргенштерн",
+    "pike": "Пика",
+    "rapier": "Рапира",
+    "scimitar": "Ятаган",
+    "shortsword": "Короткий меч",
+    "trident": "Трезубец",
+    "war_pick": "Боевой кирк",
+    "warhammer": "Боевой молот",
+    "whip": "Кнут",
+    "blowgun": "Духовая трубка",
+    "hand_crossbow": "Ручной арбалет",
+    "heavy_crossbow": "Тяжелый арбалет",
+    "longbow": "Длинный лук",
+    "net": "Сеть",
+  };
   const profToolsRu = profTools.map((x) => {
     const key = String(x || "").trim().toLowerCase();
     return TOOL_LABELS_RU[key] || String(x || "");
@@ -1434,6 +1459,24 @@ function openCharacterModal(){
   const rabbitHopRemaining = Math.max(0, rabbitHopUsesMax - rabbitHopUsed);
   const rabbitHopText = (raceKey === "harengon" && rabbitHop)
     ? `Кроличий прыжок: бонусным действием 5×БМ футов без провоцированных атак; использований БМ/дл. отдых; требует скорость > 0. Осталось: ${rabbitHopRemaining}/${rabbitHopUsesMax}`
+    : "";
+  const savingFace = (raceFeaturesMeta.saving_face && typeof raceFeaturesMeta.saving_face === "object")
+    ? raceFeaturesMeta.saving_face
+    : null;
+  const hobgoblinChoiceWeapons = Array.isArray(choices.martial_weapons)
+    ? choices.martial_weapons.map((x) => String(x || "").trim().toLowerCase()).filter(Boolean)
+    : [];
+  const hobgoblinWeaponKeys = hobgoblinChoiceWeapons.length
+    ? hobgoblinChoiceWeapons
+    : profWeapons.filter((x) => Object.prototype.hasOwnProperty.call(WEAPON_LABELS_RU, String(x || "").trim().toLowerCase()));
+  const hobgoblinWeaponsRu = hobgoblinWeaponKeys.map((x) => WEAPON_LABELS_RU[String(x || "").trim().toLowerCase()] || x);
+  const hobgoblinMartialTrainingText = (raceKey === "hobgoblin" && profArmor.includes("light") && hobgoblinWeaponsRu.length > 0)
+    ? `Боевая подготовка: лёгкие доспехи; воинское оружие: ${hobgoblinWeaponsRu.join(", ")}`
+    : "";
+  const savingFaceUsed = Number.isFinite(Number(runtime.saving_face_uses_used)) && Number(runtime.saving_face_uses_used) >= 1;
+  const savingFaceStatus = savingFaceUsed ? "израсходовано" : "доступно";
+  const hobgoblinSavingFaceText = (raceKey === "hobgoblin" && savingFace)
+    ? `Сохранить лицо: реакцией после провала атаки/проверки/спасброска добавить +N (N=союзники в 30 футах, макс 5), 1/кор/дл отдых (${savingFaceStatus})`
     : "";
   const grungPoisonousSkin = (raceFeaturesMeta.poisonous_skin && typeof raceFeaturesMeta.poisonous_skin === "object")
     ? raceFeaturesMeta.poisonous_skin
@@ -1672,6 +1715,12 @@ function openCharacterModal(){
   if(rabbitHopText){
     details.push(`<div class="char-line"><strong>Кроличий прыжок:</strong> ${escapeHtml(rabbitHopText.replace(/^Кроличий прыжок:\s*/, ""))}</div>`);
   }
+  if(hobgoblinMartialTrainingText){
+    details.push(`<div class="char-line"><strong>Боевая подготовка:</strong> ${escapeHtml(hobgoblinMartialTrainingText.replace(/^Боевая подготовка:\s*/, ""))}</div>`);
+  }
+  if(hobgoblinSavingFaceText){
+    details.push(`<div class="char-line"><strong>Сохранить лицо:</strong> ${escapeHtml(hobgoblinSavingFaceText.replace(/^Сохранить лицо:\s*/, ""))}</div>`);
+  }
   if(grungPerceptionText){
     details.push(`<div class="char-line"><strong>Владение:</strong> ${escapeHtml(grungPerceptionText.replace(/^Владение:\s*/, ""))}</div>`);
   }
@@ -1900,6 +1949,8 @@ function openCharacterModal(){
   if(harengonPerceptionText) copyLines.push(harengonPerceptionText);
   if(luckyFootworkText) copyLines.push(luckyFootworkText);
   if(rabbitHopText) copyLines.push(rabbitHopText);
+  if(hobgoblinMartialTrainingText) copyLines.push(hobgoblinMartialTrainingText);
+  if(hobgoblinSavingFaceText) copyLines.push(hobgoblinSavingFaceText);
   if(grungPerceptionText) copyLines.push(grungPerceptionText);
   if(grungAmphibiousText) copyLines.push(grungAmphibiousText);
   if(grungImmunityText) copyLines.push(grungImmunityText);

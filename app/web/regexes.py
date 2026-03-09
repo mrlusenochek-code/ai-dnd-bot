@@ -121,6 +121,10 @@ CHAT_COMBAT_ACTION_PATTERNS: list[tuple[str, re.Pattern[str]]] = [
         re.compile(r"(сильн\w+\s+ног\w*|lucky\s+footwork|добавляю\s+1к4\s+к\s+ловк\w+\s+сейв\w*)", re.IGNORECASE),
     ),
     (
+        "combat_saving_face",
+        re.compile(r"(сохран\w+\s+лиц\w*|спас\w+\s+лиц\w*|saving\s+face|не\s+теряю\s+лиц\w*)", re.IGNORECASE),
+    ),
+    (
         "combat_eerie_token_create",
         re.compile(r"(созда\w+\s+жутк\w+\s+сувенир\w*|жутк\w+\s+сувенир\w*|создат\w+\s+сувенир\w*|eerie\s+token)", re.IGNORECASE),
     ),
