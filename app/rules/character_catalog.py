@@ -2235,7 +2235,15 @@ EXTERNAL_RACE_CATALOG: list[dict[str, Any]] = [{
     "key": "daunting_roar",
     "name_ru": "Устрашающий рёв",
     "summary_ru": "Бонусным действием: существа по вашему выбору в 10 футах (слышат вас) делают спасбросок Мудрости, иначе испуганы вами до конца вашего следующего хода. Сл = 8 + БМ + модиф. Телосложения.",
-    "mechanics": {"type": "aoe_frighten", "activation": "bonus_action", "range_ft": 10, "save": {"ability": "wis", "dc_formula": "8 + prof + con_mod"}, "duration": "until_end_of_your_next_turn"},
+    "mechanics": {
+     "type": "aoe_frighten",
+     "activation": "bonus_action",
+     "range_ft": 10,
+     "save": {"ability": "wis", "dc_formula": "8 + prof + con_mod"},
+     "duration": "until_end_of_your_next_turn",
+     "uses": "per_short_or_long_rest",
+     "uses_max": 1
+    },
    },
   ],
   "subraces": [],

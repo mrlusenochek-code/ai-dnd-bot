@@ -102,6 +102,40 @@ def advance_turn_in_state(state: CombatState) -> CombatState:
             else:
                 race_features.pop("runtime", None)
             ending_combatant.race_features = race_features
+    if ending_combatant is not None:
+        source_actor_key = str(getattr(ending_combatant, "key", "") or "")
+        if source_actor_key:
+            for combatant in state.combatants.values():
+                race_features = combatant.race_features if isinstance(combatant.race_features, dict) else {}
+                runtime_raw = race_features.get("runtime")
+                runtime = dict(runtime_raw) if isinstance(runtime_raw, dict) else {}
+                conditions_raw = runtime.get("conditions")
+                conditions = dict(conditions_raw) if isinstance(conditions_raw, dict) else {}
+                frightened_raw = conditions.get("frightened")
+                frightened = dict(frightened_raw) if isinstance(frightened_raw, dict) else {}
+                if not bool(frightened.get("active")):
+                    continue
+                if str(frightened.get("source") or "").strip().lower() != "leonin_daunting_roar":
+                    continue
+                expires_on = str(frightened.get("expires_on_end_of_source_next_turn") or "").strip()
+                if expires_on != source_actor_key:
+                    continue
+                turns_remaining = max(0, int(frightened.get("source_turns_remaining") or 0))
+                turns_remaining -= 1
+                if turns_remaining <= 0:
+                    conditions.pop("frightened", None)
+                else:
+                    frightened["source_turns_remaining"] = turns_remaining
+                    conditions["frightened"] = frightened
+                if conditions:
+                    runtime["conditions"] = conditions
+                else:
+                    runtime.pop("conditions", None)
+                if runtime:
+                    race_features["runtime"] = runtime
+                else:
+                    race_features.pop("runtime", None)
+                combatant.race_features = race_features
 
     state.turn_index = (state.turn_index + 1) % len(state.order)
     if state.turn_index == 0:

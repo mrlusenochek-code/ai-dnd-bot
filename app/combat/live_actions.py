@@ -495,6 +495,25 @@ def _set_poisoned_condition(actor: Any, *, save_dc: int, rounds: int, source: st
     actor.race_features = race_features
 
 
+def _set_leonin_roar_frightened_condition(target: Any, *, source_actor_id: str) -> bool:
+    if _has_condition_immunity(target, "frightened"):
+        return False
+    race_features, runtime, conditions = _conditions_runtime(target)
+    frightened_raw = conditions.get("frightened")
+    frightened = dict(frightened_raw) if isinstance(frightened_raw, dict) else {}
+    frightened["active"] = True
+    frightened["source"] = "leonin_daunting_roar"
+    frightened["frightened_by"] = str(source_actor_id or "").strip()
+    frightened["expires_on_end_of_source_next_turn"] = str(source_actor_id or "").strip()
+    # First decrement happens at source turn end right after activation.
+    frightened["source_turns_remaining"] = 2
+    conditions["frightened"] = frightened
+    runtime["conditions"] = conditions
+    race_features["runtime"] = runtime
+    target.race_features = race_features
+    return True
+
+
 def _consume_grung_weapon_poison_on_hit(
     *,
     session_id: str,
@@ -2040,6 +2059,103 @@ def handle_live_combat_action(
                     )
                 }
             )
+        return (
+            {
+                "status": _combat_status(state),
+                "open": True,
+                "lines": lines,
+            },
+            None,
+        )
+
+    if action == "combat_daunting_roar":
+        state = get_combat(session_id)
+        if state is None or not state.active:
+            return None, "Combat is not active"
+        if not state.order:
+            end_combat(session_id)
+            return (
+                {
+                    "status": "Бой завершён",
+                    "open": False,
+                    "lines": [{"text": "Бой завершён: целей не осталось.", "muted": True}],
+                },
+                None,
+            )
+        actor_key = state.order[state.turn_index]
+        actor = state.combatants.get(actor_key)
+        if actor is None:
+            return None, "Combat state is inconsistent"
+        if str(getattr(actor, "side", "")).lower() != "pc":
+            return None, "Устрашающий рёв доступен только персонажу игрока."
+        roar_cfg = _race_feature(actor, "daunting_roar")
+        if roar_cfg is None:
+            return None, "Устрашающий рёв недоступен."
+
+        race_features = actor.race_features if isinstance(actor.race_features, dict) else {}
+        runtime_raw = race_features.get("runtime")
+        runtime = dict(runtime_raw) if isinstance(runtime_raw, dict) else {}
+        uses_used = max(0, int(runtime.get("daunting_roar_uses_used") or 0))
+        uses_max = max(1, int(roar_cfg.get("uses_max") or 1))
+        if uses_used >= uses_max:
+            return None, "Устрашающий рёв уже использован до короткого/длительного отдыха."
+        blocked = _spend_bonus_action_or_block(state, actor)
+        if blocked is not None:
+            return blocked, None
+
+        runtime["daunting_roar_uses_used"] = uses_used + 1
+        race_features["runtime"] = runtime
+        actor.race_features = race_features
+
+        actor_id = str(getattr(actor, "key", "") or "")
+        dc = 8 + _proficiency_bonus_for_actor(actor) + _actor_ability_mod(actor, "con")
+        targets: list[Any] = []
+        for combatant in state.combatants.values():
+            if combatant is None:
+                continue
+            if str(getattr(combatant, "side", "")).lower() == str(getattr(actor, "side", "")).lower():
+                continue
+            if int(getattr(combatant, "hp_current", 0) or 0) <= 0 or bool(getattr(combatant, "is_dead", False)):
+                continue
+            targets.append(combatant)
+
+        if not targets:
+            return (
+                {
+                    "status": _combat_status(state),
+                    "open": True,
+                    "lines": [
+                        {"text": f"Устрашающий рёв: Сл {dc}. Нет подходящих врагов в зоне действия.", "muted": True},
+                    ],
+                },
+                None,
+            )
+
+        lines: list[dict[str, Any]] = [
+            {"text": f"Устрашающий рёв: Сл {dc} (Мудрость).", "muted": True},
+        ]
+        for target in targets:
+            wis_mod = _actor_ability_mod(target, "wis")
+            save_roll = random.randint(1, 20)
+            save_total = save_roll + wis_mod
+            save_success = save_total >= dc
+            lines.append(
+                {
+                    "text": (
+                        f"{target.name}: d20({save_roll}) {wis_mod:+d} = {save_total} vs DC {dc} "
+                        f"({'успех' if save_success else 'провал'})."
+                    ),
+                    "muted": True,
+                }
+            )
+            if save_success:
+                continue
+            if _set_leonin_roar_frightened_condition(target, source_actor_id=actor_id):
+                lines.append({"text": f"{target.name}: испуган до конца вашего следующего хода."})
+            else:
+                lines.append({"text": f"{target.name}: иммунитет к состоянию «испуган».", "muted": True})
+
+        lines.append({"text": f"Осталось использований: {max(0, uses_max - uses_used - 1)}/{uses_max}.", "muted": True})
         return (
             {
                 "status": _combat_status(state),

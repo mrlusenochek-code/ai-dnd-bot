@@ -1528,6 +1528,28 @@ function openCharacterModal(){
   const kenderTauntText = (raceKey === "kender" && kenderTaunt)
     ? `Насмешка: бонусным действием, Сл = 8 + БМ + мод(${kenderTauntAbilityRu || "—"}), дальность 60 фт; при провале цель атакует других с помехой до начала вашего следующего хода`
     : "";
+  const leoninClaws = Array.isArray(rf.natural_weapons)
+    ? rf.natural_weapons.find((x) => x && typeof x === "object" && String(x.key || "").trim().toLowerCase() === "claws_leonin")
+    : null;
+  const leoninClawsText = (raceKey === "leonin" && leoninClaws)
+    ? "Когти: природное оружие 1к4 + СИЛ рубящий"
+    : "";
+  const leoninSkillKey = (raceKey === "leonin" && Array.isArray(choices.skills) && choices.skills.length > 0)
+    ? String(choices.skills[0] || "").trim().toLowerCase()
+    : "";
+  const leoninSkillRu = leoninSkillKey ? getSkillNameRu(leoninSkillKey) : "";
+  const leoninHuntersInstinctsText = (raceKey === "leonin" && leoninSkillRu)
+    ? `Инстинкты охотника: владение навыком ${leoninSkillRu}`
+    : "";
+  const leoninRoar = (raceFeaturesMeta.daunting_roar && typeof raceFeaturesMeta.daunting_roar === "object")
+    ? raceFeaturesMeta.daunting_roar
+    : null;
+  const leoninRoarUsed = Number.isFinite(Number(runtime.daunting_roar_uses_used)) ? Number(runtime.daunting_roar_uses_used) : 0;
+  const leoninRoarMax = Number.isFinite(Number(leoninRoar && leoninRoar.uses_max)) ? Number(leoninRoar.uses_max) : 1;
+  const leoninRoarRemaining = Math.max(0, leoninRoarMax - leoninRoarUsed);
+  const leoninRoarText = (raceKey === "leonin" && leoninRoar)
+    ? `Устрашающий рёв: бонусным действием, Сл = 8 + БМ + модиф. Телосложения, 10 фт, цель провалила => «испуган» вами до конца вашего след. хода (1/кор/дл отдых). Осталось: ${leoninRoarRemaining}/${leoninRoarMax}`
+    : "";
   const kenkuSkills = (raceKey === "kenku" && Array.isArray(choices.skills) && choices.skills.length > 0)
     ? choices.skills.map((x) => String(x || "").trim().toLowerCase()).filter(Boolean)
     : [];
@@ -1833,6 +1855,15 @@ function openCharacterModal(){
   if(kenderTauntText){
     details.push(`<div class="char-line"><strong>Насмешка:</strong> ${escapeHtml(kenderTauntText.replace(/^Насмешка:\s*/, ""))}</div>`);
   }
+  if(leoninClawsText){
+    details.push(`<div class="char-line"><strong>Когти:</strong> ${escapeHtml(leoninClawsText.replace(/^Когти:\s*/, ""))}</div>`);
+  }
+  if(leoninHuntersInstinctsText){
+    details.push(`<div class="char-line"><strong>Инстинкты охотника:</strong> ${escapeHtml(leoninHuntersInstinctsText.replace(/^Инстинкты охотника:\s*/, ""))}</div>`);
+  }
+  if(leoninRoarText){
+    details.push(`<div class="char-line"><strong>Устрашающий рёв:</strong> ${escapeHtml(leoninRoarText.replace(/^Устрашающий рёв:\s*/, ""))}</div>`);
+  }
   if(kenkuTrainingText){
     details.push(`<div class="char-line"><strong>Обучение кенку:</strong> ${escapeHtml(kenkuTrainingText.replace(/^Обучение кенку:\s*/, ""))}</div>`);
   }
@@ -2093,6 +2124,9 @@ function openCharacterModal(){
   if(kenderFearlessText) copyLines.push(kenderFearlessText);
   if(kenderAptitudeText) copyLines.push(kenderAptitudeText);
   if(kenderTauntText) copyLines.push(kenderTauntText);
+  if(leoninClawsText) copyLines.push(leoninClawsText);
+  if(leoninHuntersInstinctsText) copyLines.push(leoninHuntersInstinctsText);
+  if(leoninRoarText) copyLines.push(leoninRoarText);
   if(kenkuTrainingText) copyLines.push(kenkuTrainingText);
   if(kenkuExpertForgeryText) copyLines.push(kenkuExpertForgeryText);
   if(kenkuMimicryText) copyLines.push(kenkuMimicryText);

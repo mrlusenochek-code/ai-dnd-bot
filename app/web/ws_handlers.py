@@ -1058,11 +1058,8 @@ def _reset_harengon_long_rest(ch: Character) -> bool:
     if "grovel_active_until_turn_start_of_actor_id" in runtime:
         runtime.pop("grovel_active_until_turn_start_of_actor_id", None)
         changed = True
-    if "grovel_uses_used" in runtime:
-        runtime.pop("grovel_uses_used", None)
-        changed = True
-    if "grovel_active_until_turn_start_of_actor_id" in runtime:
-        runtime.pop("grovel_active_until_turn_start_of_actor_id", None)
+    if "daunting_roar_uses_used" in runtime:
+        runtime.pop("daunting_roar_uses_used", None)
         changed = True
     if not changed:
         return False
@@ -1103,11 +1100,8 @@ def _reset_combatant_harengon_long_rest(session_id: str, actor_key: str) -> bool
     if "grovel_active_until_turn_start_of_actor_id" in runtime:
         runtime.pop("grovel_active_until_turn_start_of_actor_id", None)
         changed = True
-    if "grovel_uses_used" in runtime:
-        runtime.pop("grovel_uses_used", None)
-        changed = True
-    if "grovel_active_until_turn_start_of_actor_id" in runtime:
-        runtime.pop("grovel_active_until_turn_start_of_actor_id", None)
+    if "daunting_roar_uses_used" in runtime:
+        runtime.pop("daunting_roar_uses_used", None)
         changed = True
     if not changed:
         return False
@@ -1745,6 +1739,9 @@ def _reset_racial_rest_uses(ch: Character, *, long_rest: bool = True) -> bool:
     if "grovel_active_until_turn_start_of_actor_id" in runtime:
         runtime.pop("grovel_active_until_turn_start_of_actor_id", None)
         changed = True
+    if "daunting_roar_uses_used" in runtime:
+        runtime.pop("daunting_roar_uses_used", None)
+        changed = True
     if long_rest:
         if "fearless_auto_success_used" in runtime:
             runtime.pop("fearless_auto_success_used", None)
@@ -1871,6 +1868,9 @@ def _reset_combatant_racial_rest_uses(session_id: str, actor_key: str, *, long_r
     if "grovel_active_until_turn_start_of_actor_id" in runtime:
         runtime.pop("grovel_active_until_turn_start_of_actor_id", None)
         changed = True
+    if "daunting_roar_uses_used" in runtime:
+        runtime.pop("daunting_roar_uses_used", None)
+        changed = True
     if long_rest:
         if "fearless_auto_success_used" in runtime:
             runtime.pop("fearless_auto_success_used", None)
@@ -1940,6 +1940,7 @@ async def _persist_relentless_endurance_used_from_combat_state(db, sess, session
     lucky_footwork_runtime_by_uid: dict[int, dict[str, Any]] = {}
     saving_face_runtime_by_uid: dict[int, dict[str, Any]] = {}
     grovel_runtime_by_uid: dict[int, dict[str, Any]] = {}
+    leonin_roar_runtime_by_uid: dict[int, dict[str, Any]] = {}
     fearless_runtime_by_uid: dict[int, dict[str, Any]] = {}
     for key, actor in (state.combatants or {}).items():
         actor_key = str(key or "").strip().lower()
@@ -2024,6 +2025,10 @@ async def _persist_relentless_endurance_used_from_combat_state(db, sess, session
                 ).strip()
             if grovel_runtime:
                 grovel_runtime_by_uid[int(uid_raw)] = grovel_runtime
+        if "daunting_roar_uses_used" in runtime:
+            leonin_roar_runtime_by_uid[int(uid_raw)] = {
+                "daunting_roar_uses_used": max(0, as_int(runtime.get("daunting_roar_uses_used"), 0))
+            }
         if "fearless_auto_success_used" in runtime or isinstance(runtime.get("fearless_pending_failed_frightened_save"), dict):
             fearless_runtime: dict[str, Any] = {}
             if "fearless_auto_success_used" in runtime:
@@ -2045,6 +2050,7 @@ async def _persist_relentless_endurance_used_from_combat_state(db, sess, session
         and not lucky_footwork_runtime_by_uid
         and not saving_face_runtime_by_uid
         and not grovel_runtime_by_uid
+        and not leonin_roar_runtime_by_uid
         and not fearless_runtime_by_uid
     ):
         return False
@@ -2065,6 +2071,7 @@ async def _persist_relentless_endurance_used_from_combat_state(db, sess, session
             and uid not in lucky_footwork_runtime_by_uid
             and uid not in saving_face_runtime_by_uid
             and uid not in grovel_runtime_by_uid
+            and uid not in leonin_roar_runtime_by_uid
             and uid not in fearless_runtime_by_uid
         ):
             continue
@@ -2194,6 +2201,12 @@ async def _persist_relentless_endurance_used_from_combat_state(db, sess, session
                     runtime["grovel_active_until_turn_start_of_actor_id"] = active_until
                 else:
                     runtime.pop("grovel_active_until_turn_start_of_actor_id", None)
+                local_changed = True
+        leonin_roar_runtime = leonin_roar_runtime_by_uid.get(uid)
+        if isinstance(leonin_roar_runtime, dict):
+            uses_val = max(0, as_int(leonin_roar_runtime.get("daunting_roar_uses_used"), 0))
+            if max(0, as_int(runtime.get("daunting_roar_uses_used"), 0)) != uses_val:
+                runtime["daunting_roar_uses_used"] = uses_val
                 local_changed = True
         fearless_runtime = fearless_runtime_by_uid.get(uid)
         if isinstance(fearless_runtime, dict):
@@ -2626,6 +2639,7 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                     "combat_saving_face",
                     "combat_taunt",
                     "combat_fearless",
+                    "combat_daunting_roar",
                     "combat_eerie_token_create",
                     "combat_eerie_token_message",
                     "combat_eerie_token_view",
@@ -3036,7 +3050,7 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                 if combat_action in {"combat_fury_of_small", "combat_fury_of_the_small"} and not combat_active:
                     await ws_error("Разъярённая мелкота доступна только в бою.", request_id=msg_request_id)
                     continue
-                if combat_action in {"combat_rabbit_hop", "combat_lucky_footwork", "combat_saving_face", "combat_taunt", "combat_fearless", "combat_grovel_cower_beg"} and not combat_active:
+                if combat_action in {"combat_rabbit_hop", "combat_lucky_footwork", "combat_saving_face", "combat_taunt", "combat_fearless", "combat_daunting_roar", "combat_grovel_cower_beg"} and not combat_active:
                     await ws_error("Эта особенность доступна только в бою.", request_id=msg_request_id)
                     continue
                 if combat_action in {"combat_eerie_token_create", "combat_eerie_token_message", "combat_eerie_token_view"} and not combat_active:
@@ -3389,7 +3403,7 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                         continue
                     else:
                         await ws_error(
-                            "Combat Lock: в бою доступны только боевые команды (атака/конец хода/уклон/движение/рывок/отход/засада/взлёт/приземление/помощь/побег/пресмыкайся/разъярённая мелкота/яд грунга на оружии/кроличий прыжок/сильные ноги/сохранить лицо/насмешка/бесстрашие/жуткий сувенир/каменная выносливость/исцеляющие руки/небесное преобразование/незримая поступь/подводное дыхание/оружие дыхания) или OOC/телепатия (mind link).",
+                            "Combat Lock: в бою доступны только боевые команды (атака/конец хода/уклон/движение/рывок/отход/засада/взлёт/приземление/помощь/побег/пресмыкайся/разъярённая мелкота/яд грунга на оружии/кроличий прыжок/сильные ноги/сохранить лицо/насмешка/бесстрашие/устрашающий рёв/жуткий сувенир/каменная выносливость/исцеляющие руки/небесное преобразование/незримая поступь/подводное дыхание/оружие дыхания) или OOC/телепатия (mind link).",
                             request_id=msg_request_id,
                         )
                         continue
@@ -4568,7 +4582,7 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                 if combat_action in {"combat_fury_of_small", "combat_fury_of_the_small"} and not combat_active:
                     await ws_error("Разъярённая мелкота доступна только в бою.", request_id=msg_request_id)
                     continue
-                if combat_action in {"combat_rabbit_hop", "combat_lucky_footwork", "combat_saving_face", "combat_taunt", "combat_fearless", "combat_grovel_cower_beg"} and not combat_active:
+                if combat_action in {"combat_rabbit_hop", "combat_lucky_footwork", "combat_saving_face", "combat_taunt", "combat_fearless", "combat_daunting_roar", "combat_grovel_cower_beg"} and not combat_active:
                     await ws_error("Эта особенность доступна только в бою.", request_id=msg_request_id)
                     continue
                 if combat_action in {"combat_eerie_token_create", "combat_eerie_token_message", "combat_eerie_token_view"} and not combat_active:
