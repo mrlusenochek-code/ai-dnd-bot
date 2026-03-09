@@ -406,6 +406,31 @@ def _spend_reaction_or_block(state: Any, actor: Any) -> dict[str, Any] | None:
     }
 
 
+def _hidden_step_state(actor: Any) -> tuple[dict[str, Any], dict[str, Any], dict[str, Any]]:
+    race_features = actor.race_features if isinstance(getattr(actor, "race_features", None), dict) else {}
+    runtime_raw = race_features.get("runtime")
+    runtime = dict(runtime_raw) if isinstance(runtime_raw, dict) else {}
+    hidden_raw = runtime.get("hidden_step")
+    hidden_step = dict(hidden_raw) if isinstance(hidden_raw, dict) else {}
+    return race_features, runtime, hidden_step
+
+
+def _is_hidden_step_active(actor: Any) -> bool:
+    _rf, _runtime, hidden_step = _hidden_step_state(actor)
+    return bool(hidden_step.get("active"))
+
+
+def _break_hidden_step(actor: Any) -> bool:
+    race_features, runtime, hidden_step = _hidden_step_state(actor)
+    if not bool(hidden_step.get("active")):
+        return False
+    hidden_step["active"] = False
+    runtime["hidden_step"] = hidden_step
+    race_features["runtime"] = runtime
+    actor.race_features = race_features
+    return True
+
+
 def _clamp_death_counter(value: int) -> int:
     return max(0, min(int(value), 3))
 
@@ -1293,6 +1318,73 @@ def handle_live_combat_action(
             None,
         )
 
+    if action == "combat_hidden_step":
+        state = get_combat(session_id)
+        if state is None or not state.active:
+            return None, "Combat is not active"
+        if not state.order:
+            end_combat(session_id)
+            return (
+                {
+                    "status": "Бой завершён",
+                    "open": False,
+                    "lines": [{"text": "Бой завершён: целей не осталось.", "muted": True}],
+                },
+                None,
+            )
+
+        actor_key = state.order[state.turn_index]
+        actor = state.combatants.get(actor_key)
+        if actor is None:
+            return None, "Combat state is inconsistent"
+        blocked = _spend_bonus_action_or_block(state, actor)
+        if blocked is not None:
+            return blocked, None
+        if str(getattr(actor, "side", "")).lower() != "pc":
+            return None, "Незримая поступь доступна только персонажу игрока."
+
+        race_features = actor.race_features if isinstance(getattr(actor, "race_features", None), dict) else {}
+        features_raw = race_features.get("features")
+        features = features_raw if isinstance(features_raw, dict) else {}
+        hidden_raw = features.get("hidden_step")
+        hidden_cfg = hidden_raw if isinstance(hidden_raw, dict) else {}
+        if not hidden_cfg:
+            return None, "Незримая поступь недоступна."
+
+        runtime_raw = race_features.get("runtime")
+        runtime = dict(runtime_raw) if isinstance(runtime_raw, dict) else {}
+        hidden_runtime_raw = runtime.get("hidden_step")
+        hidden_runtime = dict(hidden_runtime_raw) if isinstance(hidden_runtime_raw, dict) else {}
+        uses_max = max(1, int(hidden_cfg.get("uses_max") or 1))
+        used = max(0, int(hidden_runtime.get("used") or 0))
+        if used >= uses_max:
+            return None, "Незримая поступь уже использована до короткого/долгого отдыха."
+
+        hidden_runtime["used"] = used + 1
+        hidden_runtime["active"] = True
+        hidden_runtime["source"] = "hidden_step"
+        hidden_runtime["expires_on_owner_turn_start"] = True
+        runtime["hidden_step"] = hidden_runtime
+        race_features["runtime"] = runtime
+        actor.race_features = race_features
+
+        lines: list[dict[str, Any]] = [
+            {"text": f"Незримая поступь: {actor.name} становится невидимым (до начала следующего хода или до атакующего действия)."},
+            {"text": "Состояние: invisible (source=hidden_step)", "muted": True},
+        ]
+        state = advance_turn(session_id)
+        if state is None:
+            return None, "Combat is not active"
+        lines.append({"text": f"Ход автоматически передан: {current_turn_label(state)}", "muted": True})
+        return (
+            {
+                "status": _combat_status(state),
+                "open": True,
+                "lines": lines,
+            },
+            None,
+        )
+
     if action == "combat_escape":
         state = get_combat(session_id)
         if state is None or not state.active:
@@ -1434,7 +1526,8 @@ def handle_live_combat_action(
         hp_max = max(1, int(getattr(attacker, "hp_max", 1)))
         low_hp_advantage = bool(bite_cfg.get("advantage_when_hp_below_half")) and (hp_current * 2 <= hp_max)
         has_disadvantage = target.dodge_active
-        has_advantage = attacker.help_attack_advantage or low_hp_advantage
+        hidden_step_advantage = _is_hidden_step_active(attacker)
+        has_advantage = attacker.help_attack_advantage or low_hp_advantage or hidden_step_advantage
         roll_mode = "normal"
         if has_advantage and not has_disadvantage:
             roll_mode = "advantage"
@@ -1464,6 +1557,7 @@ def handle_live_combat_action(
             damage_roll=damage_roll,
             damage_bonus=damage_bonus,
         )
+        hidden_step_broken = _break_hidden_step(attacker)
         attacker.help_attack_advantage = False
         total_damage = int(resolution.total_damage)
         extra_outcome_lines: list[dict[str, Any]] = []
@@ -1521,6 +1615,8 @@ def handle_live_combat_action(
             {"text": damage_line},
             {"text": f"{target.name}: HP {target.hp_current}/{target.hp_max}"},
         ]
+        if hidden_step_broken:
+            lines.append({"text": "Незримая поступь прерывается: невидимость спадает.", "muted": True})
         lines.extend(extra_outcome_lines)
 
         empower_key = str(empower or "").strip().lower()
@@ -1630,7 +1726,8 @@ def handle_live_combat_action(
             )
 
         has_disadvantage = target.dodge_active
-        has_advantage = attacker.help_attack_advantage
+        hidden_step_advantage = _is_hidden_step_active(attacker)
+        has_advantage = attacker.help_attack_advantage or hidden_step_advantage
         roll_mode = "normal"
         if has_advantage and not has_disadvantage:
             roll_mode = "advantage"
@@ -1670,6 +1767,7 @@ def handle_live_combat_action(
             damage_roll=damage_roll,
             damage_bonus=profile.damage_bonus,
         )
+        hidden_step_broken = _break_hidden_step(attacker)
         attacker.help_attack_advantage = False
         extra_outcome_lines: list[dict[str, Any]] = []
         extra_outcome_lines.extend(bfs_lines)
@@ -1759,6 +1857,8 @@ def handle_live_combat_action(
             {"text": damage_line},
             {"text": f"{target.name}: HP {target.hp_current}/{target.hp_max}"},
         ]
+        if hidden_step_broken:
+            lines.append({"text": "Незримая поступь прерывается: невидимость спадает.", "muted": True})
         lines.extend(extra_outcome_lines)
         if target.hp_current <= 0:
             lines.append({"text": f"{target.name} повержен."})
@@ -1889,6 +1989,7 @@ def handle_live_combat_action(
         runtime["breath_weapon_used"] = True
         race_features["runtime"] = runtime
         attacker.race_features = race_features
+        hidden_step_broken = _break_hidden_step(attacker)
 
         damage_type = str(breath_weapon.get("damage_type") or "").strip().lower() or "energy"
         area_raw = breath_weapon.get("area")
@@ -1911,6 +2012,8 @@ def handle_live_combat_action(
             },
             {"text": f"HP врага: {target.hp_current}/{target.hp_max}"},
         ]
+        if hidden_step_broken:
+            lines.append({"text": "Незримая поступь прерывается: невидимость спадает.", "muted": True})
         if target.hp_current <= 0:
             lines.append({"text": f"{target.name} повержен."})
 
@@ -1982,7 +2085,8 @@ def handle_live_combat_action(
             )
 
         has_disadvantage = target.dodge_active
-        has_advantage = attacker.help_attack_advantage
+        hidden_step_advantage = _is_hidden_step_active(attacker)
+        has_advantage = attacker.help_attack_advantage or hidden_step_advantage
         roll_mode = "normal"
         if has_advantage and not has_disadvantage:
             roll_mode = "advantage"
@@ -2020,6 +2124,7 @@ def handle_live_combat_action(
             damage_roll=damage_roll,
             damage_bonus=profile.damage_bonus,
         )
+        hidden_step_broken = _break_hidden_step(attacker)
         attacker.help_attack_advantage = False
         attacker.charge_hooves_available = False
 
@@ -2068,6 +2173,8 @@ def handle_live_combat_action(
             {"text": "Копыта: бонусная атака после Разбега.", "muted": True},
             {"text": attack_line, "muted": True},
         ]
+        if hidden_step_broken:
+            lines.append({"text": "Незримая поступь прерывается: невидимость спадает.", "muted": True})
         lines.extend(extra_outcome_lines)
         if resolution.is_hit:
             lines.extend(
@@ -2141,7 +2248,8 @@ def handle_live_combat_action(
             )
 
         has_disadvantage = target.dodge_active
-        has_advantage = attacker.help_attack_advantage
+        hidden_step_advantage = _is_hidden_step_active(attacker)
+        has_advantage = attacker.help_attack_advantage or hidden_step_advantage
         roll_mode = "normal"
         if has_advantage and not has_disadvantage:
             roll_mode = "advantage"
@@ -2180,6 +2288,7 @@ def handle_live_combat_action(
             damage_roll=damage_roll,
             damage_bonus=profile.damage_bonus,
         )
+        hidden_step_broken = _break_hidden_step(attacker)
         attacker.help_attack_advantage = False
         extra_outcome_lines: list[dict[str, Any]] = []
         extra_outcome_lines.extend(bfs_lines)
@@ -2260,6 +2369,8 @@ def handle_live_combat_action(
             {"text": damage_line},
             {"text": f"{target.name}: HP {target.hp_current}/{target.hp_max}"},
         ]
+        if hidden_step_broken:
+            lines.append({"text": "Незримая поступь прерывается: невидимость спадает.", "muted": True})
         lines.extend(extra_outcome_lines)
         if target.hp_current <= 0:
             lines.append({"text": f"{target.name} повержен."})

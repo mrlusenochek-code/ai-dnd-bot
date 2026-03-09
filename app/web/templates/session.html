@@ -849,6 +849,35 @@ function openCharacterModal(){
     ? raceFeaturesMeta.talk_with_small_beasts
     : null;
   const talkWithSmallBeastsText = talkWithSmallBeasts ? "Речь малых зверей" : "";
+  const speechOfBeastAndLeaf = (raceFeaturesMeta.speech_of_beast_and_leaf && typeof raceFeaturesMeta.speech_of_beast_and_leaf === "object")
+    ? raceFeaturesMeta.speech_of_beast_and_leaf
+    : null;
+  const speechOfBeastAndLeafText = speechOfBeastAndLeaf
+    ? "Язык зверей и листвы: преимущество на проверки Харизмы, чтобы повлиять на зверей/растения"
+    : "";
+  const firbolgMagic = (raceFeaturesMeta.firbolg_magic && typeof raceFeaturesMeta.firbolg_magic === "object")
+    ? raceFeaturesMeta.firbolg_magic
+    : null;
+  const hasDetectMagic = innateSpells.some((spell) => String(spell.name || "").trim().toLowerCase() === "detect_magic");
+  const hasDisguiseSelf = innateSpells.some((spell) => String(spell.name || "").trim().toLowerCase() === "disguise_self");
+  const firbolgMagicSpells = [];
+  if(hasDetectMagic) firbolgMagicSpells.push("Обнаружение магии");
+  if(hasDisguiseSelf) firbolgMagicSpells.push("Маскировка");
+  const firbolgMagicText = firbolgMagicSpells.length
+    ? `Магия фирболгов: ${firbolgMagicSpells.join(" / ")} (общий откат: короткий/длительный отдых)`
+    : "";
+  const firbolgDisguiseHeightDelta = Number.isFinite(Number((((firbolgMagic || {}).special || {}).disguise_self_height_delta_ft)))
+    ? Number((((firbolgMagic || {}).special || {}).disguise_self_height_delta_ft))
+    : null;
+  const firbolgDisguiseHeightText = firbolgDisguiseHeightDelta !== null
+    ? `Маскировка: можно выглядеть на ${Math.abs(firbolgDisguiseHeightDelta)} фута ниже`
+    : "";
+  const hiddenStep = (raceFeaturesMeta.hidden_step && typeof raceFeaturesMeta.hidden_step === "object")
+    ? raceFeaturesMeta.hidden_step
+    : null;
+  const hiddenStepText = hiddenStep
+    ? "Незримая поступь: бонусным действием становитесь невидимым до начала следующего хода или пока не атакуете/не бросите кость урона/не заставите цель делать спасбросок; 1/короткий или длительный отдых"
+    : "";
   const expertise = (raceFeaturesMeta.expertise && typeof raceFeaturesMeta.expertise === "object")
     ? raceFeaturesMeta.expertise
     : null;
@@ -1419,6 +1448,18 @@ function openCharacterModal(){
   if(carry.powerful_build === true){
     details.push("<div class=\"char-line\"><strong>Мощное телосложение:</strong> считается на 1 размер больше для переноски/толкания/тяги/подъёма</div>");
   }
+  if(speechOfBeastAndLeafText){
+    details.push(`<div class="char-line"><strong>Язык зверей и листвы:</strong> ${escapeHtml(speechOfBeastAndLeafText.replace(/^Язык зверей и листвы:\s*/, ""))}</div>`);
+  }
+  if(firbolgMagicText){
+    details.push(`<div class="char-line"><strong>Магия фирболгов:</strong> ${escapeHtml(firbolgMagicText.replace(/^Магия фирболгов:\s*/, ""))}</div>`);
+  }
+  if(firbolgDisguiseHeightText){
+    details.push(`<div class="char-line"><strong>Маскировка:</strong> ${escapeHtml(firbolgDisguiseHeightText.replace(/^Маскировка:\s*/, ""))}</div>`);
+  }
+  if(hiddenStepText){
+    details.push(`<div class="char-line"><strong>Незримая поступь:</strong> ${escapeHtml(hiddenStepText.replace(/^Незримая поступь:\s*/, ""))}</div>`);
+  }
   if(chargeText){
     details.push(`<div class="char-line"><strong>Разбег:</strong> ${escapeHtml(chargeText.replace(/^Разбег:\s*/, ""))}</div>`);
   }
@@ -1604,6 +1645,10 @@ function openCharacterModal(){
   if(feyAncestryText) copyLines.push(feyAncestryText);
   if(gnomeCunningText) copyLines.push(gnomeCunningText);
   if(carry.powerful_build === true) copyLines.push("Мощное телосложение: считается на 1 размер больше для переноски/толкания/тяги/подъёма");
+  if(speechOfBeastAndLeafText) copyLines.push(speechOfBeastAndLeafText);
+  if(firbolgMagicText) copyLines.push(firbolgMagicText);
+  if(firbolgDisguiseHeightText) copyLines.push(firbolgDisguiseHeightText);
+  if(hiddenStepText) copyLines.push(hiddenStepText);
   if(chargeText) copyLines.push(chargeText);
   if(equineBuildText) copyLines.push(equineBuildText);
   if(survivorText) copyLines.push(survivorText);

@@ -370,6 +370,24 @@ def _apply_innate_spell_usage(ch: Character, spell_key: str) -> tuple[Optional[s
         rf["runtime"] = runtime
         ch.race_features = rf
         changed = True
+    elif frequency in {"shared_1_per_short_or_long_rest", "shared_1_per_long_rest"}:
+        runtime_raw = rf.get("runtime")
+        runtime = dict(runtime_raw) if isinstance(runtime_raw, dict) else {}
+        shared_raw = runtime.get("innate_shared_uses")
+        shared_uses = dict(shared_raw) if isinstance(shared_raw, dict) else {}
+        shared_group = str(spell_entry.get("shared_group") or "").strip().lower()
+        if not shared_group:
+            shared_group = "innate_shared"
+        shared_used = max(0, as_int(shared_uses.get(shared_group), 0))
+        if shared_used >= 1:
+            if frequency == "shared_1_per_long_rest":
+                return None, "Это заклинание уже использовано до долгого отдыха.", False
+            return None, "Это заклинание уже использовано до короткого/долгого отдыха.", False
+        shared_uses[shared_group] = 1
+        runtime["innate_shared_uses"] = shared_uses
+        rf["runtime"] = runtime
+        ch.race_features = rf
+        changed = True
 
     display_name = str(spell_entry.get("name_ru") or "").strip()
     if not display_name:
@@ -378,6 +396,8 @@ def _apply_innate_spell_usage(ch: Character, spell_key: str) -> tuple[Optional[s
         display_name = {
             "dancing_lights": "танцующие огни",
             "faerie_fire": "волшебный огонь",
+            "detect_magic": "Обнаружение магии",
+            "disguise_self": "Маскировка",
             "druidcraft": "Искусство друидов",
             "enlarge_reduce": "Увеличение/уменьшение",
             "darkness": "тьма",
@@ -835,6 +855,22 @@ def _apply_shapechanger_in_combat(
     return patch, None, changed
 
 
+def _break_hidden_step_for_character(ch: Character) -> bool:
+    race_features = getattr(ch, "race_features", None)
+    rf = dict(race_features) if isinstance(race_features, dict) else {}
+    runtime_raw = rf.get("runtime")
+    runtime = dict(runtime_raw) if isinstance(runtime_raw, dict) else {}
+    hidden_raw = runtime.get("hidden_step")
+    hidden_step = dict(hidden_raw) if isinstance(hidden_raw, dict) else {}
+    if not bool(hidden_step.get("active")):
+        return False
+    hidden_step["active"] = False
+    runtime["hidden_step"] = hidden_step
+    rf["runtime"] = runtime
+    ch.race_features = rf
+    return True
+
+
 def _reset_racial_rest_uses(ch: Character) -> bool:
     race_features = getattr(ch, "race_features", None)
     rf = dict(race_features) if isinstance(race_features, dict) else {}
@@ -843,6 +879,12 @@ def _reset_racial_rest_uses(ch: Character) -> bool:
     changed = False
     if "innate_spell_uses" in runtime:
         runtime.pop("innate_spell_uses", None)
+        changed = True
+    if "innate_shared_uses" in runtime:
+        runtime.pop("innate_shared_uses", None)
+        changed = True
+    if "hidden_step" in runtime:
+        runtime.pop("hidden_step", None)
         changed = True
     if "stone_endurance_used" in runtime:
         runtime.pop("stone_endurance_used", None)
@@ -916,6 +958,12 @@ def _reset_combatant_racial_rest_uses(session_id: str, actor_key: str) -> bool:
     if "innate_spell_uses" in runtime:
         runtime.pop("innate_spell_uses", None)
         changed = True
+    if "innate_shared_uses" in runtime:
+        runtime.pop("innate_shared_uses", None)
+        changed = True
+    if "hidden_step" in runtime:
+        runtime.pop("hidden_step", None)
+        changed = True
     if "stone_endurance_used" in runtime:
         runtime.pop("stone_endurance_used", None)
         changed = True
@@ -982,6 +1030,7 @@ async def _persist_relentless_endurance_used_from_combat_state(db, sess, session
     built_for_success_runtime_by_uid: dict[int, dict[str, Any]] = {}
     fury_of_small_runtime_by_uid: dict[int, dict[str, Any]] = {}
     vampiric_bite_runtime_by_uid: dict[int, dict[str, Any]] = {}
+    hidden_step_runtime_by_uid: dict[int, dict[str, Any]] = {}
     for key, actor in (state.combatants or {}).items():
         actor_key = str(key or "").strip().lower()
         if not actor_key.startswith("pc_"):
@@ -1020,11 +1069,16 @@ async def _persist_relentless_endurance_used_from_combat_state(db, sess, session
             if "vampiric_bite_bonus_value" in runtime:
                 vamp_runtime["vampiric_bite_bonus_value"] = max(0, as_int(runtime.get("vampiric_bite_bonus_value"), 0))
             vampiric_bite_runtime_by_uid[int(uid_raw)] = vamp_runtime
+        if "hidden_step" in runtime:
+            hidden_raw = runtime.get("hidden_step")
+            hidden_step = dict(hidden_raw) if isinstance(hidden_raw, dict) else {}
+            hidden_step_runtime_by_uid[int(uid_raw)] = hidden_step
     if (
         not relentless_used_uids
         and not built_for_success_runtime_by_uid
         and not fury_of_small_runtime_by_uid
         and not vampiric_bite_runtime_by_uid
+        and not hidden_step_runtime_by_uid
     ):
         return False
 
@@ -1036,6 +1090,7 @@ async def _persist_relentless_endurance_used_from_combat_state(db, sess, session
             and uid not in built_for_success_runtime_by_uid
             and uid not in fury_of_small_runtime_by_uid
             and uid not in vampiric_bite_runtime_by_uid
+            and uid not in hidden_step_runtime_by_uid
         ):
             continue
         ch = chars_by_uid.get(uid)
@@ -1090,6 +1145,12 @@ async def _persist_relentless_endurance_used_from_combat_state(db, sess, session
                 if max(0, as_int(runtime.get("vampiric_bite_bonus_value"), 0)) != value:
                     runtime["vampiric_bite_bonus_value"] = value
                     local_changed = True
+        hidden_runtime = hidden_step_runtime_by_uid.get(uid)
+        if isinstance(hidden_runtime, dict):
+            current_hidden = dict(runtime.get("hidden_step")) if isinstance(runtime.get("hidden_step"), dict) else {}
+            if current_hidden != hidden_runtime:
+                runtime["hidden_step"] = dict(hidden_runtime)
+                local_changed = True
         if local_changed:
             race_features["runtime"] = runtime
             ch.race_features = race_features
@@ -2036,19 +2097,25 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                             if innate_err:
                                 await ws_error(innate_err, request_id=msg_request_id)
                                 continue
+                            hidden_step_broken = _break_hidden_step_for_character(ch)
                             if changed:
                                 flag_modified(ch, "race_features")
-                                await db.commit()
+                            if hidden_step_broken:
+                                flag_modified(ch, "race_features")
+                            await db.commit()
                             caster_name = str(getattr(ch, "name", "") or player.display_name).strip() or player.display_name
+                            lines = [
+                                {"text": f"{caster_name} использует врождённую магию: {spell_display_name}."},
+                            ]
+                            if hidden_step_broken:
+                                lines.append({"text": "Незримая поступь прерывается: невидимость спадает.", "muted": True})
                             combat_state_now = get_combat(session_id)
                             round_no = combat_state_now.round_no if combat_state_now is not None else 1
                             turn_label_now = current_turn_label(combat_state_now) if combat_state_now is not None else "-"
                             patch = {
                                 "status": f"⚔ Бой • Раунд {round_no} • Ход: {turn_label_now}",
                                 "open": True,
-                                "lines": [
-                                    {"text": f"{caster_name} использует врождённую магию: {spell_display_name}."},
-                                ],
+                                "lines": lines,
                             }
                             await _broadcast_state_unlocked(session_id, combat_log_ui_patch=patch)
                             continue
@@ -2184,7 +2251,7 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                         continue
                     else:
                         await ws_error(
-                            "Combat Lock: в бою доступны только боевые команды (атака/конец хода/уклон/движение/рывок/отход/взлёт/приземление/помощь/побег/каменная выносливость/исцеляющие руки/небесное преобразование/подводное дыхание/оружие дыхания) или OOC.",
+                            "Combat Lock: в бою доступны только боевые команды (атака/конец хода/уклон/движение/рывок/отход/взлёт/приземление/помощь/побег/каменная выносливость/исцеляющие руки/небесное преобразование/незримая поступь/подводное дыхание/оружие дыхания) или OOC.",
                             request_id=msg_request_id,
                         )
                         continue
@@ -2192,6 +2259,9 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                 # OOC (any time, no turn)
                 if combat_action == "combat_breath_weapon":
                     await ws_error("Оружие дыхания можно применить только в бою.", request_id=msg_request_id)
+                    continue
+                if combat_action == "combat_hidden_step":
+                    await ws_error("Незримую поступь можно применить только в бою.", request_id=msg_request_id)
                     continue
 
                 # OOC (any time, no turn)
@@ -3411,19 +3481,25 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                             if innate_err:
                                 await ws_error(innate_err)
                                 continue
+                            hidden_step_broken = _break_hidden_step_for_character(ch)
                             if changed:
                                 flag_modified(ch, "race_features")
-                                await db.commit()
+                            if hidden_step_broken:
+                                flag_modified(ch, "race_features")
+                            await db.commit()
                             caster_name = str(getattr(ch, "name", "") or player.display_name).strip() or player.display_name
+                            lines = [
+                                {"text": f"{caster_name} использует врождённую магию: {spell_display_name}."},
+                            ]
+                            if hidden_step_broken:
+                                lines.append({"text": "Незримая поступь прерывается: невидимость спадает.", "muted": True})
                             combat_state_now = get_combat(session_id)
                             round_no = combat_state_now.round_no if combat_state_now is not None else 1
                             turn_label_now = current_turn_label(combat_state_now) if combat_state_now is not None else "-"
                             patch = {
                                 "status": f"⚔ Бой • Раунд {round_no} • Ход: {turn_label_now}",
                                 "open": True,
-                                "lines": [
-                                    {"text": f"{caster_name} использует врождённую магию: {spell_display_name}."},
-                                ],
+                                "lines": lines,
                             }
                             await broadcast_state(session_id, combat_log_ui_patch=patch)
                             continue
@@ -3608,6 +3684,9 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
 
                 if combat_action == "combat_breath_weapon":
                     await ws_error("Оружие дыхания можно применить только в бою.")
+                    continue
+                if combat_action == "combat_hidden_step":
+                    await ws_error("Незримую поступь можно применить только в бою.")
                     continue
 
                 if combat_action == "breathe_underwater":

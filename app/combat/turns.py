@@ -58,6 +58,16 @@ def advance_turn_in_state(state: CombatState) -> CombatState:
     current_key = state.order[state.turn_index]
     current_combatant = state.combatants.get(current_key)
     if current_combatant is not None:
+        race_features = current_combatant.race_features if isinstance(current_combatant.race_features, dict) else {}
+        runtime_raw = race_features.get("runtime")
+        runtime = dict(runtime_raw) if isinstance(runtime_raw, dict) else {}
+        hidden_raw = runtime.get("hidden_step")
+        hidden_step = dict(hidden_raw) if isinstance(hidden_raw, dict) else {}
+        if bool(hidden_step.get("active")) and bool(hidden_step.get("expires_on_owner_turn_start", True)):
+            hidden_step["active"] = False
+            runtime["hidden_step"] = hidden_step
+            race_features["runtime"] = runtime
+            current_combatant.race_features = race_features
         current_combatant.dodge_active = False
         current_combatant.dash_active = False
         current_combatant.disengage_active = False

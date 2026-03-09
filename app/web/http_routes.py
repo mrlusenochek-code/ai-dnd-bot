@@ -721,6 +721,7 @@ def _build_race_features(selected_race: dict | None) -> dict[str, Any]:
             applies = [str(x).strip() for x in _as_list(mech.get("applies_to")) if str(x).strip()]
             if applies:
                 carry["applies_to"] = applies
+            features["powerful_build"] = dict(mech)
 
         if mtype == "stone_endurance":
             features["stone_endurance"] = dict(mech)
@@ -783,6 +784,47 @@ def _build_race_features(selected_race: dict | None) -> dict[str, Any]:
                 if not isinstance(spell, dict):
                     continue
                 _append_innate_spell(ability=ability, spell_obj=spell)
+
+        if mtype == "innate_spellcasting_shared_cooldown":
+            ability = str(mech.get("ability") or "").strip().lower()
+            shared_group = str(mech.get("shared_group") or tkey or "innate_shared").strip().lower()
+            shared_recharge = str(mech.get("shared_recharge") or "").strip().lower()
+            frequency = "shared_1_per_short_or_long_rest"
+            if shared_recharge == "per_long_rest":
+                frequency = "shared_1_per_long_rest"
+            spells = _as_list(mech.get("spells"))
+            normalized_spells: list[str] = []
+            for spell_item in spells:
+                if isinstance(spell_item, dict):
+                    spell_name = str(spell_item.get("name") or spell_item.get("spell_ref") or "").strip().lower()
+                else:
+                    spell_name = str(spell_item or "").strip().lower()
+                if not spell_name:
+                    continue
+                normalized_spells.append(spell_name)
+                innate_spells.append(
+                    {
+                        "ability": ability,
+                        "level": 1,
+                        "name": spell_name,
+                        "frequency": frequency,
+                        "shared_group": shared_group,
+                        "shared_recharge": shared_recharge,
+                    }
+                )
+            features["firbolg_magic"] = {
+                "ability": ability,
+                "spells": normalized_spells,
+                "shared_group": shared_group,
+                "shared_recharge": shared_recharge,
+                "special": dict(mech.get("special")) if isinstance(mech.get("special"), dict) else {},
+            }
+
+        if mtype == "invisibility_burst":
+            features["hidden_step"] = dict(mech)
+
+        if mtype == "limited_beast_plant_speech":
+            features["speech_of_beast_and_leaf"] = dict(mech)
 
         if mtype == "creature_type":
             creature_type = str(mech.get("value") or "").strip().lower()

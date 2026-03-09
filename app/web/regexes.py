@@ -13,6 +13,8 @@ INNATE_SPELL_KEY_PATTERNS: dict[str, re.Pattern[str]] = {
     "minor_illusion": re.compile(r"мала[яй]\s+иллюз\w*|minor\s+illusion", re.IGNORECASE),
     "dancing_lights": re.compile(r"танцующ[а-яё]*\s+огн[а-яё]*|dancing\s+lights", re.IGNORECASE),
     "faerie_fire": re.compile(r"волшебн[а-яё]*\s+ог(?:н|он)[а-яё]*|faerie\s+fire", re.IGNORECASE),
+    "detect_magic": re.compile(r"обнаружени[ея]\s+магии|detect\s+magic", re.IGNORECASE),
+    "disguise_self": re.compile(r"маскировк\w*|disguise\s+self", re.IGNORECASE),
     "druidcraft": re.compile(r"искусств(?:о|а)\s+друид\w*|druidcraft", re.IGNORECASE),
     "enlarge_reduce": re.compile(
         r"увеличени[ея]\s*/?\s*уменьшени[ея]|enlarge\s*/?\s*reduce|enlarge\s+reduce",
@@ -61,6 +63,13 @@ CHAT_COMBAT_ACTION_PATTERNS: list[tuple[str, re.Pattern[str]]] = [
     (
         "combat_vampiric_bite",
         re.compile(r"(укус\s+вампир\w*|кусаю|впива\w+|пью\s+кров\w*|vampiric\s+bite)", re.IGNORECASE),
+    ),
+    (
+        "combat_hidden_step",
+        re.compile(
+            r"(незрим\w*\s+поступ\w*|становлюсь\s+невидим\w*|скрываюсь\s+магией\s+фирболг\w*|hidden\s+step)",
+            re.IGNORECASE,
+        ),
     ),
     (
         "combat_attack",
@@ -122,6 +131,7 @@ CHAT_COMBAT_ACTION_PATTERNS: list[tuple[str, re.Pattern[str]]] = [
             r"создани(?:е|я).*(?:уничтожени(?:е|я)).*воды|create.*destroy.*water|"
             r"мала[яй]\s+иллюз\w*|minor\s+illusion|"
             r"танцующ[а-яё]*\s+огн[а-яё]*|dancing\s+lights|волшебн[а-яё]*\s+ог(?:н|он)[а-яё]*|faerie\s+fire|"
+            r"обнаружени[ея]\s+магии|detect\s+magic|маскировк\w*|disguise\s+self|"
             r"искусств(?:о|а)\s+друид\w*|druidcraft|"
             r"увеличени[ея]\s*/?\s*уменьшени[ея]|enlarge\s*/?\s*reduce|enlarge\s+reduce|"
             r"тауматург\w*|thaumaturgy|адск\w*\s+(?:возмезди\w*|отпор\w*)|hellish\s+rebuke|darkness)",
