@@ -1408,8 +1408,13 @@ function openCharacterModal(){
   const subraceNameRu = String(subrace.name_ru || "").trim() || ({
     "githyanki": "Гитъянки",
     "githzerai": "Гитцерай",
+    "beasthide": "Зверошкура",
+    "longtooth": "Длиннозуб",
+    "swiftstride": "Быстроног",
+    "wildhunt": "Дикий охотник",
   }[subraceKey] || subraceKey);
   const githSubraceText = (raceKey === "gith" && subraceNameRu) ? `Подраса: ${subraceNameRu}` : "";
+  const shifterSubraceText = (raceKey === "shifter" && subraceNameRu) ? `Подраса: ${subraceNameRu}` : "";
   const decadentChoice = (choices.decadent_mastery && typeof choices.decadent_mastery === "object")
     ? choices.decadent_mastery
     : {};
@@ -1809,6 +1814,51 @@ function openCharacterModal(){
   const satyrRevelerText = (raceKey === "satyr" && profSkills.includes("performance") && profSkills.includes("persuasion"))
     ? `Гуляка: владение Выступление, Убеждение; музыкальный инструмент: ${satyrInstrumentRu || "выбор при создании"}`
     : "";
+  const shifterShift = (raceFeaturesMeta.shifting && typeof raceFeaturesMeta.shifting === "object")
+    ? raceFeaturesMeta.shifting
+    : null;
+  const shifterBonus = (raceFeaturesMeta.shifting_bonus && typeof raceFeaturesMeta.shifting_bonus === "object")
+    ? raceFeaturesMeta.shifting_bonus
+    : null;
+  const shifterBite = (raceFeaturesMeta.shifting_bonus_action_attack && typeof raceFeaturesMeta.shifting_bonus_action_attack === "object")
+    ? raceFeaturesMeta.shifting_bonus_action_attack
+    : null;
+  const shifterMobility = (raceFeaturesMeta.shifting_mobility && typeof raceFeaturesMeta.shifting_mobility === "object")
+    ? raceFeaturesMeta.shifting_mobility
+    : null;
+  const shifterMarkedTarget = (raceFeaturesMeta.marked_target && typeof raceFeaturesMeta.marked_target === "object")
+    ? raceFeaturesMeta.marked_target
+    : null;
+  const shifterDefense = (raceFeaturesMeta.shifting_defense && typeof raceFeaturesMeta.shifting_defense === "object")
+    ? raceFeaturesMeta.shifting_defense
+    : null;
+  const shifterUsesMax = Number.isFinite(Number(shifterShift && shifterShift.uses_max)) ? Number(shifterShift.uses_max) : 1;
+  const shifterUsesUsed = Number.isFinite(Number(runtime.shifting_uses_used)) ? Number(runtime.shifting_uses_used) : 0;
+  const shifterUsesRemaining = Math.max(0, shifterUsesMax - shifterUsesUsed);
+  const shifterShiftActive = !!runtime.shifted_active;
+  const shifterRoundsLeft = Number.isFinite(Number(runtime.shifted_rounds_left)) ? Number(runtime.shifted_rounds_left) : 0;
+  const shifterMarkUsesMax = Number.isFinite(Number(shifterMarkedTarget && shifterMarkedTarget.uses_max)) ? Number(shifterMarkedTarget.uses_max) : 1;
+  const shifterMarkUsesUsed = Number.isFinite(Number(runtime.marked_uses_used)) ? Number(runtime.marked_uses_used) : 0;
+  const shifterMarkedTargetId = String(runtime.wildhunt_marked_target_id || "").trim();
+  const shifterShiftText = (raceKey === "shifter" && shifterShift)
+    ? `Смена формы: бонусным действием, 1 мин, temp HP = уровень + мод ТЕЛ (мин 1), 1/кор/дл отдых. Статус: ${shifterShiftActive ? "активна" : "не активна"}; раундов осталось: ${shifterShiftActive ? shifterRoundsLeft : 0}; использований осталось: ${shifterUsesRemaining}/${shifterUsesMax}`
+    : "";
+  const shifterSubraceEffectText = (() => {
+    if(raceKey !== "shifter") return "";
+    if(subraceKey === "beasthide"){
+      return "Зверошкура: +1 КД в форме; +1к6 temp hp при входе; владение Атлетика";
+    }
+    if(subraceKey === "longtooth"){
+      return "Длиннозуб: бонусным действием укус 1к6+СИЛ пока в форме; владение Запугивание";
+    }
+    if(subraceKey === "swiftstride"){
+      return "Быстроног: +10 скорость в форме; реакцией шаг 10 фт при условии; владение Акробатика";
+    }
+    if(subraceKey === "wildhunt"){
+      return `Дикий охотник: «Помеченная цель» 1/к/д, до конца следующего дл. отдыха; в форме преимущество на проверки Мудрости; враги в 30 фт не могут иметь преимущество на атаки против вас; владение Выживание. Метка: ${shifterMarkedTargetId || "нет"}; использований осталось: ${Math.max(0, shifterMarkUsesMax - shifterMarkUsesUsed)}/${shifterMarkUsesMax}`;
+    }
+    return "";
+  })();
   const rebornDeathlessNature = (raceFeaturesMeta.deathless_nature && typeof raceFeaturesMeta.deathless_nature === "object")
     ? raceFeaturesMeta.deathless_nature
     : null;
@@ -1948,6 +1998,9 @@ function openCharacterModal(){
   }
   if(githSubraceText){
     details.push(`<div class="char-line"><strong>Подраса:</strong> ${escapeHtml(githSubraceText.replace(/^Подраса:\s*/, ""))}</div>`);
+  }
+  if(shifterSubraceText){
+    details.push(`<div class="char-line"><strong>Подраса:</strong> ${escapeHtml(shifterSubraceText.replace(/^Подраса:\s*/, ""))}</div>`);
   }
   if(speedText){
     details.push(`<div class="char-line"><strong>Скорость:</strong> ${escapeHtml(speedText)}</div>`);
@@ -2179,6 +2232,12 @@ function openCharacterModal(){
   if(satyrRevelerText){
     details.push(`<div class="char-line"><strong>Гуляка:</strong> ${escapeHtml(satyrRevelerText.replace(/^Гуляка:\s*/, ""))}</div>`);
   }
+  if(shifterShiftText){
+    details.push(`<div class="char-line"><strong>Смена формы:</strong> ${escapeHtml(shifterShiftText.replace(/^Смена формы:\s*/, ""))}</div>`);
+  }
+  if(shifterSubraceEffectText){
+    details.push(`<div class="char-line"><strong>Особенности подрасы:</strong> ${escapeHtml(shifterSubraceEffectText)}</div>`);
+  }
   if(rebornDeathlessNatureText){
     details.push(`<div class="char-line"><strong>Бессмертная природа:</strong> ${escapeHtml(rebornDeathlessNatureText.replace(/^Бессмертная природа:\s*/, ""))}</div>`);
   }
@@ -2403,6 +2462,7 @@ function openCharacterModal(){
   if(githMartialProdigyText) copyLines.push(githMartialProdigyText);
   if(decadentMasteryText) copyLines.push(decadentMasteryText);
   if(githPsionicsText) copyLines.push(githPsionicsText);
+  if(shifterSubraceText) copyLines.push(shifterSubraceText);
   if(hareTriggerText) copyLines.push(hareTriggerText);
   if(harengonPerceptionText) copyLines.push(harengonPerceptionText);
   if(luckyFootworkText) copyLines.push(luckyFootworkText);
@@ -2454,6 +2514,8 @@ function openCharacterModal(){
   if(satyrMagicResistanceText) copyLines.push(satyrMagicResistanceText);
   if(satyrMirthfulLeapsText) copyLines.push(satyrMirthfulLeapsText);
   if(satyrRevelerText) copyLines.push(satyrRevelerText);
+  if(shifterShiftText) copyLines.push(shifterShiftText);
+  if(shifterSubraceEffectText) copyLines.push(shifterSubraceEffectText);
   if(rebornDeathlessNatureText) copyLines.push(rebornDeathlessNatureText);
   if(rebornPastLifeText) copyLines.push(rebornPastLifeText);
   if(orcMenacingText) copyLines.push(orcMenacingText);

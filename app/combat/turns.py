@@ -6,6 +6,42 @@ from app.combat.state import CombatState, Combatant
 from app.rules.phb_math import ability_mod_from_stat100
 
 
+def _clear_shifter_shift_runtime(combatant: Combatant) -> bool:
+    race_features = combatant.race_features if isinstance(combatant.race_features, dict) else {}
+    runtime_raw = race_features.get("runtime")
+    runtime = dict(runtime_raw) if isinstance(runtime_raw, dict) else {}
+    changed = False
+    if bool(runtime.get("shifted_active")):
+        runtime["shifted_active"] = False
+        changed = True
+    if max(0, int(runtime.get("shifted_rounds_left") or 0)) != 0:
+        runtime["shifted_rounds_left"] = 0
+        changed = True
+    ac_bonus = max(0, int(runtime.get("shifting_ac_bonus_active") or 0))
+    if ac_bonus > 0:
+        combatant.ac = max(0, int(getattr(combatant, "ac", 0) or 0) - ac_bonus)
+        runtime["shifting_ac_bonus_active"] = 0
+        changed = True
+    speed_bonus = max(0, int(runtime.get("shifting_speed_bonus_active_ft") or 0))
+    if speed_bonus > 0:
+        speeds = combatant.movement_speeds if isinstance(getattr(combatant, "movement_speeds", None), dict) else {}
+        walk_speed = max(0, int(speeds.get("walk", getattr(combatant, "speed_ft", 30)) or 0))
+        speeds["walk"] = max(0, walk_speed - speed_bonus)
+        combatant.movement_speeds = speeds
+        runtime["shifting_speed_bonus_active_ft"] = 0
+        changed = True
+    if bool(runtime.get("shifting_longtooth_bite_available")):
+        runtime["shifting_longtooth_bite_available"] = False
+        changed = True
+    if bool(runtime.get("shifting_swiftstride_reaction_available")):
+        runtime["shifting_swiftstride_reaction_available"] = False
+        changed = True
+    if changed:
+        race_features["runtime"] = runtime
+        combatant.race_features = race_features
+    return changed
+
+
 def build_initiative_order(combatants: dict[str, Combatant]) -> list[str]:
     """Build stable initiative order: initiative desc, pc before enemy, then name/key."""
     side_priority = {"pc": 0, "enemy": 1}
@@ -102,6 +138,15 @@ def advance_turn_in_state(state: CombatState) -> CombatState:
             else:
                 race_features.pop("runtime", None)
             ending_combatant.race_features = race_features
+        if bool(runtime.get("shifted_active")):
+            rounds_left = max(0, int(runtime.get("shifted_rounds_left") or 0))
+            if rounds_left > 0:
+                rounds_left -= 1
+            runtime["shifted_rounds_left"] = rounds_left
+            race_features["runtime"] = runtime
+            ending_combatant.race_features = race_features
+            if rounds_left <= 0:
+                _clear_shifter_shift_runtime(ending_combatant)
     if ending_combatant is not None:
         source_actor_key = str(getattr(ending_combatant, "key", "") or "")
         if source_actor_key:
@@ -185,6 +230,10 @@ def advance_turn_in_state(state: CombatState) -> CombatState:
         if "aggressive_used_turn_id" in runtime:
             runtime.pop("aggressive_used_turn_id", None)
             runtime_changed = True
+        if bool(runtime.get("shifted_active")) and str((race_features.get("subrace") or {}).get("key") or "").strip().lower() == "swiftstride":
+            if not bool(runtime.get("shifting_swiftstride_reaction_available")):
+                runtime["shifting_swiftstride_reaction_available"] = True
+                runtime_changed = True
         if "grovel_active_until_turn_start_of_actor_id" in runtime:
             source_key = str(runtime.get("grovel_active_until_turn_start_of_actor_id") or "").strip()
             if source_key == str(getattr(current_combatant, "key", "") or ""):

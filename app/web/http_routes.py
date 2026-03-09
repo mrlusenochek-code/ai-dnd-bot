@@ -818,6 +818,53 @@ def _build_race_features(selected_race: dict | None) -> dict[str, Any]:
                 "applies_to": _uniq_lower_str_list(mech.get("applies_to")),
             }
 
+        if mtype == "shifting":
+            features["shifting"] = {
+                "duration": str(mech.get("duration") or "1_minute").strip().lower() or "1_minute",
+                "temp_hp_formula": str(mech.get("temp_hp_formula") or "level + con_mod (min 1)").strip() or "level + con_mod (min 1)",
+                "end_conditions": _uniq_lower_str_list(mech.get("end_conditions")),
+                "uses": str(mech.get("uses") or "per_short_or_long_rest").strip().lower() or "per_short_or_long_rest",
+                "uses_max": max(0, as_int(mech.get("uses_max"), 0)),
+            }
+
+        if mtype == "shifting_bonus":
+            features["shifting_bonus"] = {
+                "temp_hp_extra": str(mech.get("temp_hp_extra") or "").strip().lower(),
+                "ac_bonus": max(0, as_int(mech.get("ac_bonus"), 0)),
+            }
+
+        if mtype == "shifting_bonus_action_attack":
+            features["shifting_bonus_action_attack"] = {
+                "damage_dice": str(mech.get("damage_dice") or "1d6").strip().lower() or "1d6",
+                "damage_type": str(mech.get("damage_type") or "piercing").strip().lower() or "piercing",
+                "ability": str(mech.get("ability") or "str").strip().lower() or "str",
+            }
+
+        if mtype == "shifting_mobility":
+            features["shifting_mobility"] = {
+                "walk_speed_bonus_ft": max(0, as_int(mech.get("walk_speed_bonus_ft"), 0)),
+                "reaction_move_ft": max(0, as_int(mech.get("reaction_move_ft"), 0)),
+                "trigger": str(mech.get("trigger") or "").strip().lower(),
+                "no_opportunity_attacks": bool(mech.get("no_opportunity_attacks") or mech.get("no_oa")),
+            }
+
+        if mtype == "marked_target":
+            features["marked_target"] = {
+                "mark_range_ft": max(0, as_int(mech.get("mark_range_ft"), 0)),
+                "track_bonus": str(mech.get("track_bonus") or "").strip().lower(),
+                "locate_range_ft": max(0, as_int(mech.get("locate_range_ft"), 0)),
+                "duration": str(mech.get("duration") or "").strip().lower(),
+                "uses": str(mech.get("uses") or "per_short_or_long_rest").strip().lower() or "per_short_or_long_rest",
+                "uses_max": max(0, as_int(mech.get("uses_max"), 0)),
+            }
+
+        if mtype == "shifting_defense":
+            features["shifting_defense"] = {
+                "advantage_on": _uniq_lower_str_list(mech.get("advantage_on")),
+                "deny_enemy_advantage_range_ft": max(0, as_int(mech.get("deny_enemy_advantage_range_ft"), 0)),
+                "while_conscious": bool(mech.get("while_conscious")),
+            }
+
         if mtype == "water_dependency":
             features["water_dependency"] = dict(mech)
 
@@ -1532,6 +1579,8 @@ async def api_character_create(payload: dict):
 
         if selected_race_key == "gith" and not subrace_id:
             raise HTTPException(status_code=400, detail="Gith subrace choice is required")
+        if selected_race_key == "shifter" and not subrace_id:
+            raise HTTPException(status_code=400, detail="Shifter subrace choice is required")
 
         if isinstance(selected_race, dict) and subrace_id:
             subs = selected_race.get("subraces")
@@ -1543,7 +1592,7 @@ async def api_character_create(payload: dict):
                 if k and k == subrace_id:
                     selected_subrace = sr
                     break
-            if selected_race_key == "gith" and selected_subrace is None:
+            if selected_race_key in {"gith", "shifter"} and selected_subrace is None:
                 raise HTTPException(status_code=400, detail=f"Invalid subrace choice: {subrace_id}")
 
             if selected_subrace is not None:
@@ -2140,6 +2189,21 @@ async def api_character_create(payload: dict):
             runtime = dict(runtime_raw) if isinstance(runtime_raw, dict) else {}
             runtime.setdefault("knowledge_past_life_uses_used", 0)
             runtime.setdefault("knowledge_past_life_armed", False)
+            race_features["runtime"] = runtime
+        if isinstance(race_features, dict) and str(race_features.get("race_key") or "").strip().lower() == "shifter":
+            runtime_raw = race_features.get("runtime")
+            runtime = dict(runtime_raw) if isinstance(runtime_raw, dict) else {}
+            runtime.setdefault("shifted_active", False)
+            runtime.setdefault("shifted_rounds_left", 0)
+            runtime.setdefault("shifting_uses_used", 0)
+            runtime.setdefault("shifting_temp_hp_granted", 0)
+            runtime.setdefault("shifting_ac_bonus_active", 0)
+            runtime.setdefault("shifting_speed_bonus_active_ft", 0)
+            runtime.setdefault("shifting_longtooth_bite_available", False)
+            runtime.setdefault("shifting_swiftstride_reaction_available", False)
+            runtime.setdefault("wildhunt_marked_target_id", "")
+            runtime.setdefault("wildhunt_marked_until", "")
+            runtime.setdefault("marked_uses_used", 0)
             race_features["runtime"] = runtime
         if isinstance(race_features, dict) and selected_subrace is not None:
             race_features["subrace"] = {

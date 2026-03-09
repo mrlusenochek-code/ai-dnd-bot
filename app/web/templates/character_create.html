@@ -2192,8 +2192,13 @@ async function createHero(){
   }
   const raceIdForValidation = String((document.getElementById("raceId").value || "")).trim().toLowerCase();
   const subraceIdForValidation = String((document.getElementById("subraceId") ? document.getElementById("subraceId").value : "") || "").trim().toLowerCase();
-  if(raceIdForValidation === "gith" && !subraceIdForValidation){
-    setMessage("Для расы «Гит» обязательно выбери подрасу.", false);
+  if((raceIdForValidation === "gith" || raceIdForValidation === "shifter") && !subraceIdForValidation){
+    setMessage(
+      raceIdForValidation === "shifter"
+        ? "Для расы «Шифтер» обязательно выбери подрасу."
+        : "Для расы «Гит» обязательно выбери подрасу.",
+      false
+    );
     return;
   }
   const choiceLangEl = document.getElementById("choiceLang1");

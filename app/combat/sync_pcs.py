@@ -66,11 +66,18 @@ def sync_pcs_from_chars(session_id: str, chars_by_uid: dict[int, Any]) -> None:
             dex = dex_default
             ac = 10 + ability_mod_from_stat100(dex)
 
+        shifter_runtime = runtime if isinstance(runtime, dict) else {}
+        ac += max(0, _safe_int(shifter_runtime.get("shifting_ac_bonus_active"), 0))
+
         movement_speeds["walk"] = effective_walk_speed_ft(
             speed,
             inventory=inventory,
             equip_map=equip_map,
             race_features=rf if isinstance(rf, dict) else None,
+        )
+        movement_speeds["walk"] = max(
+            0,
+            int(movement_speeds.get("walk", 0)) + max(0, _safe_int(shifter_runtime.get("shifting_speed_bonus_active_ft"), 0)),
         )
 
         swim_ft = max(0, _safe_int((rf_speeds or {}).get("swim_ft"), 0))

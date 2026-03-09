@@ -856,6 +856,48 @@ def _mode_with_keen_smell_advantage(
     return "advantage"
 
 
+def _mode_with_shifter_wildhunt_advantage(
+    mode: str,
+    race_features: Any,
+    *,
+    check_name: str,
+    kind: str,
+) -> str:
+    mode_norm = str(mode or "normal").strip().lower()
+    if mode_norm not in {"normal", "advantage", "disadvantage"}:
+        mode_norm = "normal"
+    if not isinstance(race_features, dict):
+        return mode_norm
+    subrace_raw = race_features.get("subrace")
+    subrace = subrace_raw if isinstance(subrace_raw, dict) else {}
+    choices_raw = race_features.get("choices")
+    choices = choices_raw if isinstance(choices_raw, dict) else {}
+    subrace_key = str(subrace.get("key") or choices.get("subrace_id") or "").strip().lower()
+    if subrace_key != "wildhunt":
+        return mode_norm
+    features_raw = race_features.get("features")
+    features = features_raw if isinstance(features_raw, dict) else {}
+    defense_raw = features.get("shifting_defense")
+    defense = defense_raw if isinstance(defense_raw, dict) else {}
+    advantage_on = [str(x or "").strip().lower() for x in (defense.get("advantage_on") if isinstance(defense.get("advantage_on"), list) else [])]
+    if "wis_checks" not in advantage_on:
+        return mode_norm
+    runtime_raw = race_features.get("runtime")
+    runtime = runtime_raw if isinstance(runtime_raw, dict) else {}
+    if not bool(runtime.get("shifted_active")):
+        return mode_norm
+    check_key = str(check_name or "").strip().lower()
+    kind_key = str(kind or "").strip().lower()
+    is_wis = check_key == "wis"
+    if kind_key == "skill":
+        is_wis = str(SKILL_TO_ABILITY.get(check_key) or "").strip().lower() == "wis"
+    if not is_wis:
+        return mode_norm
+    if mode_norm == "disadvantage":
+        return "normal"
+    return "advantage"
+
+
 def _set_sunlight_bright_for_session_combatants(session_id: str, *, sunlight_bright: bool) -> bool:
     state = get_combat(session_id)
     if state is None or not state.active:
@@ -2210,6 +2252,18 @@ def _reset_racial_rest_uses(ch: Character, *, long_rest: bool = True) -> bool:
     if "aggressive_used_turn_id" in runtime:
         runtime.pop("aggressive_used_turn_id", None)
         changed = True
+    for key, value in (
+        ("shifted_active", False),
+        ("shifted_rounds_left", 0),
+        ("shifting_temp_hp_granted", 0),
+        ("shifting_ac_bonus_active", 0),
+        ("shifting_speed_bonus_active_ft", 0),
+        ("shifting_longtooth_bite_available", False),
+        ("shifting_swiftstride_reaction_available", False),
+    ):
+        if key in runtime:
+            runtime[key] = value
+            changed = True
     if "knowledge_past_life_armed" in runtime:
         runtime.pop("knowledge_past_life_armed", None)
         changed = True
@@ -2220,6 +2274,18 @@ def _reset_racial_rest_uses(ch: Character, *, long_rest: bool = True) -> bool:
         runtime.pop("knowledge_from_a_past_life_last_result", None)
         changed = True
     if long_rest:
+        if "shifting_uses_used" in runtime:
+            runtime["shifting_uses_used"] = 0
+            changed = True
+        if "marked_uses_used" in runtime:
+            runtime["marked_uses_used"] = 0
+            changed = True
+        if "wildhunt_marked_target_id" in runtime:
+            runtime["wildhunt_marked_target_id"] = ""
+            changed = True
+        if "wildhunt_marked_until" in runtime:
+            runtime["wildhunt_marked_until"] = ""
+            changed = True
         if "knowledge_past_life_uses_used" in runtime:
             runtime["knowledge_past_life_uses_used"] = 0
             changed = True
@@ -2249,6 +2315,13 @@ def _reset_racial_rest_uses(ch: Character, *, long_rest: bool = True) -> bool:
             changed = True
         if "eerie_token_remote_view_rounds_left" in runtime:
             runtime.pop("eerie_token_remote_view_rounds_left", None)
+            changed = True
+    else:
+        if "shifting_uses_used" in runtime:
+            runtime["shifting_uses_used"] = 0
+            changed = True
+        if "marked_uses_used" in runtime:
+            runtime["marked_uses_used"] = 0
             changed = True
     if not changed:
         return False
@@ -2357,6 +2430,18 @@ def _reset_combatant_racial_rest_uses(session_id: str, actor_key: str, *, long_r
     if "aggressive_used_turn_id" in runtime:
         runtime.pop("aggressive_used_turn_id", None)
         changed = True
+    for key, value in (
+        ("shifted_active", False),
+        ("shifted_rounds_left", 0),
+        ("shifting_temp_hp_granted", 0),
+        ("shifting_ac_bonus_active", 0),
+        ("shifting_speed_bonus_active_ft", 0),
+        ("shifting_longtooth_bite_available", False),
+        ("shifting_swiftstride_reaction_available", False),
+    ):
+        if key in runtime:
+            runtime[key] = value
+            changed = True
     if "knowledge_past_life_armed" in runtime:
         runtime.pop("knowledge_past_life_armed", None)
         changed = True
@@ -2367,6 +2452,18 @@ def _reset_combatant_racial_rest_uses(session_id: str, actor_key: str, *, long_r
         runtime.pop("knowledge_from_a_past_life_last_result", None)
         changed = True
     if long_rest:
+        if "shifting_uses_used" in runtime:
+            runtime["shifting_uses_used"] = 0
+            changed = True
+        if "marked_uses_used" in runtime:
+            runtime["marked_uses_used"] = 0
+            changed = True
+        if "wildhunt_marked_target_id" in runtime:
+            runtime["wildhunt_marked_target_id"] = ""
+            changed = True
+        if "wildhunt_marked_until" in runtime:
+            runtime["wildhunt_marked_until"] = ""
+            changed = True
         if "knowledge_past_life_uses_used" in runtime:
             runtime["knowledge_past_life_uses_used"] = 0
             changed = True
@@ -2396,6 +2493,13 @@ def _reset_combatant_racial_rest_uses(session_id: str, actor_key: str, *, long_r
             changed = True
         if "eerie_token_remote_view_rounds_left" in runtime:
             runtime.pop("eerie_token_remote_view_rounds_left", None)
+            changed = True
+    else:
+        if "shifting_uses_used" in runtime:
+            runtime["shifting_uses_used"] = 0
+            changed = True
+        if "marked_uses_used" in runtime:
+            runtime["marked_uses_used"] = 0
             changed = True
     for combatant in state.combatants.values():
         target_rf = combatant.race_features if isinstance(getattr(combatant, "race_features", None), dict) else {}
@@ -2774,6 +2878,65 @@ async def _persist_relentless_endurance_used_from_combat_state(db, sess, session
                     runtime["hammering_horns_target_id"] = hammering_target
                 else:
                     runtime.pop("hammering_horns_target_id", None)
+                local_changed = True
+        if local_changed:
+            race_features["runtime"] = runtime
+            ch.race_features = race_features
+            flag_modified(ch, "race_features")
+            changed = True
+    return changed
+
+
+async def _persist_shifter_runtime_from_combat_state(db, sess, session_id: str) -> bool:
+    state = get_combat(session_id)
+    if state is None or not state.active:
+        return False
+    shifter_runtime_by_uid: dict[int, dict[str, Any]] = {}
+    for actor_key, actor in (state.combatants or {}).items():
+        if not str(actor_key or "").startswith("pc_"):
+            continue
+        uid_raw = str(actor_key).split("_", 1)[1]
+        if not uid_raw.isdigit():
+            continue
+        race_features = actor.race_features if isinstance(getattr(actor, "race_features", None), dict) else {}
+        if str(race_features.get("race_key") or "").strip().lower() != "shifter":
+            continue
+        runtime_raw = race_features.get("runtime")
+        runtime = dict(runtime_raw) if isinstance(runtime_raw, dict) else {}
+        tracked: dict[str, Any] = {}
+        for key in (
+            "shifted_active",
+            "shifted_rounds_left",
+            "shifting_uses_used",
+            "shifting_temp_hp_granted",
+            "shifting_ac_bonus_active",
+            "shifting_speed_bonus_active_ft",
+            "shifting_longtooth_bite_available",
+            "shifting_swiftstride_reaction_available",
+            "wildhunt_marked_target_id",
+            "wildhunt_marked_until",
+            "marked_uses_used",
+        ):
+            if key in runtime:
+                tracked[key] = runtime.get(key)
+        if tracked:
+            shifter_runtime_by_uid[int(uid_raw)] = tracked
+    if not shifter_runtime_by_uid:
+        return False
+    _uid_map, chars_by_uid, _ = await _load_actor_context(db, sess)
+    changed = False
+    for uid, tracked in shifter_runtime_by_uid.items():
+        ch = chars_by_uid.get(uid)
+        if ch is None:
+            continue
+        race_features_raw = getattr(ch, "race_features", None)
+        race_features = dict(race_features_raw) if isinstance(race_features_raw, dict) else {}
+        runtime_raw = race_features.get("runtime")
+        runtime = dict(runtime_raw) if isinstance(runtime_raw, dict) else {}
+        local_changed = False
+        for key, value in tracked.items():
+            if runtime.get(key) != value:
+                runtime[key] = value
                 local_changed = True
         if local_changed:
             race_features["runtime"] = runtime
@@ -3654,7 +3817,7 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                 if combat_action in {"combat_fury_of_small", "combat_fury_of_the_small"} and not combat_active:
                     await ws_error("Разъярённая мелкота доступна только в бою.", request_id=msg_request_id)
                     continue
-                if combat_action in {"combat_hungry_jaws", "combat_rabbit_hop", "combat_lucky_footwork", "combat_saving_face", "combat_taunt", "combat_fearless", "combat_daunting_roar", "combat_grovel_cower_beg", "combat_goring_rush", "combat_hammering_horns", "combat_aggressive"} and not combat_active:
+                if combat_action in {"combat_hungry_jaws", "combat_rabbit_hop", "combat_lucky_footwork", "combat_saving_face", "combat_taunt", "combat_fearless", "combat_daunting_roar", "combat_grovel_cower_beg", "combat_goring_rush", "combat_hammering_horns", "combat_aggressive", "combat_shift", "combat_shift_end", "combat_longtooth_bite", "combat_swiftstride_step", "combat_mark_target"} and not combat_active:
                     await ws_error("Эта особенность доступна только в бою.", request_id=msg_request_id)
                     continue
                 if combat_action in {"combat_eerie_token_create", "combat_eerie_token_message", "combat_eerie_token_view"} and not combat_active:
@@ -3845,7 +4008,7 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                         turn_key: Optional[str] = None
                         if combat_state and combat_state.order and 0 <= combat_state.turn_index < len(combat_state.order):
                             turn_key = combat_state.order[combat_state.turn_index]
-                        reaction_actions = {"combat_saving_face", "combat_lucky_footwork", "combat_fearless", "arm_past_life_knowledge"}
+                        reaction_actions = {"combat_saving_face", "combat_lucky_footwork", "combat_fearless", "arm_past_life_knowledge", "combat_swiftstride_step"}
                         if combat_action not in reaction_actions:
                             if not turn_key or turn_key != player_key:
                                 current_name = current_turn_label(combat_state) if combat_state else "другой участник"
@@ -3963,8 +4126,11 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
 
                             merged_patch = _merge_combat_patches(all_patches) if all_patches else None
                             persist_changed = await _persist_relentless_endurance_used_from_combat_state(db, sess, session_id)
-                            if persist_changed:
+                            shifter_persist_changed = await _persist_shifter_runtime_from_combat_state(db, sess, session_id)
+                            if persist_changed or shifter_persist_changed:
                                 await db.commit()
+                                _uid_map, chars_by_uid, _ = await _load_actor_context(db, sess)
+                                sync_pcs_from_chars(session_id, chars_by_uid)
                             await _broadcast_state_unlocked(session_id, combat_log_ui_patch=merged_patch)
                         facts = extract_combat_narration_facts(merged_patch)
                         if facts:
@@ -4020,7 +4186,7 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                         continue
                     else:
                         await ws_error(
-                            "Combat Lock: в бою доступны только боевые команды (атака/конец хода/уклон/движение/рывок/отход/засада/взлёт/приземление/помощь/побег/пресмыкайся/разъярённая мелкота/яд грунга на оружии/голодная пасть/кроличий прыжок/сильные ноги/сохранить лицо/насмешка/бесстрашие/устрашающий рёв/агрессивный/жуткий сувенир/каменная выносливость/исцеляющие руки/небесное преобразование/незримая поступь/подводное дыхание/оружие дыхания) или OOC/телепатия (mind link) / знания reborn.",
+                            "Combat Lock: в бою доступны только боевые команды (атака/конец хода/уклон/движение/рывок/отход/засада/взлёт/приземление/помощь/побег/пресмыкайся/разъярённая мелкота/яд грунга на оружии/голодная пасть/кроличий прыжок/сильные ноги/сохранить лицо/насмешка/бесстрашие/устрашающий рёв/агрессивный/смена формы/снять форму/укус длиннозуба/шаг быстронога/пометить цель/жуткий сувенир/каменная выносливость/исцеляющие руки/небесное преобразование/незримая поступь/подводное дыхание/оружие дыхания) или OOC/телепатия (mind link) / знания reborn.",
                             request_id=msg_request_id,
                         )
                         continue
@@ -4594,6 +4760,12 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                         getattr(ch, "race_features", None),
                         check_name=key,
                         check_tag=check_tag,
+                    )
+                    mapped_mode = _mode_with_shifter_wildhunt_advantage(
+                        mapped_mode,
+                        getattr(ch, "race_features", None),
+                        check_name=key,
+                        kind="ability" if key in CHAR_STAT_KEYS else "skill",
                     )
                     ra, rb, roll = roll_check(
                         mapped_mode,
@@ -5327,7 +5499,7 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                 if combat_action in {"combat_fury_of_small", "combat_fury_of_the_small"} and not combat_active:
                     await ws_error("Разъярённая мелкота доступна только в бою.", request_id=msg_request_id)
                     continue
-                if combat_action in {"combat_hungry_jaws", "combat_rabbit_hop", "combat_lucky_footwork", "combat_saving_face", "combat_taunt", "combat_fearless", "combat_daunting_roar", "combat_grovel_cower_beg", "combat_goring_rush", "combat_hammering_horns", "combat_aggressive"} and not combat_active:
+                if combat_action in {"combat_hungry_jaws", "combat_rabbit_hop", "combat_lucky_footwork", "combat_saving_face", "combat_taunt", "combat_fearless", "combat_daunting_roar", "combat_grovel_cower_beg", "combat_goring_rush", "combat_hammering_horns", "combat_aggressive", "combat_shift", "combat_shift_end", "combat_longtooth_bite", "combat_swiftstride_step", "combat_mark_target"} and not combat_active:
                     await ws_error("Эта особенность доступна только в бою.", request_id=msg_request_id)
                     continue
                 if combat_action in {"combat_eerie_token_create", "combat_eerie_token_message", "combat_eerie_token_view"} and not combat_active:
@@ -5524,7 +5696,7 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                         turn_key: Optional[str] = None
                         if combat_state and combat_state.order and 0 <= combat_state.turn_index < len(combat_state.order):
                             turn_key = combat_state.order[combat_state.turn_index]
-                        reaction_actions = {"combat_saving_face", "combat_lucky_footwork", "combat_fearless", "arm_past_life_knowledge"}
+                        reaction_actions = {"combat_saving_face", "combat_lucky_footwork", "combat_fearless", "arm_past_life_knowledge", "combat_swiftstride_step"}
                         if combat_action not in reaction_actions:
                             if not turn_key or turn_key != player_key:
                                 current_name = current_turn_label(combat_state) if combat_state else "другой участник"
@@ -5650,8 +5822,11 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
 
                         merged_patch = _merge_combat_patches(all_patches) if all_patches else None
                         persist_changed = await _persist_relentless_endurance_used_from_combat_state(db, sess, session_id)
-                        if persist_changed:
+                        shifter_persist_changed = await _persist_shifter_runtime_from_combat_state(db, sess, session_id)
+                        if persist_changed or shifter_persist_changed:
                             await db.commit()
+                            _uid_map, chars_by_uid, _ = await _load_actor_context(db, sess)
+                            sync_pcs_from_chars(session_id, chars_by_uid)
                         await broadcast_state(session_id, combat_log_ui_patch=merged_patch)
                         state_for_prompt = state_after_actions
                         story = settings_get(sess, "story", {}) or {}

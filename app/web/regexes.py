@@ -116,6 +116,26 @@ CHAT_COMBAT_ACTION_PATTERNS: list[tuple[str, re.Pattern[str]]] = [
         re.compile(r"(агрессивн\w*|агресси\w*|aggressive\b|рыв\w+\s+к\s+враг\w*)", re.IGNORECASE),
     ),
     (
+        "combat_shift",
+        re.compile(r"(смена\s+формы|шифт\w*|превращаюс\w*|shift\b)", re.IGNORECASE),
+    ),
+    (
+        "combat_shift_end",
+        re.compile(r"(заканчиваю\s+смену\s+формы|снять\s+форму|end\s+shift|stop\s+shift)", re.IGNORECASE),
+    ),
+    (
+        "combat_longtooth_bite",
+        re.compile(r"(кусаю\s+клык\w*|укус\s+клык\w*|longtooth\s+bite)", re.IGNORECASE),
+    ),
+    (
+        "combat_swiftstride_step",
+        re.compile(r"(шаг\s+в\s+сторон\w*|отпрыгиваю|swiftstride\s+step)", re.IGNORECASE),
+    ),
+    (
+        "combat_mark_target",
+        re.compile(r"(помечаю\s+цель|marked\s+target|mark\b)", re.IGNORECASE),
+    ),
+    (
         "combat_attack",
         re.compile(
             r"(атак|напад|удар|бью|рубл|колю|выпад|тыч|пыр|замах|метаю|швыряю|стреля|выстрел|стрел|лук|арбалет|режу|вступаю\s+в\s+бой|вступить\s+в\s+бой|вхожу\s+в\s+бой|войти\s+в\s+бой|врываюсь\s+в\s+бой)",

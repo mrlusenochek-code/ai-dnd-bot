@@ -130,6 +130,116 @@ def _race_feature(actor: Any, feature_key: str) -> dict[str, Any] | None:
     return feature_raw if isinstance(feature_raw, dict) else None
 
 
+def _shifter_runtime(actor: Any) -> tuple[dict[str, Any], dict[str, Any]]:
+    race_features = actor.race_features if isinstance(getattr(actor, "race_features", None), dict) else {}
+    runtime_raw = race_features.get("runtime")
+    runtime = dict(runtime_raw) if isinstance(runtime_raw, dict) else {}
+    return race_features, runtime
+
+
+def _shifter_subrace_key(actor: Any) -> str:
+    race_features = actor.race_features if isinstance(getattr(actor, "race_features", None), dict) else {}
+    subrace_raw = race_features.get("subrace")
+    subrace = dict(subrace_raw) if isinstance(subrace_raw, dict) else {}
+    choices_raw = race_features.get("choices")
+    choices = dict(choices_raw) if isinstance(choices_raw, dict) else {}
+    return str(subrace.get("key") or choices.get("subrace_id") or "").strip().lower()
+
+
+def _has_shifting_feature(actor: Any) -> bool:
+    return _race_feature(actor, "shifting") is not None
+
+
+def _is_shifter_shifted(actor: Any) -> bool:
+    _rf, runtime = _shifter_runtime(actor)
+    return bool(runtime.get("shifted_active"))
+
+
+def _clear_shifter_shift(actor: Any) -> bool:
+    if str(getattr(actor, "side", "")).lower() != "pc":
+        return False
+    race_features, runtime = _shifter_runtime(actor)
+    if not runtime:
+        return False
+    changed = False
+    if bool(runtime.get("shifted_active")):
+        runtime["shifted_active"] = False
+        changed = True
+    if max(0, int(runtime.get("shifted_rounds_left") or 0)) != 0:
+        runtime["shifted_rounds_left"] = 0
+        changed = True
+    ac_bonus = max(0, int(runtime.get("shifting_ac_bonus_active") or 0))
+    if ac_bonus > 0:
+        actor.ac = max(0, int(getattr(actor, "ac", 0) or 0) - ac_bonus)
+        runtime["shifting_ac_bonus_active"] = 0
+        changed = True
+    speed_bonus = max(0, int(runtime.get("shifting_speed_bonus_active_ft") or 0))
+    if speed_bonus > 0:
+        speeds = actor.movement_speeds if isinstance(getattr(actor, "movement_speeds", None), dict) else {}
+        walk_speed = max(0, int(speeds.get("walk", getattr(actor, "speed_ft", 30)) or 0))
+        speeds["walk"] = max(0, walk_speed - speed_bonus)
+        actor.movement_speeds = speeds
+        if str(getattr(actor, "movement_mode", "") or "walk").strip().lower() == "walk":
+            actor.move_speed_ft = max(0, int(getattr(actor, "move_speed_ft", speeds["walk"]) or 0) - speed_bonus)
+            actor.move_remaining_ft = min(max(0, int(getattr(actor, "move_remaining_ft", 0) or 0)), actor.move_speed_ft)
+            actor.move_remaining = actor.move_remaining_ft
+        runtime["shifting_speed_bonus_active_ft"] = 0
+        changed = True
+    if bool(runtime.get("shifting_longtooth_bite_available")):
+        runtime["shifting_longtooth_bite_available"] = False
+        changed = True
+    if bool(runtime.get("shifting_swiftstride_reaction_available")):
+        runtime["shifting_swiftstride_reaction_available"] = False
+        changed = True
+    if changed:
+        race_features["runtime"] = runtime
+        actor.race_features = race_features
+    return changed
+
+
+def _select_named_or_first_opponent(state: Any, actor: Any, raw_text: str | None) -> Any | None:
+    opponents: list[Any] = []
+    actor_side = str(getattr(actor, "side", "") or "")
+    for key in state.order:
+        combatant = state.combatants.get(key)
+        if combatant is None:
+            continue
+        if str(getattr(combatant, "side", "") or "") == actor_side:
+            continue
+        if int(getattr(combatant, "hp_current", 0) or 0) <= 0 or bool(getattr(combatant, "is_dead", False)):
+            continue
+        opponents.append(combatant)
+    if not opponents:
+        return None
+    text_norm = str(raw_text or "").strip().lower()
+    if text_norm:
+        best = None
+        best_len = -1
+        for candidate in opponents:
+            name = str(getattr(candidate, "name", "") or "").strip().lower()
+            if name and name in text_norm and len(name) > best_len:
+                best = candidate
+                best_len = len(name)
+        if best is not None:
+            return best
+    return opponents[0]
+
+
+def _shifter_denies_enemy_advantage(target: Any) -> bool:
+    if str(getattr(target, "side", "")).lower() != "pc":
+        return False
+    if int(getattr(target, "hp_current", 0) or 0) <= 0 or bool(getattr(target, "is_dead", False)):
+        return False
+    if _shifter_subrace_key(target) != "wildhunt" or not _is_shifter_shifted(target):
+        return False
+    defense_cfg = _race_feature(target, "shifting_defense")
+    if defense_cfg is None:
+        return False
+    if not bool(defense_cfg.get("while_conscious", True)):
+        return False
+    return max(0, int(defense_cfg.get("deny_enemy_advantage_range_ft") or 0)) > 0
+
+
 def _has_reroll_ones_scope(actor: Any, scope_key: str) -> bool:
     reroll_cfg = _race_feature(actor, "reroll_ones")
     if reroll_cfg is None:
@@ -250,6 +360,8 @@ def _apply_relentless_endurance_if_needed(*, target: Any, incoming_damage: int) 
 
 
 def _revert_shapechanger_on_death(target: Any, lines: list[dict[str, Any]]) -> None:
+    if _clear_shifter_shift(target):
+        lines.append({"text": "Смена формы шифтера завершается из-за смерти.", "muted": True})
     if str(getattr(target, "side", "")).lower() != "pc":
         return
     race_features = target.race_features if isinstance(getattr(target, "race_features", None), dict) else {}
@@ -2173,6 +2285,8 @@ def handle_live_combat_action(
             or _has_pack_tactics_advantage(state, attacker, target)
             or _has_active_grovel_advantage_for_attack(state, attacker, target)
         )
+        if has_advantage and _shifter_denies_enemy_advantage(target):
+            has_advantage = False
         roll_mode = "normal"
         if has_advantage and not has_disadvantage:
             roll_mode = "advantage"
@@ -3197,6 +3311,8 @@ def handle_live_combat_action(
             or _has_pack_tactics_advantage(state, attacker, target)
             or _has_active_grovel_advantage_for_attack(state, attacker, target)
         )
+        if has_advantage and _shifter_denies_enemy_advantage(target):
+            has_advantage = False
         roll_mode = "normal"
         if has_advantage and not has_disadvantage:
             roll_mode = "advantage"
@@ -3418,6 +3534,8 @@ def handle_live_combat_action(
             or _has_pack_tactics_advantage(state, attacker, target)
             or _has_active_grovel_advantage_for_attack(state, attacker, target)
         )
+        if has_advantage and _shifter_denies_enemy_advantage(target):
+            has_advantage = False
         roll_mode = "normal"
         if has_advantage and not has_disadvantage:
             roll_mode = "advantage"
@@ -3720,6 +3838,8 @@ def handle_live_combat_action(
             or _has_pack_tactics_advantage(state, attacker, target)
             or _has_active_grovel_advantage_for_attack(state, attacker, target)
         )
+        if has_advantage and _shifter_denies_enemy_advantage(target):
+            has_advantage = False
         roll_mode = "normal"
         if has_advantage and not has_disadvantage:
             roll_mode = "advantage"
@@ -3911,6 +4031,235 @@ def handle_live_combat_action(
                         )
                     },
                     {"text": "Вы рывком приближаетесь к врагу.", "muted": True},
+                ],
+            },
+            None,
+        )
+
+    if action == "combat_shift":
+        state = get_combat(session_id)
+        if state is None or not state.active:
+            return None, "Combat is not active"
+        if not state.order:
+            end_combat(session_id)
+            return ({"status": "Бой завершён", "open": False, "lines": [{"text": "Бой завершён: целей не осталось.", "muted": True}]}, None)
+        actor_key = state.order[state.turn_index]
+        actor = state.combatants.get(actor_key)
+        if actor is None:
+            return None, "Combat state is inconsistent"
+        if str(getattr(actor, "side", "")).lower() != "pc":
+            return None, "Смена формы доступна только персонажу игрока."
+        shift_cfg = _race_feature(actor, "shifting")
+        if shift_cfg is None:
+            return None, "Смена формы недоступна."
+        race_features, runtime = _shifter_runtime(actor)
+        uses_max = max(1, int(shift_cfg.get("uses_max") or 1))
+        uses_used = max(0, int(runtime.get("shifting_uses_used") or 0))
+        if uses_used >= uses_max:
+            return None, "Смена формы уже использована до короткого или длительного отдыха."
+        if bool(runtime.get("shifted_active")):
+            return None, "Смена формы уже активна."
+        blocked = _spend_bonus_action_or_block(state, actor)
+        if blocked is not None:
+            return blocked, None
+
+        subrace_key = _shifter_subrace_key(actor)
+        con_mod = _actor_ability_mod(actor, "con")
+        temp_hp_gain = max(1, int(getattr(actor, "level", 1) or 1) + con_mod)
+        bonus_lines: list[str] = []
+        bonus_cfg = _race_feature(actor, "shifting_bonus")
+        if isinstance(bonus_cfg, dict) and str(subrace_key) == "beasthide":
+            extra_roll = random.randint(1, 6)
+            temp_hp_gain += extra_roll
+            bonus_lines.append(f"Зверошкура: +1d6 временных хитов ({extra_roll}).")
+            ac_bonus = max(0, int(bonus_cfg.get("ac_bonus") or 0))
+            if ac_bonus > 0:
+                actor.ac += ac_bonus
+                runtime["shifting_ac_bonus_active"] = ac_bonus
+        mobility_cfg = _race_feature(actor, "shifting_mobility")
+        if isinstance(mobility_cfg, dict) and str(subrace_key) == "swiftstride":
+            speed_bonus = max(0, int(mobility_cfg.get("walk_speed_bonus_ft") or 0))
+            if speed_bonus > 0:
+                speeds = actor.movement_speeds if isinstance(getattr(actor, "movement_speeds", None), dict) else {}
+                speeds["walk"] = max(0, int(speeds.get("walk", getattr(actor, "speed_ft", 30)) or 0) + speed_bonus)
+                actor.movement_speeds = speeds
+                if str(getattr(actor, "movement_mode", "") or "walk").strip().lower() == "walk":
+                    actor.move_speed_ft = max(0, int(getattr(actor, "move_speed_ft", speeds["walk"]) or 0) + speed_bonus)
+                    actor.move_remaining_ft = max(0, int(getattr(actor, "move_remaining_ft", 0) or 0) + speed_bonus)
+                    actor.move_remaining = actor.move_remaining_ft
+                runtime["shifting_speed_bonus_active_ft"] = speed_bonus
+        runtime["shifted_active"] = True
+        runtime["shifted_rounds_left"] = 10
+        runtime["shifting_uses_used"] = uses_used + 1
+        runtime["shifting_temp_hp_granted"] = temp_hp_gain
+        runtime["shifting_longtooth_bite_available"] = subrace_key == "longtooth"
+        runtime["shifting_swiftstride_reaction_available"] = subrace_key == "swiftstride"
+        race_features["runtime"] = runtime
+        actor.race_features = race_features
+        actor.temp_hp = max(max(0, int(getattr(actor, "temp_hp", 0) or 0)), temp_hp_gain)
+        lines = [
+            {"text": f"Смена формы: {actor.name} входит в звериную форму на 10 ходов."},
+            {"text": f"Временные хиты: {temp_hp_gain}.", "muted": True},
+            {"text": f"Осталось использований: {max(0, uses_max - uses_used - 1)}/{uses_max}.", "muted": True},
+        ]
+        for line in bonus_lines:
+            lines.append({"text": line, "muted": True})
+        if subrace_key == "longtooth":
+            lines.append({"text": "Длиннозуб: доступен бонусный укус клыками, пока форма активна.", "muted": True})
+        if subrace_key == "swiftstride":
+            lines.append({"text": "Быстроног: скорость +10 фт и доступен реакционный шаг 10 фт.", "muted": True})
+        if subrace_key == "wildhunt":
+            lines.append({"text": "Дикий охотник: преимущество на проверки Мудрости; враги не получают преимущество на атаки по вам.", "muted": True})
+        return ({"status": _combat_status(state), "open": True, "lines": lines}, None)
+
+    if action == "combat_shift_end":
+        state = get_combat(session_id)
+        if state is None or not state.active:
+            return None, "Combat is not active"
+        if not state.order:
+            end_combat(session_id)
+            return ({"status": "Бой завершён", "open": False, "lines": [{"text": "Бой завершён: целей не осталось.", "muted": True}]}, None)
+        actor_key = state.order[state.turn_index]
+        actor = state.combatants.get(actor_key)
+        if actor is None:
+            return None, "Combat state is inconsistent"
+        if str(getattr(actor, "side", "")).lower() != "pc":
+            return None, "Снятие формы доступно только персонажу игрока."
+        if not _is_shifter_shifted(actor):
+            return None, "Смена формы сейчас не активна."
+        blocked = _spend_bonus_action_or_block(state, actor)
+        if blocked is not None:
+            return blocked, None
+        _clear_shifter_shift(actor)
+        return (
+            {"status": _combat_status(state), "open": True, "lines": [{"text": f"Смена формы: {actor.name} возвращается в обычное состояние."}]},
+            None,
+        )
+
+    if action == "combat_longtooth_bite":
+        state = get_combat(session_id)
+        if state is None or not state.active:
+            return None, "Combat is not active"
+        if not state.order:
+            end_combat(session_id)
+            return ({"status": "Бой завершён", "open": False, "lines": [{"text": "Бой завершён: целей не осталось.", "muted": True}]}, None)
+        attacker_key = state.order[state.turn_index]
+        attacker = state.combatants.get(attacker_key)
+        if attacker is None:
+            return None, "Combat state is inconsistent"
+        if _shifter_subrace_key(attacker) != "longtooth" or not _is_shifter_shifted(attacker):
+            return None, "Укус длиннозуба недоступен."
+        blocked = _spend_bonus_action_or_block(state, attacker)
+        if blocked is not None:
+            return blocked, None
+        target = _first_living_opponent(state, attacker.side)
+        if target is None:
+            return None, "Целей не осталось."
+        has_disadvantage = target.dodge_active or _is_poisoned_condition_active(attacker) or _is_taunted_attack_disadvantage(attacker, target) or _has_sunlight_sensitivity_disadvantage(attacker)
+        has_advantage = attacker.help_attack_advantage or _is_hidden_step_active(attacker) or _has_pack_tactics_advantage(state, attacker, target) or _has_active_grovel_advantage_for_attack(state, attacker, target)
+        if has_advantage and _shifter_denies_enemy_advantage(target):
+            has_advantage = False
+        roll_mode = "advantage" if has_advantage and not has_disadvantage else ("disadvantage" if has_disadvantage and not has_advantage else "normal")
+        roll_a, roll_b, d20_roll = _roll_check_compat(roll_mode, rng=random, reroll_ones=_has_reroll_ones_scope(attacker, "attack"))
+        attack_roll_repr = f"d20({roll_a})" if roll_b is None else f"d20({roll_a},{roll_b}) -> {d20_roll}"
+        str_mod = _actor_ability_mod(attacker, "str")
+        attack_bonus = _proficiency_bonus_for_actor(attacker) + str_mod
+        total_to_hit = d20_roll + attack_bonus
+        is_crit = d20_roll == 20
+        is_hit = is_crit or total_to_hit >= int(getattr(target, "ac", 10) or 10)
+        damage_roll = sum(random.randint(1, 6) for _ in range(2 if is_crit else 1))
+        total_damage = damage_roll + str_mod if is_hit else 0
+        lines = [
+            {"text": f"Атака: {attacker.name} → {target.name}", "muted": True},
+            {"text": "Укус длиннозуба: 1d6 piercing (STR, +PROF к атаке).", "muted": True},
+            {"text": f"Бросок атаки: {attack_roll_repr} + {attack_bonus} = {total_to_hit} vs AC {target.ac}"},
+            {"text": "Результат: критическое попадание" if is_crit else ("Результат: попадание" if is_hit else "Результат: промах")},
+            {"text": f"Урон: {damage_roll} + {str_mod} = {total_damage} piercing" if is_hit else "Урон: 0 (промах)"},
+        ]
+        if is_hit:
+            pre_hp = target.hp_current
+            damage_to_apply, relentless_lines = _apply_relentless_endurance_if_needed(target=target, incoming_damage=total_damage)
+            lines.extend(relentless_lines)
+            state = apply_damage(session_id, target.key, damage_to_apply, source=attacker.key)
+            if state is None:
+                return None, "Combat is not active"
+            target = state.combatants.get(target.key, target)
+            if target.side == "pc" and pre_hp > 0 and target.hp_current == 0:
+                leftover = total_damage - pre_hp
+                if leftover >= target.hp_max:
+                    target.is_dead = True
+                    target.is_stable = False
+                    lines.append({"text": f"Мгновенная смерть: {target.name} погибает."})
+                    _revert_shapechanger_on_death(target, lines)
+            lines.append({"text": f"{target.name}: HP {target.hp_current}/{target.hp_max}"})
+            if target.hp_current <= 0:
+                lines.append({"text": f"{target.name} повержен."})
+        return ({"status": _combat_status(state), "open": True, "lines": lines}, None)
+
+    if action == "combat_swiftstride_step":
+        state = get_combat(session_id)
+        if state is None or not state.active:
+            return None, "Combat is not active"
+        if not state.order:
+            end_combat(session_id)
+            return ({"status": "Бой завершён", "open": False, "lines": [{"text": "Бой завершён: целей не осталось.", "muted": True}]}, None)
+        actor_key = state.order[state.turn_index]
+        actor = state.combatants.get(actor_key)
+        if actor is None:
+            return None, "Combat state is inconsistent"
+        if _shifter_subrace_key(actor) != "swiftstride" or not _is_shifter_shifted(actor):
+            return None, "Шаг Быстронога недоступен."
+        blocked = _spend_reaction_or_block(state, actor)
+        if blocked is not None:
+            return blocked, None
+        move_ft = max(0, int((_race_feature(actor, "shifting_mobility") or {}).get("reaction_move_ft") or 10))
+        actor.moved_this_turn_ft = max(0, int(getattr(actor, "moved_this_turn_ft", 0) or 0)) + move_ft
+        return (
+            {"status": _combat_status(state), "open": True, "lines": [{"text": f"Быстроног: {actor.name} реакцией смещается на {move_ft} фт без провокации атак."}]},
+            None,
+        )
+
+    if action == "combat_mark_target":
+        state = get_combat(session_id)
+        if state is None or not state.active:
+            return None, "Combat is not active"
+        if not state.order:
+            end_combat(session_id)
+            return ({"status": "Бой завершён", "open": False, "lines": [{"text": "Бой завершён: целей не осталось.", "muted": True}]}, None)
+        actor_key = state.order[state.turn_index]
+        actor = state.combatants.get(actor_key)
+        if actor is None:
+            return None, "Combat state is inconsistent"
+        if _shifter_subrace_key(actor) != "wildhunt":
+            return None, "Помеченная цель доступна только Дикому охотнику."
+        mark_cfg = _race_feature(actor, "marked_target")
+        if mark_cfg is None:
+            return None, "Помеченная цель недоступна."
+        race_features, runtime = _shifter_runtime(actor)
+        uses_max = max(1, int(mark_cfg.get("uses_max") or 1))
+        uses_used = max(0, int(runtime.get("marked_uses_used") or 0))
+        if uses_used >= uses_max:
+            return None, "Помеченная цель уже использована до отдыха."
+        blocked = _spend_bonus_action_or_block(state, actor)
+        if blocked is not None:
+            return blocked, None
+        target = _select_named_or_first_opponent(state, actor, raw_text)
+        if target is None:
+            return None, "Нет подходящей цели."
+        runtime["wildhunt_marked_target_id"] = str(getattr(target, "key", "") or "")
+        runtime["wildhunt_marked_until"] = datetime.now(timezone.utc).isoformat()
+        runtime["marked_uses_used"] = uses_used + 1
+        race_features["runtime"] = runtime
+        actor.race_features = race_features
+        locate_range = max(0, int(mark_cfg.get("locate_range_ft") or 60))
+        return (
+            {
+                "status": _combat_status(state),
+                "open": True,
+                "lines": [
+                    {"text": f"Помеченная цель: {actor.name} помечает {target.name}."},
+                    {"text": f"Пока метка активна, вы знаете точное местоположение цели в пределах {locate_range} фт.", "muted": True},
+                    {"text": f"Осталось использований: {max(0, uses_max - uses_used - 1)}/{uses_max}.", "muted": True},
                 ],
             },
             None,
@@ -4190,6 +4539,8 @@ def handle_live_combat_action(
             or _has_pack_tactics_advantage(state, attacker, target)
             or _has_active_grovel_advantage_for_attack(state, attacker, target)
         )
+        if has_advantage and _shifter_denies_enemy_advantage(target):
+            has_advantage = False
         roll_mode = "normal"
         if has_advantage and not has_disadvantage:
             roll_mode = "advantage"
@@ -4372,6 +4723,8 @@ def handle_live_combat_action(
             or _has_pack_tactics_advantage(state, attacker, target)
             or _has_active_grovel_advantage_for_attack(state, attacker, target)
         )
+        if has_advantage and _shifter_denies_enemy_advantage(target):
+            has_advantage = False
         roll_mode = "normal"
         if has_advantage and not has_disadvantage:
             roll_mode = "advantage"
