@@ -618,6 +618,13 @@ def _build_race_features(selected_race: dict | None) -> dict[str, Any]:
         if mtype == "darkvision" or (mtype == "sense" and mname == "darkvision"):
             senses["darkvision_ft"] = max(as_int(mech.get("range_ft"), 60), 0)
 
+        if mtype == "feline_agility":
+            features["feline_agility"] = {
+                "type": "feline_agility",
+                "double_speed": True,
+                "reset_if_zero_movement_turn": True,
+            }
+
         if mtype in ("swim_speed", "fly_speed", "climb_speed"):
             speed_equals_walk = bool(mech.get("speed_equals_walk"))
             sp = max(as_int(mech.get("speed_ft"), 0), 0)
@@ -983,6 +990,30 @@ def _build_race_features(selected_race: dict | None) -> dict[str, Any]:
 
         if mtype == "rest_override":
             features["trance"] = dict(mech)
+
+        if mtype == "climb_and_natural_weapon":
+            climb_ft = max(0, as_int(mech.get("climb_speed_ft"), 0))
+            if climb_ft > 0:
+                speeds["climb_ft"] = climb_ft
+            weapon_raw = mech.get("weapon")
+            weapon = dict(weapon_raw) if isinstance(weapon_raw, dict) else {}
+            out_nat_weapons.append(
+                {
+                    "key": "cat_claws",
+                    "kind": "unarmed",
+                    "damage_dice": str(weapon.get("damage_dice") or "1d4").strip().lower() or "1d4",
+                    "damage_type": str(weapon.get("damage_type") or "slashing").strip().lower() or "slashing",
+                    "ability": "str",
+                }
+            )
+            features["cat_claws"] = {
+                "type": "natural_weapon",
+                "name": "cat_claws",
+                "damage_dice": str(weapon.get("damage_dice") or "1d4").strip().lower() or "1d4",
+                "damage_type": str(weapon.get("damage_type") or "slashing").strip().lower() or "slashing",
+                "ability": "str",
+                "is_unarmed_replacement": True,
+            }
 
         if mtype == "animal_enhancement":
             features["animal_enhancement"] = {
@@ -2336,6 +2367,14 @@ async def api_character_create(payload: dict):
             runtime.setdefault("simic_lvl1_enhancement", "")
             runtime.setdefault("simic_lvl5_enhancement", "")
             runtime.setdefault("acid_spit_uses_used", 0)
+            race_features["runtime"] = runtime
+        if isinstance(race_features, dict) and str(race_features.get("race_key") or "").strip().lower() == "tabaxi":
+            runtime_raw = race_features.get("runtime")
+            runtime = dict(runtime_raw) if isinstance(runtime_raw, dict) else {}
+            runtime.setdefault("feline_agility_available", True)
+            runtime.setdefault("feline_agility_active", False)
+            runtime.setdefault("feline_agility_used_turn", "")
+            runtime.setdefault("moved_this_turn_ft", 0)
             race_features["runtime"] = runtime
         if isinstance(race_features, dict) and selected_subrace is not None:
             race_features["subrace"] = {

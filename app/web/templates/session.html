@@ -1846,6 +1846,22 @@ function openCharacterModal(){
   const simicEnhancementText = (raceKey === "simic_hybrid" && simicAnimalEnhancement)
     ? `Животное усиление: 1 уровень — ${simicLvl1Text || "не выбрано"}${simicLvl5Text ? `; 5 уровень — ${simicLvl5Text}` : "; на 5 уровне выберете ещё одно усиление (в т.ч. хватательные придатки/панцирь/кислотный плевок)"}`
     : "";
+  const tabaxiClaws = (raceFeaturesMeta.cat_claws && typeof raceFeaturesMeta.cat_claws === "object")
+    ? raceFeaturesMeta.cat_claws
+    : null;
+  const tabaxiFelineAgility = (raceFeaturesMeta.feline_agility && typeof raceFeaturesMeta.feline_agility === "object")
+    ? raceFeaturesMeta.feline_agility
+    : null;
+  const tabaxiSkillsOk = raceKey === "tabaxi" && profSkills.includes("perception") && profSkills.includes("stealth");
+  const tabaxiTalentText = tabaxiSkillsOk ? "Кошачий талант: Восприятие, Скрытность" : "";
+  const tabaxiClawsText = (raceKey === "tabaxi" && tabaxiClaws)
+    ? `Когти кошки: скорость лазания ${Number.isFinite(Number(speeds.climb_ft)) ? Number(speeds.climb_ft) : 20} футов; когти 1d4 рубящего урона`
+    : "";
+  const tabaxiFelineAgilityText = (raceKey === "tabaxi" && tabaxiFelineAgility)
+    ? (runtime.feline_agility_available === false
+      ? "Кошачья ловкость восстановится, если завершите свой ход без движения."
+      : "Кошачья ловкость готова: в свой ход можете удвоить скорость.")
+    : "";
   const shifterShift = (raceFeaturesMeta.shifting && typeof raceFeaturesMeta.shifting === "object")
     ? raceFeaturesMeta.shifting
     : null;
@@ -2267,6 +2283,15 @@ function openCharacterModal(){
   if(simicEnhancementText){
     details.push(`<div class="char-line"><strong>Животное усиление:</strong> ${escapeHtml(simicEnhancementText.replace(/^Животное усиление:\s*/, ""))}</div>`);
   }
+  if(tabaxiTalentText){
+    details.push(`<div class="char-line"><strong>Кошачий талант:</strong> ${escapeHtml(tabaxiTalentText.replace(/^Кошачий талант:\s*/, ""))}</div>`);
+  }
+  if(tabaxiClawsText){
+    details.push(`<div class="char-line"><strong>Когти кошки:</strong> ${escapeHtml(tabaxiClawsText.replace(/^Когти кошки:\s*/, ""))}</div>`);
+  }
+  if(tabaxiFelineAgilityText){
+    details.push(`<div class="char-line"><strong>Кошачья ловкость:</strong> ${escapeHtml(tabaxiFelineAgilityText.replace(/^Кошачья ловкость:\s*/, ""))}</div>`);
+  }
   if(shifterShiftText){
     details.push(`<div class="char-line"><strong>Смена формы:</strong> ${escapeHtml(shifterShiftText.replace(/^Смена формы:\s*/, ""))}</div>`);
   }
@@ -2550,6 +2575,9 @@ function openCharacterModal(){
   if(satyrMirthfulLeapsText) copyLines.push(satyrMirthfulLeapsText);
   if(satyrRevelerText) copyLines.push(satyrRevelerText);
   if(simicEnhancementText) copyLines.push(simicEnhancementText);
+  if(tabaxiTalentText) copyLines.push(tabaxiTalentText);
+  if(tabaxiClawsText) copyLines.push(tabaxiClawsText);
+  if(tabaxiFelineAgilityText) copyLines.push(tabaxiFelineAgilityText);
   if(shifterShiftText) copyLines.push(shifterShiftText);
   if(shifterSubraceEffectText) copyLines.push(shifterSubraceEffectText);
   if(rebornDeathlessNatureText) copyLines.push(rebornDeathlessNatureText);

@@ -136,6 +136,14 @@ CHAT_COMBAT_ACTION_PATTERNS: list[tuple[str, re.Pattern[str]]] = [
         re.compile(r"(помечаю\s+цель|marked\s+target|mark\b)", re.IGNORECASE),
     ),
     (
+        "combat_feline_agility",
+        re.compile(r"(кошач\w+\s+ловк\w*|feline\s+agility)", re.IGNORECASE),
+    ),
+    (
+        "combat_cat_claws",
+        re.compile(r"(когт\w+\s+кошк\w*|cat\s+claws)", re.IGNORECASE),
+    ),
+    (
         "combat_grapple_appendages",
         re.compile(r"(хватательн\w+\s+придатк\w*|appendages\s+grapple|grapple\s+appendages)", re.IGNORECASE),
     ),

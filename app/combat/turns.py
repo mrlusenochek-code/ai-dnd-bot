@@ -42,6 +42,35 @@ def _clear_shifter_shift_runtime(combatant: Combatant) -> bool:
     return changed
 
 
+def _normalize_tabaxi_feline_agility_runtime(combatant: Combatant) -> bool:
+    race_features = combatant.race_features if isinstance(combatant.race_features, dict) else {}
+    features = race_features.get("features") if isinstance(race_features.get("features"), dict) else {}
+    if not isinstance(features.get("feline_agility"), dict):
+        return False
+    runtime_raw = race_features.get("runtime")
+    runtime = dict(runtime_raw) if isinstance(runtime_raw, dict) else {}
+    moved_ft = max(0, int(getattr(combatant, "moved_this_turn_ft", 0) or 0))
+    changed = False
+    if bool(runtime.get("feline_agility_active")):
+        runtime["feline_agility_active"] = False
+        changed = True
+    if str(runtime.get("feline_agility_used_turn") or "").strip():
+        runtime["feline_agility_used_turn"] = ""
+        changed = True
+    if moved_ft > 0:
+        if bool(runtime.get("feline_agility_available")):
+            runtime["feline_agility_available"] = False
+            changed = True
+    else:
+        if not bool(runtime.get("feline_agility_available", True)):
+            runtime["feline_agility_available"] = True
+            changed = True
+    if changed:
+        race_features["runtime"] = runtime
+        combatant.race_features = race_features
+    return changed
+
+
 def build_initiative_order(combatants: dict[str, Combatant]) -> list[str]:
     """Build stable initiative order: initiative desc, pc before enemy, then name/key."""
     side_priority = {"pc": 0, "enemy": 1}
@@ -147,6 +176,7 @@ def advance_turn_in_state(state: CombatState) -> CombatState:
             ending_combatant.race_features = race_features
             if rounds_left <= 0:
                 _clear_shifter_shift_runtime(ending_combatant)
+        _normalize_tabaxi_feline_agility_runtime(ending_combatant)
     if ending_combatant is not None:
         source_actor_key = str(getattr(ending_combatant, "key", "") or "")
         if source_actor_key:

@@ -517,6 +517,13 @@ def _has_simic_feature(actor: Any, feature_key: str) -> bool:
     return _race_feature(actor, feature_key) is not None
 
 
+def _tabaxi_runtime(actor: Any) -> tuple[dict[str, Any], dict[str, Any]]:
+    race_features = actor.race_features if isinstance(getattr(actor, "race_features", None), dict) else {}
+    runtime_raw = race_features.get("runtime")
+    runtime = dict(runtime_raw) if isinstance(runtime_raw, dict) else {}
+    return race_features, runtime
+
+
 def _maybe_apply_fury_of_small(*, actor: Any, target: Any, lines: list[dict[str, Any]]) -> int:
     if str(getattr(actor, "side", "")).lower() != "pc":
         return 0
@@ -4278,6 +4285,97 @@ def handle_live_combat_action(
             },
             None,
         )
+
+    if action == "combat_feline_agility":
+        state = get_combat(session_id)
+        if state is None or not state.active:
+            return None, "Combat is not active"
+        if not state.order:
+            end_combat(session_id)
+            return ({"status": "Бой завершён", "open": False, "lines": [{"text": "Бой завершён: целей не осталось.", "muted": True}]}, None)
+        actor_key = state.order[state.turn_index]
+        actor = state.combatants.get(actor_key)
+        if actor is None:
+            return None, "Combat state is inconsistent"
+        feline_cfg = _race_feature(actor, "feline_agility")
+        if feline_cfg is None or str(getattr(actor, "side", "")).lower() != "pc":
+            return None, "Кошачья ловкость недоступна."
+        race_features, runtime = _tabaxi_runtime(actor)
+        if not bool(runtime.get("feline_agility_available", True)):
+            return None, "Кошачья ловкость восстановится, если завершите свой ход без движения."
+        if bool(runtime.get("feline_agility_active")):
+            return None, "Кошачья ловкость уже активирована на этом ходу."
+        move_speed_ft, move_remaining_ft = _movement_budget_for_actor(actor)
+        actor.move_speed_ft = move_speed_ft
+        actor.move_remaining_ft = move_remaining_ft
+        actor.move_remaining = move_remaining_ft
+        actor.move_speed_ft = max(0, move_speed_ft * 2)
+        actor.move_remaining_ft = max(0, move_remaining_ft + move_speed_ft)
+        actor.move_remaining = actor.move_remaining_ft
+        runtime["feline_agility_active"] = True
+        runtime["feline_agility_used_turn"] = f"{int(getattr(state, 'round_no', 1) or 1)}:{getattr(actor, 'key', '')}"
+        race_features["runtime"] = runtime
+        actor.race_features = race_features
+        return (
+            {
+                "status": _combat_status(state),
+                "open": True,
+                "lines": [
+                    {"text": f"Кошачья ловкость: {actor.name} удваивает скорость до конца хода."},
+                    {"text": f"Перемещение на этот ход: {actor.move_remaining_ft} фт из {actor.move_speed_ft} фт.", "muted": True},
+                ],
+            },
+            None,
+        )
+
+    if action == "combat_cat_claws":
+        state = get_combat(session_id)
+        if state is None or not state.active:
+            return None, "Combat is not active"
+        if not state.order:
+            end_combat(session_id)
+            return ({"status": "Бой завершён", "open": False, "lines": [{"text": "Бой завершён: целей не осталось.", "muted": True}]}, None)
+        attacker_key = state.order[state.turn_index]
+        attacker = state.combatants.get(attacker_key)
+        if attacker is None:
+            return None, "Combat state is inconsistent"
+        claws_cfg = _race_feature(attacker, "cat_claws")
+        if claws_cfg is None or str(getattr(attacker, "side", "")).lower() != "pc":
+            return None, "Когти кошки недоступны."
+        blocked = _spend_action_or_block(state, attacker)
+        if blocked is not None:
+            return blocked, None
+        target = _select_named_or_first_opponent(state, attacker, raw_text)
+        if target is None:
+            return None, "Нет подходящей цели."
+        has_disadvantage = target.dodge_active or _is_poisoned_condition_active(attacker) or _is_taunted_attack_disadvantage(attacker, target) or _has_sunlight_sensitivity_disadvantage(attacker)
+        has_advantage = attacker.help_attack_advantage or _is_hidden_step_active(attacker) or _has_pack_tactics_advantage(state, attacker, target) or _has_active_grovel_advantage_for_attack(state, attacker, target)
+        if has_advantage and _shifter_denies_enemy_advantage(target):
+            has_advantage = False
+        roll_mode = "advantage" if has_advantage and not has_disadvantage else ("disadvantage" if has_disadvantage and not has_advantage else "normal")
+        roll_a, roll_b, d20_roll = _roll_check_compat(roll_mode, rng=random, reroll_ones=_has_reroll_ones_scope(attacker, "attack"))
+        attack_roll_repr = f"d20({roll_a})" if roll_b is None else f"d20({roll_a},{roll_b}) -> {d20_roll}"
+        str_mod = _actor_ability_mod(attacker, "str")
+        attack_bonus = _proficiency_bonus_for_actor(attacker) + str_mod
+        total_to_hit = d20_roll + attack_bonus
+        is_crit = d20_roll == 20
+        is_hit = is_crit or total_to_hit >= int(getattr(target, "ac", 10) or 10)
+        damage_roll = sum(random.randint(1, 4) for _ in range(2 if is_crit else 1))
+        total_damage = damage_roll + str_mod if is_hit else 0
+        lines = [
+            {"text": f"Атака: {attacker.name} → {target.name}", "muted": True},
+            {"text": "Когти кошки: 1d4 slashing (STR, +PROF к атаке).", "muted": True},
+            {"text": f"Бросок атаки: {attack_roll_repr} + {attack_bonus} = {total_to_hit} vs AC {target.ac}"},
+            {"text": "Результат: критическое попадание" if is_crit else ("Результат: попадание" if is_hit else "Результат: промах")},
+            {"text": f"Урон: {damage_roll} + {str_mod} = {total_damage} slashing" if is_hit else "Урон: 0 (промах)"},
+        ]
+        if is_hit:
+            damage_to_apply, relentless_lines = _apply_relentless_endurance_if_needed(target=target, incoming_damage=total_damage)
+            lines.extend(relentless_lines)
+            state = apply_damage(session_id, target.key, damage_to_apply, source=attacker.key)
+            if state is None:
+                return None, "Combat is not active"
+        return ({"status": _combat_status(state), "open": True, "lines": lines}, None)
 
     if action in {"combat_grapple_appendages", "combat_appendages_grapple_bonus"}:
         state = get_combat(session_id)

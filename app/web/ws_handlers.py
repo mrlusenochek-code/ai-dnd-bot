@@ -2404,6 +2404,10 @@ def _reset_racial_rest_uses(ch: Character, *, long_rest: bool = True) -> bool:
         ("shifting_speed_bonus_active_ft", 0),
         ("shifting_longtooth_bite_available", False),
         ("shifting_swiftstride_reaction_available", False),
+        ("feline_agility_available", True),
+        ("feline_agility_active", False),
+        ("feline_agility_used_turn", ""),
+        ("moved_this_turn_ft", 0),
     ):
         if key in runtime:
             runtime[key] = value
@@ -2588,6 +2592,10 @@ def _reset_combatant_racial_rest_uses(session_id: str, actor_key: str, *, long_r
         ("shifting_speed_bonus_active_ft", 0),
         ("shifting_longtooth_bite_available", False),
         ("shifting_swiftstride_reaction_available", False),
+        ("feline_agility_available", True),
+        ("feline_agility_active", False),
+        ("feline_agility_used_turn", ""),
+        ("moved_this_turn_ft", 0),
     ):
         if key in runtime:
             runtime[key] = value
@@ -4043,7 +4051,7 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                 if combat_action in {"combat_fury_of_small", "combat_fury_of_the_small"} and not combat_active:
                     await ws_error("Разъярённая мелкота доступна только в бою.", request_id=msg_request_id)
                     continue
-                if combat_action in {"combat_hungry_jaws", "combat_rabbit_hop", "combat_lucky_footwork", "combat_saving_face", "combat_taunt", "combat_fearless", "combat_daunting_roar", "combat_grovel_cower_beg", "combat_goring_rush", "combat_hammering_horns", "combat_aggressive", "combat_shift", "combat_shift_end", "combat_longtooth_bite", "combat_swiftstride_step", "combat_mark_target", "combat_acid_spit", "combat_grapple_appendages", "combat_appendages_grapple_bonus"} and not combat_active:
+                if combat_action in {"combat_hungry_jaws", "combat_rabbit_hop", "combat_lucky_footwork", "combat_saving_face", "combat_taunt", "combat_fearless", "combat_daunting_roar", "combat_grovel_cower_beg", "combat_goring_rush", "combat_hammering_horns", "combat_aggressive", "combat_shift", "combat_shift_end", "combat_longtooth_bite", "combat_swiftstride_step", "combat_mark_target", "combat_feline_agility", "combat_cat_claws", "combat_acid_spit", "combat_grapple_appendages", "combat_appendages_grapple_bonus"} and not combat_active:
                     await ws_error("Эта особенность доступна только в бою.", request_id=msg_request_id)
                     continue
                 if combat_action in {"combat_eerie_token_create", "combat_eerie_token_message", "combat_eerie_token_view"} and not combat_active:
@@ -4413,7 +4421,7 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                         continue
                     else:
                         await ws_error(
-                            "Combat Lock: в бою доступны только боевые команды (атака/конец хода/уклон/движение/рывок/отход/засада/взлёт/приземление/помощь/побег/пресмыкайся/разъярённая мелкота/яд грунга на оружии/голодная пасть/кроличий прыжок/сильные ноги/сохранить лицо/насмешка/бесстрашие/устрашающий рёв/агрессивный/смена формы/снять форму/укус длиннозуба/шаг быстронога/пометить цель/хватательные придатки/схватить придатками/кислотный плевок/жуткий сувенир/каменная выносливость/исцеляющие руки/небесное преобразование/незримая поступь/подводное дыхание/оружие дыхания) или OOC/телепатия (mind link) / знания reborn.",
+                            "Combat Lock: в бою доступны только боевые команды (атака/конец хода/уклон/движение/рывок/отход/засада/взлёт/приземление/помощь/побег/пресмыкайся/разъярённая мелкота/яд грунга на оружии/голодная пасть/кроличий прыжок/сильные ноги/сохранить лицо/насмешка/бесстрашие/устрашающий рёв/агрессивный/смена формы/снять форму/укус длиннозуба/шаг быстронога/пометить цель/кошачья ловкость/когти кошки/хватательные придатки/схватить придатками/кислотный плевок/жуткий сувенир/каменная выносливость/исцеляющие руки/небесное преобразование/незримая поступь/подводное дыхание/оружие дыхания) или OOC/телепатия (mind link) / знания reborn.",
                             request_id=msg_request_id,
                         )
                         continue
@@ -4427,6 +4435,9 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                     continue
                 if combat_action == "combat_aggressive":
                     await ws_error("Агрессивный можно применить только в бою.", request_id=msg_request_id)
+                    continue
+                if combat_action in {"combat_feline_agility", "combat_cat_claws"}:
+                    await ws_error("Особенности табакси доступны только в бою.", request_id=msg_request_id)
                     continue
                 if combat_action in {"combat_acid_spit", "combat_grapple_appendages", "combat_appendages_grapple_bonus"}:
                     await ws_error("Эта способность Simic доступна только в бою.", request_id=msg_request_id)
@@ -5729,7 +5740,7 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                 if combat_action in {"combat_fury_of_small", "combat_fury_of_the_small"} and not combat_active:
                     await ws_error("Разъярённая мелкота доступна только в бою.", request_id=msg_request_id)
                     continue
-                if combat_action in {"combat_hungry_jaws", "combat_rabbit_hop", "combat_lucky_footwork", "combat_saving_face", "combat_taunt", "combat_fearless", "combat_daunting_roar", "combat_grovel_cower_beg", "combat_goring_rush", "combat_hammering_horns", "combat_aggressive", "combat_shift", "combat_shift_end", "combat_longtooth_bite", "combat_swiftstride_step", "combat_mark_target", "combat_acid_spit", "combat_grapple_appendages", "combat_appendages_grapple_bonus"} and not combat_active:
+                if combat_action in {"combat_hungry_jaws", "combat_rabbit_hop", "combat_lucky_footwork", "combat_saving_face", "combat_taunt", "combat_fearless", "combat_daunting_roar", "combat_grovel_cower_beg", "combat_goring_rush", "combat_hammering_horns", "combat_aggressive", "combat_shift", "combat_shift_end", "combat_longtooth_bite", "combat_swiftstride_step", "combat_mark_target", "combat_feline_agility", "combat_cat_claws", "combat_acid_spit", "combat_grapple_appendages", "combat_appendages_grapple_bonus"} and not combat_active:
                     await ws_error("Эта особенность доступна только в бою.", request_id=msg_request_id)
                     continue
                 if combat_action in {"combat_eerie_token_create", "combat_eerie_token_message", "combat_eerie_token_view"} and not combat_active:
@@ -6160,6 +6171,9 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                     continue
                 if combat_action == "combat_aggressive":
                     await ws_error("Агрессивный можно применить только в бою.")
+                    continue
+                if combat_action in {"combat_feline_agility", "combat_cat_claws"}:
+                    await ws_error("Особенности табакси доступны только в бою.")
                     continue
                 if combat_action in {"combat_acid_spit", "combat_grapple_appendages", "combat_appendages_grapple_bonus"}:
                     await ws_error("Эта способность Simic доступна только в бою.")
