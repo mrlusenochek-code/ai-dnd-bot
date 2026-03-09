@@ -218,6 +218,10 @@ def _effective_save_mode(
         if adv_key == ability_key:
             return "advantage"
     if vs_magic:
+        features_raw = race_features.get("features")
+        features = features_raw if isinstance(features_raw, dict) else {}
+        if isinstance(features.get("magic_resistance"), dict):
+            return "advantage"
         adv_magic_raw = saves.get("advantage_vs_magic")
         advantages_vs_magic = adv_magic_raw if isinstance(adv_magic_raw, list) else []
         for item in advantages_vs_magic:
@@ -1230,6 +1234,63 @@ def _consume_reborn_past_life_for_skill_check(ch: Character, *, kind: str) -> tu
     rf["runtime"] = runtime
     ch.race_features = rf
     return bonus, f"1d6 (Знания из прошлой жизни: {bonus})", True
+
+
+def _extract_jump_kind(text: str) -> str:
+    raw = str(text or "").strip().lower()
+    if re.search(r"\bjump\s+long\b|прыга\w*\s+в\s+длин\w*|прыж\w*\s+в\s+длин\w*", raw, flags=re.IGNORECASE):
+        return "long_jump"
+    if re.search(r"\bjump\s+high\b|прыга\w*\s+в\s+высот\w*|прыж\w*\s+в\s+высот\w*", raw, flags=re.IGNORECASE):
+        return "high_jump"
+    return ""
+
+
+def _apply_satyr_mirthful_leaps_jump(
+    *,
+    session_id: str,
+    player_uid: int | None,
+    ch: Character,
+    jump_kind: str,
+) -> tuple[Optional[str], Optional[str], bool]:
+    jump_key = str(jump_kind or "").strip().lower()
+    if jump_key not in {"long_jump", "high_jump"}:
+        return "Не понял тип прыжка. Используйте jump long/jump high.", None, False
+    race_features = getattr(ch, "race_features", None)
+    rf = dict(race_features) if isinstance(race_features, dict) else {}
+    features_raw = rf.get("features")
+    features = dict(features_raw) if isinstance(features_raw, dict) else {}
+    leaps_raw = features.get("mirthful_leaps")
+    leaps = dict(leaps_raw) if isinstance(leaps_raw, dict) else {}
+    applies_to = [
+        str(item or "").strip().lower()
+        for item in (leaps.get("applies_to") if isinstance(leaps.get("applies_to"), list) else [])
+        if str(item or "").strip()
+    ]
+    if not leaps or (applies_to and jump_key not in applies_to):
+        return "Зрелищные прыжки недоступны вашей расе.", None, False
+
+    bonus = random.randint(1, 8)
+    runtime = dict(rf.get("runtime")) if isinstance(rf.get("runtime"), dict) else {}
+    runtime["last_mirthful_leaps_bonus_ft"] = bonus
+    runtime["last_mirthful_leaps_kind"] = jump_key
+    rf["runtime"] = runtime
+    ch.race_features = rf
+
+    jump_ru = "в длину" if jump_key == "long_jump" else "в высоту"
+    msg = f"Зрелищные прыжки: прыжок {jump_ru}, +1d8 ({bonus}) фт."
+
+    if player_uid is not None:
+        state = get_combat(session_id)
+        actor = state.combatants.get(f"pc_{player_uid}") if state is not None and state.active else None
+        if actor is not None:
+            move_remaining_ft = max(0, int(getattr(actor, "move_remaining_ft", 0) or 0))
+            spent_ft = min(move_remaining_ft, bonus)
+            actor.move_remaining_ft = max(0, move_remaining_ft - spent_ft)
+            actor.move_remaining = actor.move_remaining_ft
+            actor.moved_this_turn_ft = max(0, int(getattr(actor, "moved_this_turn_ft", 0) or 0)) + spent_ft
+            msg += f" Потрачено движения: {spent_ft} фт (осталось {actor.move_remaining_ft} фт)."
+
+    return None, msg, True
 
 
 def _reset_harengon_long_rest(ch: Character) -> bool:
@@ -3520,6 +3581,40 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                     await broadcast_state(session_id)
                     continue
 
+                if combat_action == "combat_jump":
+                    ch = await get_character(db, sess.id, player.id)
+                    if not ch:
+                        await ws_error("Персонаж не найден.", request_id=msg_request_id)
+                        continue
+                    if combat_active:
+                        state_now = get_combat(session_id)
+                        player_uid = _player_uid(player)
+                        player_key = f"pc_{player_uid}" if player_uid is not None else ""
+                        turn_key = state_now.order[state_now.turn_index] if state_now and state_now.order and 0 <= state_now.turn_index < len(state_now.order) else ""
+                        if not turn_key or turn_key != player_key:
+                            current_name = current_turn_label(state_now) if state_now else "другой участник"
+                            await add_system_event(db, sess, f"Сейчас ходит {current_name}. Дождись своего хода.")
+                            await broadcast_state(session_id)
+                            continue
+                    jump_kind = _extract_jump_kind(cmdline)
+                    jump_err, jump_msg, changed = _apply_satyr_mirthful_leaps_jump(
+                        session_id=session_id,
+                        player_uid=_player_uid(player),
+                        ch=ch,
+                        jump_kind=jump_kind,
+                    )
+                    if jump_err:
+                        await ws_error(jump_err, request_id=msg_request_id)
+                        continue
+                    if changed:
+                        flag_modified(ch, "race_features")
+                        await db.commit()
+                    if jump_msg:
+                        actor_name = str(getattr(ch, "name", "") or player.display_name).strip() or player.display_name
+                        await add_system_event(db, sess, f"{actor_name}: {jump_msg}")
+                    await broadcast_state(session_id)
+                    continue
+
                 handled_mind_link, mind_link_err, mind_link_msg = await _handle_kalashtar_mind_link_action(
                     db,
                     sess,
@@ -5156,6 +5251,40 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                     if past_life_msg:
                         actor_name = str(getattr(ch, "name", "") or player.display_name).strip() or player.display_name
                         await add_system_event(db, sess, f"{actor_name}: {past_life_msg}")
+                    await broadcast_state(session_id)
+                    continue
+
+                if combat_action == "combat_jump":
+                    ch = await get_character(db, sess.id, player.id)
+                    if not ch:
+                        await ws_error("Персонаж не найден.", request_id=msg_request_id)
+                        continue
+                    if combat_active:
+                        state_now = get_combat(session_id)
+                        player_uid = _player_uid(player)
+                        player_key = f"pc_{player_uid}" if player_uid is not None else ""
+                        turn_key = state_now.order[state_now.turn_index] if state_now and state_now.order and 0 <= state_now.turn_index < len(state_now.order) else ""
+                        if not turn_key or turn_key != player_key:
+                            current_name = current_turn_label(state_now) if state_now else "другой участник"
+                            await add_system_event(db, sess, f"Сейчас ходит {current_name}. Дождись своего хода.")
+                            await broadcast_state(session_id)
+                            continue
+                    jump_kind = _extract_jump_kind(cmdline)
+                    jump_err, jump_msg, changed = _apply_satyr_mirthful_leaps_jump(
+                        session_id=session_id,
+                        player_uid=_player_uid(player),
+                        ch=ch,
+                        jump_kind=jump_kind,
+                    )
+                    if jump_err:
+                        await ws_error(jump_err, request_id=msg_request_id)
+                        continue
+                    if changed:
+                        flag_modified(ch, "race_features")
+                        await db.commit()
+                    if jump_msg:
+                        actor_name = str(getattr(ch, "name", "") or player.display_name).strip() or player.display_name
+                        await add_system_event(db, sess, f"{actor_name}: {jump_msg}")
                     await broadcast_state(session_id)
                     continue
 

@@ -65,6 +65,16 @@ TIRELESS_PRECISION_TOOL_WHITELIST = {
     "potters_tools",
     "weavers_tools",
     "woodcarvers_tools",
+    "bagpipes",
+    "drum",
+    "dulcimer",
+    "flute",
+    "horn",
+    "lute",
+    "lyre",
+    "pan_flute",
+    "shawm",
+    "viol",
 }
 WIZARD_CANTRIP_WHITELIST = {
     "fire_bolt",
@@ -688,6 +698,29 @@ def _build_race_features(selected_race: dict | None) -> dict[str, Any]:
             weapon_profs.extend(_uniq_lower_str_list(mech.get("weapons")))
             armor_profs.extend(_uniq_lower_str_list(mech.get("armor")))
             tool_profs.extend(_uniq_lower_str_list(mech.get("tools")))
+            choose_musical = max(as_int(mech.get("choose_musical_instrument"), 0), 0)
+            if choose_musical > 0:
+                features["tool_choice"] = {
+                    "choose": choose_musical,
+                    "from": sorted(
+                        {
+                            "bagpipes",
+                            "drum",
+                            "dulcimer",
+                            "flute",
+                            "horn",
+                            "lute",
+                            "lyre",
+                            "pan_flute",
+                            "shawm",
+                            "viol",
+                        }
+                    ),
+                }
+                features["reveler"] = {
+                    "skills": _uniq_lower_str_list(mech.get("skills")),
+                    "choose_musical_instrument": choose_musical,
+                }
 
         if mtype in {"skill_proficiency", "skill_proficiencies"}:
             skill_profs.extend(_uniq_lower_str_list(mech.get("skills")))
@@ -778,6 +811,12 @@ def _build_race_features(selected_race: dict | None) -> dict[str, Any]:
 
         if mtype == "standing_leap":
             features["standing_leap"] = dict(mech)
+
+        if mtype == "jump_bonus":
+            features["mirthful_leaps"] = {
+                "bonus_dice": str(mech.get("bonus_dice") or "1d8").strip().lower() or "1d8",
+                "applies_to": _uniq_lower_str_list(mech.get("applies_to")),
+            }
 
         if mtype == "water_dependency":
             features["water_dependency"] = dict(mech)
@@ -1168,6 +1207,12 @@ def _build_race_features(selected_race: dict | None) -> dict[str, Any]:
         if mtype == "fey_ancestry":
             save_advantage_conditions.append("charmed")
             immune_cond.append("magic_sleep")
+
+        if mtype == "magic_resistance":
+            for ability in allowed_save_abilities:
+                if ability not in save_advantage_vs_magic:
+                    save_advantage_vs_magic.append(ability)
+            features["magic_resistance"] = {"applies_to": "all_magic_saves"}
 
         if mtype == "learn_cantrip":
             spell_key = str(mech.get("spell_key") or "").strip().lower()

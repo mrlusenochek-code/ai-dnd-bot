@@ -1245,6 +1245,16 @@ function openCharacterModal(){
     "potters_tools": "Инструменты гончара",
     "weavers_tools": "Инструменты ткача",
     "woodcarvers_tools": "Инструменты резчика по дереву",
+    "bagpipes": "Волынка",
+    "drum": "Барабан",
+    "dulcimer": "Цимбалы",
+    "flute": "Флейта",
+    "horn": "Рожок",
+    "lute": "Лютня",
+    "lyre": "Лира",
+    "pan_flute": "Свирель Пана",
+    "shawm": "Шалмей",
+    "viol": "Виола",
   };
   const WEAPON_LABELS_RU = {
     "battleaxe": "Боевой топор",
@@ -1774,6 +1784,31 @@ function openCharacterModal(){
   const owlinStealthText = (raceKey === "owlin" && profSkills.includes("stealth"))
     ? "Владение: Скрытность"
     : "";
+  const satyrRam = Array.isArray(rf.natural_weapons)
+    ? rf.natural_weapons.find((x) => x && typeof x === "object" && String(x.key || "").trim().toLowerCase() === "ram")
+    : null;
+  const satyrMagicResistance = (raceFeaturesMeta.magic_resistance && typeof raceFeaturesMeta.magic_resistance === "object")
+    ? raceFeaturesMeta.magic_resistance
+    : null;
+  const satyrMirthfulLeaps = (raceFeaturesMeta.mirthful_leaps && typeof raceFeaturesMeta.mirthful_leaps === "object")
+    ? raceFeaturesMeta.mirthful_leaps
+    : null;
+  const satyrInstrumentKey = (raceKey === "satyr" && Array.isArray(choices.tools) && choices.tools.length > 0)
+    ? String(choices.tools[0] || "").trim().toLowerCase()
+    : "";
+  const satyrInstrumentRu = satyrInstrumentKey ? (TOOL_LABELS_RU[satyrInstrumentKey] || satyrInstrumentKey) : "";
+  const satyrRamText = (raceKey === "satyr" && satyrRam)
+    ? "Таран: рога 1к4 + СИЛ дробящий (природное оружие)"
+    : "";
+  const satyrMagicResistanceText = (raceKey === "satyr" && satyrMagicResistance)
+    ? "Сопротивление магии: преимущество на спасброски от заклинаний и прочих магических эффектов"
+    : "";
+  const satyrMirthfulLeapsText = (raceKey === "satyr" && satyrMirthfulLeaps)
+    ? "Зрелищные прыжки: +1к8 футов к прыжку в длину/высоту"
+    : "";
+  const satyrRevelerText = (raceKey === "satyr" && profSkills.includes("performance") && profSkills.includes("persuasion"))
+    ? `Гуляка: владение Выступление, Убеждение; музыкальный инструмент: ${satyrInstrumentRu || "выбор при создании"}`
+    : "";
   const rebornDeathlessNature = (raceFeaturesMeta.deathless_nature && typeof raceFeaturesMeta.deathless_nature === "object")
     ? raceFeaturesMeta.deathless_nature
     : null;
@@ -2132,6 +2167,18 @@ function openCharacterModal(){
   if(owlinStealthText){
     details.push(`<div class="char-line"><strong>Владение:</strong> ${escapeHtml(owlinStealthText.replace(/^Владение:\s*/, ""))}</div>`);
   }
+  if(satyrRamText){
+    details.push(`<div class="char-line"><strong>Таран:</strong> ${escapeHtml(satyrRamText.replace(/^Таран:\s*/, ""))}</div>`);
+  }
+  if(satyrMagicResistanceText){
+    details.push(`<div class="char-line"><strong>Сопротивление магии:</strong> ${escapeHtml(satyrMagicResistanceText.replace(/^Сопротивление магии:\s*/, ""))}</div>`);
+  }
+  if(satyrMirthfulLeapsText){
+    details.push(`<div class="char-line"><strong>Зрелищные прыжки:</strong> ${escapeHtml(satyrMirthfulLeapsText.replace(/^Зрелищные прыжки:\s*/, ""))}</div>`);
+  }
+  if(satyrRevelerText){
+    details.push(`<div class="char-line"><strong>Гуляка:</strong> ${escapeHtml(satyrRevelerText.replace(/^Гуляка:\s*/, ""))}</div>`);
+  }
   if(rebornDeathlessNatureText){
     details.push(`<div class="char-line"><strong>Бессмертная природа:</strong> ${escapeHtml(rebornDeathlessNatureText.replace(/^Бессмертная природа:\s*/, ""))}</div>`);
   }
@@ -2403,6 +2450,10 @@ function openCharacterModal(){
   if(minotaurHammeringHornsText) copyLines.push(minotaurHammeringHornsText);
   if(owlinFlightText) copyLines.push(owlinFlightText);
   if(owlinStealthText) copyLines.push(owlinStealthText);
+  if(satyrRamText) copyLines.push(satyrRamText);
+  if(satyrMagicResistanceText) copyLines.push(satyrMagicResistanceText);
+  if(satyrMirthfulLeapsText) copyLines.push(satyrMirthfulLeapsText);
+  if(satyrRevelerText) copyLines.push(satyrRevelerText);
   if(rebornDeathlessNatureText) copyLines.push(rebornDeathlessNatureText);
   if(rebornPastLifeText) copyLines.push(rebornPastLifeText);
   if(orcMenacingText) copyLines.push(orcMenacingText);
