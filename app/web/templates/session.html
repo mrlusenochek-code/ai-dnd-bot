@@ -1766,7 +1766,13 @@ function openCharacterModal(){
   const minotaurHammeringHornsText = (raceKey === "minotaur" && minotaurHammeringHorns)
     ? "Сокрушительные рога: после попадания melee в действии Атака — бонусным действием толчок 10 фт (Сл=8+БМ+мод СИЛ)"
     : "";
-  const orcMenacingText = (raceKey === "orc" && profSkills.includes("Запугивание"))
+  const owlinFlightText = (raceKey === "owlin" && Number.isFinite(Number(speeds.fly_ft)) && Number(speeds.fly_ft) > 0)
+    ? `Полёт: ${flySpeedEqualsWalk ? "скорость полёта = ходьба; " : ""}нельзя в средних/тяжёлых доспехах${flyBlockedByArmor ? " (полёт недоступен из-за брони)" : ""}`
+    : "";
+  const owlinStealthText = (raceKey === "owlin" && profSkills.includes("stealth"))
+    ? "Владение: Скрытность"
+    : "";
+  const orcMenacingText = (raceKey === "orc" && profSkills.includes("intimidation"))
     ? "Угрожающий: владение Запугивание"
     : "";
   const orcAggressive = (raceFeaturesMeta.aggressive && typeof raceFeaturesMeta.aggressive === "object")
@@ -1830,6 +1836,7 @@ function openCharacterModal(){
   const flyRestriction = (speeds && typeof speeds.fly_restriction === "object" && speeds.fly_restriction)
     ? speeds.fly_restriction
     : {};
+  const flySpeedEqualsWalk = speeds && speeds.fly_speed_equals_walk === true;
   const restrictedArmorCats = Array.isArray(flyRestriction.no_armor_categories)
     ? flyRestriction.no_armor_categories.map((x) => String(x || "").trim().toLowerCase()).filter(Boolean)
     : [];
@@ -2089,6 +2096,12 @@ function openCharacterModal(){
   }
   if(minotaurHammeringHornsText){
     details.push(`<div class="char-line"><strong>Сокрушительные рога:</strong> ${escapeHtml(minotaurHammeringHornsText.replace(/^Сокрушительные рога:\s*/, ""))}</div>`);
+  }
+  if(owlinFlightText){
+    details.push(`<div class="char-line"><strong>Полёт:</strong> ${escapeHtml(owlinFlightText.replace(/^Полёт:\s*/, ""))}</div>`);
+  }
+  if(owlinStealthText){
+    details.push(`<div class="char-line"><strong>Владение:</strong> ${escapeHtml(owlinStealthText.replace(/^Владение:\s*/, ""))}</div>`);
   }
   if(orcMenacingText){
     details.push(`<div class="char-line"><strong>Угрожающий:</strong> ${escapeHtml(orcMenacingText.replace(/^Угрожающий:\s*/, ""))}</div>`);
@@ -2353,6 +2366,8 @@ function openCharacterModal(){
   if(minotaurImposingPresenceText) copyLines.push(minotaurImposingPresenceText);
   if(minotaurGoringRushText) copyLines.push(minotaurGoringRushText);
   if(minotaurHammeringHornsText) copyLines.push(minotaurHammeringHornsText);
+  if(owlinFlightText) copyLines.push(owlinFlightText);
+  if(owlinStealthText) copyLines.push(owlinStealthText);
   if(orcMenacingText) copyLines.push(orcMenacingText);
   if(orcAggressiveText) copyLines.push(orcAggressiveText);
   if(saveAdvantageConditionsRu.length) copyLines.push(`Преим. против: ${saveAdvantageConditionsRu.join(", ")} (спасброски)`);

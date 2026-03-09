@@ -609,13 +609,18 @@ def _build_race_features(selected_race: dict | None) -> dict[str, Any]:
             senses["darkvision_ft"] = max(as_int(mech.get("range_ft"), 60), 0)
 
         if mtype in ("swim_speed", "fly_speed", "climb_speed"):
+            speed_equals_walk = bool(mech.get("speed_equals_walk"))
             sp = max(as_int(mech.get("speed_ft"), 0), 0)
+            if speed_equals_walk and mtype == "fly_speed":
+                sp = max(0, walk)
             if mtype == "swim_speed":
                 speeds["swim_ft"] = sp
             elif mtype == "climb_speed":
                 speeds["climb_ft"] = sp
             elif mtype == "fly_speed":
                 speeds["fly_ft"] = sp
+                if speed_equals_walk:
+                    speeds["fly_speed_equals_walk"] = True
                 # ограничения по броне сохраним как есть
                 if isinstance(mech.get("restriction"), dict):
                     speeds["fly_restriction"] = mech.get("restriction")
@@ -1777,7 +1782,7 @@ async def api_character_create(payload: dict):
         elif race_choice_martial_weapons:
             raise HTTPException(status_code=400, detail="Martial weapon choice is not available for selected race")
 
-        if race_choice_size and effective_race_key not in {"custom_lineage", "dhampir", "harengon", "hexblood"}:
+        if race_choice_size and effective_race_key not in {"custom_lineage", "dhampir", "harengon", "hexblood", "owlin"}:
             raise HTTPException(status_code=400, detail="Race size choice is not available for selected race")
         if race_choice_variable_trait and effective_race_key != "custom_lineage":
             raise HTTPException(status_code=400, detail="Variable trait choice is not available for selected race")
@@ -1855,6 +1860,18 @@ async def api_character_create(payload: dict):
                 )
             if len(race_choice_skills) != 2:
                 raise HTTPException(status_code=400, detail="Hexblood ancestral legacy requires exactly 2 skill choices")
+        if effective_race_key == "owlin":
+            if race_choice_size not in {"small", "medium"}:
+                raise HTTPException(status_code=400, detail="Owlin size choice is required")
+            if race_choice_flex_asi_variant not in {"2_1", "1_1_1"}:
+                raise HTTPException(status_code=400, detail="Owlin flexible ASI choice is required")
+            if len(race_choice_languages) != 1:
+                raise HTTPException(status_code=400, detail="Owlin extra language choice is required")
+            owlin_lang = race_choice_languages[0]
+            if owlin_lang == "common":
+                raise HTTPException(status_code=400, detail="Owlin extra language must not duplicate Common")
+            if owlin_lang in base_race_language_keys:
+                raise HTTPException(status_code=400, detail="Owlin extra language must be distinct from base race languages")
         if effective_race_key == "fairy":
             if race_choice_innate_ability not in {"int", "wis", "cha"}:
                 raise HTTPException(

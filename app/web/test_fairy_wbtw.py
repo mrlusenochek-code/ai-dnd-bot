@@ -13,7 +13,8 @@ def test_fairy_catalog_and_build_features():
     speeds = rf.get("speeds") if isinstance(rf, dict) else {}
     assert isinstance(speeds, dict)
     assert speeds.get("walk_ft") == 30
-    assert speeds.get("fly_ft") == 0
+    assert speeds.get("fly_ft") == 30
+    assert speeds.get("fly_speed_equals_walk") is True
     fly_restriction = speeds.get("fly_restriction")
     assert isinstance(fly_restriction, dict)
     assert fly_restriction.get("no_armor_categories") == ["medium", "heavy"]
