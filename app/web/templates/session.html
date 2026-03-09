@@ -1862,6 +1862,32 @@ function openCharacterModal(){
       ? "Кошачья ловкость восстановится, если завершите свой ход без движения."
       : "Кошачья ловкость готова: в свой ход можете удвоить скорость.")
     : "";
+  const tortleClaws = (raceFeaturesMeta.claws && typeof raceFeaturesMeta.claws === "object")
+    ? raceFeaturesMeta.claws
+    : null;
+  const tortleHoldBreath = (raceFeaturesMeta.hold_breath && typeof raceFeaturesMeta.hold_breath === "object")
+    ? raceFeaturesMeta.hold_breath
+    : null;
+  const tortleShellDefense = (raceFeaturesMeta.shell_defense && typeof raceFeaturesMeta.shell_defense === "object")
+    ? raceFeaturesMeta.shell_defense
+    : null;
+  const tortleNaturalArmorText = (raceKey === "tortle" && natArmor && Number.isFinite(Number(natArmor.ac)))
+    ? `Природная броня: КД ${Number(natArmor.ac)} (панцирь), не складывается с доспехами`
+    : "";
+  const tortleClawsText = (raceKey === "tortle" && tortleClaws)
+    ? `Когти: 1d4 рубящего урона`
+    : "";
+  const tortleHoldBreathText = (raceKey === "tortle" && tortleHoldBreath)
+    ? "Задержка дыхания: до 1 часа"
+    : "";
+  const tortleSurvivalText = (raceKey === "tortle" && profSkills.includes("survival"))
+    ? "Выживание: владение навыком"
+    : "";
+  const tortleShellDefenseText = (raceKey === "tortle" && tortleShellDefense)
+    ? (runtime.shell_defense_active
+      ? "Защита панцирем активна: КД +4, преимущество к спасброскам Силы и Телосложения, помеха к спасброскам Ловкости, скорость 0."
+      : "Защита панцирем доступна: действием спрятать конечности в панцирь.")
+    : "";
   const shifterShift = (raceFeaturesMeta.shifting && typeof raceFeaturesMeta.shifting === "object")
     ? raceFeaturesMeta.shifting
     : null;
@@ -2292,6 +2318,21 @@ function openCharacterModal(){
   if(tabaxiFelineAgilityText){
     details.push(`<div class="char-line"><strong>Кошачья ловкость:</strong> ${escapeHtml(tabaxiFelineAgilityText.replace(/^Кошачья ловкость:\s*/, ""))}</div>`);
   }
+  if(tortleNaturalArmorText){
+    details.push(`<div class="char-line"><strong>Природная броня:</strong> ${escapeHtml(tortleNaturalArmorText.replace(/^Природная броня:\s*/, ""))}</div>`);
+  }
+  if(tortleClawsText){
+    details.push(`<div class="char-line"><strong>Когти:</strong> ${escapeHtml(tortleClawsText.replace(/^Когти:\s*/, ""))}</div>`);
+  }
+  if(tortleHoldBreathText){
+    details.push(`<div class="char-line"><strong>Задержка дыхания:</strong> ${escapeHtml(tortleHoldBreathText.replace(/^Задержка дыхания:\s*/, ""))}</div>`);
+  }
+  if(tortleSurvivalText){
+    details.push(`<div class="char-line"><strong>Выживание:</strong> ${escapeHtml(tortleSurvivalText.replace(/^Выживание:\s*/, ""))}</div>`);
+  }
+  if(tortleShellDefenseText){
+    details.push(`<div class="char-line"><strong>Защита панцирем:</strong> ${escapeHtml(tortleShellDefenseText.replace(/^Защита панцирем:\s*/, ""))}</div>`);
+  }
   if(shifterShiftText){
     details.push(`<div class="char-line"><strong>Смена формы:</strong> ${escapeHtml(shifterShiftText.replace(/^Смена формы:\s*/, ""))}</div>`);
   }
@@ -2578,6 +2619,11 @@ function openCharacterModal(){
   if(tabaxiTalentText) copyLines.push(tabaxiTalentText);
   if(tabaxiClawsText) copyLines.push(tabaxiClawsText);
   if(tabaxiFelineAgilityText) copyLines.push(tabaxiFelineAgilityText);
+  if(tortleNaturalArmorText) copyLines.push(tortleNaturalArmorText);
+  if(tortleClawsText) copyLines.push(tortleClawsText);
+  if(tortleHoldBreathText) copyLines.push(tortleHoldBreathText);
+  if(tortleSurvivalText) copyLines.push(tortleSurvivalText);
+  if(tortleShellDefenseText) copyLines.push(tortleShellDefenseText);
   if(shifterShiftText) copyLines.push(shifterShiftText);
   if(shifterSubraceEffectText) copyLines.push(shifterSubraceEffectText);
   if(rebornDeathlessNatureText) copyLines.push(rebornDeathlessNatureText);

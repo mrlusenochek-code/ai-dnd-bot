@@ -802,12 +802,31 @@ def _build_race_features(selected_race: dict | None) -> dict[str, Any]:
                         "ability": ability,
                     }
                 )
+                if weapon_key:
+                    features[weapon_key] = {
+                        "type": "natural_weapon",
+                        "name": weapon_key,
+                        "name_ru": name_ru,
+                        "damage_dice": damage_dice,
+                        "damage_type": damage_type,
+                        "ability": ability,
+                        "kind": kind,
+                    }
 
         if mtype == "hold_breath":
             duration = str(mech.get("duration") or "").strip()
             if duration:
                 breath["hold"] = duration
             features["hold_breath"] = dict(mech)
+
+        if mtype == "shell_defense":
+            features["shell_defense"] = {
+                "type": "shell_defense",
+                "ac_bonus": 4,
+                "adv_saves": ["str", "con"],
+                "disadv_saves": ["dex"],
+                "speed_override_ft": 0,
+            }
 
         if mtype == "cunning_artisan":
             features["cunning_artisan"] = dict(mech)
@@ -2375,6 +2394,12 @@ async def api_character_create(payload: dict):
             runtime.setdefault("feline_agility_active", False)
             runtime.setdefault("feline_agility_used_turn", "")
             runtime.setdefault("moved_this_turn_ft", 0)
+            race_features["runtime"] = runtime
+        if isinstance(race_features, dict) and str(race_features.get("race_key") or "").strip().lower() == "tortle":
+            runtime_raw = race_features.get("runtime")
+            runtime = dict(runtime_raw) if isinstance(runtime_raw, dict) else {}
+            runtime.setdefault("shell_defense_active", False)
+            runtime.setdefault("shell_defense_entered_turn", "")
             race_features["runtime"] = runtime
         if isinstance(race_features, dict) and selected_subrace is not None:
             race_features["subrace"] = {

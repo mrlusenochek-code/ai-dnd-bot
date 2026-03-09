@@ -524,6 +524,13 @@ def _tabaxi_runtime(actor: Any) -> tuple[dict[str, Any], dict[str, Any]]:
     return race_features, runtime
 
 
+def _tortle_runtime(actor: Any) -> tuple[dict[str, Any], dict[str, Any]]:
+    race_features = actor.race_features if isinstance(getattr(actor, "race_features", None), dict) else {}
+    runtime_raw = race_features.get("runtime")
+    runtime = dict(runtime_raw) if isinstance(runtime_raw, dict) else {}
+    return race_features, runtime
+
+
 def _maybe_apply_fury_of_small(*, actor: Any, target: Any, lines: list[dict[str, Any]]) -> int:
     if str(getattr(actor, "side", "")).lower() != "pc":
         return 0
@@ -4365,6 +4372,127 @@ def handle_live_combat_action(
         lines = [
             {"text": f"Атака: {attacker.name} → {target.name}", "muted": True},
             {"text": "Когти кошки: 1d4 slashing (STR, +PROF к атаке).", "muted": True},
+            {"text": f"Бросок атаки: {attack_roll_repr} + {attack_bonus} = {total_to_hit} vs AC {target.ac}"},
+            {"text": "Результат: критическое попадание" if is_crit else ("Результат: попадание" if is_hit else "Результат: промах")},
+            {"text": f"Урон: {damage_roll} + {str_mod} = {total_damage} slashing" if is_hit else "Урон: 0 (промах)"},
+        ]
+        if is_hit:
+            damage_to_apply, relentless_lines = _apply_relentless_endurance_if_needed(target=target, incoming_damage=total_damage)
+            lines.extend(relentless_lines)
+            state = apply_damage(session_id, target.key, damage_to_apply, source=attacker.key)
+            if state is None:
+                return None, "Combat is not active"
+        return ({"status": _combat_status(state), "open": True, "lines": lines}, None)
+
+    if action in {"combat_shell_defense", "combat_shell_defense_exit"}:
+        state = get_combat(session_id)
+        if state is None or not state.active:
+            return None, "Combat is not active"
+        if not state.order:
+            end_combat(session_id)
+            return ({"status": "Бой завершён", "open": False, "lines": [{"text": "Бой завершён: целей не осталось.", "muted": True}]}, None)
+        actor_key = state.order[state.turn_index]
+        actor = state.combatants.get(actor_key)
+        if actor is None:
+            return None, "Combat state is inconsistent"
+        shell_cfg = _race_feature(actor, "shell_defense")
+        if shell_cfg is None or str(getattr(actor, "side", "")).lower() != "pc":
+            return None, "Защита панцирем недоступна."
+        blocked = _spend_action_or_block(state, actor)
+        if blocked is not None:
+            return blocked, None
+        race_features, runtime = _tortle_runtime(actor)
+        shell_active = bool(runtime.get("shell_defense_active"))
+        ac_bonus = max(0, int(shell_cfg.get("ac_bonus") or 4))
+        speed_override = max(0, int(shell_cfg.get("speed_override_ft") or 0))
+        if action == "combat_shell_defense":
+            if shell_active:
+                return None, "Защита панцирем уже активна."
+            runtime["shell_defense_active"] = True
+            runtime["shell_defense_entered_turn"] = f"{int(getattr(state, 'round_no', 1) or 1)}:{getattr(actor, 'key', '')}"
+            runtime["ac_bonus"] = ac_bonus
+            runtime["speed_override_ft"] = speed_override
+            race_features["runtime"] = runtime
+            actor.race_features = race_features
+            actor.ac = max(0, int(getattr(actor, "ac", 0) or 0) + ac_bonus)
+            actor.speed_ft = speed_override
+            actor.move_speed_ft = speed_override
+            actor.move_remaining_ft = speed_override
+            actor.move_remaining = speed_override
+            return (
+                {
+                    "status": _combat_status(state),
+                    "open": True,
+                    "lines": [
+                        {"text": f"Защита панцирем: {actor.name} прячется в панцирь."},
+                        {"text": "КД +4, преимущество к спасброскам Силы и Телосложения, помеха к спасброскам Ловкости, скорость 0.", "muted": True},
+                    ],
+                },
+                None,
+            )
+        if not shell_active:
+            return None, "Защита панцирем сейчас не активна."
+        runtime["shell_defense_active"] = False
+        runtime["shell_defense_entered_turn"] = ""
+        runtime.pop("ac_bonus", None)
+        runtime.pop("speed_override_ft", None)
+        race_features["runtime"] = runtime
+        actor.race_features = race_features
+        actor.ac = max(0, int(getattr(actor, "ac", 0) or 0) - ac_bonus)
+        restored_speed = _resolve_actor_mode_speed(actor, str(getattr(actor, "movement_mode", "") or "walk"))
+        actor.speed_ft = restored_speed
+        actor.move_speed_ft = restored_speed
+        actor.move_remaining_ft = restored_speed
+        actor.move_remaining = restored_speed
+        return (
+            {
+                "status": _combat_status(state),
+                "open": True,
+                "lines": [
+                    {"text": f"Защита панцирем: {actor.name} вылезает из панциря."},
+                    {"text": "Эффекты защиты панцирем сняты.", "muted": True},
+                ],
+            },
+            None,
+        )
+
+    if action == "combat_tortle_claws":
+        state = get_combat(session_id)
+        if state is None or not state.active:
+            return None, "Combat is not active"
+        if not state.order:
+            end_combat(session_id)
+            return ({"status": "Бой завершён", "open": False, "lines": [{"text": "Бой завершён: целей не осталось.", "muted": True}]}, None)
+        attacker_key = state.order[state.turn_index]
+        attacker = state.combatants.get(attacker_key)
+        if attacker is None:
+            return None, "Combat state is inconsistent"
+        claws_cfg = _race_feature(attacker, "claws")
+        if claws_cfg is None or str(getattr(attacker, "side", "")).lower() != "pc":
+            return None, "Когти недоступны."
+        blocked = _spend_action_or_block(state, attacker)
+        if blocked is not None:
+            return blocked, None
+        target = _select_named_or_first_opponent(state, attacker, raw_text)
+        if target is None:
+            return None, "Нет подходящей цели."
+        has_disadvantage = target.dodge_active or _is_poisoned_condition_active(attacker) or _is_taunted_attack_disadvantage(attacker, target) or _has_sunlight_sensitivity_disadvantage(attacker)
+        has_advantage = attacker.help_attack_advantage or _is_hidden_step_active(attacker) or _has_pack_tactics_advantage(state, attacker, target) or _has_active_grovel_advantage_for_attack(state, attacker, target)
+        if has_advantage and _shifter_denies_enemy_advantage(target):
+            has_advantage = False
+        roll_mode = "advantage" if has_advantage and not has_disadvantage else ("disadvantage" if has_disadvantage and not has_advantage else "normal")
+        roll_a, roll_b, d20_roll = _roll_check_compat(roll_mode, rng=random, reroll_ones=_has_reroll_ones_scope(attacker, "attack"))
+        attack_roll_repr = f"d20({roll_a})" if roll_b is None else f"d20({roll_a},{roll_b}) -> {d20_roll}"
+        str_mod = _actor_ability_mod(attacker, "str")
+        attack_bonus = _proficiency_bonus_for_actor(attacker) + str_mod
+        total_to_hit = d20_roll + attack_bonus
+        is_crit = d20_roll == 20
+        is_hit = is_crit or total_to_hit >= int(getattr(target, "ac", 10) or 10)
+        damage_roll = sum(random.randint(1, 4) for _ in range(2 if is_crit else 1))
+        total_damage = damage_roll + str_mod if is_hit else 0
+        lines = [
+            {"text": f"Атака: {attacker.name} → {target.name}", "muted": True},
+            {"text": "Когти: 1d4 slashing (STR, +PROF к атаке).", "muted": True},
             {"text": f"Бросок атаки: {attack_roll_repr} + {attack_bonus} = {total_to_hit} vs AC {target.ac}"},
             {"text": "Результат: критическое попадание" if is_crit else ("Результат: попадание" if is_hit else "Результат: промах")},
             {"text": f"Урон: {damage_roll} + {str_mod} = {total_damage} slashing" if is_hit else "Урон: 0 (промах)"},

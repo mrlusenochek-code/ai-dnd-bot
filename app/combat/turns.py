@@ -299,6 +299,11 @@ def advance_turn_in_state(state: CombatState) -> CombatState:
             if isinstance(mode_speed_raw, int) and not isinstance(mode_speed_raw, bool)
             else max(0, int(current_combatant.speed_ft))
         )
+        current_runtime_raw = race_features.get("runtime")
+        current_runtime = dict(current_runtime_raw) if isinstance(current_runtime_raw, dict) else {}
+        override_speed_raw = current_runtime.get("speed_override_ft")
+        if isinstance(override_speed_raw, int) and not isinstance(override_speed_raw, bool):
+            mode_speed = max(0, int(override_speed_raw))
         current_combatant.move_speed_ft = mode_speed
         current_combatant.move_remaining_ft = mode_speed
         # legacy field, keep in sync

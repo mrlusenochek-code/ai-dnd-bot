@@ -353,18 +353,22 @@ CHAT_COMBAT_ACTION_PATTERNS: list[tuple[str, re.Pattern[str]]] = [
     ),
     ("combat_use_object", re.compile(r"(использую|применяю|активирую|включаю|поджигаю|зажигаю|пью|выпиваю|нажимаю|достаю|зелье|флакон|свиток|факел|рычаг|кнопк)", re.IGNORECASE)),
     (
-        "tortle_shell_in",
+        "combat_shell_defense",
         re.compile(
-            r"(?:пряч\w*|залез\w*|втяг\w*|убира\w*|скрыва\w*)(?:\s+\S+){0,3}?\s+(?:в|внутрь)\s+(?:свой\s+)?панцир\w*",
+            r"(защит\w+\s+панцир\w*|пряч\w*.*панцир\w*|втяг\w*.*панцир\w*|shell\s+defense)",
             re.IGNORECASE,
         ),
     ),
     (
-        "tortle_shell_out",
+        "combat_shell_defense_exit",
         re.compile(
-            r"(?:вылез\w*|выбира\w*|выхож\w*|вытягива\w*|раскрыва\w*)(?:\s+\S+){0,3}?\s+(?:из|с)\s+(?:своего\s+)?панцир\w*",
+            r"(вылез\w*.*панцир\w*|выхож\w*.*панцир\w*|покидаю\s+панцир\w*|exit\s+shell|leave\s+shell)",
             re.IGNORECASE,
         ),
+    ),
+    (
+        "combat_tortle_claws",
+        re.compile(r"(\bкогт\w*\b|tortle\s+claws)", re.IGNORECASE),
     ),
     ("combat_end_turn", re.compile(r"(конец хода|заканчиваю ход|передаю ход|пас|пропускаю ход|жду|ничего не делаю)", re.IGNORECASE)),
 ]

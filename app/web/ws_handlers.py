@@ -209,6 +209,14 @@ def _effective_save_mode(
     if not isinstance(race_features, dict):
         return mode
 
+    runtime_raw = race_features.get("runtime")
+    runtime = runtime_raw if isinstance(runtime_raw, dict) else {}
+    if bool(runtime.get("shell_defense_active")):
+        if ability_key in {"str", "con"}:
+            return "advantage"
+        if ability_key == "dex":
+            return "disadvantage"
+
     saves_raw = race_features.get("saves")
     saves = saves_raw if isinstance(saves_raw, dict) else {}
     adv_raw = saves.get("advantage")
@@ -2408,9 +2416,15 @@ def _reset_racial_rest_uses(ch: Character, *, long_rest: bool = True) -> bool:
         ("feline_agility_active", False),
         ("feline_agility_used_turn", ""),
         ("moved_this_turn_ft", 0),
+        ("shell_defense_active", False),
+        ("shell_defense_entered_turn", ""),
     ):
         if key in runtime:
             runtime[key] = value
+            changed = True
+    for key in ("ac_bonus", "speed_override_ft"):
+        if key in runtime:
+            runtime.pop(key, None)
             changed = True
     if "knowledge_past_life_armed" in runtime:
         runtime.pop("knowledge_past_life_armed", None)
@@ -2596,9 +2610,15 @@ def _reset_combatant_racial_rest_uses(session_id: str, actor_key: str, *, long_r
         ("feline_agility_active", False),
         ("feline_agility_used_turn", ""),
         ("moved_this_turn_ft", 0),
+        ("shell_defense_active", False),
+        ("shell_defense_entered_turn", ""),
     ):
         if key in runtime:
             runtime[key] = value
+            changed = True
+    for key in ("ac_bonus", "speed_override_ft"):
+        if key in runtime:
+            runtime.pop(key, None)
             changed = True
     if "knowledge_past_life_armed" in runtime:
         runtime.pop("knowledge_past_life_armed", None)
@@ -3149,6 +3169,58 @@ async def _persist_simic_runtime_from_combat_state(db, sess, session_id: str) ->
             if runtime.get(key) != value:
                 runtime[key] = value
                 local_changed = True
+        if local_changed:
+            race_features["runtime"] = runtime
+            ch.race_features = race_features
+            flag_modified(ch, "race_features")
+            changed = True
+    return changed
+
+
+async def _persist_tortle_runtime_from_combat_state(db, sess, session_id: str) -> bool:
+    state = get_combat(session_id)
+    if state is None or not state.active:
+        return False
+    tortle_runtime_by_uid: dict[int, dict[str, Any]] = {}
+    for actor_key, actor in (state.combatants or {}).items():
+        if not str(actor_key or "").startswith("pc_"):
+            continue
+        uid_raw = str(actor_key).split("_", 1)[1]
+        if not uid_raw.isdigit():
+            continue
+        race_features = actor.race_features if isinstance(getattr(actor, "race_features", None), dict) else {}
+        if str(race_features.get("race_key") or "").strip().lower() != "tortle":
+            continue
+        runtime_raw = race_features.get("runtime")
+        runtime = dict(runtime_raw) if isinstance(runtime_raw, dict) else {}
+        tracked: dict[str, Any] = {}
+        for key in ("shell_defense_active", "shell_defense_entered_turn", "ac_bonus", "speed_override_ft"):
+            if key in runtime:
+                tracked[key] = runtime.get(key)
+        if tracked:
+            tortle_runtime_by_uid[int(uid_raw)] = tracked
+    if not tortle_runtime_by_uid:
+        return False
+    _uid_map, chars_by_uid, _ = await _load_actor_context(db, sess)
+    changed = False
+    for uid, tracked in tortle_runtime_by_uid.items():
+        ch = chars_by_uid.get(uid)
+        if ch is None:
+            continue
+        race_features_raw = getattr(ch, "race_features", None)
+        race_features = dict(race_features_raw) if isinstance(race_features_raw, dict) else {}
+        runtime_raw = race_features.get("runtime")
+        runtime = dict(runtime_raw) if isinstance(runtime_raw, dict) else {}
+        local_changed = False
+        for key, value in tracked.items():
+            if runtime.get(key) != value:
+                runtime[key] = value
+                local_changed = True
+        if not bool(tracked.get("shell_defense_active")):
+            for key in ("ac_bonus", "speed_override_ft"):
+                if key in runtime:
+                    runtime.pop(key, None)
+                    local_changed = True
         if local_changed:
             race_features["runtime"] = runtime
             ch.race_features = race_features
@@ -3873,68 +3945,6 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                     await ws_error("Ждём ответа мастера...")
                     continue
 
-                # Race runtime actions: Tortle shell defense ("прячусь в панцирь" / "вылезаю из панциря")
-                if combat_action in {"tortle_shell_in", "tortle_shell_out"}:
-                    # If in combat — respect turn order (как и остальные боевые действия)
-                    if combat_active:
-                        player_uid = _player_uid(player)
-                        player_key = f"pc_{player_uid}" if player_uid is not None else ""
-                        turn_key: Optional[str] = None
-                        if combat_state and combat_state.order and 0 <= combat_state.turn_index < len(combat_state.order):
-                            turn_key = combat_state.order[combat_state.turn_index]
-                        if not turn_key or turn_key != player_key:
-                            current_name = current_turn_label(combat_state) if combat_state else "другой участник"
-                            await add_system_event(db, sess, f"Сейчас ходит {current_name}. Дождись своего хода.")
-                            await db.commit()
-                            await broadcast_state(session_id)
-                            continue
-
-                    async with lock:
-                        ch = await get_character(db, sess.id, player.id)
-                        if not ch:
-                            await ws_error("Персонаж не найден.", request_id=msg_request_id)
-                            continue
-
-                        if str(getattr(ch, "race_kit", "") or "").lower() != "tortle":
-                            await add_system_event(db, sess, "Это действие доступно только тортлу (панцирь).")
-                            await db.commit()
-                            await broadcast_state(session_id)
-                            continue
-
-                        rf = getattr(ch, "race_features", None)
-                        rf2 = dict(rf) if isinstance(rf, dict) else {}
-
-                        runtime = rf2.get("runtime")
-                        runtime2 = dict(runtime) if isinstance(runtime, dict) else {}
-                        is_active_now = bool(runtime2.get("active"))
-
-                        if combat_action == "tortle_shell_in":
-                            if is_active_now:
-                                msg = "Ты уже в панцире."
-                            else:
-                                rf2["runtime"] = {"active": True, "ac_bonus": 4, "speed_override_ft": 0}
-                                ch.race_features = rf2
-                                await db.commit()
-                                msg = "Ты прячешься в панцирь: +4 к КД, скорость 0."
-                        else:
-                            if not is_active_now:
-                                msg = "Ты уже вне панциря."
-                            else:
-                                rf2.pop("runtime", None)
-                                ch.race_features = rf2
-                                await db.commit()
-                                msg = "Ты вылезаешь из панциря: эффекты панциря сняты."
-
-                        # Resync combat stats immediately (AC/speed)
-                        if combat_active:
-                            _uid_map, chars_by_uid, _ = await _load_actor_context(db, sess)
-                            sync_pcs_from_chars(session_id, chars_by_uid)
-
-                    await add_system_event(db, sess, msg)
-                    await db.commit()
-                    await broadcast_state(session_id)
-                    continue
-
                 if combat_action == "use_built_for_success":
                     ch = await get_character(db, sess.id, player.id)
                     if not ch:
@@ -4051,7 +4061,7 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                 if combat_action in {"combat_fury_of_small", "combat_fury_of_the_small"} and not combat_active:
                     await ws_error("Разъярённая мелкота доступна только в бою.", request_id=msg_request_id)
                     continue
-                if combat_action in {"combat_hungry_jaws", "combat_rabbit_hop", "combat_lucky_footwork", "combat_saving_face", "combat_taunt", "combat_fearless", "combat_daunting_roar", "combat_grovel_cower_beg", "combat_goring_rush", "combat_hammering_horns", "combat_aggressive", "combat_shift", "combat_shift_end", "combat_longtooth_bite", "combat_swiftstride_step", "combat_mark_target", "combat_feline_agility", "combat_cat_claws", "combat_acid_spit", "combat_grapple_appendages", "combat_appendages_grapple_bonus"} and not combat_active:
+                if combat_action in {"combat_hungry_jaws", "combat_rabbit_hop", "combat_lucky_footwork", "combat_saving_face", "combat_taunt", "combat_fearless", "combat_daunting_roar", "combat_grovel_cower_beg", "combat_goring_rush", "combat_hammering_horns", "combat_aggressive", "combat_shift", "combat_shift_end", "combat_longtooth_bite", "combat_swiftstride_step", "combat_mark_target", "combat_feline_agility", "combat_cat_claws", "combat_shell_defense", "combat_shell_defense_exit", "combat_tortle_claws", "combat_acid_spit", "combat_grapple_appendages", "combat_appendages_grapple_bonus"} and not combat_active:
                     await ws_error("Эта особенность доступна только в бою.", request_id=msg_request_id)
                     continue
                 if combat_action in {"combat_eerie_token_create", "combat_eerie_token_message", "combat_eerie_token_view"} and not combat_active:
@@ -4362,7 +4372,8 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                             persist_changed = await _persist_relentless_endurance_used_from_combat_state(db, sess, session_id)
                             shifter_persist_changed = await _persist_shifter_runtime_from_combat_state(db, sess, session_id)
                             simic_persist_changed = await _persist_simic_runtime_from_combat_state(db, sess, session_id)
-                            if persist_changed or shifter_persist_changed or simic_persist_changed:
+                            tortle_persist_changed = await _persist_tortle_runtime_from_combat_state(db, sess, session_id)
+                            if persist_changed or shifter_persist_changed or simic_persist_changed or tortle_persist_changed:
                                 await db.commit()
                                 _uid_map, chars_by_uid, _ = await _load_actor_context(db, sess)
                                 sync_pcs_from_chars(session_id, chars_by_uid)
@@ -4421,7 +4432,7 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                         continue
                     else:
                         await ws_error(
-                            "Combat Lock: в бою доступны только боевые команды (атака/конец хода/уклон/движение/рывок/отход/засада/взлёт/приземление/помощь/побег/пресмыкайся/разъярённая мелкота/яд грунга на оружии/голодная пасть/кроличий прыжок/сильные ноги/сохранить лицо/насмешка/бесстрашие/устрашающий рёв/агрессивный/смена формы/снять форму/укус длиннозуба/шаг быстронога/пометить цель/кошачья ловкость/когти кошки/хватательные придатки/схватить придатками/кислотный плевок/жуткий сувенир/каменная выносливость/исцеляющие руки/небесное преобразование/незримая поступь/подводное дыхание/оружие дыхания) или OOC/телепатия (mind link) / знания reborn.",
+                            "Combat Lock: в бою доступны только боевые команды (атака/конец хода/уклон/движение/рывок/отход/засада/взлёт/приземление/помощь/побег/пресмыкайся/разъярённая мелкота/яд грунга на оружии/голодная пасть/кроличий прыжок/сильные ноги/сохранить лицо/насмешка/бесстрашие/устрашающий рёв/агрессивный/смена формы/снять форму/укус длиннозуба/шаг быстронога/пометить цель/кошачья ловкость/когти кошки/защита панцирем/вылезти из панциря/когти тортла/хватательные придатки/схватить придатками/кислотный плевок/жуткий сувенир/каменная выносливость/исцеляющие руки/небесное преобразование/незримая поступь/подводное дыхание/оружие дыхания) или OOC/телепатия (mind link) / знания reborn.",
                             request_id=msg_request_id,
                         )
                         continue
@@ -4438,6 +4449,9 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                     continue
                 if combat_action in {"combat_feline_agility", "combat_cat_claws"}:
                     await ws_error("Особенности табакси доступны только в бою.", request_id=msg_request_id)
+                    continue
+                if combat_action in {"combat_shell_defense", "combat_shell_defense_exit", "combat_tortle_claws"}:
+                    await ws_error("Особенности тортла доступны только в бою.", request_id=msg_request_id)
                     continue
                 if combat_action in {"combat_acid_spit", "combat_grapple_appendages", "combat_appendages_grapple_bonus"}:
                     await ws_error("Эта способность Simic доступна только в бою.", request_id=msg_request_id)
@@ -5740,7 +5754,7 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                 if combat_action in {"combat_fury_of_small", "combat_fury_of_the_small"} and not combat_active:
                     await ws_error("Разъярённая мелкота доступна только в бою.", request_id=msg_request_id)
                     continue
-                if combat_action in {"combat_hungry_jaws", "combat_rabbit_hop", "combat_lucky_footwork", "combat_saving_face", "combat_taunt", "combat_fearless", "combat_daunting_roar", "combat_grovel_cower_beg", "combat_goring_rush", "combat_hammering_horns", "combat_aggressive", "combat_shift", "combat_shift_end", "combat_longtooth_bite", "combat_swiftstride_step", "combat_mark_target", "combat_feline_agility", "combat_cat_claws", "combat_acid_spit", "combat_grapple_appendages", "combat_appendages_grapple_bonus"} and not combat_active:
+                if combat_action in {"combat_hungry_jaws", "combat_rabbit_hop", "combat_lucky_footwork", "combat_saving_face", "combat_taunt", "combat_fearless", "combat_daunting_roar", "combat_grovel_cower_beg", "combat_goring_rush", "combat_hammering_horns", "combat_aggressive", "combat_shift", "combat_shift_end", "combat_longtooth_bite", "combat_swiftstride_step", "combat_mark_target", "combat_feline_agility", "combat_cat_claws", "combat_shell_defense", "combat_shell_defense_exit", "combat_tortle_claws", "combat_acid_spit", "combat_grapple_appendages", "combat_appendages_grapple_bonus"} and not combat_active:
                     await ws_error("Эта особенность доступна только в бою.", request_id=msg_request_id)
                     continue
                 if combat_action in {"combat_eerie_token_create", "combat_eerie_token_message", "combat_eerie_token_view"} and not combat_active:
@@ -6065,7 +6079,8 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                         persist_changed = await _persist_relentless_endurance_used_from_combat_state(db, sess, session_id)
                         shifter_persist_changed = await _persist_shifter_runtime_from_combat_state(db, sess, session_id)
                         simic_persist_changed = await _persist_simic_runtime_from_combat_state(db, sess, session_id)
-                        if persist_changed or shifter_persist_changed or simic_persist_changed:
+                        tortle_persist_changed = await _persist_tortle_runtime_from_combat_state(db, sess, session_id)
+                        if persist_changed or shifter_persist_changed or simic_persist_changed or tortle_persist_changed:
                             await db.commit()
                             _uid_map, chars_by_uid, _ = await _load_actor_context(db, sess)
                             sync_pcs_from_chars(session_id, chars_by_uid)
@@ -6174,6 +6189,9 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                     continue
                 if combat_action in {"combat_feline_agility", "combat_cat_claws"}:
                     await ws_error("Особенности табакси доступны только в бою.")
+                    continue
+                if combat_action in {"combat_shell_defense", "combat_shell_defense_exit", "combat_tortle_claws"}:
+                    await ws_error("Особенности тортла доступны только в бою.")
                     continue
                 if combat_action in {"combat_acid_spit", "combat_grapple_appendages", "combat_appendages_grapple_bonus"}:
                     await ws_error("Эта способность Simic доступна только в бою.")
