@@ -689,6 +689,70 @@ def _is_taunted_attack_disadvantage(attacker: Any, target: Any) -> bool:
     return str(getattr(target, "key", "") or "").strip() != taunter_key
 
 
+def _is_incapacitated(actor: Any) -> bool:
+    _rf, _runtime, conditions = _conditions_runtime(actor)
+    incapacitated_raw = conditions.get("incapacitated")
+    incapacitated = dict(incapacitated_raw) if isinstance(incapacitated_raw, dict) else {}
+    if bool(incapacitated.get("active")):
+        return True
+    return max(0, int(incapacitated.get("remaining_rounds") or 0)) > 0
+
+
+def _has_pack_tactics_advantage(state: Any, attacker: Any, target: Any) -> bool:
+    pack_cfg = _race_feature(attacker, "pack_tactics")
+    if pack_cfg is None:
+        return False
+    attacker_key = str(getattr(attacker, "key", "") or "")
+    attacker_side = str(getattr(attacker, "side", "") or "")
+    if not attacker_side:
+        return False
+    for combatant in (state.combatants or {}).values():
+        if combatant is None:
+            continue
+        if str(getattr(combatant, "key", "") or "") == attacker_key:
+            continue
+        if str(getattr(combatant, "side", "") or "") != attacker_side:
+            continue
+        if int(getattr(combatant, "hp_current", 0) or 0) <= 0 or bool(getattr(combatant, "is_dead", False)):
+            continue
+        if _is_incapacitated(combatant):
+            continue
+        return True
+    return False
+
+
+def _has_active_grovel_advantage_for_attack(state: Any, attacker: Any, target: Any) -> bool:
+    target_rf = target.race_features if isinstance(getattr(target, "race_features", None), dict) else {}
+    target_runtime_raw = target_rf.get("runtime")
+    target_runtime = dict(target_runtime_raw) if isinstance(target_runtime_raw, dict) else {}
+    grovel_raw = target_runtime.get("groveled")
+    grovel = dict(grovel_raw) if isinstance(grovel_raw, dict) else {}
+    if not bool(grovel.get("active")):
+        return False
+    source_actor = str(grovel.get("source_actor_id") or "").strip()
+    if not source_actor:
+        return False
+    source = state.combatants.get(source_actor)
+    if source is None:
+        return False
+    return str(getattr(source, "side", "") or "") == str(getattr(attacker, "side", "") or "")
+
+
+def _has_sunlight_sensitivity_disadvantage(attacker: Any) -> bool:
+    race_features = attacker.race_features if isinstance(getattr(attacker, "race_features", None), dict) else {}
+    features_raw = race_features.get("features")
+    features = features_raw if isinstance(features_raw, dict) else {}
+    sunlight_feature = features.get("sunlight_sensitivity")
+    has_feature = bool(sunlight_feature)
+    if isinstance(sunlight_feature, list):
+        has_feature = len(sunlight_feature) > 0
+    if not has_feature:
+        return False
+    runtime_raw = race_features.get("runtime")
+    runtime = dict(runtime_raw) if isinstance(runtime_raw, dict) else {}
+    return bool(runtime.get("sunlight_bright"))
+
+
 def _select_taunt_target(state: Any, actor: Any, raw_text: str | None) -> Any | None:
     opponents: list[Any] = []
     actor_side = str(getattr(actor, "side", "") or "")
@@ -1523,6 +1587,84 @@ def handle_live_combat_action(
                     {"text": f"{attacker.name} прячется (Шустрый побег).", "muted": True},
                     {"text": "Скрытность: преимущество на следующую атаку.", "muted": True},
                 ],
+            },
+            None,
+        )
+
+    if action == "combat_grovel_cower_beg":
+        state = get_combat(session_id)
+        if state is None or not state.active:
+            return None, "Combat is not active"
+        if not state.order:
+            end_combat(session_id)
+            return (
+                {
+                    "status": "Бой завершён",
+                    "open": False,
+                    "lines": [{"text": "Бой завершён: целей не осталось.", "muted": True}],
+                },
+                None,
+            )
+        actor_key = state.order[state.turn_index]
+        actor = state.combatants.get(actor_key)
+        if actor is None:
+            return None, "Combat state is inconsistent"
+        if str(getattr(actor, "side", "")).lower() != "pc":
+            return None, "Пресмыкайся, трусь и умоляй доступно только персонажу игрока."
+        grovel_cfg = _race_feature(actor, "grovel_cower_beg")
+        if grovel_cfg is None:
+            return None, "Пресмыкайся, трусь и умоляй недоступно."
+        race_features = actor.race_features if isinstance(actor.race_features, dict) else {}
+        runtime_raw = race_features.get("runtime")
+        runtime = dict(runtime_raw) if isinstance(runtime_raw, dict) else {}
+        used = max(0, int(runtime.get("grovel_uses_used") or 0))
+        uses_max = max(1, int(grovel_cfg.get("uses_max") or 1))
+        if used >= uses_max:
+            return None, "Пресмыкайся, трусь и умоляй уже использовано до отдыха."
+        blocked = _spend_action_or_block(state, actor)
+        if blocked is not None:
+            return blocked, None
+        actor_id = str(getattr(actor, "key", "") or "")
+        runtime["grovel_uses_used"] = used + 1
+        runtime["grovel_active_until_turn_start_of_actor_id"] = actor_id
+        race_features["runtime"] = runtime
+        actor.race_features = race_features
+
+        affected = 0
+        actor_side = str(getattr(actor, "side", "") or "")
+        for combatant in state.combatants.values():
+            if combatant is None:
+                continue
+            if str(getattr(combatant, "side", "") or "") == actor_side:
+                continue
+            if int(getattr(combatant, "hp_current", 0) or 0) <= 0 or bool(getattr(combatant, "is_dead", False)):
+                continue
+            target_rf = combatant.race_features if isinstance(getattr(combatant, "race_features", None), dict) else {}
+            target_runtime_raw = target_rf.get("runtime")
+            target_runtime = dict(target_runtime_raw) if isinstance(target_runtime_raw, dict) else {}
+            target_runtime["groveled"] = {
+                "active": True,
+                "source_actor_id": actor_id,
+                "expires_on_turn_start_of_source": actor_id,
+            }
+            target_rf["runtime"] = target_runtime
+            combatant.race_features = target_rf
+            affected += 1
+
+        lines = [
+            {
+                "text": (
+                    "Кобольд отвлекает врагов: союзники получают преимущество по атакам по ним "
+                    "до начала вашего следующего хода."
+                )
+            },
+            {"text": f"Задето целей: {affected}. Осталось использований: {max(0, uses_max - used - 1)}/{uses_max}.", "muted": True},
+        ]
+        return (
+            {
+                "status": _combat_status(state),
+                "open": True,
+                "lines": lines,
             },
             None,
         )
@@ -2710,9 +2852,20 @@ def handle_live_combat_action(
         hp_current = max(0, int(getattr(attacker, "hp_current", 0)))
         hp_max = max(1, int(getattr(attacker, "hp_max", 1)))
         low_hp_advantage = bool(bite_cfg.get("advantage_when_hp_below_half")) and (hp_current * 2 <= hp_max)
-        has_disadvantage = target.dodge_active or _is_poisoned_condition_active(attacker) or _is_taunted_attack_disadvantage(attacker, target)
+        has_disadvantage = (
+            target.dodge_active
+            or _is_poisoned_condition_active(attacker)
+            or _is_taunted_attack_disadvantage(attacker, target)
+            or _has_sunlight_sensitivity_disadvantage(attacker)
+        )
         hidden_step_advantage = _is_hidden_step_active(attacker)
-        has_advantage = attacker.help_attack_advantage or low_hp_advantage or hidden_step_advantage
+        has_advantage = (
+            attacker.help_attack_advantage
+            or low_hp_advantage
+            or hidden_step_advantage
+            or _has_pack_tactics_advantage(state, attacker, target)
+            or _has_active_grovel_advantage_for_attack(state, attacker, target)
+        )
         roll_mode = "normal"
         if has_advantage and not has_disadvantage:
             roll_mode = "advantage"
@@ -2919,10 +3072,21 @@ def handle_live_combat_action(
                 None,
             )
 
-        has_disadvantage = target.dodge_active or _is_poisoned_condition_active(attacker) or _is_taunted_attack_disadvantage(attacker, target)
+        has_disadvantage = (
+            target.dodge_active
+            or _is_poisoned_condition_active(attacker)
+            or _is_taunted_attack_disadvantage(attacker, target)
+            or _has_sunlight_sensitivity_disadvantage(attacker)
+        )
         nimble_escape_hide_advantage = _is_nimble_escape_hide_active(attacker)
         hidden_step_advantage = _is_hidden_step_active(attacker)
-        has_advantage = attacker.help_attack_advantage or hidden_step_advantage or nimble_escape_hide_advantage
+        has_advantage = (
+            attacker.help_attack_advantage
+            or hidden_step_advantage
+            or nimble_escape_hide_advantage
+            or _has_pack_tactics_advantage(state, attacker, target)
+            or _has_active_grovel_advantage_for_attack(state, attacker, target)
+        )
         roll_mode = "normal"
         if has_advantage and not has_disadvantage:
             roll_mode = "advantage"
@@ -3330,9 +3494,19 @@ def handle_live_combat_action(
                 None,
             )
 
-        has_disadvantage = target.dodge_active or _is_poisoned_condition_active(attacker) or _is_taunted_attack_disadvantage(attacker, target)
+        has_disadvantage = (
+            target.dodge_active
+            or _is_poisoned_condition_active(attacker)
+            or _is_taunted_attack_disadvantage(attacker, target)
+            or _has_sunlight_sensitivity_disadvantage(attacker)
+        )
         hidden_step_advantage = _is_hidden_step_active(attacker)
-        has_advantage = attacker.help_attack_advantage or hidden_step_advantage
+        has_advantage = (
+            attacker.help_attack_advantage
+            or hidden_step_advantage
+            or _has_pack_tactics_advantage(state, attacker, target)
+            or _has_active_grovel_advantage_for_attack(state, attacker, target)
+        )
         roll_mode = "normal"
         if has_advantage and not has_disadvantage:
             roll_mode = "advantage"
@@ -3502,9 +3676,19 @@ def handle_live_combat_action(
                 None,
             )
 
-        has_disadvantage = target.dodge_active or _is_poisoned_condition_active(attacker) or _is_taunted_attack_disadvantage(attacker, target)
+        has_disadvantage = (
+            target.dodge_active
+            or _is_poisoned_condition_active(attacker)
+            or _is_taunted_attack_disadvantage(attacker, target)
+            or _has_sunlight_sensitivity_disadvantage(attacker)
+        )
         hidden_step_advantage = _is_hidden_step_active(attacker)
-        has_advantage = attacker.help_attack_advantage or hidden_step_advantage
+        has_advantage = (
+            attacker.help_attack_advantage
+            or hidden_step_advantage
+            or _has_pack_tactics_advantage(state, attacker, target)
+            or _has_active_grovel_advantage_for_attack(state, attacker, target)
+        )
         roll_mode = "normal"
         if has_advantage and not has_disadvantage:
             roll_mode = "advantage"

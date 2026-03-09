@@ -776,6 +776,60 @@ def _mode_with_poisoned_disadvantage(mode: str, race_features: Any) -> str:
     return "disadvantage"
 
 
+def _has_sunlight_sensitivity_feature(race_features: Any) -> bool:
+    if not isinstance(race_features, dict):
+        return False
+    features_raw = race_features.get("features")
+    features = features_raw if isinstance(features_raw, dict) else {}
+    sunlight = features.get("sunlight_sensitivity")
+    if isinstance(sunlight, list):
+        return len(sunlight) > 0
+    if isinstance(sunlight, dict):
+        return True
+    return bool(sunlight)
+
+
+def _mode_with_sunlight_disadvantage(
+    mode: str,
+    race_features: Any,
+    *,
+    sunlight_bright: bool,
+    check_name: str = "",
+) -> str:
+    mode_norm = str(mode or "normal").strip().lower()
+    if mode_norm not in {"normal", "advantage", "disadvantage"}:
+        mode_norm = "normal"
+    if not sunlight_bright:
+        return mode_norm
+    if not _has_sunlight_sensitivity_feature(race_features):
+        return mode_norm
+    check_key = str(check_name or "").strip().lower()
+    if check_key and check_key not in {"perception", "wisdom (perception)"}:
+        return mode_norm
+    if mode_norm == "advantage":
+        return "normal"
+    return "disadvantage"
+
+
+def _set_sunlight_bright_for_session_combatants(session_id: str, *, sunlight_bright: bool) -> bool:
+    state = get_combat(session_id)
+    if state is None or not state.active:
+        return False
+    changed = False
+    for combatant in state.combatants.values():
+        race_features = combatant.race_features if isinstance(getattr(combatant, "race_features", None), dict) else {}
+        runtime_raw = race_features.get("runtime")
+        runtime = dict(runtime_raw) if isinstance(runtime_raw, dict) else {}
+        current = bool(runtime.get("sunlight_bright"))
+        if current == bool(sunlight_bright):
+            continue
+        runtime["sunlight_bright"] = bool(sunlight_bright)
+        race_features["runtime"] = runtime
+        combatant.race_features = race_features
+        changed = True
+    return changed
+
+
 def _has_hare_trigger_feature(race_features: Any) -> bool:
     if not isinstance(race_features, dict):
         return False
@@ -998,6 +1052,18 @@ def _reset_harengon_long_rest(ch: Character) -> bool:
     if "saving_face_pending" in runtime:
         runtime.pop("saving_face_pending", None)
         changed = True
+    if "grovel_uses_used" in runtime:
+        runtime.pop("grovel_uses_used", None)
+        changed = True
+    if "grovel_active_until_turn_start_of_actor_id" in runtime:
+        runtime.pop("grovel_active_until_turn_start_of_actor_id", None)
+        changed = True
+    if "grovel_uses_used" in runtime:
+        runtime.pop("grovel_uses_used", None)
+        changed = True
+    if "grovel_active_until_turn_start_of_actor_id" in runtime:
+        runtime.pop("grovel_active_until_turn_start_of_actor_id", None)
+        changed = True
     if not changed:
         return False
     rf["runtime"] = runtime
@@ -1030,6 +1096,18 @@ def _reset_combatant_harengon_long_rest(session_id: str, actor_key: str) -> bool
         changed = True
     if "saving_face_pending" in runtime:
         runtime.pop("saving_face_pending", None)
+        changed = True
+    if "grovel_uses_used" in runtime:
+        runtime.pop("grovel_uses_used", None)
+        changed = True
+    if "grovel_active_until_turn_start_of_actor_id" in runtime:
+        runtime.pop("grovel_active_until_turn_start_of_actor_id", None)
+        changed = True
+    if "grovel_uses_used" in runtime:
+        runtime.pop("grovel_uses_used", None)
+        changed = True
+    if "grovel_active_until_turn_start_of_actor_id" in runtime:
+        runtime.pop("grovel_active_until_turn_start_of_actor_id", None)
         changed = True
     if not changed:
         return False
@@ -1661,6 +1739,12 @@ def _reset_racial_rest_uses(ch: Character, *, long_rest: bool = True) -> bool:
     if "saving_face_pending" in runtime:
         runtime.pop("saving_face_pending", None)
         changed = True
+    if "grovel_uses_used" in runtime:
+        runtime.pop("grovel_uses_used", None)
+        changed = True
+    if "grovel_active_until_turn_start_of_actor_id" in runtime:
+        runtime.pop("grovel_active_until_turn_start_of_actor_id", None)
+        changed = True
     if long_rest:
         if "fearless_auto_success_used" in runtime:
             runtime.pop("fearless_auto_success_used", None)
@@ -1781,6 +1865,12 @@ def _reset_combatant_racial_rest_uses(session_id: str, actor_key: str, *, long_r
     if "saving_face_pending" in runtime:
         runtime.pop("saving_face_pending", None)
         changed = True
+    if "grovel_uses_used" in runtime:
+        runtime.pop("grovel_uses_used", None)
+        changed = True
+    if "grovel_active_until_turn_start_of_actor_id" in runtime:
+        runtime.pop("grovel_active_until_turn_start_of_actor_id", None)
+        changed = True
     if long_rest:
         if "fearless_auto_success_used" in runtime:
             runtime.pop("fearless_auto_success_used", None)
@@ -1809,6 +1899,21 @@ def _reset_combatant_racial_rest_uses(session_id: str, actor_key: str, *, long_r
         if "eerie_token_remote_view_rounds_left" in runtime:
             runtime.pop("eerie_token_remote_view_rounds_left", None)
             changed = True
+    for combatant in state.combatants.values():
+        target_rf = combatant.race_features if isinstance(getattr(combatant, "race_features", None), dict) else {}
+        target_runtime_raw = target_rf.get("runtime")
+        target_runtime = dict(target_runtime_raw) if isinstance(target_runtime_raw, dict) else {}
+        groveled_raw = target_runtime.get("groveled")
+        groveled = dict(groveled_raw) if isinstance(groveled_raw, dict) else {}
+        if str(groveled.get("source_actor_id") or "").strip() != str(actor_key):
+            continue
+        target_runtime.pop("groveled", None)
+        if target_runtime:
+            target_rf["runtime"] = target_runtime
+        else:
+            target_rf.pop("runtime", None)
+        combatant.race_features = target_rf
+        changed = True
     if not changed:
         return False
     if runtime:
@@ -1834,6 +1939,7 @@ async def _persist_relentless_endurance_used_from_combat_state(db, sess, session
     rabbit_hop_runtime_by_uid: dict[int, dict[str, Any]] = {}
     lucky_footwork_runtime_by_uid: dict[int, dict[str, Any]] = {}
     saving_face_runtime_by_uid: dict[int, dict[str, Any]] = {}
+    grovel_runtime_by_uid: dict[int, dict[str, Any]] = {}
     fearless_runtime_by_uid: dict[int, dict[str, Any]] = {}
     for key, actor in (state.combatants or {}).items():
         actor_key = str(key or "").strip().lower()
@@ -1908,6 +2014,16 @@ async def _persist_relentless_endurance_used_from_combat_state(db, sess, session
                 sf_runtime["saving_face_pending"] = dict(runtime.get("saving_face_pending"))
             if sf_runtime:
                 saving_face_runtime_by_uid[int(uid_raw)] = sf_runtime
+        if "grovel_uses_used" in runtime or "grovel_active_until_turn_start_of_actor_id" in runtime:
+            grovel_runtime: dict[str, Any] = {}
+            if "grovel_uses_used" in runtime:
+                grovel_runtime["grovel_uses_used"] = max(0, as_int(runtime.get("grovel_uses_used"), 0))
+            if "grovel_active_until_turn_start_of_actor_id" in runtime:
+                grovel_runtime["grovel_active_until_turn_start_of_actor_id"] = str(
+                    runtime.get("grovel_active_until_turn_start_of_actor_id") or ""
+                ).strip()
+            if grovel_runtime:
+                grovel_runtime_by_uid[int(uid_raw)] = grovel_runtime
         if "fearless_auto_success_used" in runtime or isinstance(runtime.get("fearless_pending_failed_frightened_save"), dict):
             fearless_runtime: dict[str, Any] = {}
             if "fearless_auto_success_used" in runtime:
@@ -1928,6 +2044,7 @@ async def _persist_relentless_endurance_used_from_combat_state(db, sess, session
         and not rabbit_hop_runtime_by_uid
         and not lucky_footwork_runtime_by_uid
         and not saving_face_runtime_by_uid
+        and not grovel_runtime_by_uid
         and not fearless_runtime_by_uid
     ):
         return False
@@ -1947,6 +2064,7 @@ async def _persist_relentless_endurance_used_from_combat_state(db, sess, session
             and uid not in rabbit_hop_runtime_by_uid
             and uid not in lucky_footwork_runtime_by_uid
             and uid not in saving_face_runtime_by_uid
+            and uid not in grovel_runtime_by_uid
             and uid not in fearless_runtime_by_uid
         ):
             continue
@@ -2062,6 +2180,20 @@ async def _persist_relentless_endurance_used_from_combat_state(db, sess, session
                     runtime["saving_face_pending"] = pending_target
                 else:
                     runtime.pop("saving_face_pending", None)
+                local_changed = True
+        grovel_runtime = grovel_runtime_by_uid.get(uid)
+        if isinstance(grovel_runtime, dict):
+            uses_val = max(0, as_int(grovel_runtime.get("grovel_uses_used"), 0))
+            if max(0, as_int(runtime.get("grovel_uses_used"), 0)) != uses_val:
+                runtime["grovel_uses_used"] = uses_val
+                local_changed = True
+            active_until = str(grovel_runtime.get("grovel_active_until_turn_start_of_actor_id") or "").strip()
+            current_until = str(runtime.get("grovel_active_until_turn_start_of_actor_id") or "").strip()
+            if current_until != active_until:
+                if active_until:
+                    runtime["grovel_active_until_turn_start_of_actor_id"] = active_until
+                else:
+                    runtime.pop("grovel_active_until_turn_start_of_actor_id", None)
                 local_changed = True
         fearless_runtime = fearless_runtime_by_uid.get(uid)
         if isinstance(fearless_runtime, dict):
@@ -2487,6 +2619,7 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                     "combat_mode_swim",
                     "combat_mode_climb",
                     "combat_escape",
+                    "combat_grovel_cower_beg",
                     "combat_grung_poison_weapon",
                     "combat_rabbit_hop",
                     "combat_lucky_footwork",
@@ -2881,10 +3014,29 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                     await broadcast_state(session_id)
                     continue
 
+                if combat_action in {"sunlight_on", "sunlight_off"}:
+                    if not await is_admin(db, sess, player):
+                        await ws_error("Только админ может переключать яркое солнце.", request_id=msg_request_id)
+                        continue
+                    is_on = combat_action == "sunlight_on"
+                    settings_set(sess, "sunlight_bright", bool(is_on))
+                    changed_combat_runtime = _set_sunlight_bright_for_session_combatants(
+                        session_id,
+                        sunlight_bright=bool(is_on),
+                    )
+                    await db.commit()
+                    status = "ВКЛ" if is_on else "ВЫКЛ"
+                    await add_system_event(db, sess, f"Яркое солнце: {status}.")
+                    if changed_combat_runtime:
+                        _uid_map, chars_by_uid, _ = await _load_actor_context(db, sess)
+                        sync_pcs_from_chars(session_id, chars_by_uid)
+                    await broadcast_state(session_id)
+                    continue
+
                 if combat_action in {"combat_fury_of_small", "combat_fury_of_the_small"} and not combat_active:
                     await ws_error("Разъярённая мелкота доступна только в бою.", request_id=msg_request_id)
                     continue
-                if combat_action in {"combat_rabbit_hop", "combat_lucky_footwork", "combat_saving_face", "combat_taunt", "combat_fearless"} and not combat_active:
+                if combat_action in {"combat_rabbit_hop", "combat_lucky_footwork", "combat_saving_face", "combat_taunt", "combat_fearless", "combat_grovel_cower_beg"} and not combat_active:
                     await ws_error("Эта особенность доступна только в бою.", request_id=msg_request_id)
                     continue
                 if combat_action in {"combat_eerie_token_create", "combat_eerie_token_message", "combat_eerie_token_view"} and not combat_active:
@@ -3237,7 +3389,7 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                         continue
                     else:
                         await ws_error(
-                            "Combat Lock: в бою доступны только боевые команды (атака/конец хода/уклон/движение/рывок/отход/засада/взлёт/приземление/помощь/побег/разъярённая мелкота/яд грунга на оружии/кроличий прыжок/сильные ноги/сохранить лицо/насмешка/бесстрашие/жуткий сувенир/каменная выносливость/исцеляющие руки/небесное преобразование/незримая поступь/подводное дыхание/оружие дыхания) или OOC/телепатия (mind link).",
+                            "Combat Lock: в бою доступны только боевые команды (атака/конец хода/уклон/движение/рывок/отход/засада/взлёт/приземление/помощь/побег/пресмыкайся/разъярённая мелкота/яд грунга на оружии/кроличий прыжок/сильные ноги/сохранить лицо/насмешка/бесстрашие/жуткий сувенир/каменная выносливость/исцеляющие руки/небесное преобразование/незримая поступь/подводное дыхание/оружие дыхания) или OOC/телепатия (mind link).",
                             request_id=msg_request_id,
                         )
                         continue
@@ -3743,6 +3895,12 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                         "dis": "disadvantage",
                     }.get(mode, "normal")
                     mapped_mode = _mode_with_poisoned_disadvantage(mapped_mode, getattr(ch, "race_features", None))
+                    mapped_mode = _mode_with_sunlight_disadvantage(
+                        mapped_mode,
+                        getattr(ch, "race_features", None),
+                        sunlight_bright=bool(settings_get(sess, "sunlight_bright", False)),
+                        check_name=key,
+                    )
                     ra, rb, roll = roll_check(
                         mapped_mode,
                         reroll_ones=_lucky_scope_enabled(getattr(ch, "race_features", None), "check"),
@@ -3871,6 +4029,11 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                     }.get(mode, "normal")
                     mod = 0
                     mapped_mode = _mode_with_poisoned_disadvantage(mapped_mode, getattr(ch, "race_features", None))
+                    mapped_mode = _mode_with_sunlight_disadvantage(
+                        mapped_mode,
+                        getattr(ch, "race_features", None),
+                        sunlight_bright=bool(settings_get(sess, "sunlight_bright", False)),
+                    )
                     ra, rb, roll = roll_check(mapped_mode)
                     check_payload = {
                         "actor_uid": _player_uid(player),
@@ -4383,10 +4546,29 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                     await broadcast_state(session_id)
                     continue
 
+                if combat_action in {"sunlight_on", "sunlight_off"}:
+                    if not await is_admin(db, sess, player):
+                        await ws_error("Только админ может переключать яркое солнце.", request_id=msg_request_id)
+                        continue
+                    is_on = combat_action == "sunlight_on"
+                    settings_set(sess, "sunlight_bright", bool(is_on))
+                    changed_combat_runtime = _set_sunlight_bright_for_session_combatants(
+                        session_id,
+                        sunlight_bright=bool(is_on),
+                    )
+                    await db.commit()
+                    status = "ВКЛ" if is_on else "ВЫКЛ"
+                    await add_system_event(db, sess, f"Яркое солнце: {status}.")
+                    if changed_combat_runtime:
+                        _uid_map, chars_by_uid, _ = await _load_actor_context(db, sess)
+                        sync_pcs_from_chars(session_id, chars_by_uid)
+                    await broadcast_state(session_id)
+                    continue
+
                 if combat_action in {"combat_fury_of_small", "combat_fury_of_the_small"} and not combat_active:
                     await ws_error("Разъярённая мелкота доступна только в бою.", request_id=msg_request_id)
                     continue
-                if combat_action in {"combat_rabbit_hop", "combat_lucky_footwork", "combat_saving_face", "combat_taunt", "combat_fearless"} and not combat_active:
+                if combat_action in {"combat_rabbit_hop", "combat_lucky_footwork", "combat_saving_face", "combat_taunt", "combat_fearless", "combat_grovel_cower_beg"} and not combat_active:
                     await ws_error("Эта особенность доступна только в бою.", request_id=msg_request_id)
                     continue
                 if combat_action in {"combat_eerie_token_create", "combat_eerie_token_message", "combat_eerie_token_view"} and not combat_active:

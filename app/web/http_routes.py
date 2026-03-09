@@ -834,6 +834,12 @@ def _build_race_features(selected_race: dict | None) -> dict[str, Any]:
         if mtype == "bonus_action_options" and tkey == "nimble_escape":
             features["nimble_escape"] = True
 
+        if mtype == "pack_tactics":
+            features["pack_tactics"] = dict(mech) if mech else {"enabled": True}
+
+        if mtype == "action_debuff" and tkey == "grovel_cower_beg":
+            features["grovel_cower_beg"] = dict(mech)
+
         if mtype == "skill_bonus":
             features["stonecunning"] = dict(mech)
 
@@ -1025,6 +1031,8 @@ def _build_race_features(selected_race: dict | None) -> dict[str, Any]:
 
         if tkey == "sunlight_sensitivity":
             disadvantage = _uniq_lower_str_list(mech.get("disadvantage"))
+            if not disadvantage:
+                disadvantage = ["attack_rolls", "perception_checks_relying_on_sight"]
             if disadvantage:
                 features["sunlight_sensitivity"] = disadvantage
 
@@ -1183,7 +1191,7 @@ def _apply_asi_bonuses(stats: dict[str, Any], asi_items: Any) -> None:
         if stat_key not in allowed_asi_stats:
             continue
         bonus = as_int(item.get("bonus"), 0)
-        if bonus <= 0:
+        if bonus == 0:
             continue
         current = as_int(stats.get(stat_key), 50)
         stats[stat_key] = max(0, min(100, current + (bonus * 5)))

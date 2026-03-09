@@ -133,6 +133,10 @@ CHAT_COMBAT_ACTION_PATTERNS: list[tuple[str, re.Pattern[str]]] = [
     ("combat_disengage", re.compile(r"(отхож|отход|отступ|отступаю|вырываюсь|разрыв дистанц|разрыва[юл]|разорва[лю]|отпрыг|отскоч|дисенгейдж)", re.IGNORECASE)),
     ("combat_hide", re.compile(r"(засад\w*|пряч\w*|скрываюсь\s+в\s+тени|hide\b)", re.IGNORECASE)),
     (
+        "combat_grovel_cower_beg",
+        re.compile(r"(пресмыка\w*|трус[ью]\w*|умоля\w*|\bgrovel\b|\bcower\b|\bbeg\b)", re.IGNORECASE),
+    ),
+    (
         "combat_rabbit_hop",
         re.compile(r"(кролич\w+\s+прыж\w*|прыж\w+\s+зайц\w*|rabbit\s+hop|прыгаю\s+рывком)", re.IGNORECASE),
     ),
@@ -191,6 +195,14 @@ CHAT_COMBAT_ACTION_PATTERNS: list[tuple[str, re.Pattern[str]]] = [
             r"(погружаюсь\s+в\s+воду|час\s+в\s+воде|купал(?:ся|ась)|immerse\s+in\s+water)",
             re.IGNORECASE,
         ),
+    ),
+    (
+        "sunlight_on",
+        re.compile(r"(?:\bsunlight\s+on\b|ярк(?:ое|ий)\s+солнц\w*\s*(?:вкл|включ|on)?|ярк(?:ий|ое)\s+свет\s*(?:вкл|включ|on)?)", re.IGNORECASE),
+    ),
+    (
+        "sunlight_off",
+        re.compile(r"(?:\bsunlight\s+off\b|ярк(?:ое|ий)\s+солнц\w*\s*(?:выкл|выключ|off)|ярк(?:ий|ое)\s+свет\s*(?:выкл|выключ|off))", re.IGNORECASE),
     ),
     (
         "mind_link_set",

@@ -830,6 +830,23 @@ function openCharacterModal(){
   const nimbleEscapeText = nimbleEscape
     ? "Шустрый побег: бонусным действием каждый ваш ход: Отход или Засада"
     : "";
+  const packTactics = raceFeaturesMeta.pack_tactics && typeof raceFeaturesMeta.pack_tactics === "object"
+    ? raceFeaturesMeta.pack_tactics
+    : null;
+  const packTacticsText = packTactics
+    ? "Тактика стаи: преимущество на атаки, если рядом с целью (5 фт) есть союзник, не недееспособный"
+    : "";
+  const grovelCowerBeg = raceFeaturesMeta.grovel_cower_beg && typeof raceFeaturesMeta.grovel_cower_beg === "object"
+    ? raceFeaturesMeta.grovel_cower_beg
+    : null;
+  const grovelUsesUsed = Number.isFinite(Number(runtime.grovel_uses_used)) ? Number(runtime.grovel_uses_used) : 0;
+  const grovelUsesMax = grovelCowerBeg && Number.isFinite(Number(grovelCowerBeg.uses_max))
+    ? Number(grovelCowerBeg.uses_max)
+    : 1;
+  const grovelRemaining = Math.max(0, grovelUsesMax - grovelUsesUsed);
+  const grovelCowerBegText = grovelCowerBeg
+    ? `Пресмыкайся, трусь и умоляй: действием (10 фт), союзники получают преимущество по атакам по ним до начала вашего след. хода, 1/кор/дл отдых (осталось ${grovelRemaining}/${grovelUsesMax})`
+    : "";
   const charge = (raceFeaturesMeta.charge && typeof raceFeaturesMeta.charge === "object")
     ? raceFeaturesMeta.charge
     : null;
@@ -936,7 +953,9 @@ function openCharacterModal(){
   const sunlightSensitivity = Array.isArray(raceFeaturesMeta.sunlight_sensitivity)
     ? raceFeaturesMeta.sunlight_sensitivity.map((x) => String(x || "").trim().toLowerCase()).filter(Boolean)
     : [];
-  const sunlightSensitivityText = sunlightSensitivity.length ? "Чувствительность к солнцу" : "";
+  const sunlightSensitivityText = sunlightSensitivity.length
+    ? "Чувствительность к солнечному свету: помеха на атаки и проверки Восприятия (зрение) на ярком солнце"
+    : "";
   const healingHands = (raceFeaturesMeta.healing_hands && typeof raceFeaturesMeta.healing_hands === "object")
     ? raceFeaturesMeta.healing_hands
     : null;
@@ -1922,6 +1941,12 @@ function openCharacterModal(){
   if(nimbleEscapeText){
     details.push(`<div class="char-line"><strong>Шустрый побег:</strong> ${escapeHtml(nimbleEscapeText.replace(/^Шустрый побег:\s*/, ""))}</div>`);
   }
+  if(packTacticsText){
+    details.push(`<div class="char-line"><strong>Тактика стаи:</strong> ${escapeHtml(packTacticsText.replace(/^Тактика стаи:\s*/, ""))}</div>`);
+  }
+  if(grovelCowerBegText){
+    details.push(`<div class="char-line"><strong>Пресмыкайся, трусь и умоляй:</strong> ${escapeHtml(grovelCowerBegText.replace(/^Пресмыкайся, трусь и умоляй:\s*/, ""))}</div>`);
+  }
   if(tranceText){
     details.push(`<div class="char-line"><strong>Транс:</strong> ${escapeHtml(tranceText.replace(/^Транс:\s*/, ""))}</div>`);
   }
@@ -2108,6 +2133,8 @@ function openCharacterModal(){
   if(surpriseAttackText) copyLines.push(surpriseAttackText);
   if(furyOfTheSmallText) copyLines.push(furyOfTheSmallText);
   if(nimbleEscapeText) copyLines.push(nimbleEscapeText);
+  if(packTacticsText) copyLines.push(packTacticsText);
+  if(grovelCowerBegText) copyLines.push(grovelCowerBegText);
   if(tranceText) copyLines.push(tranceText);
   if(maskOfTheWildText) copyLines.push(maskOfTheWildText);
   if(sunlightSensitivityText) copyLines.push(sunlightSensitivityText);

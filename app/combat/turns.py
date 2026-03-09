@@ -119,11 +119,16 @@ def advance_turn_in_state(state: CombatState) -> CombatState:
                 taunted_raw = runtime.get("taunted")
                 taunted = dict(taunted_raw) if isinstance(taunted_raw, dict) else {}
                 if not bool(taunted.get("active")):
-                    continue
+                    taunted = {}
                 expires_on = str(taunted.get("expires_on_turn_start_of_actor_id") or "").strip()
-                if expires_on != current_actor_key:
-                    continue
-                runtime.pop("taunted", None)
+                if taunted and expires_on == current_actor_key:
+                    runtime.pop("taunted", None)
+                groveled_raw = runtime.get("groveled")
+                groveled = dict(groveled_raw) if isinstance(groveled_raw, dict) else {}
+                if bool(groveled.get("active")):
+                    expires_grovel = str(groveled.get("expires_on_turn_start_of_source") or "").strip()
+                    if expires_grovel == current_actor_key:
+                        runtime.pop("groveled", None)
                 if runtime:
                     race_features["runtime"] = runtime
                 else:
@@ -133,6 +138,10 @@ def advance_turn_in_state(state: CombatState) -> CombatState:
         race_features = current_combatant.race_features if isinstance(current_combatant.race_features, dict) else {}
         runtime_raw = race_features.get("runtime")
         runtime = dict(runtime_raw) if isinstance(runtime_raw, dict) else {}
+        if "grovel_active_until_turn_start_of_actor_id" in runtime:
+            source_key = str(runtime.get("grovel_active_until_turn_start_of_actor_id") or "").strip()
+            if source_key == str(getattr(current_combatant, "key", "") or ""):
+                runtime.pop("grovel_active_until_turn_start_of_actor_id", None)
         hidden_raw = runtime.get("hidden_step")
         hidden_step = dict(hidden_raw) if isinstance(hidden_raw, dict) else {}
         if bool(hidden_step.get("active")) and bool(hidden_step.get("expires_on_owner_turn_start", True)):
