@@ -182,6 +182,9 @@ def advance_turn_in_state(state: CombatState) -> CombatState:
         if "hammering_horns_target_id" in runtime:
             runtime.pop("hammering_horns_target_id", None)
             runtime_changed = True
+        if "aggressive_used_turn_id" in runtime:
+            runtime.pop("aggressive_used_turn_id", None)
+            runtime_changed = True
         if "grovel_active_until_turn_start_of_actor_id" in runtime:
             source_key = str(runtime.get("grovel_active_until_turn_start_of_actor_id") or "").strip()
             if source_key == str(getattr(current_combatant, "key", "") or ""):

@@ -848,6 +848,9 @@ def _build_race_features(selected_race: dict | None) -> dict[str, Any]:
         if mtype == "hammering_horns":
             features["hammering_horns"] = dict(mech)
 
+        if mtype == "bonus_action_move_toward_enemy" and tkey == "aggressive":
+            features["aggressive"] = dict(mech)
+
         if mtype == "expert_forgery":
             features["expert_forgery"] = dict(mech)
 

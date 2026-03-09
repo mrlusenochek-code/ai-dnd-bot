@@ -992,6 +992,11 @@ def _has_hammering_horns_feature(actor: Any) -> bool:
     return isinstance(cfg, dict) and bool(cfg)
 
 
+def _has_aggressive_feature(actor: Any) -> bool:
+    cfg = _race_feature(actor, "aggressive")
+    return isinstance(cfg, dict) and bool(cfg)
+
+
 def _has_equine_climb_penalty(actor: Any) -> int:
     race_features = getattr(actor, "race_features", None)
     rf = race_features if isinstance(race_features, dict) else {}
@@ -3816,6 +3821,82 @@ def handle_live_combat_action(
                 "status": _combat_status(state),
                 "open": True,
                 "lines": lines,
+            },
+            None,
+        )
+
+    if action == "combat_aggressive":
+        state = get_combat(session_id)
+        if state is None or not state.active:
+            return None, "Combat is not active"
+        if not state.order:
+            end_combat(session_id)
+            return (
+                {
+                    "status": "Бой завершён",
+                    "open": False,
+                    "lines": [{"text": "Бой завершён: целей не осталось.", "muted": True}],
+                },
+                None,
+            )
+
+        actor_key = state.order[state.turn_index]
+        actor = state.combatants.get(actor_key)
+        if actor is None:
+            return None, "Combat state is inconsistent"
+        if str(getattr(actor, "side", "")).lower() != "pc":
+            return None, "Агрессивный доступен только персонажу игрока."
+        if not _has_aggressive_feature(actor):
+            return None, "Агрессивный недоступен."
+
+        move_speed_ft, move_remaining_ft = _movement_budget_for_actor(actor)
+        actor.move_speed_ft = move_speed_ft
+        if move_speed_ft <= 0 or max(0, int(getattr(actor, "speed_ft", move_speed_ft))) <= 0:
+            return None, "Агрессивный недоступен: скорость равна 0."
+        if move_remaining_ft <= 0:
+            return None, "Агрессивный недоступен: перемещение в этом ходу уже исчерпано."
+
+        blocked = _spend_bonus_action_or_block(state, actor)
+        if blocked is not None:
+            return blocked, None
+
+        target = _first_living_opponent(state, actor.side)
+        if target is None:
+            end_combat(session_id)
+            return (
+                {
+                    "status": "Бой завершён",
+                    "open": False,
+                    "lines": [{"text": "Бой завершён: целей не осталось.", "muted": True}],
+                },
+                None,
+            )
+
+        rush_ft = min(move_remaining_ft, move_speed_ft)
+        actor.move_remaining_ft = max(0, move_remaining_ft - rush_ft)
+        actor.move_remaining = actor.move_remaining_ft
+        actor.moved_this_turn_ft = max(0, int(getattr(actor, "moved_this_turn_ft", 0))) + rush_ft
+
+        race_features = actor.race_features if isinstance(getattr(actor, "race_features", None), dict) else {}
+        runtime_raw = race_features.get("runtime")
+        runtime = dict(runtime_raw) if isinstance(runtime_raw, dict) else {}
+        runtime["aggressive_used_turn_id"] = f"round:{max(1, int(state.round_no))}|turns:{max(0, int(getattr(actor, 'turns_taken', 0)))}"
+        race_features["runtime"] = runtime
+        actor.race_features = race_features
+
+        return (
+            {
+                "status": _combat_status(state),
+                "open": True,
+                "lines": [
+                    {
+                        "text": (
+                            f"Агрессивный: {actor.name} рывком приближается к {target.name} "
+                            f"на {rush_ft} фт (осталось {actor.move_remaining_ft} фт)."
+                        )
+                    },
+                    {"text": "Вы рывком приближаетесь к врагу.", "muted": True},
+                ],
             },
             None,
         )

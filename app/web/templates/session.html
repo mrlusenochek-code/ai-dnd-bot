@@ -1766,6 +1766,15 @@ function openCharacterModal(){
   const minotaurHammeringHornsText = (raceKey === "minotaur" && minotaurHammeringHorns)
     ? "Сокрушительные рога: после попадания melee в действии Атака — бонусным действием толчок 10 фт (Сл=8+БМ+мод СИЛ)"
     : "";
+  const orcMenacingText = (raceKey === "orc" && profSkills.includes("Запугивание"))
+    ? "Угрожающий: владение Запугивание"
+    : "";
+  const orcAggressive = (raceFeaturesMeta.aggressive && typeof raceFeaturesMeta.aggressive === "object")
+    ? raceFeaturesMeta.aggressive
+    : null;
+  const orcAggressiveText = (raceKey === "orc" && orcAggressive)
+    ? "Агрессивный: бонусным действием перемещаетесь к видимому врагу"
+    : "";
   const combatState = (lastState && typeof lastState.combat === "object" && lastState.combat) ? lastState.combat : null;
   const combatants = (combatState && typeof combatState.combatants === "object" && combatState.combatants) ? combatState.combatants : {};
   const myCombatantKey = me && me.uid !== null && me.uid !== undefined ? (`pc_${String(me.uid)}`) : "";
@@ -2081,6 +2090,12 @@ function openCharacterModal(){
   if(minotaurHammeringHornsText){
     details.push(`<div class="char-line"><strong>Сокрушительные рога:</strong> ${escapeHtml(minotaurHammeringHornsText.replace(/^Сокрушительные рога:\s*/, ""))}</div>`);
   }
+  if(orcMenacingText){
+    details.push(`<div class="char-line"><strong>Угрожающий:</strong> ${escapeHtml(orcMenacingText.replace(/^Угрожающий:\s*/, ""))}</div>`);
+  }
+  if(orcAggressiveText){
+    details.push(`<div class="char-line"><strong>Агрессивный:</strong> ${escapeHtml(orcAggressiveText.replace(/^Агрессивный:\s*/, ""))}</div>`);
+  }
   if(carry.powerful_build === true){
     details.push("<div class=\"char-line\"><strong>Мощное телосложение:</strong> считается на 1 размер больше для переноски/толкания/тяги/подъёма</div>");
   }
@@ -2338,6 +2353,8 @@ function openCharacterModal(){
   if(minotaurImposingPresenceText) copyLines.push(minotaurImposingPresenceText);
   if(minotaurGoringRushText) copyLines.push(minotaurGoringRushText);
   if(minotaurHammeringHornsText) copyLines.push(minotaurHammeringHornsText);
+  if(orcMenacingText) copyLines.push(orcMenacingText);
+  if(orcAggressiveText) copyLines.push(orcAggressiveText);
   if(saveAdvantageConditionsRu.length) copyLines.push(`Преим. против: ${saveAdvantageConditionsRu.join(", ")} (спасброски)`);
   if(dwarvenResilienceText) copyLines.push(dwarvenResilienceText);
   if(feyAncestryText) copyLines.push(feyAncestryText);

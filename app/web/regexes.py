@@ -112,6 +112,10 @@ CHAT_COMBAT_ACTION_PATTERNS: list[tuple[str, re.Pattern[str]]] = [
         re.compile(r"(сокрушител\w+\s+рог\w*|толкаю\s+рог\w*|hammering\s+horns)", re.IGNORECASE),
     ),
     (
+        "combat_aggressive",
+        re.compile(r"(агрессивн\w*|агресси\w*|aggressive\b|рыв\w+\s+к\s+враг\w*)", re.IGNORECASE),
+    ),
+    (
         "combat_attack",
         re.compile(
             r"(атак|напад|удар|бью|рубл|колю|выпад|тыч|пыр|замах|метаю|швыряю|стреля|выстрел|стрел|лук|арбалет|режу|вступаю\s+в\s+бой|вступить\s+в\s+бой|вхожу\s+в\s+бой|войти\s+в\s+бой|врываюсь\s+в\s+бой)",

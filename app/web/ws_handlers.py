@@ -1982,6 +1982,9 @@ def _reset_racial_rest_uses(ch: Character, *, long_rest: bool = True) -> bool:
     if "daunting_roar_uses_used" in runtime:
         runtime.pop("daunting_roar_uses_used", None)
         changed = True
+    if "aggressive_used_turn_id" in runtime:
+        runtime.pop("aggressive_used_turn_id", None)
+        changed = True
     if long_rest:
         if "fearless_auto_success_used" in runtime:
             runtime.pop("fearless_auto_success_used", None)
@@ -2113,6 +2116,9 @@ def _reset_combatant_racial_rest_uses(session_id: str, actor_key: str, *, long_r
         changed = True
     if "daunting_roar_uses_used" in runtime:
         runtime.pop("daunting_roar_uses_used", None)
+        changed = True
+    if "aggressive_used_turn_id" in runtime:
+        runtime.pop("aggressive_used_turn_id", None)
         changed = True
     if long_rest:
         if "fearless_auto_success_used" in runtime:
@@ -3343,7 +3349,7 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                 if combat_action in {"combat_fury_of_small", "combat_fury_of_the_small"} and not combat_active:
                     await ws_error("Разъярённая мелкота доступна только в бою.", request_id=msg_request_id)
                     continue
-                if combat_action in {"combat_hungry_jaws", "combat_rabbit_hop", "combat_lucky_footwork", "combat_saving_face", "combat_taunt", "combat_fearless", "combat_daunting_roar", "combat_grovel_cower_beg", "combat_goring_rush", "combat_hammering_horns"} and not combat_active:
+                if combat_action in {"combat_hungry_jaws", "combat_rabbit_hop", "combat_lucky_footwork", "combat_saving_face", "combat_taunt", "combat_fearless", "combat_daunting_roar", "combat_grovel_cower_beg", "combat_goring_rush", "combat_hammering_horns", "combat_aggressive"} and not combat_active:
                     await ws_error("Эта особенность доступна только в бою.", request_id=msg_request_id)
                     continue
                 if combat_action in {"combat_eerie_token_create", "combat_eerie_token_message", "combat_eerie_token_view"} and not combat_active:
@@ -3707,7 +3713,7 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                         continue
                     else:
                         await ws_error(
-                            "Combat Lock: в бою доступны только боевые команды (атака/конец хода/уклон/движение/рывок/отход/засада/взлёт/приземление/помощь/побег/пресмыкайся/разъярённая мелкота/яд грунга на оружии/голодная пасть/кроличий прыжок/сильные ноги/сохранить лицо/насмешка/бесстрашие/устрашающий рёв/жуткий сувенир/каменная выносливость/исцеляющие руки/небесное преобразование/незримая поступь/подводное дыхание/оружие дыхания) или OOC/телепатия (mind link).",
+                            "Combat Lock: в бою доступны только боевые команды (атака/конец хода/уклон/движение/рывок/отход/засада/взлёт/приземление/помощь/побег/пресмыкайся/разъярённая мелкота/яд грунга на оружии/голодная пасть/кроличий прыжок/сильные ноги/сохранить лицо/насмешка/бесстрашие/устрашающий рёв/агрессивный/жуткий сувенир/каменная выносливость/исцеляющие руки/небесное преобразование/незримая поступь/подводное дыхание/оружие дыхания) или OOC/телепатия (mind link).",
                             request_id=msg_request_id,
                         )
                         continue
@@ -3718,6 +3724,9 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                     continue
                 if combat_action == "combat_hidden_step":
                     await ws_error("Незримую поступь можно применить только в бою.", request_id=msg_request_id)
+                    continue
+                if combat_action == "combat_aggressive":
+                    await ws_error("Агрессивный можно применить только в бою.", request_id=msg_request_id)
                     continue
 
                 # OOC (any time, no turn)
@@ -4946,7 +4955,7 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                 if combat_action in {"combat_fury_of_small", "combat_fury_of_the_small"} and not combat_active:
                     await ws_error("Разъярённая мелкота доступна только в бою.", request_id=msg_request_id)
                     continue
-                if combat_action in {"combat_hungry_jaws", "combat_rabbit_hop", "combat_lucky_footwork", "combat_saving_face", "combat_taunt", "combat_fearless", "combat_daunting_roar", "combat_grovel_cower_beg", "combat_goring_rush", "combat_hammering_horns"} and not combat_active:
+                if combat_action in {"combat_hungry_jaws", "combat_rabbit_hop", "combat_lucky_footwork", "combat_saving_face", "combat_taunt", "combat_fearless", "combat_daunting_roar", "combat_grovel_cower_beg", "combat_goring_rush", "combat_hammering_horns", "combat_aggressive"} and not combat_active:
                     await ws_error("Эта особенность доступна только в бою.", request_id=msg_request_id)
                     continue
                 if combat_action in {"combat_eerie_token_create", "combat_eerie_token_message", "combat_eerie_token_view"} and not combat_active:
@@ -5368,6 +5377,9 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                     continue
                 if combat_action == "combat_hidden_step":
                     await ws_error("Незримую поступь можно применить только в бою.")
+                    continue
+                if combat_action == "combat_aggressive":
+                    await ws_error("Агрессивный можно применить только в бою.")
                     continue
 
                 if combat_action == "breathe_underwater":
