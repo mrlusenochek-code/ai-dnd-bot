@@ -346,6 +346,16 @@ def apply_damage(session_id: str, combatant_key: str, damage: int, *, source: st
     combatant.last_damage_taken_round = max(1, int(state.round_no))
     combatant.last_damage_taken_source = str(source or "").strip() or None
     combatant.hp_current = max(0, combatant.hp_current - damage_applied)
+    race_features = combatant.race_features if isinstance(getattr(combatant, "race_features", None), dict) else {}
+    runtime_raw = race_features.get("runtime")
+    runtime = dict(runtime_raw) if isinstance(runtime_raw, dict) else {}
+    hide_raw = runtime.get("nimble_escape_hide")
+    hide_cfg = dict(hide_raw) if isinstance(hide_raw, dict) else {}
+    if bool(hide_cfg.get("active")):
+        hide_cfg["active"] = False
+        runtime["nimble_escape_hide"] = hide_cfg
+        race_features["runtime"] = runtime
+        combatant.race_features = race_features
     return state
 
 

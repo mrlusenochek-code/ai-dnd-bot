@@ -35,6 +35,7 @@ def test_goblin_fury_of_small_arm_hit_and_short_rest_reset(monkeypatch) -> None:
         level=3,
         stats={"str": 50},
         race_features={
+            "size": "small",
             "features": {
                 "fury_of_the_small": {
                     "amount": "level",
@@ -54,6 +55,7 @@ def test_goblin_fury_of_small_arm_hit_and_short_rest_reset(monkeypatch) -> None:
         ac=12,
         initiative=10,
         stats={"dex": 50},
+        race_features={"size": "large"},
     )
     state.order = ["pc_1", "enemy_1"]
     state.turn_index = 0
@@ -73,7 +75,7 @@ def test_goblin_fury_of_small_arm_hit_and_short_rest_reset(monkeypatch) -> None:
         assert err_1 is None
         assert patch_1 is not None
         texts_1 = _line_texts(patch_1)
-        assert any("Ярость малого: +3 урона (уровень)." in t for t in texts_1)
+        assert any("Разъярённая мелкота: +3 урона." in t for t in texts_1)
 
         state_now = get_combat(session_id)
         assert state_now is not None

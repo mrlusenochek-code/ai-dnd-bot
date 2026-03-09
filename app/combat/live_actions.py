@@ -316,7 +316,69 @@ def _has_nimble_escape(actor: Any) -> bool:
     return bool(features.get("nimble_escape") is True)
 
 
-def _maybe_apply_fury_of_small(actor: Any, lines: list[dict[str, Any]]) -> int:
+_SIZE_RANK = {
+    "tiny": 0,
+    "small": 1,
+    "medium": 2,
+    "large": 3,
+    "huge": 4,
+    "gargantuan": 5,
+}
+
+
+def _combatant_size_key(combatant: Any) -> str:
+    size_raw = str(getattr(combatant, "size", "") or "").strip().lower()
+    if size_raw in _SIZE_RANK:
+        return size_raw
+    race_features = getattr(combatant, "race_features", None)
+    rf = race_features if isinstance(race_features, dict) else {}
+    rf_size = str(rf.get("size") or "").strip().lower()
+    if rf_size in _SIZE_RANK:
+        return rf_size
+    return "medium"
+
+
+def _is_target_larger_than_actor(*, actor: Any, target: Any) -> bool:
+    actor_size = _combatant_size_key(actor)
+    target_size = _combatant_size_key(target)
+    return _SIZE_RANK.get(target_size, _SIZE_RANK["medium"]) > _SIZE_RANK.get(actor_size, _SIZE_RANK["medium"])
+
+
+def _nimble_hide_runtime(actor: Any) -> tuple[dict[str, Any], dict[str, Any], dict[str, Any]]:
+    race_features = actor.race_features if isinstance(getattr(actor, "race_features", None), dict) else {}
+    runtime_raw = race_features.get("runtime")
+    runtime = dict(runtime_raw) if isinstance(runtime_raw, dict) else {}
+    hide_raw = runtime.get("nimble_escape_hide")
+    hide_cfg = dict(hide_raw) if isinstance(hide_raw, dict) else {}
+    return race_features, runtime, hide_cfg
+
+
+def _is_nimble_escape_hide_active(actor: Any) -> bool:
+    _rf, _runtime, hide_cfg = _nimble_hide_runtime(actor)
+    return bool(hide_cfg.get("active"))
+
+
+def _arm_nimble_escape_hide(actor: Any) -> None:
+    race_features, runtime, hide_cfg = _nimble_hide_runtime(actor)
+    hide_cfg["active"] = True
+    hide_cfg["source"] = "nimble_escape_hide"
+    runtime["nimble_escape_hide"] = hide_cfg
+    race_features["runtime"] = runtime
+    actor.race_features = race_features
+
+
+def _consume_nimble_escape_hide(actor: Any) -> bool:
+    race_features, runtime, hide_cfg = _nimble_hide_runtime(actor)
+    if not bool(hide_cfg.get("active")):
+        return False
+    hide_cfg["active"] = False
+    runtime["nimble_escape_hide"] = hide_cfg
+    race_features["runtime"] = runtime
+    actor.race_features = race_features
+    return True
+
+
+def _maybe_apply_fury_of_small(*, actor: Any, target: Any, lines: list[dict[str, Any]]) -> int:
     if str(getattr(actor, "side", "")).lower() != "pc":
         return 0
     fury_cfg = _race_feature(actor, "fury_of_the_small")
@@ -331,14 +393,16 @@ def _maybe_apply_fury_of_small(actor: Any, lines: list[dict[str, Any]]) -> int:
         runtime["fury_of_small_armed"] = False
         race_features["runtime"] = runtime
         actor.race_features = race_features
-        lines.append({"text": "Ярость малого: уже использовано до отдыха.", "muted": True})
+        lines.append({"text": "Разъярённая мелкота: уже использована до отдыха.", "muted": True})
+        return 0
+    if not _is_target_larger_than_actor(actor=actor, target=target):
         return 0
     bonus = max(1, int(getattr(actor, "level", 1) or 1))
     runtime["fury_of_small_used"] = True
     runtime["fury_of_small_armed"] = False
     race_features["runtime"] = runtime
     actor.race_features = race_features
-    lines.append({"text": f"Ярость малого: +{bonus} урона (уровень).", "muted": True})
+    lines.append({"text": f"Разъярённая мелкота: +{bonus} урона.", "muted": True})
     return bonus
 
 
@@ -1063,6 +1127,88 @@ def handle_live_combat_action(
             None,
         )
 
+    if action == "combat_hide":
+        state = get_combat(session_id)
+        if state is None or not state.active:
+            return None, "Combat is not active"
+        if not state.order:
+            end_combat(session_id)
+            return (
+                {
+                    "status": "Бой завершён",
+                    "open": False,
+                    "lines": [{"text": "Бой завершён: целей не осталось.", "muted": True}],
+                },
+                None,
+            )
+
+        attacker_key = state.order[state.turn_index]
+        attacker = state.combatants.get(attacker_key)
+        if attacker is None:
+            return None, "Combat state is inconsistent"
+        if not _has_nimble_escape(attacker):
+            return None, "Скрытность бонусным действием доступна только через «Шустрый побег»."
+        blocked = _spend_bonus_action_or_block(state, attacker)
+        if blocked is not None:
+            return blocked, None
+        _arm_nimble_escape_hide(attacker)
+        return (
+            {
+                "status": _combat_status(state),
+                "open": True,
+                "lines": [
+                    {"text": f"{attacker.name} прячется (Шустрый побег).", "muted": True},
+                    {"text": "Скрытность: преимущество на следующую атаку.", "muted": True},
+                ],
+            },
+            None,
+        )
+
+    if action in {"combat_fury_of_small", "combat_fury_of_the_small"}:
+        state = get_combat(session_id)
+        if state is None or not state.active:
+            return None, "Combat is not active"
+        if not state.order:
+            end_combat(session_id)
+            return (
+                {
+                    "status": "Бой завершён",
+                    "open": False,
+                    "lines": [{"text": "Бой завершён: целей не осталось.", "muted": True}],
+                },
+                None,
+            )
+        attacker_key = state.order[state.turn_index]
+        attacker = state.combatants.get(attacker_key)
+        if attacker is None:
+            return None, "Combat state is inconsistent"
+        if str(getattr(attacker, "side", "")).lower() != "pc":
+            return None, "Разъярённая мелкота доступна только персонажу игрока."
+        fury_cfg = _race_feature(attacker, "fury_of_the_small")
+        if fury_cfg is None:
+            return None, "Разъярённая мелкота недоступна."
+        race_features = attacker.race_features if isinstance(attacker.race_features, dict) else {}
+        runtime_raw = race_features.get("runtime")
+        runtime = dict(runtime_raw) if isinstance(runtime_raw, dict) else {}
+        if bool(runtime.get("fury_of_small_used")):
+            return None, "Разъярённая мелкота уже использована до отдыха."
+        if bool(runtime.get("fury_of_small_armed")):
+            return None, "Разъярённая мелкота уже готова: сработает при следующем подходящем уроне."
+        runtime["fury_of_small_armed"] = True
+        race_features["runtime"] = runtime
+        attacker.race_features = race_features
+        return (
+            {
+                "status": _combat_status(state),
+                "open": True,
+                "lines": [
+                    {"text": f"{attacker.name}: Разъярённая мелкота подготовлена.", "muted": True},
+                    {"text": "Сработает при следующем уроне по существу больше вас.", "muted": True},
+                ],
+            },
+            None,
+        )
+
     if action == "combat_use_object":
         state = get_combat(session_id)
         if state is None or not state.active:
@@ -1564,6 +1710,9 @@ def handle_live_combat_action(
         extra_outcome_lines.extend(bonus_lines)
         damage_done = 0
         if resolution.is_hit:
+            fury_bonus = _maybe_apply_fury_of_small(actor=attacker, target=target, lines=extra_outcome_lines)
+            if fury_bonus > 0:
+                total_damage += fury_bonus
             pre_hp = target.hp_current
             damage_to_apply, relentless_lines = _apply_relentless_endurance_if_needed(target=target, incoming_damage=total_damage)
             extra_outcome_lines.extend(relentless_lines)
@@ -1726,8 +1875,9 @@ def handle_live_combat_action(
             )
 
         has_disadvantage = target.dodge_active
+        nimble_escape_hide_advantage = _is_nimble_escape_hide_active(attacker)
         hidden_step_advantage = _is_hidden_step_active(attacker)
-        has_advantage = attacker.help_attack_advantage or hidden_step_advantage
+        has_advantage = attacker.help_attack_advantage or hidden_step_advantage or nimble_escape_hide_advantage
         roll_mode = "normal"
         if has_advantage and not has_disadvantage:
             roll_mode = "advantage"
@@ -1767,10 +1917,13 @@ def handle_live_combat_action(
             damage_roll=damage_roll,
             damage_bonus=profile.damage_bonus,
         )
+        nimble_hide_broken = _consume_nimble_escape_hide(attacker) if nimble_escape_hide_advantage else False
         hidden_step_broken = _break_hidden_step(attacker)
         attacker.help_attack_advantage = False
         extra_outcome_lines: list[dict[str, Any]] = []
         extra_outcome_lines.extend(bfs_lines)
+        if nimble_hide_broken:
+            extra_outcome_lines.append({"text": "Скрытность: преимущество на эту атаку из «Шустрого побега».", "muted": True})
         total_damage = int(resolution.total_damage)
         if resolution.is_hit:
             total_damage, surprise_lines = _apply_surprise_attack_bonus(
@@ -1789,7 +1942,7 @@ def handle_live_combat_action(
                 total_damage=total_damage,
             )
             extra_outcome_lines.extend(savage_lines)
-            fury_bonus = _maybe_apply_fury_of_small(attacker, extra_outcome_lines)
+            fury_bonus = _maybe_apply_fury_of_small(actor=attacker, target=target, lines=extra_outcome_lines)
             if fury_bonus > 0:
                 total_damage += fury_bonus
             moved_this_turn_ft = max(0, int(getattr(attacker, "moved_this_turn_ft", 0)))
@@ -1981,6 +2134,11 @@ def handle_live_combat_action(
         save_success = save_total >= dc
 
         final_damage = base_damage // 2 if save_success else base_damage
+        extra_outcome_lines: list[dict[str, Any]] = []
+        if final_damage > 0:
+            fury_bonus = _maybe_apply_fury_of_small(actor=attacker, target=target, lines=extra_outcome_lines)
+            if fury_bonus > 0:
+                final_damage += fury_bonus
         state = apply_damage(session_id, target.key, final_damage, source=attacker.key)
         if state is None:
             return None, "Combat is not active"
@@ -2012,6 +2170,7 @@ def handle_live_combat_action(
             },
             {"text": f"HP врага: {target.hp_current}/{target.hp_max}"},
         ]
+        lines.extend(extra_outcome_lines)
         if hidden_step_broken:
             lines.append({"text": "Незримая поступь прерывается: невидимость спадает.", "muted": True})
         if target.hp_current <= 0:
@@ -2132,6 +2291,9 @@ def handle_live_combat_action(
         extra_outcome_lines: list[dict[str, Any]] = []
         extra_outcome_lines.extend(bfs_lines)
         if resolution.is_hit:
+            fury_bonus = _maybe_apply_fury_of_small(actor=attacker, target=target, lines=extra_outcome_lines)
+            if fury_bonus > 0:
+                total_damage += fury_bonus
             pre_hp = target.hp_current
             damage_to_apply, relentless_lines = _apply_relentless_endurance_if_needed(target=target, incoming_damage=total_damage)
             extra_outcome_lines.extend(relentless_lines)
@@ -2310,7 +2472,7 @@ def handle_live_combat_action(
                 total_damage=total_damage,
             )
             extra_outcome_lines.extend(savage_lines)
-            fury_bonus = _maybe_apply_fury_of_small(attacker, extra_outcome_lines)
+            fury_bonus = _maybe_apply_fury_of_small(actor=attacker, target=target, lines=extra_outcome_lines)
             if fury_bonus > 0:
                 total_damage += fury_bonus
             bonus_damage, bonus_damage_type = _aasimar_bonus_damage_for_hit(attacker)

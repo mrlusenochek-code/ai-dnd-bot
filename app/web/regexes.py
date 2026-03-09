@@ -110,6 +110,7 @@ CHAT_COMBAT_ACTION_PATTERNS: list[tuple[str, re.Pattern[str]]] = [
     ("combat_dash", re.compile(r"(рывок|спринт|\bбегу\b(?!\s+(?:прочь|из\s+боя|с\s+боя))|мчусь|ускоряюсь|ринул|бросаюсь вперед|стремглав|сокращаю дистанц)", re.IGNORECASE)),
     ("combat_move", re.compile(r"(двигаюсь\s+\d+|перемещаюсь\s+на\s+\d+|иду\s+\d+\s*(?:фт|фут(?:ов|а)?)?)", re.IGNORECASE)),
     ("combat_disengage", re.compile(r"(отхож|отход|отступ|отступаю|вырываюсь|разрыв дистанц|разрыва[юл]|разорва[лю]|отпрыг|отскоч|дисенгейдж)", re.IGNORECASE)),
+    ("combat_hide", re.compile(r"(засад\w*|пряч\w*|скрываюсь\s+в\s+тени|hide\b)", re.IGNORECASE)),
     (
         "combat_takeoff",
         re.compile(r"(взлетаю|взлёт|поднимаюсь\s+в\s+воздух|в\s+воздух)", re.IGNORECASE),
@@ -183,7 +184,8 @@ CHAT_COMBAT_ACTION_PATTERNS: list[tuple[str, re.Pattern[str]]] = [
     (
         "combat_fury_of_small",
         re.compile(
-            r"(ярост\w+\s+мал\w*|выпускаю\s+ярост\w*|fury\s+of\s+the\s+small)",
+            r"(разъяр[её]нн\w+\s+мелкот\w*|ярост\w+\s+мелкот\w*|ярост\w+\s+мал\w*|выпускаю\s+ярост\w*|"
+            r"ярюсь|впадаю\s+в\s+ярост\w*(?:\s+мелкот\w*)?|fury\s+of\s+the\s+small)",
             re.IGNORECASE,
         ),
     ),

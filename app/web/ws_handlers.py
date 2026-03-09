@@ -930,6 +930,9 @@ def _reset_racial_rest_uses(ch: Character) -> bool:
     if "fury_of_small_armed" in runtime:
         runtime.pop("fury_of_small_armed", None)
         changed = True
+    if "nimble_escape_hide" in runtime:
+        runtime.pop("nimble_escape_hide", None)
+        changed = True
     if "vampiric_bite_uses_used" in runtime:
         runtime.pop("vampiric_bite_uses_used", None)
         changed = True
@@ -1008,6 +1011,9 @@ def _reset_combatant_racial_rest_uses(session_id: str, actor_key: str) -> bool:
     if "fury_of_small_armed" in runtime:
         runtime.pop("fury_of_small_armed", None)
         changed = True
+    if "nimble_escape_hide" in runtime:
+        runtime.pop("nimble_escape_hide", None)
+        changed = True
     if "vampiric_bite_uses_used" in runtime:
         runtime.pop("vampiric_bite_uses_used", None)
         changed = True
@@ -1036,6 +1042,7 @@ async def _persist_relentless_endurance_used_from_combat_state(db, sess, session
     fury_of_small_runtime_by_uid: dict[int, dict[str, Any]] = {}
     vampiric_bite_runtime_by_uid: dict[int, dict[str, Any]] = {}
     hidden_step_runtime_by_uid: dict[int, dict[str, Any]] = {}
+    nimble_hide_runtime_by_uid: dict[int, dict[str, Any]] = {}
     for key, actor in (state.combatants or {}).items():
         actor_key = str(key or "").strip().lower()
         if not actor_key.startswith("pc_"):
@@ -1078,12 +1085,17 @@ async def _persist_relentless_endurance_used_from_combat_state(db, sess, session
             hidden_raw = runtime.get("hidden_step")
             hidden_step = dict(hidden_raw) if isinstance(hidden_raw, dict) else {}
             hidden_step_runtime_by_uid[int(uid_raw)] = hidden_step
+        if "nimble_escape_hide" in runtime:
+            hide_raw = runtime.get("nimble_escape_hide")
+            hide_cfg = dict(hide_raw) if isinstance(hide_raw, dict) else {}
+            nimble_hide_runtime_by_uid[int(uid_raw)] = hide_cfg
     if (
         not relentless_used_uids
         and not built_for_success_runtime_by_uid
         and not fury_of_small_runtime_by_uid
         and not vampiric_bite_runtime_by_uid
         and not hidden_step_runtime_by_uid
+        and not nimble_hide_runtime_by_uid
     ):
         return False
 
@@ -1096,6 +1108,7 @@ async def _persist_relentless_endurance_used_from_combat_state(db, sess, session
             and uid not in fury_of_small_runtime_by_uid
             and uid not in vampiric_bite_runtime_by_uid
             and uid not in hidden_step_runtime_by_uid
+            and uid not in nimble_hide_runtime_by_uid
         ):
             continue
         ch = chars_by_uid.get(uid)
@@ -1155,6 +1168,12 @@ async def _persist_relentless_endurance_used_from_combat_state(db, sess, session
             current_hidden = dict(runtime.get("hidden_step")) if isinstance(runtime.get("hidden_step"), dict) else {}
             if current_hidden != hidden_runtime:
                 runtime["hidden_step"] = dict(hidden_runtime)
+                local_changed = True
+        nimble_runtime = nimble_hide_runtime_by_uid.get(uid)
+        if isinstance(nimble_runtime, dict):
+            current_hide = dict(runtime.get("nimble_escape_hide")) if isinstance(runtime.get("nimble_escape_hide"), dict) else {}
+            if current_hide != nimble_runtime:
+                runtime["nimble_escape_hide"] = dict(nimble_runtime)
                 local_changed = True
         if local_changed:
             race_features["runtime"] = runtime
@@ -1551,12 +1570,14 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                     "combat_dash",
                     "combat_move",
                     "combat_disengage",
+                    "combat_hide",
                     "combat_takeoff",
                     "combat_land",
                     "combat_mode_walk",
                     "combat_mode_swim",
                     "combat_mode_climb",
                     "combat_escape",
+                    "combat_fury_of_small",
                     "combat_use_object",
                     "combat_help",
                 }:
@@ -1593,6 +1614,8 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                     continue
 
                 combat_action = _detect_chat_combat_action(text)
+                if combat_action == "combat_fury_of_the_small":
+                    combat_action = "combat_fury_of_small"
                 _maybe_restore_combat_state(sess, session_id)
                 combat_state = get_combat(session_id)
                 if combat_state is None:
@@ -1922,28 +1945,8 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                     await broadcast_state(session_id)
                     continue
 
-                if combat_action == "combat_fury_of_small":
-                    ch = await get_character(db, sess.id, player.id)
-                    if not ch:
-                        await ws_error("Персонаж не найден.", request_id=msg_request_id)
-                        continue
-                    arm_err, changed = _apply_fury_of_small_arm(ch)
-                    if arm_err:
-                        await ws_error(arm_err, request_id=msg_request_id)
-                        continue
-                    if changed:
-                        flag_modified(ch, "race_features")
-                        await db.commit()
-                        if combat_active:
-                            _uid_map, chars_by_uid, _ = await _load_actor_context(db, sess)
-                            sync_pcs_from_chars(session_id, chars_by_uid)
-                    actor_name = str(getattr(ch, "name", "") or player.display_name).strip() or player.display_name
-                    await add_system_event(
-                        db,
-                        sess,
-                        f"{actor_name}: Готово: Ярость малого сработает на следующем попадании.",
-                    )
-                    await broadcast_state(session_id)
+                if combat_action in {"combat_fury_of_small", "combat_fury_of_the_small"} and not combat_active:
+                    await ws_error("Разъярённая мелкота доступна только в бою.", request_id=msg_request_id)
                     continue
 
                 if combat_action in {"combat_shapechanger_shift", "combat_shapechanger_revert"}:
@@ -2256,7 +2259,7 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                         continue
                     else:
                         await ws_error(
-                            "Combat Lock: в бою доступны только боевые команды (атака/конец хода/уклон/движение/рывок/отход/взлёт/приземление/помощь/побег/каменная выносливость/исцеляющие руки/небесное преобразование/незримая поступь/подводное дыхание/оружие дыхания) или OOC.",
+                            "Combat Lock: в бою доступны только боевые команды (атака/конец хода/уклон/движение/рывок/отход/засада/взлёт/приземление/помощь/побег/разъярённая мелкота/каменная выносливость/исцеляющие руки/небесное преобразование/незримая поступь/подводное дыхание/оружие дыхания) или OOC.",
                             request_id=msg_request_id,
                         )
                         continue
@@ -3298,28 +3301,8 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                     await broadcast_state(session_id)
                     continue
 
-                if combat_action == "combat_fury_of_small":
-                    ch = await get_character(db, sess.id, player.id)
-                    if not ch:
-                        await ws_error("Персонаж не найден.", request_id=msg_request_id)
-                        continue
-                    arm_err, changed = _apply_fury_of_small_arm(ch)
-                    if arm_err:
-                        await ws_error(arm_err, request_id=msg_request_id)
-                        continue
-                    if changed:
-                        flag_modified(ch, "race_features")
-                        await db.commit()
-                        if combat_active:
-                            _uid_map, chars_by_uid, _ = await _load_actor_context(db, sess)
-                            sync_pcs_from_chars(session_id, chars_by_uid)
-                    actor_name = str(getattr(ch, "name", "") or player.display_name).strip() or player.display_name
-                    await add_system_event(
-                        db,
-                        sess,
-                        f"{actor_name}: Готово: Ярость малого сработает на следующем попадании.",
-                    )
-                    await broadcast_state(session_id)
+                if combat_action in {"combat_fury_of_small", "combat_fury_of_the_small"} and not combat_active:
+                    await ws_error("Разъярённая мелкота доступна только в бою.", request_id=msg_request_id)
                     continue
 
                 if combat_action in {"combat_shapechanger_shift", "combat_shapechanger_revert"}:

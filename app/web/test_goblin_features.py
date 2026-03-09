@@ -25,11 +25,17 @@ def test_goblin_feature_texts_are_present_in_session_template() -> None:
     template_path = Path(__file__).resolve().parents[0] / "templates" / "session.html"
     template = template_path.read_text(encoding="utf-8")
 
-    assert "Ярость малого: +урон = уровень (1/кд отдых)" in template
-    assert "Ловкое бегство: отход бонусным действием" in template
+    assert "Разъярённая мелкота: когда наносите урон существу больше вас" in template
+    assert "Шустрый побег: бонусным действием каждый ваш ход: Отход или Засада" in template
 
 
 def test_detect_chat_action_for_fury_of_small_phrases() -> None:
-    assert _detect_chat_combat_action("ярость малого") == "combat_fury_of_small"
+    assert _detect_chat_combat_action("разъярённая мелкота") == "combat_fury_of_small"
+    assert _detect_chat_combat_action("ярость мелкоты") == "combat_fury_of_small"
     assert _detect_chat_combat_action("выпускаю ярость") == "combat_fury_of_small"
     assert _detect_chat_combat_action("fury of the small") == "combat_fury_of_small"
+
+
+def test_detect_chat_action_for_goblin_hide_phrase() -> None:
+    assert _detect_chat_combat_action("ухожу в засаду") == "combat_hide"
+    assert _detect_chat_combat_action("прячусь") == "combat_hide"

@@ -819,11 +819,16 @@ function openCharacterModal(){
   const surpriseAttackText = surpriseAttack
     ? `Внезапное нападение: +${surpriseAttackDamage || "2d6"} по врасплохнутой цели в первый ход боя (${surpriseAttackLimitRu || "1/бой"}).`
     : "";
+  const furyOfTheSmallUsed = Boolean(runtime.fury_of_small_used);
+  const furyOfTheSmallArmed = Boolean(runtime.fury_of_small_armed);
+  const furyUsageText = furyOfTheSmallUsed
+    ? "заряд израсходован до отдыха"
+    : (furyOfTheSmallArmed ? "подготовлено" : "готово");
   const furyOfTheSmallText = furyOfTheSmall
-    ? "Ярость малого: +урон = уровень (1/кд отдых)"
+    ? `Разъярённая мелкота: когда наносите урон существу больше вас — можете добавить урон = ваш уровень (1/кор/дл отдых; ${furyUsageText})`
     : "";
   const nimbleEscapeText = nimbleEscape
-    ? "Ловкое бегство: отход бонусным действием"
+    ? "Шустрый побег: бонусным действием каждый ваш ход: Отход или Засада"
     : "";
   const charge = (raceFeaturesMeta.charge && typeof raceFeaturesMeta.charge === "object")
     ? raceFeaturesMeta.charge
@@ -1593,10 +1598,10 @@ function openCharacterModal(){
     details.push(`<div class="char-line"><strong>Внезапное нападение:</strong> ${escapeHtml(surpriseAttackText.replace(/^Внезапное нападение:\s*/, ""))}</div>`);
   }
   if(furyOfTheSmallText){
-    details.push(`<div class="char-line"><strong>Ярость малого:</strong> ${escapeHtml(furyOfTheSmallText.replace(/^Ярость малого:\s*/, ""))}</div>`);
+    details.push(`<div class="char-line"><strong>Разъярённая мелкота:</strong> ${escapeHtml(furyOfTheSmallText.replace(/^Разъярённая мелкота:\s*/, ""))}</div>`);
   }
   if(nimbleEscapeText){
-    details.push(`<div class="char-line"><strong>Ловкое бегство:</strong> ${escapeHtml(nimbleEscapeText.replace(/^Ловкое бегство:\s*/, ""))}</div>`);
+    details.push(`<div class="char-line"><strong>Шустрый побег:</strong> ${escapeHtml(nimbleEscapeText.replace(/^Шустрый побег:\s*/, ""))}</div>`);
   }
   if(tranceText){
     details.push(`<div class="char-line"><strong>Транс:</strong> ${escapeHtml(tranceText.replace(/^Транс:\s*/, ""))}</div>`);
