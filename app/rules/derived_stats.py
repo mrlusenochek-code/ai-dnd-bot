@@ -281,6 +281,8 @@ def compute_ac(*, stats: dict, inventory: list[dict], equip_map: dict[str, str],
             formula = str(nat.get("ac_formula") or "").strip().lower().replace(" ", "")
             if formula in ("13+dex_mod", "13+dexmod"):
                 nat_ac_base = 13 + dex_mod
+            elif formula in ("12+dex_mod", "12+dexmod"):
+                nat_ac_base = 12 + dex_mod
             elif formula in ("12+con_mod", "12+conmod"):
                 con = _safe_int(stats.get("con", 50), 50) if isinstance(stats, dict) else 50
                 con_mod = ability_mod_from_stat100(con)

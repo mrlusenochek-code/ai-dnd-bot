@@ -661,6 +661,8 @@ function openCharacterModal(){
     "charmed": "очарование",
     "paralyzed": "паралич",
     "frightened": "испуг",
+    "stunned": "ошеломление",
+    "sleep": "усыпление",
   };
   const saveAdvantageConditionsRu = saveAdvantageConditions
     .map((k) => _SAVE_CONDITION_RU[k] || k)
@@ -1691,6 +1693,36 @@ function openCharacterModal(){
   const grungWaterDependencyText = (raceKey === "grung" && grungWaterDependency)
     ? `Зависимость от воды: 1 час/день, иначе истощение 1. Последнее погружение: ${grungWaterLastImmersionText}; уровень штрафа: ${grungWaterPenalty}`
     : "";
+  const locathahSwimText = (raceKey === "locathah" && Number.isFinite(Number(speeds.swim_ft)))
+    ? `Плавание: ${Number(speeds.swim_ft)} фт`
+    : "";
+  const locathahNaturalArmorText = (raceKey === "locathah" && natArmorText)
+    ? "Природный доспех: без доспеха КД = 12 + модиф. ЛОВ"
+    : "";
+  const locathahSkillsText = (raceKey === "locathah")
+    ? "Владения: Атлетика, Восприятие"
+    : "";
+  const locathahLeviathansWillText = (raceKey === "locathah")
+    ? "Воля Левиафана: преимущество на спасброски от испуга/яда/очарования/ошеломления/паралича/усыпления"
+    : "";
+  const locathahLimitedAmph = (raceFeaturesMeta.limited_amphibious && typeof raceFeaturesMeta.limited_amphibious === "object")
+    ? raceFeaturesMeta.limited_amphibious
+    : null;
+  const locathahLastImmersionIso = String(runtime.water_last_immersion_at || "").trim();
+  let locathahLastImmersionText = "нет данных";
+  if(locathahLastImmersionIso){
+    const dt = new Date(locathahLastImmersionIso);
+    if(!Number.isNaN(dt.getTime())){
+      locathahLastImmersionText = dt.toLocaleString("ru-RU", { hour: "2-digit", minute: "2-digit", day: "2-digit", month: "2-digit" });
+    }
+  }
+  const locathahHoursSinceImmersion = Number.isFinite(Number(runtime.limited_amphibious_hours_since_immersion))
+    ? Number(runtime.limited_amphibious_hours_since_immersion)
+    : 0;
+  const locathahSuffocating = !!runtime.suffocating;
+  const locathahLimitedAmphibiousText = (raceKey === "locathah" && locathahLimitedAmph)
+    ? `Частичная земноводность: нужно погружаться в воду раз в 4 часа, иначе начинаете задыхаться. Последнее погружение: ${locathahLastImmersionText}; прошло часов: ${locathahHoursSinceImmersion.toFixed(1)}; задыхаетесь: ${locathahSuffocating ? "да" : "нет"}`
+    : "";
   const combatState = (lastState && typeof lastState.combat === "object" && lastState.combat) ? lastState.combat : null;
   const combatants = (combatState && typeof combatState.combatants === "object" && combatState.combatants) ? combatState.combatants : {};
   const myCombatantKey = me && me.uid !== null && me.uid !== undefined ? (`pc_${String(me.uid)}`) : "";
@@ -1809,7 +1841,7 @@ function openCharacterModal(){
   if(darkvisionFt !== null){
     details.push(`<div class="char-line"><strong>Тёмное зрение:</strong> ${escapeHtml(String(darkvisionFt))} фт</div>`);
   }
-  if(natArmorText && raceKey !== "lizardfolk"){
+  if(natArmorText && raceKey !== "lizardfolk" && raceKey !== "locathah"){
     details.push(`<div class="char-line"><strong>Природный доспех:</strong> ${escapeHtml(natArmorText)}</div>`);
   }
   if(creatureTypeText){
@@ -1966,6 +1998,21 @@ function openCharacterModal(){
   }
   if(grungWaterDependencyText){
     details.push(`<div class="char-line"><strong>Зависимость от воды:</strong> ${escapeHtml(grungWaterDependencyText.replace(/^Зависимость от воды:\s*/, ""))}</div>`);
+  }
+  if(locathahSwimText){
+    details.push(`<div class="char-line"><strong>Плавание:</strong> ${escapeHtml(locathahSwimText.replace(/^Плавание:\s*/, ""))}</div>`);
+  }
+  if(locathahNaturalArmorText){
+    details.push(`<div class="char-line"><strong>Природный доспех:</strong> ${escapeHtml(locathahNaturalArmorText.replace(/^Природный доспех:\s*/, ""))}</div>`);
+  }
+  if(locathahSkillsText){
+    details.push(`<div class="char-line"><strong>Владения:</strong> ${escapeHtml(locathahSkillsText.replace(/^Владения:\s*/, ""))}</div>`);
+  }
+  if(locathahLeviathansWillText){
+    details.push(`<div class="char-line"><strong>Воля Левиафана:</strong> ${escapeHtml(locathahLeviathansWillText.replace(/^Воля Левиафана:\s*/, ""))}</div>`);
+  }
+  if(locathahLimitedAmphibiousText){
+    details.push(`<div class="char-line"><strong>Частичная земноводность:</strong> ${escapeHtml(locathahLimitedAmphibiousText.replace(/^Частичная земноводность:\s*/, ""))}</div>`);
   }
   if(carry.powerful_build === true){
     details.push("<div class=\"char-line\"><strong>Мощное телосложение:</strong> считается на 1 размер больше для переноски/толкания/тяги/подъёма</div>");
@@ -2162,7 +2209,7 @@ function openCharacterModal(){
   if(hasActiveCombatant && combatSpeedsText) copyLines.push(`Скорости (боевые): ${combatSpeedsText}`);
   if(hasActiveCombatant && moveSpeedFt !== null && moveRemainingFt !== null) copyLines.push(`Перемещение: осталось ${moveRemainingFt} фт из ${moveSpeedFt} фт`);
   if(darkvisionFt !== null) copyLines.push(`Тёмное зрение: ${darkvisionFt} фт`);
-  if(natArmorText && raceKey !== "lizardfolk") copyLines.push(`Природный доспех: ${natArmorText}`);
+  if(natArmorText && raceKey !== "lizardfolk" && raceKey !== "locathah") copyLines.push(`Природный доспех: ${natArmorText}`);
   if(creatureTypeText) copyLines.push(creatureTypeText);
   if(resistancesRu.length) copyLines.push(`Сопротивления: ${resistancesRu.join(", ")}`);
   if(mechanicalNatureText) copyLines.push(mechanicalNatureText);
@@ -2211,6 +2258,11 @@ function openCharacterModal(){
   if(grungPoisonousSkinText) copyLines.push(grungPoisonousSkinText);
   if(grungStandingLeapText) copyLines.push(grungStandingLeapText);
   if(grungWaterDependencyText) copyLines.push(grungWaterDependencyText);
+  if(locathahSwimText) copyLines.push(locathahSwimText);
+  if(locathahNaturalArmorText) copyLines.push(locathahNaturalArmorText);
+  if(locathahSkillsText) copyLines.push(locathahSkillsText);
+  if(locathahLeviathansWillText) copyLines.push(locathahLeviathansWillText);
+  if(locathahLimitedAmphibiousText) copyLines.push(locathahLimitedAmphibiousText);
   if(saveAdvantageConditionsRu.length) copyLines.push(`Преим. против: ${saveAdvantageConditionsRu.join(", ")} (спасброски)`);
   if(dwarvenResilienceText) copyLines.push(dwarvenResilienceText);
   if(feyAncestryText) copyLines.push(feyAncestryText);

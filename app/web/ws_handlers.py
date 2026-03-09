@@ -171,9 +171,16 @@ def _normalize_save_tag(raw: str) -> str:
         "charmed": "charmed",
         "очарование": "charmed",
         "очарован": "charmed",
+        "stunned": "stunned",
+        "оглушение": "stunned",
+        "ошеломление": "stunned",
+        "ошеломлен": "stunned",
         "paralyzed": "paralyzed",
         "паралич": "paralyzed",
         "парализован": "paralyzed",
+        "sleep": "sleep",
+        "сон": "sleep",
+        "усыпление": "sleep",
     }
     return aliases.get(key, key)
 
@@ -1170,6 +1177,78 @@ def _apply_grung_water_dependency_long_rest(
     rf["runtime"] = runtime
     ch.race_features = rf
     return max(0, as_int(runtime.get("water_dependency_exhaustion_level"), 0)), True
+
+
+def _locathah_limited_amphibious_feature(race_features: Any) -> dict[str, Any]:
+    if not isinstance(race_features, dict):
+        return {}
+    features_raw = race_features.get("features")
+    features = dict(features_raw) if isinstance(features_raw, dict) else {}
+    limited_raw = features.get("limited_amphibious")
+    limited = dict(limited_raw) if isinstance(limited_raw, dict) else {}
+    return limited if limited else {}
+
+
+def _locathah_required_hours(limited_cfg: dict[str, Any]) -> float:
+    token = str(limited_cfg.get("must_immerse_every") or "").strip().lower()
+    m = re.match(r"^(\d+)\s*_?\s*hours?$", token)
+    if m:
+        return max(1.0, float(as_int(m.group(1), 4)))
+    return 4.0
+
+
+def _apply_locathah_limited_amphibious_status(
+    ch: Character,
+    *,
+    now: Optional[datetime] = None,
+) -> tuple[float, bool, bool]:
+    race_features = getattr(ch, "race_features", None)
+    rf = dict(race_features) if isinstance(race_features, dict) else {}
+    limited_cfg = _locathah_limited_amphibious_feature(rf)
+    if not limited_cfg:
+        return 0.0, False, False
+
+    now_dt = now if isinstance(now, datetime) else utcnow()
+    runtime_raw = rf.get("runtime")
+    runtime = dict(runtime_raw) if isinstance(runtime_raw, dict) else {}
+    last_immersion = _parse_iso_datetime(runtime.get("water_last_immersion_at"))
+    required_hours = _locathah_required_hours(limited_cfg)
+    if isinstance(last_immersion, datetime):
+        delta = now_dt - last_immersion
+        hours_since = max(0.0, float(delta.total_seconds() / 3600.0))
+    else:
+        hours_since = required_hours + 1.0
+    suffocating = not isinstance(last_immersion, datetime) or hours_since > required_hours
+    prev_hours = float(runtime.get("limited_amphibious_hours_since_immersion") or 0.0)
+    prev_suff = bool(runtime.get("suffocating"))
+    runtime["limited_amphibious_hours_since_immersion"] = hours_since
+    runtime["suffocating"] = suffocating
+    rf["runtime"] = runtime
+    ch.race_features = rf
+    changed = (prev_suff != suffocating) or abs(prev_hours - hours_since) > 1e-6
+    return hours_since, suffocating, changed
+
+
+def _apply_locathah_water_immersion(
+    ch: Character,
+    *,
+    now: Optional[datetime] = None,
+) -> tuple[Optional[str], Optional[float], Optional[bool], Optional[str], bool]:
+    race_features = getattr(ch, "race_features", None)
+    rf = dict(race_features) if isinstance(race_features, dict) else {}
+    limited_cfg = _locathah_limited_amphibious_feature(rf)
+    if not limited_cfg:
+        return None, None, None, "Частичная земноводность отсутствует у вашей расы.", False
+
+    now_dt = now if isinstance(now, datetime) else utcnow()
+    runtime_raw = rf.get("runtime")
+    runtime = dict(runtime_raw) if isinstance(runtime_raw, dict) else {}
+    runtime["water_last_immersion_at"] = now_dt.isoformat()
+    runtime["limited_amphibious_hours_since_immersion"] = 0.0
+    runtime["suffocating"] = False
+    rf["runtime"] = runtime
+    ch.race_features = rf
+    return now_dt.isoformat(), 0.0, False, None, True
 
 
 def _lizardfolk_cunning_artisan_feature(race_features: Any) -> dict[str, Any]:
@@ -3197,24 +3276,35 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                     if not ch:
                         await ws_error("Персонаж не найден.", request_id=msg_request_id)
                         continue
-                    immersion_iso, water_level, immersion_err, changed = _apply_grung_water_immersion(ch)
-                    if immersion_err:
-                        await ws_error(immersion_err, request_id=msg_request_id)
+                    grung_iso, water_level, grung_err, grung_changed = _apply_grung_water_immersion(ch)
+                    locathah_iso, loc_hours, loc_suff, loc_err, loc_changed = _apply_locathah_water_immersion(ch)
+                    if grung_err and loc_err:
+                        await ws_error(grung_err, request_id=msg_request_id)
                         continue
+                    changed = bool(grung_changed or loc_changed)
                     if changed:
                         flag_modified(ch, "race_features")
                         await db.commit()
                     actor_name = str(getattr(ch, "name", "") or player.display_name).strip() or player.display_name
                     immersion_hhmm = ""
-                    immersion_dt = _parse_iso_datetime(immersion_iso)
+                    immersion_dt = _parse_iso_datetime(locathah_iso or grung_iso)
                     if isinstance(immersion_dt, datetime):
                         immersion_hhmm = immersion_dt.astimezone().strftime("%H:%M")
-                    await add_system_event(
-                        db,
-                        sess,
-                        f"{actor_name}: погружение в воду засчитано (1 час/день). "
-                        f"Последнее погружение: {immersion_hhmm or 'сейчас'}. Штраф воды: {max(0, as_int(water_level, 0))}.",
-                    )
+                    if grung_changed:
+                        await add_system_event(
+                            db,
+                            sess,
+                            f"{actor_name}: погружение в воду засчитано (1 час/день). "
+                            f"Последнее погружение: {immersion_hhmm or 'сейчас'}. Штраф воды: {max(0, as_int(water_level, 0))}.",
+                        )
+                    if loc_changed:
+                        await add_system_event(
+                            db,
+                            sess,
+                            f"{actor_name}: погружение в воду засчитано (локата). "
+                            f"Последнее погружение: {immersion_hhmm or 'сейчас'}. "
+                            f"Прошло часов: {max(0.0, float(loc_hours or 0.0)):.1f}. Задыхаетесь: {'да' if bool(loc_suff) else 'нет'}.",
+                        )
                     await broadcast_state(session_id)
                     continue
 
@@ -3630,9 +3720,12 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                         continue
                     changed = _reset_racial_rest_uses(ch, long_rest=True)
                     water_level, water_changed = _apply_grung_water_dependency_long_rest(ch)
+                    loc_hours, loc_suff, loc_changed = _apply_locathah_limited_amphibious_status(ch)
                     if changed:
                         flag_modified(ch, "race_features")
                     if water_changed:
+                        flag_modified(ch, "race_features")
+                    if loc_changed:
                         flag_modified(ch, "race_features")
                     if _reset_harengon_long_rest(ch):
                         flag_modified(ch, "race_features")
@@ -3642,7 +3735,17 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                     _reset_combatant_harengon_long_rest(session_id, player_key)
                     await db.commit()
                     water_suffix = f" Водная зависимость (грунг): уровень штрафа {max(0, int(water_level))}."
-                    await add_system_event(db, sess, f"Долгий отдых: врождённые заклинания восстановлены.{water_suffix if water_changed else ''}")
+                    loc_suffix = (
+                        f" Частичная земноводность (локата): прошло {max(0.0, float(loc_hours or 0.0)):.1f} ч, "
+                        f"задыхаетесь: {'да' if bool(loc_suff) else 'нет'}."
+                    )
+                    await add_system_event(
+                        db,
+                        sess,
+                        f"Долгий отдых: врождённые заклинания восстановлены."
+                        f"{water_suffix if water_changed else ''}"
+                        f"{loc_suffix if loc_changed else ''}",
+                    )
                     await broadcast_state(session_id)
                     continue
 
@@ -3758,7 +3861,10 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                     if _reset_racial_rest_uses(ch, long_rest=True):
                         flag_modified(ch, "race_features")
                     water_level, water_changed = _apply_grung_water_dependency_long_rest(ch)
+                    loc_hours, loc_suff, loc_changed = _apply_locathah_limited_amphibious_status(ch)
                     if water_changed:
+                        flag_modified(ch, "race_features")
+                    if loc_changed:
                         flag_modified(ch, "race_features")
                     if _reset_harengon_long_rest(ch):
                         flag_modified(ch, "race_features")
@@ -3773,7 +3879,9 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                         f"[REST] long {ch.name}: HP {old_hp}->{int(ch.hp or 0)}/{int(ch.hp_max or 0)}, "
                         f"STA {old_sta}->{int(ch.sta or 0)}/{int(ch.sta_max or 0)}, "
                         f"HD {hd_before}->{hd_after}/{hd_max} (d{max(1, as_int(getattr(ch, 'hit_die', 8), 8))}), "
-                        f"water_dep={max(0, int(water_level))}",
+                        f"water_dep={max(0, int(water_level))}, "
+                        f"locathah_hours={max(0.0, float(loc_hours or 0.0)):.1f}, "
+                        f"locathah_suffocating={'yes' if bool(loc_suff) else 'no'}",
                     )
                     await broadcast_state(session_id)
                     continue
@@ -4758,24 +4866,35 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                     if not ch:
                         await ws_error("Персонаж не найден.", request_id=msg_request_id)
                         continue
-                    immersion_iso, water_level, immersion_err, changed = _apply_grung_water_immersion(ch)
-                    if immersion_err:
-                        await ws_error(immersion_err, request_id=msg_request_id)
+                    grung_iso, water_level, grung_err, grung_changed = _apply_grung_water_immersion(ch)
+                    locathah_iso, loc_hours, loc_suff, loc_err, loc_changed = _apply_locathah_water_immersion(ch)
+                    if grung_err and loc_err:
+                        await ws_error(grung_err, request_id=msg_request_id)
                         continue
+                    changed = bool(grung_changed or loc_changed)
                     if changed:
                         flag_modified(ch, "race_features")
                         await db.commit()
                     actor_name = str(getattr(ch, "name", "") or player.display_name).strip() or player.display_name
                     immersion_hhmm = ""
-                    immersion_dt = _parse_iso_datetime(immersion_iso)
+                    immersion_dt = _parse_iso_datetime(locathah_iso or grung_iso)
                     if isinstance(immersion_dt, datetime):
                         immersion_hhmm = immersion_dt.astimezone().strftime("%H:%M")
-                    await add_system_event(
-                        db,
-                        sess,
-                        f"{actor_name}: погружение в воду засчитано (1 час/день). "
-                        f"Последнее погружение: {immersion_hhmm or 'сейчас'}. Штраф воды: {max(0, as_int(water_level, 0))}.",
-                    )
+                    if grung_changed:
+                        await add_system_event(
+                            db,
+                            sess,
+                            f"{actor_name}: погружение в воду засчитано (1 час/день). "
+                            f"Последнее погружение: {immersion_hhmm or 'сейчас'}. Штраф воды: {max(0, as_int(water_level, 0))}.",
+                        )
+                    if loc_changed:
+                        await add_system_event(
+                            db,
+                            sess,
+                            f"{actor_name}: погружение в воду засчитано (локата). "
+                            f"Последнее погружение: {immersion_hhmm or 'сейчас'}. "
+                            f"Прошло часов: {max(0.0, float(loc_hours or 0.0)):.1f}. Задыхаетесь: {'да' if bool(loc_suff) else 'нет'}.",
+                        )
                     await broadcast_state(session_id)
                     continue
 

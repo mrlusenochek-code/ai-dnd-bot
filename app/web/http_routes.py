@@ -684,6 +684,9 @@ def _build_race_features(selected_race: dict | None) -> dict[str, Any]:
             armor_profs.extend(_uniq_lower_str_list(mech.get("armor")))
             tool_profs.extend(_uniq_lower_str_list(mech.get("tools")))
 
+        if mtype in {"skill_proficiency", "skill_proficiencies"}:
+            skill_profs.extend(_uniq_lower_str_list(mech.get("skills")))
+
         if _uniq_lower_str_list(mech.get("resistances")):
             resist.extend(_uniq_lower_str_list(mech.get("resistances")))
         if _uniq_lower_str_list(mech.get("saves_advantage")):
@@ -765,6 +768,9 @@ def _build_race_features(selected_race: dict | None) -> dict[str, Any]:
 
         if mtype == "water_dependency":
             features["water_dependency"] = dict(mech)
+
+        if mtype == "limited_amphibious":
+            features["limited_amphibious"] = dict(mech)
 
         if mtype == "breathe_underwater":
             underwater: dict[str, Any] = {}
@@ -1996,6 +2002,13 @@ async def api_character_create(payload: dict):
             runtime = dict(runtime_raw) if isinstance(runtime_raw, dict) else {}
             runtime.setdefault("fearless_auto_success_used", 0)
             runtime.setdefault("fearless_pending_failed_frightened_save", {})
+            race_features["runtime"] = runtime
+        if isinstance(race_features, dict) and str(race_features.get("race_key") or "").strip().lower() == "locathah":
+            runtime_raw = race_features.get("runtime")
+            runtime = dict(runtime_raw) if isinstance(runtime_raw, dict) else {}
+            runtime.setdefault("water_last_immersion_at", "")
+            runtime.setdefault("limited_amphibious_hours_since_immersion", 0.0)
+            runtime.setdefault("suffocating", True)
             race_features["runtime"] = runtime
         if isinstance(race_features, dict) and selected_subrace is not None:
             race_features["subrace"] = {
