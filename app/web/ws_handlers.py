@@ -1278,6 +1278,150 @@ def _consume_reborn_past_life_for_skill_check(ch: Character, *, kind: str) -> tu
     return bonus, f"1d6 (Знания из прошлой жизни: {bonus})", True
 
 
+def _simic_lvl1_options() -> set[str]:
+    return {"manta_glide", "nimble_climber", "underwater_adaptation"}
+
+
+def _simic_lvl5_options() -> set[str]:
+    return {"manta_glide", "nimble_climber", "underwater_adaptation", "grappling_appendages", "carapace", "acid_spit"}
+
+
+def _normalize_simic_upgrade_option(text: str) -> str:
+    raw = str(text or "").strip().lower().replace("-", "_")
+    if raw in _simic_lvl5_options():
+        return raw
+    aliases = {
+        "мантия ската": "manta_glide",
+        "планирование": "manta_glide",
+        "проворный скалолаз": "nimble_climber",
+        "скалолаз": "nimble_climber",
+        "подводная адаптация": "underwater_adaptation",
+        "амфибия": "underwater_adaptation",
+        "хватательные придатки": "grappling_appendages",
+        "придатки": "grappling_appendages",
+        "панцирь": "carapace",
+        "кислотный плевок": "acid_spit",
+        "acid spit": "acid_spit",
+    }
+    return aliases.get(raw, "")
+
+
+def _apply_simic_enhancement_payload(rf: dict[str, Any], enhancement_key: str) -> bool:
+    option = str(enhancement_key or "").strip().lower()
+    if option not in _simic_lvl5_options():
+        return False
+    speeds_raw = rf.get("speeds")
+    speeds = dict(speeds_raw) if isinstance(speeds_raw, dict) else {}
+    walk_ft = max(0, as_int(speeds.get("walk_ft"), 30))
+    features_raw = rf.get("features")
+    features = dict(features_raw) if isinstance(features_raw, dict) else {}
+    natural_weapons_raw = rf.get("natural_weapons")
+    natural_weapons = list(natural_weapons_raw) if isinstance(natural_weapons_raw, list) else []
+    breath_raw = rf.get("breath")
+    breath = dict(breath_raw) if isinstance(breath_raw, dict) else {}
+
+    if option == "manta_glide":
+        features["glide"] = {"reduce_fall_ft": 100, "horizontal_per_fall_ft": 2}
+    elif option == "nimble_climber":
+        speeds["climb_ft"] = walk_ft
+    elif option == "underwater_adaptation":
+        features["amphibious"] = True
+        breath["amphibious"] = True
+        speeds["swim_ft"] = walk_ft
+    elif option == "grappling_appendages":
+        features["grappling_appendages"] = {
+            "damage_dice": "1d6",
+            "damage_type": "bludgeoning",
+            "ability": "str",
+            "cannot_wield_weapons": True,
+            "cannot_do_fine_work": True,
+        }
+        if not any(isinstance(item, dict) and str(item.get("key") or "").strip().lower() == "grappling_appendages" for item in natural_weapons):
+            natural_weapons.append(
+                {
+                    "key": "grappling_appendages",
+                    "kind": "unarmed",
+                    "damage_dice": "1d6",
+                    "damage_type": "bludgeoning",
+                    "ability": "str",
+                }
+            )
+    elif option == "carapace":
+        features["ac_bonus_if_no_heavy_armor"] = {"ac_bonus": 1}
+    elif option == "acid_spit":
+        features["acid_spit"] = {
+            "range_ft": 30,
+            "damage": "2d10",
+            "damage_type": "acid",
+            "dc_formula": "8 + prof + con_mod",
+            "uses_formula": "max(con_mod,1)",
+            "recharge": "per_long_rest",
+        }
+    else:
+        return False
+
+    rf["speeds"] = speeds
+    rf["features"] = features
+    rf["natural_weapons"] = natural_weapons
+    rf["breath"] = breath
+    return True
+
+
+def _apply_simic_level5_upgrade(ch: Character, option_text: str) -> tuple[Optional[str], Optional[str], bool]:
+    race_features = getattr(ch, "race_features", None)
+    rf = dict(race_features) if isinstance(race_features, dict) else {}
+    if str(rf.get("race_key") or "").strip().lower() != "simic_hybrid":
+        return "Усиление Simic доступно только гибриду Симиков.", None, False
+    level = max(1, as_int(getattr(ch, "level", 1), 1))
+    if level < 5:
+        return "Второе животное усиление Simic доступно только с 5 уровня.", None, False
+    option = _normalize_simic_upgrade_option(option_text)
+    if option not in _simic_lvl5_options():
+        return "Неизвестное усиление Simic.", None, False
+
+    features_raw = rf.get("features")
+    features = dict(features_raw) if isinstance(features_raw, dict) else {}
+    animal_raw = features.get("animal_enhancement")
+    animal = dict(animal_raw) if isinstance(animal_raw, dict) else {"pick_1_level": 1, "pick_2_level": 5}
+    chosen_lvl1 = str(animal.get("chosen_lvl1") or "").strip().lower()
+    chosen_lvl5 = str(animal.get("chosen_lvl5") or "").strip().lower()
+    if chosen_lvl5:
+        return "Усиление 5 уровня уже выбрано.", None, False
+    if option == chosen_lvl1:
+        return "Усиление 5 уровня должно отличаться от выбора 1 уровня.", None, False
+
+    if not _apply_simic_enhancement_payload(rf, option):
+        return "Не удалось применить усиление Simic.", None, False
+
+    animal["chosen_lvl1"] = chosen_lvl1 or None
+    animal["chosen_lvl5"] = option
+    features = dict(rf.get("features")) if isinstance(rf.get("features"), dict) else {}
+    features["animal_enhancement"] = animal
+    rf["features"] = features
+
+    choices_raw = rf.get("choices")
+    choices = dict(choices_raw) if isinstance(choices_raw, dict) else {}
+    choices["animal_enhancement_lvl5"] = option
+    rf["choices"] = choices
+
+    runtime_raw = rf.get("runtime")
+    runtime = dict(runtime_raw) if isinstance(runtime_raw, dict) else {}
+    runtime["simic_lvl5_enhancement"] = option
+    runtime.setdefault("acid_spit_uses_used", 0)
+    rf["runtime"] = runtime
+    ch.race_features = rf
+
+    names_ru = {
+        "manta_glide": "Мантия ската",
+        "nimble_climber": "Проворный скалолаз",
+        "underwater_adaptation": "Подводная адаптация",
+        "grappling_appendages": "Хватательные придатки",
+        "carapace": "Панцирь",
+        "acid_spit": "Кислотный плевок",
+    }
+    return None, f"Животное усиление Simic выбрано: {names_ru.get(option, option)}.", True
+
+
 def _extract_jump_kind(text: str) -> str:
     raw = str(text or "").strip().lower()
     if re.search(r"\bjump\s+long\b|прыга\w*\s+в\s+длин\w*|прыж\w*\s+в\s+длин\w*", raw, flags=re.IGNORECASE):
@@ -2273,6 +2417,9 @@ def _reset_racial_rest_uses(ch: Character, *, long_rest: bool = True) -> bool:
     if "knowledge_from_a_past_life_last_result" in runtime:
         runtime.pop("knowledge_from_a_past_life_last_result", None)
         changed = True
+    if "simic_appendages_last_target_id" in runtime:
+        runtime.pop("simic_appendages_last_target_id", None)
+        changed = True
     if long_rest:
         if "shifting_uses_used" in runtime:
             runtime["shifting_uses_used"] = 0
@@ -2288,6 +2435,9 @@ def _reset_racial_rest_uses(ch: Character, *, long_rest: bool = True) -> bool:
             changed = True
         if "knowledge_past_life_uses_used" in runtime:
             runtime["knowledge_past_life_uses_used"] = 0
+            changed = True
+        if "acid_spit_uses_used" in runtime:
+            runtime["acid_spit_uses_used"] = 0
             changed = True
         if "fearless_auto_success_used" in runtime:
             runtime.pop("fearless_auto_success_used", None)
@@ -2451,6 +2601,9 @@ def _reset_combatant_racial_rest_uses(session_id: str, actor_key: str, *, long_r
     if "knowledge_from_a_past_life_last_result" in runtime:
         runtime.pop("knowledge_from_a_past_life_last_result", None)
         changed = True
+    if "simic_appendages_last_target_id" in runtime:
+        runtime.pop("simic_appendages_last_target_id", None)
+        changed = True
     if long_rest:
         if "shifting_uses_used" in runtime:
             runtime["shifting_uses_used"] = 0
@@ -2466,6 +2619,9 @@ def _reset_combatant_racial_rest_uses(session_id: str, actor_key: str, *, long_r
             changed = True
         if "knowledge_past_life_uses_used" in runtime:
             runtime["knowledge_past_life_uses_used"] = 0
+            changed = True
+        if "acid_spit_uses_used" in runtime:
+            runtime["acid_spit_uses_used"] = 0
             changed = True
         if "fearless_auto_success_used" in runtime:
             runtime.pop("fearless_auto_success_used", None)
@@ -2946,6 +3102,53 @@ async def _persist_shifter_runtime_from_combat_state(db, sess, session_id: str) 
     return changed
 
 
+async def _persist_simic_runtime_from_combat_state(db, sess, session_id: str) -> bool:
+    state = get_combat(session_id)
+    if state is None or not state.active:
+        return False
+    simic_runtime_by_uid: dict[int, dict[str, Any]] = {}
+    for actor_key, actor in (state.combatants or {}).items():
+        if not str(actor_key or "").startswith("pc_"):
+            continue
+        uid_raw = str(actor_key).split("_", 1)[1]
+        if not uid_raw.isdigit():
+            continue
+        race_features = actor.race_features if isinstance(getattr(actor, "race_features", None), dict) else {}
+        if str(race_features.get("race_key") or "").strip().lower() != "simic_hybrid":
+            continue
+        runtime_raw = race_features.get("runtime")
+        runtime = dict(runtime_raw) if isinstance(runtime_raw, dict) else {}
+        tracked: dict[str, Any] = {}
+        for key in ("acid_spit_uses_used", "simic_appendages_last_target_id"):
+            if key in runtime:
+                tracked[key] = runtime.get(key)
+        if tracked:
+            simic_runtime_by_uid[int(uid_raw)] = tracked
+    if not simic_runtime_by_uid:
+        return False
+    _uid_map, chars_by_uid, _ = await _load_actor_context(db, sess)
+    changed = False
+    for uid, tracked in simic_runtime_by_uid.items():
+        ch = chars_by_uid.get(uid)
+        if ch is None:
+            continue
+        race_features_raw = getattr(ch, "race_features", None)
+        race_features = dict(race_features_raw) if isinstance(race_features_raw, dict) else {}
+        runtime_raw = race_features.get("runtime")
+        runtime = dict(runtime_raw) if isinstance(runtime_raw, dict) else {}
+        local_changed = False
+        for key, value in tracked.items():
+            if runtime.get(key) != value:
+                runtime[key] = value
+                local_changed = True
+        if local_changed:
+            race_features["runtime"] = runtime
+            ch.race_features = race_features
+            flag_modified(ch, "race_features")
+            changed = True
+    return changed
+
+
 async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
     async def ws_error(message: str, *, fatal: bool = False, request_id: Optional[str] = None) -> None:
         rid = request_id
@@ -3390,6 +3593,29 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                     await broadcast_state(session_id)
                     continue
 
+                m_simic_upgrade = re.match(
+                    r"^(?:simic\s+upgrade|выбираю\s+усиление)\s+(?P<option>[^\n\r]{1,80})$",
+                    cmdline,
+                    re.IGNORECASE,
+                )
+                if m_simic_upgrade:
+                    ch = await get_character(db, sess.id, player.id)
+                    if not ch:
+                        await ws_error("Персонаж не найден.", request_id=msg_request_id)
+                        continue
+                    simic_err, simic_msg, simic_changed = _apply_simic_level5_upgrade(ch, m_simic_upgrade.group("option"))
+                    if simic_err:
+                        await ws_error(simic_err, request_id=msg_request_id)
+                        continue
+                    if simic_changed:
+                        flag_modified(ch, "race_features")
+                        await db.commit()
+                        _uid_map, chars_by_uid, _ = await _load_actor_context(db, sess)
+                        sync_pcs_from_chars(session_id, chars_by_uid)
+                    await add_system_event(db, sess, simic_msg or "Животное усиление выбрано.")
+                    await broadcast_state(session_id)
+                    continue
+
                 combat_action = _detect_chat_combat_action(text)
                 if combat_action == "combat_fury_of_the_small":
                     combat_action = "combat_fury_of_small"
@@ -3817,7 +4043,7 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                 if combat_action in {"combat_fury_of_small", "combat_fury_of_the_small"} and not combat_active:
                     await ws_error("Разъярённая мелкота доступна только в бою.", request_id=msg_request_id)
                     continue
-                if combat_action in {"combat_hungry_jaws", "combat_rabbit_hop", "combat_lucky_footwork", "combat_saving_face", "combat_taunt", "combat_fearless", "combat_daunting_roar", "combat_grovel_cower_beg", "combat_goring_rush", "combat_hammering_horns", "combat_aggressive", "combat_shift", "combat_shift_end", "combat_longtooth_bite", "combat_swiftstride_step", "combat_mark_target"} and not combat_active:
+                if combat_action in {"combat_hungry_jaws", "combat_rabbit_hop", "combat_lucky_footwork", "combat_saving_face", "combat_taunt", "combat_fearless", "combat_daunting_roar", "combat_grovel_cower_beg", "combat_goring_rush", "combat_hammering_horns", "combat_aggressive", "combat_shift", "combat_shift_end", "combat_longtooth_bite", "combat_swiftstride_step", "combat_mark_target", "combat_acid_spit", "combat_grapple_appendages", "combat_appendages_grapple_bonus"} and not combat_active:
                     await ws_error("Эта особенность доступна только в бою.", request_id=msg_request_id)
                     continue
                 if combat_action in {"combat_eerie_token_create", "combat_eerie_token_message", "combat_eerie_token_view"} and not combat_active:
@@ -4127,7 +4353,8 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                             merged_patch = _merge_combat_patches(all_patches) if all_patches else None
                             persist_changed = await _persist_relentless_endurance_used_from_combat_state(db, sess, session_id)
                             shifter_persist_changed = await _persist_shifter_runtime_from_combat_state(db, sess, session_id)
-                            if persist_changed or shifter_persist_changed:
+                            simic_persist_changed = await _persist_simic_runtime_from_combat_state(db, sess, session_id)
+                            if persist_changed or shifter_persist_changed or simic_persist_changed:
                                 await db.commit()
                                 _uid_map, chars_by_uid, _ = await _load_actor_context(db, sess)
                                 sync_pcs_from_chars(session_id, chars_by_uid)
@@ -4186,7 +4413,7 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                         continue
                     else:
                         await ws_error(
-                            "Combat Lock: в бою доступны только боевые команды (атака/конец хода/уклон/движение/рывок/отход/засада/взлёт/приземление/помощь/побег/пресмыкайся/разъярённая мелкота/яд грунга на оружии/голодная пасть/кроличий прыжок/сильные ноги/сохранить лицо/насмешка/бесстрашие/устрашающий рёв/агрессивный/смена формы/снять форму/укус длиннозуба/шаг быстронога/пометить цель/жуткий сувенир/каменная выносливость/исцеляющие руки/небесное преобразование/незримая поступь/подводное дыхание/оружие дыхания) или OOC/телепатия (mind link) / знания reborn.",
+                            "Combat Lock: в бою доступны только боевые команды (атака/конец хода/уклон/движение/рывок/отход/засада/взлёт/приземление/помощь/побег/пресмыкайся/разъярённая мелкота/яд грунга на оружии/голодная пасть/кроличий прыжок/сильные ноги/сохранить лицо/насмешка/бесстрашие/устрашающий рёв/агрессивный/смена формы/снять форму/укус длиннозуба/шаг быстронога/пометить цель/хватательные придатки/схватить придатками/кислотный плевок/жуткий сувенир/каменная выносливость/исцеляющие руки/небесное преобразование/незримая поступь/подводное дыхание/оружие дыхания) или OOC/телепатия (mind link) / знания reborn.",
                             request_id=msg_request_id,
                         )
                         continue
@@ -4200,6 +4427,9 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                     continue
                 if combat_action == "combat_aggressive":
                     await ws_error("Агрессивный можно применить только в бою.", request_id=msg_request_id)
+                    continue
+                if combat_action in {"combat_acid_spit", "combat_grapple_appendages", "combat_appendages_grapple_bonus"}:
+                    await ws_error("Эта способность Simic доступна только в бою.", request_id=msg_request_id)
                     continue
 
                 # OOC (any time, no turn)
@@ -5499,7 +5729,7 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                 if combat_action in {"combat_fury_of_small", "combat_fury_of_the_small"} and not combat_active:
                     await ws_error("Разъярённая мелкота доступна только в бою.", request_id=msg_request_id)
                     continue
-                if combat_action in {"combat_hungry_jaws", "combat_rabbit_hop", "combat_lucky_footwork", "combat_saving_face", "combat_taunt", "combat_fearless", "combat_daunting_roar", "combat_grovel_cower_beg", "combat_goring_rush", "combat_hammering_horns", "combat_aggressive", "combat_shift", "combat_shift_end", "combat_longtooth_bite", "combat_swiftstride_step", "combat_mark_target"} and not combat_active:
+                if combat_action in {"combat_hungry_jaws", "combat_rabbit_hop", "combat_lucky_footwork", "combat_saving_face", "combat_taunt", "combat_fearless", "combat_daunting_roar", "combat_grovel_cower_beg", "combat_goring_rush", "combat_hammering_horns", "combat_aggressive", "combat_shift", "combat_shift_end", "combat_longtooth_bite", "combat_swiftstride_step", "combat_mark_target", "combat_acid_spit", "combat_grapple_appendages", "combat_appendages_grapple_bonus"} and not combat_active:
                     await ws_error("Эта особенность доступна только в бою.", request_id=msg_request_id)
                     continue
                 if combat_action in {"combat_eerie_token_create", "combat_eerie_token_message", "combat_eerie_token_view"} and not combat_active:
@@ -5823,7 +6053,8 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                         merged_patch = _merge_combat_patches(all_patches) if all_patches else None
                         persist_changed = await _persist_relentless_endurance_used_from_combat_state(db, sess, session_id)
                         shifter_persist_changed = await _persist_shifter_runtime_from_combat_state(db, sess, session_id)
-                        if persist_changed or shifter_persist_changed:
+                        simic_persist_changed = await _persist_simic_runtime_from_combat_state(db, sess, session_id)
+                        if persist_changed or shifter_persist_changed or simic_persist_changed:
                             await db.commit()
                             _uid_map, chars_by_uid, _ = await _load_actor_context(db, sess)
                             sync_pcs_from_chars(session_id, chars_by_uid)
@@ -5929,6 +6160,9 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                     continue
                 if combat_action == "combat_aggressive":
                     await ws_error("Агрессивный можно применить только в бою.")
+                    continue
+                if combat_action in {"combat_acid_spit", "combat_grapple_appendages", "combat_appendages_grapple_bonus"}:
+                    await ws_error("Эта способность Simic доступна только в бою.")
                     continue
 
                 if combat_action == "breathe_underwater":

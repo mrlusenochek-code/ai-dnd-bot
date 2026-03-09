@@ -136,6 +136,18 @@ CHAT_COMBAT_ACTION_PATTERNS: list[tuple[str, re.Pattern[str]]] = [
         re.compile(r"(помечаю\s+цель|marked\s+target|mark\b)", re.IGNORECASE),
     ),
     (
+        "combat_grapple_appendages",
+        re.compile(r"(хватательн\w+\s+придатк\w*|appendages\s+grapple|grapple\s+appendages)", re.IGNORECASE),
+    ),
+    (
+        "combat_appendages_grapple_bonus",
+        re.compile(r"(схватить\s+придатк\w*|bonus\s+appendages\s+grapple|appendages\s+bonus\s+grapple)", re.IGNORECASE),
+    ),
+    (
+        "combat_acid_spit",
+        re.compile(r"(кислотн\w+\s+плев\w*|acid\s+spit)", re.IGNORECASE),
+    ),
+    (
         "combat_attack",
         re.compile(
             r"(атак|напад|удар|бью|рубл|колю|выпад|тыч|пыр|замах|метаю|швыряю|стреля|выстрел|стрел|лук|арбалет|режу|вступаю\s+в\s+бой|вступить\s+в\s+бой|вхожу\s+в\s+бой|войти\s+в\s+бой|врываюсь\s+в\s+бой)",

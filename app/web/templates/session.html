@@ -1814,6 +1814,38 @@ function openCharacterModal(){
   const satyrRevelerText = (raceKey === "satyr" && profSkills.includes("performance") && profSkills.includes("persuasion"))
     ? `Гуляка: владение Выступление, Убеждение; музыкальный инструмент: ${satyrInstrumentRu || "выбор при создании"}`
     : "";
+  const simicAnimalEnhancement = (raceFeaturesMeta.animal_enhancement && typeof raceFeaturesMeta.animal_enhancement === "object")
+    ? raceFeaturesMeta.animal_enhancement
+    : null;
+  const simicConScore = Number.isFinite(Number(stats.con)) ? Number(stats.con) : 50;
+  const simicConMod = Math.floor((Math.round(simicConScore / 5) - 10) / 2);
+  const simicAcidSpitMax = Math.max(simicConMod, 1);
+  const simicAcidSpitUsed = Number.isFinite(Number(runtime.acid_spit_uses_used)) ? Number(runtime.acid_spit_uses_used) : 0;
+  const simicLvl1Key = String(
+    (simicAnimalEnhancement && simicAnimalEnhancement.chosen_lvl1)
+    || choices.animal_enhancement_lvl1
+    || runtime.simic_lvl1_enhancement
+    || ""
+  ).trim().toLowerCase();
+  const simicLvl5Key = String(
+    (simicAnimalEnhancement && simicAnimalEnhancement.chosen_lvl5)
+    || choices.animal_enhancement_lvl5
+    || runtime.simic_lvl5_enhancement
+    || ""
+  ).trim().toLowerCase();
+  const simicEnhancementDescriptions = {
+    "manta_glide": "Мантия ската: планирование, уменьшает падение на 100 фт и даёт 2 фт по горизонтали за 1 фт падения",
+    "nimble_climber": `Проворный скалолаз: скорость лазания ${Number.isFinite(Number(speeds.climb_ft)) ? Number(speeds.climb_ft) : Number(speeds.walk_ft || 30)} фт`,
+    "underwater_adaptation": `Подводная адаптация: амфибия${Number.isFinite(Number(speeds.swim_ft)) ? `; плавание ${Number(speeds.swim_ft)} фт` : ""}`,
+    "grappling_appendages": "Хватательные придатки: природное оружие 1к6 + СИЛ дробящий; действием можно схватить, после попадания возможен бонусный захват",
+    "carapace": "Панцирь: +1 КД, если не носите тяжёлый доспех",
+    "acid_spit": `Кислотный плевок: действием, 30 фт, ЛОВ сейв, остаток ${Math.max(0, simicAcidSpitMax - simicAcidSpitUsed)}/${simicAcidSpitMax}`,
+  };
+  const simicLvl1Text = simicLvl1Key ? (simicEnhancementDescriptions[simicLvl1Key] || simicLvl1Key) : "";
+  const simicLvl5Text = simicLvl5Key ? (simicEnhancementDescriptions[simicLvl5Key] || simicLvl5Key) : "";
+  const simicEnhancementText = (raceKey === "simic_hybrid" && simicAnimalEnhancement)
+    ? `Животное усиление: 1 уровень — ${simicLvl1Text || "не выбрано"}${simicLvl5Text ? `; 5 уровень — ${simicLvl5Text}` : "; на 5 уровне выберете ещё одно усиление (в т.ч. хватательные придатки/панцирь/кислотный плевок)"}`
+    : "";
   const shifterShift = (raceFeaturesMeta.shifting && typeof raceFeaturesMeta.shifting === "object")
     ? raceFeaturesMeta.shifting
     : null;
@@ -2232,6 +2264,9 @@ function openCharacterModal(){
   if(satyrRevelerText){
     details.push(`<div class="char-line"><strong>Гуляка:</strong> ${escapeHtml(satyrRevelerText.replace(/^Гуляка:\s*/, ""))}</div>`);
   }
+  if(simicEnhancementText){
+    details.push(`<div class="char-line"><strong>Животное усиление:</strong> ${escapeHtml(simicEnhancementText.replace(/^Животное усиление:\s*/, ""))}</div>`);
+  }
   if(shifterShiftText){
     details.push(`<div class="char-line"><strong>Смена формы:</strong> ${escapeHtml(shifterShiftText.replace(/^Смена формы:\s*/, ""))}</div>`);
   }
@@ -2514,6 +2549,7 @@ function openCharacterModal(){
   if(satyrMagicResistanceText) copyLines.push(satyrMagicResistanceText);
   if(satyrMirthfulLeapsText) copyLines.push(satyrMirthfulLeapsText);
   if(satyrRevelerText) copyLines.push(satyrRevelerText);
+  if(simicEnhancementText) copyLines.push(simicEnhancementText);
   if(shifterShiftText) copyLines.push(shifterShiftText);
   if(shifterSubraceEffectText) copyLines.push(shifterSubraceEffectText);
   if(rebornDeathlessNatureText) copyLines.push(rebornDeathlessNatureText);

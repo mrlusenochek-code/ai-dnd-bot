@@ -621,7 +621,7 @@ def _build_race_features(selected_race: dict | None) -> dict[str, Any]:
         if mtype in ("swim_speed", "fly_speed", "climb_speed"):
             speed_equals_walk = bool(mech.get("speed_equals_walk"))
             sp = max(as_int(mech.get("speed_ft"), 0), 0)
-            if speed_equals_walk and mtype == "fly_speed":
+            if speed_equals_walk:
                 sp = max(0, walk)
             if mtype == "swim_speed":
                 speeds["swim_ft"] = sp
@@ -640,6 +640,12 @@ def _build_race_features(selected_race: dict | None) -> dict[str, Any]:
             damage_type = str(mech.get("damage_type") or "").strip().lower()
             if damage_type:
                 resist.append(damage_type)
+
+        if mtype == "glide":
+            features["glide"] = {
+                "reduce_fall_ft": max(0, as_int(mech.get("reduce_fall_ft"), 0)),
+                "horizontal_per_fall_ft": max(0, as_int(mech.get("horizontal_per_fall_ft"), 0)),
+            }
 
         if mtype == "resistance":
             damage_type = str(mech.get("damage_type") or "").strip().lower()
@@ -978,6 +984,14 @@ def _build_race_features(selected_race: dict | None) -> dict[str, Any]:
         if mtype == "rest_override":
             features["trance"] = dict(mech)
 
+        if mtype == "animal_enhancement":
+            features["animal_enhancement"] = {
+                "pick_1_level": max(0, as_int(mech.get("pick_1_level"), 1)),
+                "pick_2_level": max(0, as_int(mech.get("pick_2_level"), 5)),
+                "chosen_lvl1": None,
+                "chosen_lvl5": None,
+            }
+
         if mtype == "healing_hands":
             features["healing_hands"] = dict(mech)
 
@@ -1261,6 +1275,28 @@ def _build_race_features(selected_race: dict | None) -> dict[str, Any]:
                     save_advantage_vs_magic.append(ability)
             features["magic_resistance"] = {"applies_to": "all_magic_saves"}
 
+        if mtype == "ac_bonus_if_no_heavy_armor":
+            features["ac_bonus_if_no_heavy_armor"] = {"ac_bonus": max(0, as_int(mech.get("ac_bonus"), 0))}
+
+        if mtype == "grappling_appendages":
+            features["grappling_appendages"] = {
+                "damage_dice": str(mech.get("damage_dice") or "1d6").strip().lower() or "1d6",
+                "damage_type": str(mech.get("damage_type") or "bludgeoning").strip().lower() or "bludgeoning",
+                "ability": str(mech.get("ability") or "str").strip().lower() or "str",
+                "cannot_wield_weapons": True,
+                "cannot_do_fine_work": True,
+            }
+
+        if mtype == "acid_spit":
+            features["acid_spit"] = {
+                "range_ft": max(0, as_int(mech.get("range_ft"), 30)),
+                "damage": str(mech.get("damage") or "2d10").strip().lower() or "2d10",
+                "damage_type": str(mech.get("damage_type") or "acid").strip().lower() or "acid",
+                "dc_formula": str(mech.get("dc_formula") or "8 + prof + con_mod").strip().lower() or "8 + prof + con_mod",
+                "uses_formula": str(mech.get("uses_formula") or "max(con_mod,1)").strip().lower() or "max(con_mod,1)",
+                "recharge": str(mech.get("recharge") or "per_long_rest").strip().lower() or "per_long_rest",
+            }
+
         if mtype == "learn_cantrip":
             spell_key = str(mech.get("spell_key") or "").strip().lower()
             ability = str(mech.get("ability") or "").strip().lower()
@@ -1356,6 +1392,77 @@ def _apply_asi_bonuses(stats: dict[str, Any], asi_items: Any) -> None:
         stats[stat_key] = max(0, min(100, current + (bonus * 5)))
 
 
+def _simic_enhancement_keys() -> tuple[set[str], set[str]]:
+    lvl1 = {"manta_glide", "nimble_climber", "underwater_adaptation"}
+    lvl5 = {"manta_glide", "nimble_climber", "underwater_adaptation", "grappling_appendages", "carapace", "acid_spit"}
+    return lvl1, lvl5
+
+
+def _apply_simic_enhancement_to_race_features(race_features: dict[str, Any], enhancement_key: str) -> None:
+    if not isinstance(race_features, dict):
+        return
+    enhancement = str(enhancement_key or "").strip().lower()
+    if not enhancement:
+        return
+
+    speeds = race_features.get("speeds")
+    speeds_dict: dict[str, Any] = speeds if isinstance(speeds, dict) else {}
+    features = race_features.get("features")
+    features_dict: dict[str, Any] = features if isinstance(features, dict) else {}
+    natural_weapons = race_features.get("natural_weapons")
+    natural_weapons_list = list(natural_weapons) if isinstance(natural_weapons, list) else []
+    breath = race_features.get("breath")
+    breath_dict: dict[str, Any] = breath if isinstance(breath, dict) else {}
+    walk_ft = max(0, as_int(speeds_dict.get("walk_ft"), 30))
+
+    if enhancement == "manta_glide":
+        features_dict["glide"] = {"reduce_fall_ft": 100, "horizontal_per_fall_ft": 2}
+    elif enhancement == "nimble_climber":
+        speeds_dict["climb_ft"] = walk_ft
+    elif enhancement == "underwater_adaptation":
+        features_dict["amphibious"] = True
+        breath_dict["amphibious"] = True
+        speeds_dict["swim_ft"] = walk_ft
+    elif enhancement == "grappling_appendages":
+        features_dict["grappling_appendages"] = {
+            "damage_dice": "1d6",
+            "damage_type": "bludgeoning",
+            "ability": "str",
+            "cannot_wield_weapons": True,
+            "cannot_do_fine_work": True,
+        }
+        has_weapon = any(
+            isinstance(item, dict) and str(item.get("key") or "").strip().lower() == "grappling_appendages"
+            for item in natural_weapons_list
+        )
+        if not has_weapon:
+            natural_weapons_list.append(
+                {
+                    "key": "grappling_appendages",
+                    "kind": "unarmed",
+                    "damage_dice": "1d6",
+                    "damage_type": "bludgeoning",
+                    "ability": "str",
+                }
+            )
+    elif enhancement == "carapace":
+        features_dict["ac_bonus_if_no_heavy_armor"] = {"ac_bonus": 1}
+    elif enhancement == "acid_spit":
+        features_dict["acid_spit"] = {
+            "range_ft": 30,
+            "damage": "2d10",
+            "damage_type": "acid",
+            "dc_formula": "8 + prof + con_mod",
+            "uses_formula": "max(con_mod,1)",
+            "recharge": "per_long_rest",
+        }
+
+    race_features["speeds"] = speeds_dict
+    race_features["features"] = features_dict
+    race_features["breath"] = breath_dict
+    race_features["natural_weapons"] = natural_weapons_list
+
+
 @router.post("/api/character/create")
 async def api_character_create(payload: dict):
     session_id = str(payload.get("session_id") or "").strip()
@@ -1385,6 +1492,7 @@ async def api_character_create(payload: dict):
     race_choice_draconic_ancestry = ""
     race_choice_size = ""
     race_choice_variable_trait = ""
+    race_choice_animal_enhancement_lvl1 = ""
     race_choice_decadent_language = ""
     race_choice_decadent_skill = ""
     race_choice_decadent_tool = ""
@@ -1523,6 +1631,7 @@ async def api_character_create(payload: dict):
         race_choice_draconic_ancestry = str(race_choices_payload.get("draconic_ancestry") or "").strip().lower()
         race_choice_size = str(race_choices_payload.get("size") or "").strip().lower()
         race_choice_variable_trait = str(race_choices_payload.get("variable_trait") or "").strip().lower()
+        race_choice_animal_enhancement_lvl1 = str(race_choices_payload.get("animal_enhancement_lvl1") or "").strip().lower()
         raw_decadent_mastery = race_choices_payload.get("decadent_mastery")
         if isinstance(raw_decadent_mastery, dict):
             race_choice_decadent_language = str(raw_decadent_mastery.get("language") or "").strip().lower()
@@ -2047,6 +2156,22 @@ async def api_character_create(payload: dict):
                 raise HTTPException(status_code=400, detail="Invalid Kender aptitude skill choice")
             if race_choice_innate_ability not in {"int", "wis", "cha"}:
                 raise HTTPException(status_code=400, detail="Kender taunt ability choice required (int/wis/cha)")
+        if effective_race_key == "simic_hybrid":
+            simic_lvl1_options, _simic_lvl5_options = _simic_enhancement_keys()
+            if len(race_choice_asi) != 1 or as_int((race_choice_asi[0] or {}).get("bonus"), 0) != 1:
+                raise HTTPException(status_code=400, detail="Simic Hybrid requires exactly one +1 ASI choice")
+            simic_asi_stat = str((race_choice_asi[0] or {}).get("stat") or "").strip().lower()
+            if simic_asi_stat not in {"str", "dex", "int", "wis", "cha"}:
+                raise HTTPException(status_code=400, detail="Simic Hybrid ASI +1 must be str/dex/int/wis/cha")
+            if len(race_choice_languages) != 1:
+                raise HTTPException(status_code=400, detail="Simic Hybrid language choice is required")
+            simic_lang = race_choice_languages[0]
+            if simic_lang not in {"elvish", "vedalken"}:
+                raise HTTPException(status_code=400, detail="Simic Hybrid language must be Elvish or Vedalken")
+            if race_choice_animal_enhancement_lvl1 not in simic_lvl1_options:
+                raise HTTPException(status_code=400, detail="Simic Hybrid level 1 animal enhancement choice is required")
+        elif race_choice_animal_enhancement_lvl1:
+            raise HTTPException(status_code=400, detail="Animal enhancement choice is not available for selected race")
         elif race_choice_innate_ability and effective_race_key not in {"hexblood", "kender"}:
             raise HTTPException(
                 status_code=400,
@@ -2205,6 +2330,13 @@ async def api_character_create(payload: dict):
             runtime.setdefault("wildhunt_marked_until", "")
             runtime.setdefault("marked_uses_used", 0)
             race_features["runtime"] = runtime
+        if isinstance(race_features, dict) and str(race_features.get("race_key") or "").strip().lower() == "simic_hybrid":
+            runtime_raw = race_features.get("runtime")
+            runtime = dict(runtime_raw) if isinstance(runtime_raw, dict) else {}
+            runtime.setdefault("simic_lvl1_enhancement", "")
+            runtime.setdefault("simic_lvl5_enhancement", "")
+            runtime.setdefault("acid_spit_uses_used", 0)
+            race_features["runtime"] = runtime
         if isinstance(race_features, dict) and selected_subrace is not None:
             race_features["subrace"] = {
                 "key": str(selected_subrace.get("key") or "").strip(),
@@ -2284,6 +2416,8 @@ async def api_character_create(payload: dict):
             choices_dict["size"] = race_choice_size
         if isinstance(race_features, dict) and race_choice_asi:
             choices_dict["asi"] = list(race_choice_asi)
+            if str(race_features.get("race_key") or "").strip().lower() == "simic_hybrid" and len(race_choice_asi) == 1:
+                choices_dict["asi_plus1_stat"] = str((race_choice_asi[0] or {}).get("stat") or "").strip().lower()
         if isinstance(race_features, dict) and race_choice_skills:
             prof = race_features.get("proficiencies")
             prof_dict: dict[str, Any] = prof if isinstance(prof, dict) else {}
@@ -2334,6 +2468,26 @@ async def api_character_create(payload: dict):
                 "variant": race_choice_flex_asi_variant,
                 "stats": list(race_choice_flex_asi_stats),
             }
+        if isinstance(race_features, dict) and str(race_features.get("race_key") or "").strip().lower() == "simic_hybrid":
+            simic_features = race_features.get("features")
+            simic_features_dict: dict[str, Any] = simic_features if isinstance(simic_features, dict) else {}
+            animal_cfg = simic_features_dict.get("animal_enhancement")
+            animal_cfg_dict: dict[str, Any] = dict(animal_cfg) if isinstance(animal_cfg, dict) else {"pick_1_level": 1, "pick_2_level": 5}
+            animal_cfg_dict["chosen_lvl1"] = race_choice_animal_enhancement_lvl1 or None
+            animal_cfg_dict["chosen_lvl5"] = None
+            simic_features_dict["animal_enhancement"] = animal_cfg_dict
+            race_features["features"] = simic_features_dict
+            if race_choice_languages:
+                choices_dict["language"] = race_choice_languages[0]
+            if race_choice_animal_enhancement_lvl1:
+                choices_dict["animal_enhancement_lvl1"] = race_choice_animal_enhancement_lvl1
+                _apply_simic_enhancement_to_race_features(race_features, race_choice_animal_enhancement_lvl1)
+            runtime_raw = race_features.get("runtime")
+            runtime = dict(runtime_raw) if isinstance(runtime_raw, dict) else {}
+            runtime["simic_lvl1_enhancement"] = race_choice_animal_enhancement_lvl1 or ""
+            runtime.setdefault("simic_lvl5_enhancement", "")
+            runtime.setdefault("acid_spit_uses_used", 0)
+            race_features["runtime"] = runtime
         if isinstance(race_features, dict) and race_choice_feats:
             choices_dict["feats"] = list(race_choice_feats)
         if isinstance(race_features, dict) and race_choice_variable_trait:

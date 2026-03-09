@@ -127,6 +127,10 @@
           <label>Размер (обязательно)</label>
           <select id="choiceSize"></select>
         </div>
+        <div id="choiceAnimalEnhancementRow" style="display:none;">
+          <label>Животное усиление (1 уровень, обязательно)</label>
+          <select id="choiceAnimalEnhancement"></select>
+        </div>
         <div id="choiceVariableTraitRow" style="display:none;">
           <label>Выборочная особенность (обязательно)</label>
           <select id="choiceVariableTrait"></select>
@@ -468,6 +472,8 @@ let raceChoiceState = {
   skillCount: 0,
   skillOptions: [],
   skillTraitKey: "",
+  animalEnhancementRequired: false,
+  animalEnhancementOptions: [],
   variableTraitRequired: false,
   variableTraitOptions: [],
   featRequired: false,
@@ -910,6 +916,25 @@ function getVariableTraitChoiceConfig(traits){
   return out;
 }
 
+function getAnimalEnhancementChoiceConfig(traits, raceKey){
+  const out = { required: false, options: [] };
+  if(String(raceKey || "").trim().toLowerCase() !== "simic_hybrid"){
+    return out;
+  }
+  const items = Array.isArray(traits) ? traits : [];
+  for(const t of items){
+    if(!t || typeof t !== "object") continue;
+    const mech = (t.mechanics && typeof t.mechanics === "object") ? t.mechanics : {};
+    if(String(mech.type || "").trim().toLowerCase() !== "animal_enhancement"){
+      continue;
+    }
+    out.required = true;
+    out.options = ["manta_glide", "nimble_climber", "underwater_adaptation"];
+    return out;
+  }
+  return out;
+}
+
 function getToolChoiceConfig(traits){
   const out = { required: false, choices: 0, from: [] };
   const items = Array.isArray(traits) ? traits : [];
@@ -1258,6 +1283,8 @@ function renderRaceChoices(){
   const asiSel3 = document.getElementById("choiceAsi3");
   const sizeRow = document.getElementById("choiceSizeRow");
   const sizeSel = document.getElementById("choiceSize");
+  const animalEnhancementRow = document.getElementById("choiceAnimalEnhancementRow");
+  const animalEnhancementSel = document.getElementById("choiceAnimalEnhancement");
   const variableTraitRow = document.getElementById("choiceVariableTraitRow");
   const variableTraitSel = document.getElementById("choiceVariableTrait");
   const skillRow = document.getElementById("choiceSkillRow");
@@ -1288,7 +1315,7 @@ function renderRaceChoices(){
   const innateAbilitySel = document.getElementById("choiceInnateAbility");
   const ancestryRow = document.getElementById("choiceAncestryRow");
   const ancestrySel = document.getElementById("choiceAncestry");
-  if(!block || !langRow || !langLabel || !langSel || !langSel2 || !asiRow || !asiLabel || !asiVariantRow || !asiVariantSel || !asiSel1 || !asiSel2 || !asiSel3 || !sizeRow || !sizeSel || !variableTraitRow || !variableTraitSel || !skillRow || !skillLabel || !skillSel1 || !skillSel2 || !featRow || !featSel || !toolRow || !toolLabel || !toolSel || !toolSel2 || !martialWeaponRow || !martialWeaponLabel || !martialWeaponSel1 || !martialWeaponSel2 || !githDecadentRow || !githLangSel || !githProfTypeSel || !githSkillSel || !githToolSel || !cantripRow || !cantripSel || !vedRow || !vedSkillSel || !vedToolSel || !innateAbilityRow || !innateAbilitySel || !ancestryRow || !ancestrySel) return;
+  if(!block || !langRow || !langLabel || !langSel || !langSel2 || !asiRow || !asiLabel || !asiVariantRow || !asiVariantSel || !asiSel1 || !asiSel2 || !asiSel3 || !sizeRow || !sizeSel || !animalEnhancementRow || !animalEnhancementSel || !variableTraitRow || !variableTraitSel || !skillRow || !skillLabel || !skillSel1 || !skillSel2 || !featRow || !featSel || !toolRow || !toolLabel || !toolSel || !toolSel2 || !martialWeaponRow || !martialWeaponLabel || !martialWeaponSel1 || !martialWeaponSel2 || !githDecadentRow || !githLangSel || !githProfTypeSel || !githSkillSel || !githToolSel || !cantripRow || !cantripSel || !vedRow || !vedSkillSel || !vedToolSel || !innateAbilityRow || !innateAbilitySel || !ancestryRow || !ancestrySel) return;
 
   const ctx = getCurrentRaceContext();
   const raceKey = String(((ctx.race && ctx.race.id) || ctx.details.key || "")).trim().toLowerCase();
@@ -1302,6 +1329,7 @@ function renderRaceChoices(){
   const isHobgoblin = raceKey === "hobgoblin";
   const isKalashtar = raceKey === "kalashtar";
   const isKender = raceKey === "kender";
+  const isSimicHybrid = raceKey === "simic_hybrid";
   const isGithyanki = raceKey === "gith" && subraceKey === "githyanki";
   const langCfg = getLanguageChoiceConfig(ctx.effectiveTraits);
   const asiCfg = getAsiChoiceConfig(ctx.effectiveTraits, ctx.details.asi, raceKey);
@@ -1309,6 +1337,7 @@ function renderRaceChoices(){
   const skillCfg = getSkillChoiceConfig(ctx.effectiveTraits);
   const featCfg = getFeatChoiceConfig(ctx.effectiveTraits);
   const variableTraitCfg = getVariableTraitChoiceConfig(ctx.effectiveTraits);
+  const animalEnhancementCfg = getAnimalEnhancementChoiceConfig(ctx.effectiveTraits, raceKey);
   const toolCfg = getToolChoiceConfig(ctx.effectiveTraits);
   const cantripCfg = getCantripChoiceConfig(ctx.effectiveTraits);
   const vedCfg = getTirelessPrecisionChoiceConfig(ctx.effectiveTraits);
@@ -1324,6 +1353,7 @@ function renderRaceChoices(){
   const needsFlexAsi = !!flexAsiCfg.required;
   const needsSkill = !!skillCfg.required || needsCustomLineageSkill;
   const needsVariableTrait = isCustomLineage;
+  const needsAnimalEnhancement = !!animalEnhancementCfg.required;
   const needsFeat = !!featCfg.required;
   const needsTool = !!toolCfg.required;
   const needsCantrip = !!cantripCfg.required;
@@ -1347,6 +1377,8 @@ function renderRaceChoices(){
     skillCount: needsCustomLineageSkill ? 1 : Number(skillCfg.count || 0),
     skillOptions: needsCustomLineageSkill ? [] : (Array.isArray(skillCfg.from) ? skillCfg.from.slice() : []),
     skillTraitKey: String(skillCfg.traitKey || "").trim().toLowerCase(),
+    animalEnhancementRequired: needsAnimalEnhancement,
+    animalEnhancementOptions: Array.isArray(animalEnhancementCfg.options) ? animalEnhancementCfg.options.slice() : [],
     variableTraitRequired: needsVariableTrait,
     variableTraitOptions: variableTraitOptions.slice(),
     featRequired: needsFeat,
@@ -1365,9 +1397,10 @@ function renderRaceChoices(){
     martialWeaponsCount: needsMartialWeapons ? 2 : 0,
   };
 
-  if(!needsSize && !needsLanguage && !needsAsi && !needsVariableTrait && !needsSkill && !needsFeat && !needsTool && !needsCantrip && !needsVedalken && !needsInnateAbility && !needsGithDecadent && !needsAncestry && !needsMartialWeapons){
+  if(!needsSize && !needsLanguage && !needsAsi && !needsAnimalEnhancement && !needsVariableTrait && !needsSkill && !needsFeat && !needsTool && !needsCantrip && !needsVedalken && !needsInnateAbility && !needsGithDecadent && !needsAncestry && !needsMartialWeapons){
     block.style.display = "none";
     sizeRow.style.display = "none";
+    animalEnhancementRow.style.display = "none";
     variableTraitRow.style.display = "none";
     langRow.style.display = "none";
     asiRow.style.display = "none";
@@ -1400,6 +1433,9 @@ function renderRaceChoices(){
     sizeSel.disabled = true;
     sizeSel.required = false;
     sizeSel.value = "";
+    animalEnhancementSel.disabled = true;
+    animalEnhancementSel.required = false;
+    animalEnhancementSel.value = "";
     variableTraitSel.disabled = true;
     variableTraitSel.required = false;
     variableTraitSel.value = "";
@@ -1489,6 +1525,36 @@ function renderRaceChoices(){
     sizeSel.disabled = true;
     sizeSel.required = false;
     sizeSel.value = "";
+  }
+
+  if(needsAnimalEnhancement){
+    const prev = String(animalEnhancementSel.value || "").trim().toLowerCase();
+    const optionLabels = {
+      "manta_glide": "Мантия ската",
+      "nimble_climber": "Проворный скалолаз",
+      "underwater_adaptation": "Подводная адаптация",
+    };
+    animalEnhancementSel.innerHTML = "";
+    const first = document.createElement("option");
+    first.value = "";
+    first.textContent = "(выберите усиление)";
+    animalEnhancementSel.appendChild(first);
+    for(const key of raceChoiceState.animalEnhancementOptions){
+      const opt = document.createElement("option");
+      opt.value = key;
+      opt.textContent = optionLabels[key] || key;
+      animalEnhancementSel.appendChild(opt);
+    }
+    const keepPrev = Array.from(animalEnhancementSel.options).some(o => String(o.value) === prev);
+    animalEnhancementSel.value = keepPrev ? prev : "";
+    animalEnhancementSel.disabled = false;
+    animalEnhancementSel.required = true;
+    animalEnhancementRow.style.display = "";
+  }else{
+    animalEnhancementRow.style.display = "none";
+    animalEnhancementSel.disabled = true;
+    animalEnhancementSel.required = false;
+    animalEnhancementSel.value = "";
   }
 
   if(needsVariableTrait){
@@ -2013,6 +2079,14 @@ function renderSubraceSelect(race, details){
   const opt0 = document.createElement("option");
   opt0.value = "";
   const raceKey = String(((race && race.id) || details.key || "")).trim().toLowerCase();
+  if(raceKey === "simic_hybrid"){
+    row.style.display = "none";
+    sel.disabled = true;
+    sel.required = false;
+    sel.value = "";
+    sel.onchange = null;
+    return;
+  }
   opt0.textContent = raceKey === "gith" ? "(выберите подрасу)" : "(нет)";
   sel.appendChild(opt0);
 
@@ -2203,8 +2277,10 @@ async function createHero(){
   }
   const choiceLangEl = document.getElementById("choiceLang1");
   const choiceLangEl2 = document.getElementById("choiceLang2");
+  const choiceAnimalEnhancementEl = document.getElementById("choiceAnimalEnhancement");
   const choiceLang = String(choiceLangEl ? choiceLangEl.value : "").trim().toLowerCase();
   const choiceLang2 = String(choiceLangEl2 ? choiceLangEl2.value : "").trim().toLowerCase();
+  const choiceAnimalEnhancement = String(choiceAnimalEnhancementEl ? choiceAnimalEnhancementEl.value : "").trim().toLowerCase();
   if(raceChoiceState.languageRequired && !choiceLang){
     setMessage("Выбери доп. язык в блоке «Стартовые выборы».", false);
     return;
@@ -2218,6 +2294,10 @@ async function createHero(){
       setMessage("Выбери два разных языка.", false);
       return;
     }
+  }
+  if(raceChoiceState.animalEnhancementRequired && !choiceAnimalEnhancement){
+    setMessage("Выбери животное усиление 1 уровня в блоке «Стартовые выборы».", false);
+    return;
   }
   if(raceIdForValidation === "kalashtar"){
     if(choiceLang === "common" || choiceLang === "quori"){
@@ -2466,6 +2546,9 @@ async function createHero(){
   }
   if(choiceVariableTrait){
     raceChoices.variable_trait = choiceVariableTrait;
+  }
+  if(choiceAnimalEnhancement){
+    raceChoices.animal_enhancement_lvl1 = choiceAnimalEnhancement;
   }
   if(choiceTool){
     raceChoices.tools = Number(raceChoiceState.toolCount || 0) >= 2

@@ -503,6 +503,20 @@ def _consume_nimble_escape_hide(actor: Any) -> bool:
     return True
 
 
+def _simic_runtime(actor: Any) -> tuple[dict[str, Any], dict[str, Any]]:
+    race_features = actor.race_features if isinstance(getattr(actor, "race_features", None), dict) else {}
+    runtime_raw = race_features.get("runtime")
+    runtime = dict(runtime_raw) if isinstance(runtime_raw, dict) else {}
+    return race_features, runtime
+
+
+def _has_simic_feature(actor: Any, feature_key: str) -> bool:
+    race_features = actor.race_features if isinstance(getattr(actor, "race_features", None), dict) else {}
+    if str(race_features.get("race_key") or "").strip().lower() != "simic_hybrid":
+        return False
+    return _race_feature(actor, feature_key) is not None
+
+
 def _maybe_apply_fury_of_small(*, actor: Any, target: Any, lines: list[dict[str, Any]]) -> int:
     if str(getattr(actor, "side", "")).lower() != "pc":
         return 0
@@ -4259,6 +4273,116 @@ def handle_live_combat_action(
                 "lines": [
                     {"text": f"Помеченная цель: {actor.name} помечает {target.name}."},
                     {"text": f"Пока метка активна, вы знаете точное местоположение цели в пределах {locate_range} фт.", "muted": True},
+                    {"text": f"Осталось использований: {max(0, uses_max - uses_used - 1)}/{uses_max}.", "muted": True},
+                ],
+            },
+            None,
+        )
+
+    if action in {"combat_grapple_appendages", "combat_appendages_grapple_bonus"}:
+        state = get_combat(session_id)
+        if state is None or not state.active:
+            return None, "Combat is not active"
+        if not state.order:
+            end_combat(session_id)
+            return ({"status": "Бой завершён", "open": False, "lines": [{"text": "Бой завершён: целей не осталось.", "muted": True}]}, None)
+        actor_key = state.order[state.turn_index]
+        actor = state.combatants.get(actor_key)
+        if actor is None:
+            return None, "Combat state is inconsistent"
+        if not _has_simic_feature(actor, "grappling_appendages"):
+            return None, "Хватательные придатки недоступны."
+        blocked = _spend_bonus_action_or_block(state, actor) if action == "combat_appendages_grapple_bonus" else _spend_action_or_block(state, actor)
+        if blocked is not None:
+            return blocked, None
+        race_features, runtime = _simic_runtime(actor)
+        target = _select_named_or_first_opponent(state, actor, raw_text)
+        if target is None:
+            stored_target = str(runtime.get("simic_appendages_last_target_id") or "").strip()
+            target = state.combatants.get(stored_target) if stored_target else None
+        if target is None or int(getattr(target, "hp_current", 0) or 0) <= 0 or bool(getattr(target, "is_dead", False)):
+            return None, "Нет подходящей цели для придатков."
+        str_mod = _actor_ability_mod(actor, "str")
+        attack_total = random.randint(1, 20) + str_mod + _proficiency_bonus_for_actor(actor)
+        defense_mod = max(_actor_ability_mod(target, "str"), _actor_ability_mod(target, "dex"))
+        defense_total = random.randint(1, 20) + defense_mod
+        success = attack_total >= defense_total
+        runtime["simic_appendages_last_target_id"] = str(getattr(target, "key", "") or "")
+        race_features["runtime"] = runtime
+        actor.race_features = race_features
+        if success:
+            target_rf = target.race_features if isinstance(getattr(target, "race_features", None), dict) else {}
+            target_runtime_raw = target_rf.get("runtime")
+            target_runtime = dict(target_runtime_raw) if isinstance(target_runtime_raw, dict) else {}
+            conditions = dict(target_runtime.get("conditions")) if isinstance(target_runtime.get("conditions"), dict) else {}
+            conditions["grappled"] = {"by_actor_id": str(getattr(actor, "key", "") or ""), "source": "simic_appendages"}
+            target_runtime["conditions"] = conditions
+            target_rf["runtime"] = target_runtime
+            target.race_features = target_rf
+        action_ru = "Бонусный захват придатками" if action == "combat_appendages_grapple_bonus" else "Хватательные придатки"
+        return (
+            {
+                "status": _combat_status(state),
+                "open": True,
+                "lines": [
+                    {"text": f"{action_ru}: {actor.name} пытается схватить {target.name}."},
+                    {"text": f"Проверка СИЛ: {attack_total} vs {defense_total}.", "muted": True},
+                    {"text": "Цель схвачена (grappled)." if success else "Цель вырывается и не даёт себя схватить."},
+                ],
+            },
+            None,
+        )
+
+    if action == "combat_acid_spit":
+        state = get_combat(session_id)
+        if state is None or not state.active:
+            return None, "Combat is not active"
+        if not state.order:
+            end_combat(session_id)
+            return ({"status": "Бой завершён", "open": False, "lines": [{"text": "Бой завершён: целей не осталось.", "muted": True}]}, None)
+        actor_key = state.order[state.turn_index]
+        actor = state.combatants.get(actor_key)
+        if actor is None:
+            return None, "Combat state is inconsistent"
+        acid_cfg = _race_feature(actor, "acid_spit")
+        if acid_cfg is None or str(getattr(actor, "side", "")).lower() != "pc":
+            return None, "Кислотный плевок недоступен."
+        race_features, runtime = _simic_runtime(actor)
+        con_mod = _actor_ability_mod(actor, "con")
+        uses_max = max(con_mod, 1)
+        uses_used = max(0, int(runtime.get("acid_spit_uses_used") or 0))
+        if uses_used >= uses_max:
+            return None, "Кислотный плевок уже исчерпан до длительного отдыха."
+        blocked = _spend_action_or_block(state, actor)
+        if blocked is not None:
+            return blocked, None
+        target = _select_named_or_first_opponent(state, actor, raw_text)
+        if target is None:
+            return None, "Нет подходящей цели."
+        level = max(1, int(getattr(actor, "level", 1) or 1))
+        dice_count = 4 if level >= 17 else (3 if level >= 11 else 2)
+        dc = 8 + _proficiency_bonus_for_actor(actor) + con_mod
+        save_roll = random.randint(1, 20)
+        dex_mod = _actor_ability_mod(target, "dex")
+        save_total = save_roll + dex_mod
+        success = save_total >= dc
+        damage_rolls = [random.randint(1, 10) for _ in range(dice_count)]
+        full_damage = sum(damage_rolls)
+        final_damage = full_damage // 2 if success else full_damage
+        runtime["acid_spit_uses_used"] = uses_used + 1
+        race_features["runtime"] = runtime
+        actor.race_features = race_features
+        state = apply_damage(session_id, target.key, final_damage, source=actor.key)
+        if state is None:
+            return None, "Combat is not active"
+        return (
+            {
+                "status": _combat_status(state),
+                "open": True,
+                "lines": [
+                    {"text": f"Кислотный плевок: {actor.name} плюёт кислотой в {target.name} (30 фт)."},
+                    {"text": f"DEX save: d20({save_roll}) {dex_mod:+d} = {save_total} vs DC {dc} ({'SUCCESS' if success else 'FAIL'}).", "muted": True},
+                    {"text": f"Урон: {'+'.join(str(x) for x in damage_rolls)} acid => {'half' if success else 'full'} = {final_damage}."},
                     {"text": f"Осталось использований: {max(0, uses_max - uses_used - 1)}/{uses_max}.", "muted": True},
                 ],
             },
