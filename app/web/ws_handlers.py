@@ -1101,6 +1101,15 @@ def _reset_harengon_long_rest(ch: Character) -> bool:
     if "daunting_roar_uses_used" in runtime:
         runtime.pop("daunting_roar_uses_used", None)
         changed = True
+    if "goring_rush_available" in runtime:
+        runtime.pop("goring_rush_available", None)
+        changed = True
+    if "hammering_horns_available" in runtime:
+        runtime.pop("hammering_horns_available", None)
+        changed = True
+    if "hammering_horns_target_id" in runtime:
+        runtime.pop("hammering_horns_target_id", None)
+        changed = True
     if not changed:
         return False
     rf["runtime"] = runtime
@@ -1145,6 +1154,15 @@ def _reset_combatant_harengon_long_rest(session_id: str, actor_key: str) -> bool
         changed = True
     if "daunting_roar_uses_used" in runtime:
         runtime.pop("daunting_roar_uses_used", None)
+        changed = True
+    if "goring_rush_available" in runtime:
+        runtime.pop("goring_rush_available", None)
+        changed = True
+    if "hammering_horns_available" in runtime:
+        runtime.pop("hammering_horns_available", None)
+        changed = True
+    if "hammering_horns_target_id" in runtime:
+        runtime.pop("hammering_horns_target_id", None)
         changed = True
     if not changed:
         return False
@@ -2168,6 +2186,7 @@ async def _persist_relentless_endurance_used_from_combat_state(db, sess, session
     hungry_jaws_runtime_by_uid: dict[int, dict[str, Any]] = {}
     leonin_roar_runtime_by_uid: dict[int, dict[str, Any]] = {}
     fearless_runtime_by_uid: dict[int, dict[str, Any]] = {}
+    minotaur_runtime_by_uid: dict[int, dict[str, Any]] = {}
     for key, actor in (state.combatants or {}).items():
         actor_key = str(key or "").strip().lower()
         if not actor_key.startswith("pc_"):
@@ -2267,6 +2286,20 @@ async def _persist_relentless_endurance_used_from_combat_state(db, sess, session
                 fearless_runtime["fearless_pending_failed_frightened_save"] = dict(runtime.get("fearless_pending_failed_frightened_save"))
             if fearless_runtime:
                 fearless_runtime_by_uid[int(uid_raw)] = fearless_runtime
+        if (
+            "goring_rush_available" in runtime
+            or "hammering_horns_available" in runtime
+            or "hammering_horns_target_id" in runtime
+        ):
+            minotaur_runtime: dict[str, Any] = {}
+            if "goring_rush_available" in runtime:
+                minotaur_runtime["goring_rush_available"] = bool(runtime.get("goring_rush_available"))
+            if "hammering_horns_available" in runtime:
+                minotaur_runtime["hammering_horns_available"] = bool(runtime.get("hammering_horns_available"))
+            if "hammering_horns_target_id" in runtime:
+                minotaur_runtime["hammering_horns_target_id"] = str(runtime.get("hammering_horns_target_id") or "").strip()
+            if minotaur_runtime:
+                minotaur_runtime_by_uid[int(uid_raw)] = minotaur_runtime
     if (
         not relentless_used_uids
         and not built_for_success_runtime_by_uid
@@ -2283,6 +2316,7 @@ async def _persist_relentless_endurance_used_from_combat_state(db, sess, session
         and not hungry_jaws_runtime_by_uid
         and not leonin_roar_runtime_by_uid
         and not fearless_runtime_by_uid
+        and not minotaur_runtime_by_uid
     ):
         return False
 
@@ -2305,6 +2339,7 @@ async def _persist_relentless_endurance_used_from_combat_state(db, sess, session
             and uid not in hungry_jaws_runtime_by_uid
             and uid not in leonin_roar_runtime_by_uid
             and uid not in fearless_runtime_by_uid
+            and uid not in minotaur_runtime_by_uid
         ):
             continue
         ch = chars_by_uid.get(uid)
@@ -2467,6 +2502,23 @@ async def _persist_relentless_endurance_used_from_combat_state(db, sess, session
                     runtime["fearless_pending_failed_frightened_save"] = pending_target
                 else:
                     runtime.pop("fearless_pending_failed_frightened_save", None)
+                local_changed = True
+        minotaur_runtime = minotaur_runtime_by_uid.get(uid)
+        if isinstance(minotaur_runtime, dict):
+            goring_available = bool(minotaur_runtime.get("goring_rush_available"))
+            if bool(runtime.get("goring_rush_available")) != goring_available:
+                runtime["goring_rush_available"] = goring_available
+                local_changed = True
+            hammering_available = bool(minotaur_runtime.get("hammering_horns_available"))
+            if bool(runtime.get("hammering_horns_available")) != hammering_available:
+                runtime["hammering_horns_available"] = hammering_available
+                local_changed = True
+            hammering_target = str(minotaur_runtime.get("hammering_horns_target_id") or "").strip()
+            if str(runtime.get("hammering_horns_target_id") or "").strip() != hammering_target:
+                if hammering_target:
+                    runtime["hammering_horns_target_id"] = hammering_target
+                else:
+                    runtime.pop("hammering_horns_target_id", None)
                 local_changed = True
         if local_changed:
             race_features["runtime"] = runtime
@@ -2879,6 +2931,8 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                     "combat_taunt",
                     "combat_fearless",
                     "combat_daunting_roar",
+                    "combat_goring_rush",
+                    "combat_hammering_horns",
                     "combat_eerie_token_create",
                     "combat_eerie_token_message",
                     "combat_eerie_token_view",
@@ -3289,7 +3343,7 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                 if combat_action in {"combat_fury_of_small", "combat_fury_of_the_small"} and not combat_active:
                     await ws_error("Разъярённая мелкота доступна только в бою.", request_id=msg_request_id)
                     continue
-                if combat_action in {"combat_hungry_jaws", "combat_rabbit_hop", "combat_lucky_footwork", "combat_saving_face", "combat_taunt", "combat_fearless", "combat_daunting_roar", "combat_grovel_cower_beg"} and not combat_active:
+                if combat_action in {"combat_hungry_jaws", "combat_rabbit_hop", "combat_lucky_footwork", "combat_saving_face", "combat_taunt", "combat_fearless", "combat_daunting_roar", "combat_grovel_cower_beg", "combat_goring_rush", "combat_hammering_horns"} and not combat_active:
                     await ws_error("Эта особенность доступна только в бою.", request_id=msg_request_id)
                     continue
                 if combat_action in {"combat_eerie_token_create", "combat_eerie_token_message", "combat_eerie_token_view"} and not combat_active:
@@ -4892,7 +4946,7 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                 if combat_action in {"combat_fury_of_small", "combat_fury_of_the_small"} and not combat_active:
                     await ws_error("Разъярённая мелкота доступна только в бою.", request_id=msg_request_id)
                     continue
-                if combat_action in {"combat_hungry_jaws", "combat_rabbit_hop", "combat_lucky_footwork", "combat_saving_face", "combat_taunt", "combat_fearless", "combat_daunting_roar", "combat_grovel_cower_beg"} and not combat_active:
+                if combat_action in {"combat_hungry_jaws", "combat_rabbit_hop", "combat_lucky_footwork", "combat_saving_face", "combat_taunt", "combat_fearless", "combat_daunting_roar", "combat_grovel_cower_beg", "combat_goring_rush", "combat_hammering_horns"} and not combat_active:
                     await ws_error("Эта особенность доступна только в бою.", request_id=msg_request_id)
                     continue
                 if combat_action in {"combat_eerie_token_create", "combat_eerie_token_message", "combat_eerie_token_view"} and not combat_active:

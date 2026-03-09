@@ -1741,6 +1741,31 @@ function openCharacterModal(){
   const loxodonKeenSmellText = (raceKey === "loxodon" && loxodonKeenSmell)
     ? "Обострённый нюх: преимущество на проверки Восприятия/Выживания/Расследования, основанные на запахе (например: check perception smell)"
     : "";
+  const minotaurHorns = Array.isArray(rf.natural_weapons)
+    ? rf.natural_weapons.find((x) => x && typeof x === "object" && String(x.key || "").trim().toLowerCase() === "horns_minotaur")
+    : null;
+  const minotaurHornsText = (raceKey === "minotaur" && minotaurHorns)
+    ? "Рога: природное оружие 1к6 + СИЛ колющий"
+    : "";
+  const minotaurSkillKey = (raceKey === "minotaur" && Array.isArray(choices.skills) && choices.skills.length > 0)
+    ? String(choices.skills[0] || "").trim().toLowerCase()
+    : "";
+  const minotaurSkillRu = minotaurSkillKey ? getSkillNameRu(minotaurSkillKey) : "";
+  const minotaurImposingPresenceText = (raceKey === "minotaur" && minotaurSkillRu)
+    ? `Впечатляющий вид: владение навыком ${minotaurSkillRu}`
+    : "";
+  const minotaurGoringRush = (raceFeaturesMeta.goring_rush && typeof raceFeaturesMeta.goring_rush === "object")
+    ? raceFeaturesMeta.goring_rush
+    : null;
+  const minotaurGoringRushText = (raceKey === "minotaur" && minotaurGoringRush)
+    ? "Пронзающий натиск: после Рывка и 20 фт — бонусным действием атака рогами"
+    : "";
+  const minotaurHammeringHorns = (raceFeaturesMeta.hammering_horns && typeof raceFeaturesMeta.hammering_horns === "object")
+    ? raceFeaturesMeta.hammering_horns
+    : null;
+  const minotaurHammeringHornsText = (raceKey === "minotaur" && minotaurHammeringHorns)
+    ? "Сокрушительные рога: после попадания melee в действии Атака — бонусным действием толчок 10 фт (Сл=8+БМ+мод СИЛ)"
+    : "";
   const combatState = (lastState && typeof lastState.combat === "object" && lastState.combat) ? lastState.combat : null;
   const combatants = (combatState && typeof combatState.combatants === "object" && combatState.combatants) ? combatState.combatants : {};
   const myCombatantKey = me && me.uid !== null && me.uid !== undefined ? (`pc_${String(me.uid)}`) : "";
@@ -2044,6 +2069,18 @@ function openCharacterModal(){
   if(loxodonKeenSmellText){
     details.push(`<div class="char-line"><strong>Обострённый нюх:</strong> ${escapeHtml(loxodonKeenSmellText.replace(/^Обострённый нюх:\s*/, ""))}</div>`);
   }
+  if(minotaurHornsText){
+    details.push(`<div class="char-line"><strong>Рога:</strong> ${escapeHtml(minotaurHornsText.replace(/^Рога:\s*/, ""))}</div>`);
+  }
+  if(minotaurImposingPresenceText){
+    details.push(`<div class="char-line"><strong>Впечатляющий вид:</strong> ${escapeHtml(minotaurImposingPresenceText.replace(/^Впечатляющий вид:\s*/, ""))}</div>`);
+  }
+  if(minotaurGoringRushText){
+    details.push(`<div class="char-line"><strong>Пронзающий натиск:</strong> ${escapeHtml(minotaurGoringRushText.replace(/^Пронзающий натиск:\s*/, ""))}</div>`);
+  }
+  if(minotaurHammeringHornsText){
+    details.push(`<div class="char-line"><strong>Сокрушительные рога:</strong> ${escapeHtml(minotaurHammeringHornsText.replace(/^Сокрушительные рога:\s*/, ""))}</div>`);
+  }
   if(carry.powerful_build === true){
     details.push("<div class=\"char-line\"><strong>Мощное телосложение:</strong> считается на 1 размер больше для переноски/толкания/тяги/подъёма</div>");
   }
@@ -2297,6 +2334,10 @@ function openCharacterModal(){
   if(loxodonNaturalArmorText) copyLines.push(loxodonNaturalArmorText);
   if(loxodonTrunkText) copyLines.push(loxodonTrunkText);
   if(loxodonKeenSmellText) copyLines.push(loxodonKeenSmellText);
+  if(minotaurHornsText) copyLines.push(minotaurHornsText);
+  if(minotaurImposingPresenceText) copyLines.push(minotaurImposingPresenceText);
+  if(minotaurGoringRushText) copyLines.push(minotaurGoringRushText);
+  if(minotaurHammeringHornsText) copyLines.push(minotaurHammeringHornsText);
   if(saveAdvantageConditionsRu.length) copyLines.push(`Преим. против: ${saveAdvantageConditionsRu.join(", ")} (спасброски)`);
   if(dwarvenResilienceText) copyLines.push(dwarvenResilienceText);
   if(feyAncestryText) copyLines.push(feyAncestryText);

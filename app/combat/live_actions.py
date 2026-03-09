@@ -982,6 +982,16 @@ def _has_charge_feature(actor: Any) -> bool:
     return isinstance(cfg, dict) and bool(cfg)
 
 
+def _has_goring_rush_feature(actor: Any) -> bool:
+    cfg = _race_feature(actor, "goring_rush")
+    return isinstance(cfg, dict) and bool(cfg)
+
+
+def _has_hammering_horns_feature(actor: Any) -> bool:
+    cfg = _race_feature(actor, "hammering_horns")
+    return isinstance(cfg, dict) and bool(cfg)
+
+
 def _has_equine_climb_penalty(actor: Any) -> int:
     race_features = getattr(actor, "race_features", None)
     rf = race_features if isinstance(race_features, dict) else {}
@@ -1454,11 +1464,6 @@ def handle_live_combat_action(
             {"text": f"Рывок: {attacker.name} (до следующего хода)", "muted": True},
             {"text": f"Движение: +{base_move_speed} (итого {attacker.move_remaining_ft})", "muted": True},
         ]
-
-        state = advance_turn(session_id)
-        if state is None:
-            return None, "Combat is not active"
-        lines.append({"text": f"Ход автоматически передан: {current_turn_label(state)}", "muted": True})
         return (
             {
                 "status": _combat_status(state),
@@ -1516,6 +1521,24 @@ def handle_live_combat_action(
         mover.move_remaining = mover.move_remaining_ft
         mover.moved_this_turn_ft = max(0, int(getattr(mover, "moved_this_turn_ft", 0))) + dist
         lines = [{"text": f"{mover.name} перемещается на {dist} фт (осталось {mover.move_remaining_ft} фт)."}]
+        if (
+            bool(getattr(mover, "dash_active", False))
+            and max(0, int(getattr(mover, "moved_this_turn_ft", 0))) >= 20
+            and _has_goring_rush_feature(mover)
+        ):
+            race_features = mover.race_features if isinstance(getattr(mover, "race_features", None), dict) else {}
+            runtime_raw = race_features.get("runtime")
+            runtime = dict(runtime_raw) if isinstance(runtime_raw, dict) else {}
+            if not bool(runtime.get("goring_rush_available")):
+                runtime["goring_rush_available"] = True
+                race_features["runtime"] = runtime
+                mover.race_features = race_features
+                lines.append(
+                    {
+                        "text": "Пронзающий натиск: доступен бонусный удар рогами (напишите «пронзающий натиск»).",
+                        "muted": True,
+                    }
+                )
         lines.extend(extra_lines)
         return (
             {
@@ -3451,6 +3474,24 @@ def handle_live_combat_action(
             ):
                 attacker.charge_hooves_available = True
                 extra_outcome_lines.append({"text": _charge_hooves_text(), "muted": True})
+            if (
+                _has_hammering_horns_feature(attacker)
+                and bool(profile.is_melee_weapon)
+                and bool(getattr(attacker, "bonus_action_available", False))
+            ):
+                attacker_rf = attacker.race_features if isinstance(getattr(attacker, "race_features", None), dict) else {}
+                attacker_runtime_raw = attacker_rf.get("runtime")
+                attacker_runtime = dict(attacker_runtime_raw) if isinstance(attacker_runtime_raw, dict) else {}
+                attacker_runtime["hammering_horns_available"] = True
+                attacker_runtime["hammering_horns_target_id"] = str(getattr(target, "key", "") or "")
+                attacker_rf["runtime"] = attacker_runtime
+                attacker.race_features = attacker_rf
+                extra_outcome_lines.append(
+                    {
+                        "text": "Сокрушительные рога: можно бонусным действием толкнуть цель на 10 фт (напишите «сокрушительные рога»).",
+                        "muted": True,
+                    }
+                )
             bonus_damage, bonus_damage_type = _aasimar_bonus_damage_for_hit(attacker)
             if bonus_damage > 0:
                 total_damage += bonus_damage
@@ -3572,7 +3613,13 @@ def handle_live_combat_action(
                 None,
             )
 
-        if bool(getattr(attacker, "charge_hooves_available", False)):
+        attacker_runtime_now = (
+            dict((attacker.race_features or {}).get("runtime"))
+            if isinstance(getattr(attacker, "race_features", None), dict)
+            and isinstance((attacker.race_features or {}).get("runtime"), dict)
+            else {}
+        )
+        if bool(getattr(attacker, "charge_hooves_available", False)) or bool(attacker_runtime_now.get("hammering_horns_available")):
             return (
                 {
                     "status": _combat_status(state),
@@ -3581,6 +3628,258 @@ def handle_live_combat_action(
                 },
                 None,
             )
+
+        state = advance_turn(session_id)
+        if state is None:
+            return None, "Combat is not active"
+        lines.append({"text": f"Ход автоматически передан: {current_turn_label(state)}", "muted": True})
+        return (
+            {
+                "status": _combat_status(state),
+                "open": True,
+                "lines": lines,
+            },
+            None,
+        )
+
+    if action == "combat_goring_rush":
+        state = get_combat(session_id)
+        if state is None or not state.active:
+            return None, "Combat is not active"
+        if not state.order:
+            end_combat(session_id)
+            return (
+                {
+                    "status": "Бой завершён",
+                    "open": False,
+                    "lines": [{"text": "Бой завершён: целей не осталось.", "muted": True}],
+                },
+                None,
+            )
+
+        attacker_key = state.order[state.turn_index]
+        attacker = state.combatants.get(attacker_key)
+        if attacker is None:
+            return None, "Combat state is inconsistent"
+        if str(getattr(attacker, "side", "")).lower() != "pc":
+            return None, "Пронзающий натиск доступен только персонажу игрока."
+        if not _has_goring_rush_feature(attacker):
+            return None, "Пронзающий натиск недоступен."
+        race_features = attacker.race_features if isinstance(attacker.race_features, dict) else {}
+        runtime_raw = race_features.get("runtime")
+        runtime = dict(runtime_raw) if isinstance(runtime_raw, dict) else {}
+        moved_this_turn_ft = max(0, int(getattr(attacker, "moved_this_turn_ft", 0)))
+        if not bool(runtime.get("goring_rush_available")) or not bool(getattr(attacker, "dash_active", False)) or moved_this_turn_ft < 20:
+            return None, "Пронзающий натиск: сначала сделайте Рывок и переместитесь минимум на 20 фт в этот ход."
+        blocked = _spend_bonus_action_or_block(state, attacker)
+        if blocked is not None:
+            return blocked, None
+
+        target = _first_living_opponent(state, attacker.side)
+        if target is None:
+            end_combat(session_id)
+            return (
+                {
+                    "status": "Бой завершён",
+                    "open": False,
+                    "lines": [{"text": "Бой завершён: целей не осталось.", "muted": True}],
+                },
+                None,
+            )
+
+        has_disadvantage = (
+            target.dodge_active
+            or _is_poisoned_condition_active(attacker)
+            or _is_taunted_attack_disadvantage(attacker, target)
+            or _has_sunlight_sensitivity_disadvantage(attacker)
+        )
+        hidden_step_advantage = _is_hidden_step_active(attacker)
+        has_advantage = (
+            attacker.help_attack_advantage
+            or hidden_step_advantage
+            or _has_pack_tactics_advantage(state, attacker, target)
+            or _has_active_grovel_advantage_for_attack(state, attacker, target)
+        )
+        roll_mode = "normal"
+        if has_advantage and not has_disadvantage:
+            roll_mode = "advantage"
+        elif has_disadvantage and not has_advantage:
+            roll_mode = "disadvantage"
+        roll_a, roll_b, d20_roll = _roll_check_compat(
+            roll_mode,
+            rng=random,
+            reroll_ones=_has_reroll_ones_scope(attacker, "attack"),
+        )
+        bfs_lines: list[dict[str, Any]] = []
+        d20_roll = _maybe_apply_built_for_success(attacker, d20_roll, bfs_lines)
+        d20_roll = _maybe_apply_vampiric_bite_bonus(attacker, d20_roll, bfs_lines)
+        attack_roll_repr = f"d20({roll_a})" if roll_b is None else f"d20({roll_a},{roll_b}) -> {d20_roll}"
+
+        str_mod = _actor_ability_mod(attacker, "str")
+        attack_bonus = _proficiency_bonus_for_actor(attacker) + str_mod
+        damage_bonus = str_mod
+        damage_roll = random.randint(1, 6)
+        resolution = resolve_attack_roll(
+            target_ac=target.ac,
+            d20_roll=d20_roll,
+            attack_bonus=attack_bonus,
+            damage_roll=damage_roll,
+            damage_bonus=damage_bonus,
+        )
+        hidden_step_broken = _break_hidden_step(attacker)
+        attacker.help_attack_advantage = False
+
+        runtime["goring_rush_available"] = False
+        race_features["runtime"] = runtime
+        attacker.race_features = race_features
+
+        total_damage = int(resolution.total_damage)
+        extra_outcome_lines: list[dict[str, Any]] = []
+        extra_outcome_lines.extend(bfs_lines)
+        if resolution.is_hit:
+            fury_bonus = _maybe_apply_fury_of_small(actor=attacker, target=target, lines=extra_outcome_lines)
+            if fury_bonus > 0:
+                total_damage += fury_bonus
+            pre_hp = target.hp_current
+            damage_to_apply, relentless_lines = _apply_relentless_endurance_if_needed(target=target, incoming_damage=total_damage)
+            extra_outcome_lines.extend(relentless_lines)
+            state = apply_damage(session_id, target.key, damage_to_apply, source=attacker.key)
+            if state is None:
+                return None, "Combat is not active"
+            target = state.combatants.get(target.key, target)
+            _maybe_apply_grung_contact_poison_on_melee_hit(
+                attacker=attacker,
+                target=target,
+                is_melee_hit=True,
+                lines=extra_outcome_lines,
+            )
+            if target.side == "pc" and pre_hp > 0 and target.hp_current == 0:
+                leftover = total_damage - pre_hp
+                if leftover >= target.hp_max:
+                    target.is_dead = True
+                    target.is_stable = False
+                    extra_outcome_lines.append({"text": f"Мгновенная смерть: {target.name} погибает."})
+                    _revert_shapechanger_on_death(target, extra_outcome_lines)
+
+        attack_line = (
+            f"Бросок атаки (Пронзающий натиск): {attack_roll_repr} + {resolution.attack_bonus} = "
+            f"{resolution.total_to_hit} vs AC {resolution.target_ac}"
+        )
+        if resolution.is_crit:
+            result_line = "Результат: критическое попадание"
+        elif resolution.is_hit:
+            result_line = "Результат: попадание"
+        else:
+            result_line = "Результат: промах"
+        if resolution.is_hit:
+            roll_damage = resolution.damage_roll * 2 if resolution.is_crit else resolution.damage_roll
+            damage_line = f"Урон: {roll_damage} + {resolution.damage_bonus} = {total_damage} piercing"
+        else:
+            damage_line = "Урон: 0 (промах)"
+        lines: list[dict[str, Any]] = [
+            {"text": f"Пронзающий натиск: {attacker.name} → {target.name}", "muted": True},
+            {"text": "Рога: 1d6 piercing (СИЛ, +БМ к атаке).", "muted": True},
+            {"text": attack_line},
+            {"text": result_line},
+            {"text": damage_line},
+            {"text": f"{target.name}: HP {target.hp_current}/{target.hp_max}"},
+        ]
+        if hidden_step_broken:
+            lines.append({"text": "Незримая поступь прерывается: невидимость спадает.", "muted": True})
+        lines.extend(extra_outcome_lines)
+        if target.hp_current <= 0:
+            lines.append({"text": f"{target.name} повержен."})
+
+        side_pc_alive = _is_side_alive(state, "pc")
+        side_enemy_alive = _is_side_alive(state, "enemy")
+        if not side_pc_alive or not side_enemy_alive:
+            if not side_enemy_alive:
+                lines.append({"text": "Победа: противники повержены.", "muted": True})
+            if not side_pc_alive:
+                lines.append({"text": "Поражение: все герои выбыли.", "muted": True})
+            end_combat(session_id)
+            return (
+                {
+                    "status": "Бой завершён",
+                    "open": False,
+                    "lines": lines,
+                },
+                None,
+            )
+
+        state = advance_turn(session_id)
+        if state is None:
+            return None, "Combat is not active"
+        lines.append({"text": f"Ход автоматически передан: {current_turn_label(state)}", "muted": True})
+        return (
+            {
+                "status": _combat_status(state),
+                "open": True,
+                "lines": lines,
+            },
+            None,
+        )
+
+    if action == "combat_hammering_horns":
+        state = get_combat(session_id)
+        if state is None or not state.active:
+            return None, "Combat is not active"
+        if not state.order:
+            end_combat(session_id)
+            return (
+                {
+                    "status": "Бой завершён",
+                    "open": False,
+                    "lines": [{"text": "Бой завершён: целей не осталось.", "muted": True}],
+                },
+                None,
+            )
+
+        actor_key = state.order[state.turn_index]
+        actor = state.combatants.get(actor_key)
+        if actor is None:
+            return None, "Combat state is inconsistent"
+        if str(getattr(actor, "side", "")).lower() != "pc":
+            return None, "Сокрушительные рога доступны только персонажу игрока."
+        if not _has_hammering_horns_feature(actor):
+            return None, "Сокрушительные рога недоступны."
+        race_features = actor.race_features if isinstance(actor.race_features, dict) else {}
+        runtime_raw = race_features.get("runtime")
+        runtime = dict(runtime_raw) if isinstance(runtime_raw, dict) else {}
+        if not bool(runtime.get("hammering_horns_available")):
+            return None, "Сокрушительные рога недоступны: сначала попадите рукопашной атакой в рамках действия Атака."
+        target_id = str(runtime.get("hammering_horns_target_id") or "").strip()
+        target = state.combatants.get(target_id) if target_id else None
+        if target is None or int(getattr(target, "hp_current", 0) or 0) <= 0 or bool(getattr(target, "is_dead", False)):
+            return None, "Сокрушительные рога: цель недоступна."
+        blocked = _spend_bonus_action_or_block(state, actor)
+        if blocked is not None:
+            return blocked, None
+
+        dc = 8 + _proficiency_bonus_for_actor(actor) + _actor_ability_mod(actor, "str")
+        str_mod = _actor_ability_mod(target, "str")
+        save_roll = random.randint(1, 20)
+        save_total = save_roll + str_mod
+        save_success = save_total >= dc
+
+        runtime["hammering_horns_available"] = False
+        runtime.pop("hammering_horns_target_id", None)
+        race_features["runtime"] = runtime
+        actor.race_features = race_features
+
+        lines: list[dict[str, Any]] = [
+            {"text": f"Сокрушительные рога: {actor.name} пытается оттолкнуть {target.name}.", "muted": True},
+            {
+                "text": (
+                    f"Спасбросок СИЛ цели: d20({save_roll}) {str_mod:+d} = {save_total} vs DC {dc} "
+                    f"({'успех' if save_success else 'провал'})."
+                )
+            },
+        ]
+        if save_success:
+            lines.append({"text": f"{target.name} устоял."})
+        else:
+            lines.append({"text": f"{target.name} оттолкнут на 10 фт."})
 
         state = advance_turn(session_id)
         if state is None:

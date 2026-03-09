@@ -842,6 +842,12 @@ def _build_race_features(selected_race: dict | None) -> dict[str, Any]:
         if mtype == "aoe_frighten" and tkey == "daunting_roar":
             features["daunting_roar"] = dict(mech)
 
+        if mtype == "goring_rush":
+            features["goring_rush"] = dict(mech)
+
+        if mtype == "hammering_horns":
+            features["hammering_horns"] = dict(mech)
+
         if mtype == "expert_forgery":
             features["expert_forgery"] = dict(mech)
 
@@ -2017,6 +2023,13 @@ async def api_character_create(payload: dict):
             runtime.setdefault("water_last_immersion_at", "")
             runtime.setdefault("limited_amphibious_hours_since_immersion", 0.0)
             runtime.setdefault("suffocating", True)
+            race_features["runtime"] = runtime
+        if isinstance(race_features, dict) and str(race_features.get("race_key") or "").strip().lower() == "minotaur":
+            runtime_raw = race_features.get("runtime")
+            runtime = dict(runtime_raw) if isinstance(runtime_raw, dict) else {}
+            runtime.setdefault("goring_rush_available", False)
+            runtime.setdefault("hammering_horns_available", False)
+            runtime.setdefault("hammering_horns_target_id", "")
             race_features["runtime"] = runtime
         if isinstance(race_features, dict) and selected_subrace is not None:
             race_features["subrace"] = {

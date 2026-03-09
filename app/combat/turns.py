@@ -172,16 +172,32 @@ def advance_turn_in_state(state: CombatState) -> CombatState:
         race_features = current_combatant.race_features if isinstance(current_combatant.race_features, dict) else {}
         runtime_raw = race_features.get("runtime")
         runtime = dict(runtime_raw) if isinstance(runtime_raw, dict) else {}
+        runtime_changed = False
+        if "goring_rush_available" in runtime:
+            runtime.pop("goring_rush_available", None)
+            runtime_changed = True
+        if "hammering_horns_available" in runtime:
+            runtime.pop("hammering_horns_available", None)
+            runtime_changed = True
+        if "hammering_horns_target_id" in runtime:
+            runtime.pop("hammering_horns_target_id", None)
+            runtime_changed = True
         if "grovel_active_until_turn_start_of_actor_id" in runtime:
             source_key = str(runtime.get("grovel_active_until_turn_start_of_actor_id") or "").strip()
             if source_key == str(getattr(current_combatant, "key", "") or ""):
                 runtime.pop("grovel_active_until_turn_start_of_actor_id", None)
+                runtime_changed = True
         hidden_raw = runtime.get("hidden_step")
         hidden_step = dict(hidden_raw) if isinstance(hidden_raw, dict) else {}
         if bool(hidden_step.get("active")) and bool(hidden_step.get("expires_on_owner_turn_start", True)):
             hidden_step["active"] = False
             runtime["hidden_step"] = hidden_step
-            race_features["runtime"] = runtime
+            runtime_changed = True
+        if runtime_changed:
+            if runtime:
+                race_features["runtime"] = runtime
+            else:
+                race_features.pop("runtime", None)
             current_combatant.race_features = race_features
         current_combatant.dodge_active = False
         current_combatant.dash_active = False
