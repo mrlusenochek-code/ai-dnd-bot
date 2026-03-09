@@ -814,6 +814,12 @@ def _build_race_features(selected_race: dict | None) -> dict[str, Any]:
         if mtype == "taunt":
             features["taunt"] = dict(mech)
 
+        if mtype == "expert_forgery":
+            features["expert_forgery"] = dict(mech)
+
+        if mtype == "mimicry":
+            features["mimicry"] = dict(mech)
+
         if mtype == "charge_bonus_attack":
             features["charge"] = dict(mech)
 

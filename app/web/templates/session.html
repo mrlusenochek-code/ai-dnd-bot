@@ -1509,6 +1509,25 @@ function openCharacterModal(){
   const kenderTauntText = (raceKey === "kender" && kenderTaunt)
     ? `Насмешка: бонусным действием, Сл = 8 + БМ + мод(${kenderTauntAbilityRu || "—"}), дальность 60 фт; при провале цель атакует других с помехой до начала вашего следующего хода`
     : "";
+  const kenkuSkills = (raceKey === "kenku" && Array.isArray(choices.skills) && choices.skills.length > 0)
+    ? choices.skills.map((x) => String(x || "").trim().toLowerCase()).filter(Boolean)
+    : [];
+  const kenkuSkillsRu = kenkuSkills.map((x) => getSkillNameRu(x)).filter(Boolean);
+  const kenkuTrainingText = (raceKey === "kenku" && kenkuSkillsRu.length > 0)
+    ? `Обучение кенку: владение навыками: ${kenkuSkillsRu.join(", ")}`
+    : "";
+  const kenkuExpertForgery = (raceFeaturesMeta.expert_forgery && typeof raceFeaturesMeta.expert_forgery === "object")
+    ? raceFeaturesMeta.expert_forgery
+    : null;
+  const kenkuExpertForgeryText = (raceKey === "kenku" && kenkuExpertForgery)
+    ? "Искусный подлог: вы умеете копировать почерк/рисунки; преимущество на проверку подлога если видели оригинал"
+    : "";
+  const kenkuMimicry = (raceFeaturesMeta.mimicry && typeof raceFeaturesMeta.mimicry === "object")
+    ? raceFeaturesMeta.mimicry
+    : null;
+  const kenkuMimicryText = (raceKey === "kenku" && kenkuMimicry)
+    ? "Подражание: вы имитируете звуки/голоса; распознаётся проверкой Мудрость (Проницательность)"
+    : "";
   const kalashtarDualMindText = (raceKey === "kalashtar" && saveAdvantages.includes("wis"))
     ? "Двойственность разума: преимущество на спасброски Мудрости"
     : "";
@@ -1795,6 +1814,15 @@ function openCharacterModal(){
   if(kenderTauntText){
     details.push(`<div class="char-line"><strong>Насмешка:</strong> ${escapeHtml(kenderTauntText.replace(/^Насмешка:\s*/, ""))}</div>`);
   }
+  if(kenkuTrainingText){
+    details.push(`<div class="char-line"><strong>Обучение кенку:</strong> ${escapeHtml(kenkuTrainingText.replace(/^Обучение кенку:\s*/, ""))}</div>`);
+  }
+  if(kenkuExpertForgeryText){
+    details.push(`<div class="char-line"><strong>Искусный подлог:</strong> ${escapeHtml(kenkuExpertForgeryText.replace(/^Искусный подлог:\s*/, ""))}</div>`);
+  }
+  if(kenkuMimicryText){
+    details.push(`<div class="char-line"><strong>Подражание:</strong> ${escapeHtml(kenkuMimicryText.replace(/^Подражание:\s*/, ""))}</div>`);
+  }
   if(kalashtarDualMindText){
     details.push(`<div class="char-line"><strong>Двойственность разума:</strong> ${escapeHtml(kalashtarDualMindText.replace(/^Двойственность разума:\s*/, ""))}</div>`);
   }
@@ -2040,6 +2068,9 @@ function openCharacterModal(){
   if(kenderFearlessText) copyLines.push(kenderFearlessText);
   if(kenderAptitudeText) copyLines.push(kenderAptitudeText);
   if(kenderTauntText) copyLines.push(kenderTauntText);
+  if(kenkuTrainingText) copyLines.push(kenkuTrainingText);
+  if(kenkuExpertForgeryText) copyLines.push(kenkuExpertForgeryText);
+  if(kenkuMimicryText) copyLines.push(kenkuMimicryText);
   if(kalashtarDualMindText) copyLines.push(kalashtarDualMindText);
   if(kalashtarMentalDisciplineText) copyLines.push(kalashtarMentalDisciplineText);
   if(kalashtarMindLinkText) copyLines.push(kalashtarMindLinkText);
