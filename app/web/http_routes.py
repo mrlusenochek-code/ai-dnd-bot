@@ -645,6 +645,14 @@ def _build_race_features(selected_race: dict | None) -> dict[str, Any]:
             range_ft = as_int(mech.get("range_ft"), 0)
             if range_ft > 0:
                 telepathy["range_ft"] = range_ft
+            range_formula = str(mech.get("range_formula") or "").strip().lower()
+            if range_formula:
+                telepathy["range_formula"] = range_formula
+            allow_reply_duration = str(mech.get("allow_reply_duration") or "").strip().lower()
+            if allow_reply_duration:
+                telepathy["allow_reply_duration"] = allow_reply_duration
+            if mech.get("one_target_reply") is not None:
+                telepathy["one_target_reply"] = bool(mech.get("one_target_reply"))
             if mech.get("requires_target_language") is not None:
                 telepathy["requires_target_language"] = bool(mech.get("requires_target_language"))
             bandwidth = str(mech.get("bandwidth") or "").strip().lower()
@@ -652,6 +660,8 @@ def _build_race_features(selected_race: dict | None) -> dict[str, Any]:
                 telepathy["bandwidth"] = bandwidth
             if telepathy:
                 senses["telepathy"] = telepathy
+                if tkey == "mind_link":
+                    features["mind_link"] = dict(telepathy)
 
         if mtype == "tool_proficiency_choice":
             tool_profs.append("choose_any_tools")
@@ -1046,6 +1056,9 @@ def _build_race_features(selected_race: dict | None) -> dict[str, Any]:
 
         if mtype == "save_advantage_conditions":
             save_advantage_conditions.extend(_uniq_lower_str_list(mech.get("conditions")))
+
+        if mtype == "dream_immunity":
+            features["dream_immunity"] = {"not_sleep_immunity": bool(mech.get("not_sleep_immunity"))}
 
         if mtype == "reroll_ones":
             scope = _uniq_lower_str_list(mech.get("scope"))
@@ -1798,6 +1811,15 @@ async def api_character_create(payload: dict):
                 raise HTTPException(status_code=400, detail="Fairy extra language must be distinct from base languages")
             if race_choice_flex_asi_variant not in {"2_1", "1_1_1"}:
                 raise HTTPException(status_code=400, detail="Fairy flexible ASI choice is required")
+        if effective_race_key == "kalashtar":
+            if len(race_choice_languages) != 1:
+                raise HTTPException(status_code=400, detail="Kalashtar extra language choice is required")
+            kalashtar_lang = race_choice_languages[0]
+            if kalashtar_lang in base_race_language_keys:
+                raise HTTPException(
+                    status_code=400,
+                    detail="Kalashtar extra language must be distinct from Common and Quori",
+                )
         elif race_choice_innate_ability and effective_race_key not in {"hexblood"}:
             raise HTTPException(
                 status_code=400,
@@ -1907,6 +1929,13 @@ async def api_character_create(payload: dict):
             runtime_raw = race_features.get("runtime")
             runtime = dict(runtime_raw) if isinstance(runtime_raw, dict) else {}
             runtime.setdefault("saving_face_uses_used", 0)
+            race_features["runtime"] = runtime
+        if isinstance(race_features, dict) and str(race_features.get("race_key") or "").strip().lower() == "kalashtar":
+            runtime_raw = race_features.get("runtime")
+            runtime = dict(runtime_raw) if isinstance(runtime_raw, dict) else {}
+            runtime.setdefault("mind_link_target_id", "")
+            runtime.setdefault("mind_link_reply_until", "")
+            runtime.setdefault("mind_link_last_set_at", "")
             race_features["runtime"] = runtime
         if isinstance(race_features, dict) and selected_subrace is not None:
             race_features["subrace"] = {

@@ -55,6 +55,18 @@ SHAPECHANGER_PERSONA_CAPTURE_RE = re.compile(
     r"(?:\s*(?:в|под|как|into|as|to|:|-)\s*)?(?P<persona>[^\n\r]{1,240})?$",
     re.IGNORECASE,
 )
+MIND_LINK_SET_CAPTURE_RE = re.compile(
+    r"(?:связь\s+разумов\s+с|телепатия\s+с|mind\s+link)\s+(?P<target>[^\n\r]{1,120})$",
+    re.IGNORECASE,
+)
+MIND_LINK_SAY_CAPTURE_RE = re.compile(
+    r"(?:телепатия|мысленно|mind)\s*:\s*(?P<text>[^\n\r]+)$",
+    re.IGNORECASE,
+)
+MIND_LINK_REPLY_CAPTURE_RE = re.compile(
+    r"(?:ответ\s+мысленно|мысль\s+в\s+ответ|telepathy\s+reply)\s*:\s*(?P<text>[^\n\r]+)$",
+    re.IGNORECASE,
+)
 CHAT_COMBAT_ACTION_PATTERNS: list[tuple[str, re.Pattern[str]]] = [
     (
         "combat_shapechanger_revert",
@@ -171,6 +183,22 @@ CHAT_COMBAT_ACTION_PATTERNS: list[tuple[str, re.Pattern[str]]] = [
             r"(погружаюсь\s+в\s+воду|час\s+в\s+воде|купал(?:ся|ась)|immerse\s+in\s+water)",
             re.IGNORECASE,
         ),
+    ),
+    (
+        "mind_link_set",
+        re.compile(r"(связь\s+разумов\s+с\s+\S+|телепатия\s+с\s+\S+|mind\s+link\s+(?!off\b)\S+)", re.IGNORECASE),
+    ),
+    (
+        "mind_link_clear",
+        re.compile(r"(разорва\w*\s+связ\w*|снят\w*\s+связ\w*|mind\s+link\s+off|unlink\b)", re.IGNORECASE),
+    ),
+    (
+        "mind_link_say",
+        re.compile(r"(телепатия\s*:|мысленно\s*:|mind\s*:)", re.IGNORECASE),
+    ),
+    (
+        "mind_link_reply",
+        re.compile(r"(ответ\s+мысленно\s*:|мысль\s+в\s+ответ\s*:|telepathy\s+reply\s*:)", re.IGNORECASE),
     ),
     (
         "combat_innate_spell",

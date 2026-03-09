@@ -1478,6 +1478,40 @@ function openCharacterModal(){
   const hobgoblinSavingFaceText = (raceKey === "hobgoblin" && savingFace)
     ? `Сохранить лицо: реакцией после провала атаки/проверки/спасброска добавить +N (N=союзники в 30 футах, макс 5), 1/кор/дл отдых (${savingFaceStatus})`
     : "";
+  const kalashtarDualMindText = (raceKey === "kalashtar" && saveAdvantages.includes("wis"))
+    ? "Двойственность разума: преимущество на спасброски Мудрости"
+    : "";
+  const kalashtarMentalDisciplineText = (raceKey === "kalashtar" && resistances.includes("psychic"))
+    ? "Ментальная дисциплина: сопротивление урону психической энергией"
+    : "";
+  const kalashtarMindLink = (raceFeaturesMeta.mind_link && typeof raceFeaturesMeta.mind_link === "object")
+    ? raceFeaturesMeta.mind_link
+    : ((telepathy && String(telepathy.range_formula || "").trim().toLowerCase() === "level*10") ? telepathy : null);
+  const kalashtarMindLinkTarget = String(runtime.mind_link_target_name || runtime.mind_link_target_id || "").trim();
+  const kalashtarMindLinkUntilIso = String(runtime.mind_link_reply_until || "").trim();
+  let kalashtarMindLinkUntilText = "";
+  let kalashtarMindLinkExpired = false;
+  if(kalashtarMindLinkUntilIso){
+    const dt = new Date(kalashtarMindLinkUntilIso);
+    if(!Number.isNaN(dt.getTime())){
+      kalashtarMindLinkUntilText = dt.toLocaleString("ru-RU", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
+      kalashtarMindLinkExpired = dt.getTime() < Date.now();
+    }
+  }
+  const kalashtarMindLinkStatus = kalashtarMindLinkTarget
+    ? (kalashtarMindLinkExpired
+      ? `цель: ${kalashtarMindLinkTarget}; окно ответа истекло`
+      : `цель: ${kalashtarMindLinkTarget}${kalashtarMindLinkUntilText ? `; ответ до ${kalashtarMindLinkUntilText}` : ""}`)
+    : "цель не выбрана";
+  const kalashtarMindLinkText = (raceKey === "kalashtar" && kalashtarMindLink)
+    ? `Связь разумов: телепатия (дистанция = уровень×10 фт), можно разрешить ответ 1 час (одно существо). Текущий статус: ${kalashtarMindLinkStatus}`
+    : "";
+  const kalashtarDreamImmunity = (raceFeaturesMeta.dream_immunity && typeof raceFeaturesMeta.dream_immunity === "object")
+    ? raceFeaturesMeta.dream_immunity
+    : null;
+  const kalashtarDreamText = (raceKey === "kalashtar" && kalashtarDreamImmunity)
+    ? "Отделённый от снов: иммунитет к эффектам, влияющим на сны (без иммунитета ко сну)"
+    : "";
   const grungPoisonousSkin = (raceFeaturesMeta.poisonous_skin && typeof raceFeaturesMeta.poisonous_skin === "object")
     ? raceFeaturesMeta.poisonous_skin
     : null;
@@ -1721,6 +1755,18 @@ function openCharacterModal(){
   if(hobgoblinSavingFaceText){
     details.push(`<div class="char-line"><strong>Сохранить лицо:</strong> ${escapeHtml(hobgoblinSavingFaceText.replace(/^Сохранить лицо:\s*/, ""))}</div>`);
   }
+  if(kalashtarDualMindText){
+    details.push(`<div class="char-line"><strong>Двойственность разума:</strong> ${escapeHtml(kalashtarDualMindText.replace(/^Двойственность разума:\s*/, ""))}</div>`);
+  }
+  if(kalashtarMentalDisciplineText){
+    details.push(`<div class="char-line"><strong>Ментальная дисциплина:</strong> ${escapeHtml(kalashtarMentalDisciplineText.replace(/^Ментальная дисциплина:\s*/, ""))}</div>`);
+  }
+  if(kalashtarMindLinkText){
+    details.push(`<div class="char-line"><strong>Связь разумов:</strong> ${escapeHtml(kalashtarMindLinkText.replace(/^Связь разумов:\s*/, ""))}</div>`);
+  }
+  if(kalashtarDreamText){
+    details.push(`<div class="char-line"><strong>Отделённый от снов:</strong> ${escapeHtml(kalashtarDreamText.replace(/^Отделённый от снов:\s*/, ""))}</div>`);
+  }
   if(grungPerceptionText){
     details.push(`<div class="char-line"><strong>Владение:</strong> ${escapeHtml(grungPerceptionText.replace(/^Владение:\s*/, ""))}</div>`);
   }
@@ -1951,6 +1997,10 @@ function openCharacterModal(){
   if(rabbitHopText) copyLines.push(rabbitHopText);
   if(hobgoblinMartialTrainingText) copyLines.push(hobgoblinMartialTrainingText);
   if(hobgoblinSavingFaceText) copyLines.push(hobgoblinSavingFaceText);
+  if(kalashtarDualMindText) copyLines.push(kalashtarDualMindText);
+  if(kalashtarMentalDisciplineText) copyLines.push(kalashtarMentalDisciplineText);
+  if(kalashtarMindLinkText) copyLines.push(kalashtarMindLinkText);
+  if(kalashtarDreamText) copyLines.push(kalashtarDreamText);
   if(grungPerceptionText) copyLines.push(grungPerceptionText);
   if(grungAmphibiousText) copyLines.push(grungAmphibiousText);
   if(grungImmunityText) copyLines.push(grungImmunityText);

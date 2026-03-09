@@ -87,6 +87,9 @@ from app.web.ws_gameplay import STATE_COMMAND_ALIASES, _detect_chat_combat_actio
 from app.web.regexes import (
     COMBAT_MOVE_DISTANCE_RE,
     INNATE_SPELL_KEY_PATTERNS,
+    MIND_LINK_REPLY_CAPTURE_RE,
+    MIND_LINK_SAY_CAPTURE_RE,
+    MIND_LINK_SET_CAPTURE_RE,
     SHAPECHANGER_PERSONA_CAPTURE_RE,
 )
 from app.web.ws_manager import manager
@@ -417,6 +420,306 @@ def _parse_iso_datetime(raw_value: Any) -> Optional[datetime]:
     txt = str(raw_value or "").strip()
     if not txt:
         return None
+    try:
+        return datetime.fromisoformat(txt.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+
+
+def _kalashtar_mind_link_feature(race_features: Any) -> dict[str, Any]:
+    rf = race_features if isinstance(race_features, dict) else {}
+    features_raw = rf.get("features")
+    features = features_raw if isinstance(features_raw, dict) else {}
+    mind_link_raw = features.get("mind_link")
+    mind_link = mind_link_raw if isinstance(mind_link_raw, dict) else {}
+    if mind_link:
+        return dict(mind_link)
+    senses_raw = rf.get("senses")
+    senses = senses_raw if isinstance(senses_raw, dict) else {}
+    telepathy_raw = senses.get("telepathy")
+    telepathy = telepathy_raw if isinstance(telepathy_raw, dict) else {}
+    if str(telepathy.get("range_formula") or "").strip().lower() == "level*10":
+        return dict(telepathy)
+    return {}
+
+
+def _clear_kalashtar_reply_grant(target_ch: Character, *, owner_player_id: str = "") -> bool:
+    race_features = getattr(target_ch, "race_features", None)
+    rf = dict(race_features) if isinstance(race_features, dict) else {}
+    runtime_raw = rf.get("runtime")
+    runtime = dict(runtime_raw) if isinstance(runtime_raw, dict) else {}
+    grant_owner = str(runtime.get("mind_link_can_reply_to") or "").strip()
+    if owner_player_id and grant_owner and grant_owner != owner_player_id:
+        return False
+    changed = False
+    for key in ("mind_link_can_reply_to", "mind_link_can_reply_until", "mind_link_can_reply_to_name"):
+        if key in runtime:
+            runtime.pop(key, None)
+            changed = True
+    if not changed:
+        return False
+    if runtime:
+        rf["runtime"] = runtime
+    else:
+        rf.pop("runtime", None)
+    target_ch.race_features = rf
+    return True
+
+
+def _extract_mind_link_target(text: str) -> str:
+    txt = str(text or "").strip()
+    m = MIND_LINK_SET_CAPTURE_RE.search(txt)
+    if not m:
+        return ""
+    return str(m.group("target") or "").strip().strip(".,!?")
+
+
+def _extract_mind_link_text(text: str, *, reply: bool = False) -> str:
+    txt = str(text or "").strip()
+    pattern = MIND_LINK_REPLY_CAPTURE_RE if reply else MIND_LINK_SAY_CAPTURE_RE
+    m = pattern.search(txt)
+    if not m:
+        return ""
+    return str(m.group("text") or "").strip()
+
+
+def _mind_link_until_hhmm(iso_value: str) -> str:
+    dt = _parse_iso_datetime(iso_value)
+    if not isinstance(dt, datetime):
+        return ""
+    return dt.astimezone().strftime("%H:%M")
+
+
+async def _handle_kalashtar_mind_link_action(
+    db,
+    sess,
+    *,
+    player: Player,
+    session_id: str,
+    combat_action: str,
+    raw_text: str,
+) -> tuple[bool, Optional[str], Optional[str]]:
+    action = str(combat_action or "").strip().lower()
+    if action not in {"mind_link_set", "mind_link_clear", "mind_link_say", "mind_link_reply"}:
+        return False, None, None
+
+    ch = await get_character(db, sess.id, player.id)
+    if not ch:
+        return True, "Персонаж не найден.", None
+    race_features = getattr(ch, "race_features", None)
+    rf = dict(race_features) if isinstance(race_features, dict) else {}
+    mind_link_cfg = _kalashtar_mind_link_feature(rf)
+    if not mind_link_cfg:
+        return True, "Связь разумов недоступна вашей расе.", None
+
+    runtime_raw = rf.get("runtime")
+    runtime = dict(runtime_raw) if isinstance(runtime_raw, dict) else {}
+    now_dt = utcnow()
+    def _mark_race_features_modified(entity: Any) -> None:
+        if hasattr(entity, "_sa_instance_state"):
+            flag_modified(entity, "race_features")
+
+    owner_player_id = str(player.id)
+    owner_name = str(getattr(ch, "name", "") or player.display_name).strip() or player.display_name
+
+    # Cleanup expired owner-side link state.
+    owner_until_iso = str(runtime.get("mind_link_reply_until") or "").strip()
+    owner_until_dt = _parse_iso_datetime(owner_until_iso)
+    if owner_until_iso and (not isinstance(owner_until_dt, datetime) or owner_until_dt < now_dt):
+        runtime.pop("mind_link_target_id", None)
+        runtime.pop("mind_link_target_name", None)
+        runtime.pop("mind_link_target_player_id", None)
+        runtime.pop("mind_link_reply_until", None)
+        rf["runtime"] = runtime
+        ch.race_features = rf
+        _mark_race_features_modified(ch)
+        await db.commit()
+
+    if action == "mind_link_clear":
+        old_target_player_id = str(runtime.get("mind_link_target_player_id") or "").strip()
+        changed = False
+        for key in ("mind_link_target_id", "mind_link_target_name", "mind_link_target_player_id", "mind_link_reply_until"):
+            if key in runtime:
+                runtime.pop(key, None)
+                changed = True
+        rf["runtime"] = runtime
+        ch.race_features = rf
+        if changed:
+            _mark_race_features_modified(ch)
+
+        uid_map, chars_by_uid, _ = await _load_actor_context(db, sess)
+        if old_target_player_id:
+            for uid, (_sp, _pl) in uid_map.items():
+                target_ch = chars_by_uid.get(uid)
+                if target_ch is None:
+                    continue
+                if str(getattr(target_ch, "player_id", "")) != old_target_player_id:
+                    continue
+                if _clear_kalashtar_reply_grant(target_ch, owner_player_id=owner_player_id):
+                    _mark_race_features_modified(target_ch)
+                    changed = True
+                break
+        if changed:
+            await db.commit()
+        return True, None, "Связь разумов: разорвана."
+
+    if action == "mind_link_set":
+        target_query = _extract_mind_link_target(raw_text)
+        if not target_query:
+            return True, "Укажите цель: «связь разумов с <имя>».", None
+        q_norm = target_query.lower()
+
+        uid_map, chars_by_uid, _ = await _load_actor_context(db, sess)
+        best_uid: Optional[int] = None
+        best_score = 999
+        best_name = ""
+        best_player_id = ""
+        for uid, (_sp, pl) in uid_map.items():
+            if pl.id == player.id:
+                continue
+            target_ch = chars_by_uid.get(uid)
+            name_variants = []
+            if target_ch is not None and str(getattr(target_ch, "name", "")).strip():
+                name_variants.append(str(target_ch.name).strip())
+            if str(getattr(pl, "display_name", "")).strip():
+                name_variants.append(str(pl.display_name).strip())
+            for variant in name_variants:
+                v = variant.lower()
+                if v == q_norm:
+                    score = 0
+                elif v.startswith(q_norm):
+                    score = 1
+                elif q_norm in v:
+                    score = 2
+                else:
+                    continue
+                if score < best_score:
+                    best_score = score
+                    best_uid = uid
+                    best_name = variant
+                    best_player_id = str(pl.id)
+                break
+
+        target_id = ""
+        target_name = ""
+        target_player_id = ""
+        target_char: Optional[Character] = None
+        if best_uid is not None:
+            target_id = f"pc_{best_uid}"
+            target_name = best_name or target_id
+            target_player_id = best_player_id
+            target_char = chars_by_uid.get(best_uid)
+        else:
+            state = get_combat(session_id)
+            if state is not None and state.active:
+                for ckey, combatant in (state.combatants or {}).items():
+                    cname = str(getattr(combatant, "name", "") or "").strip()
+                    if not cname:
+                        continue
+                    v = cname.lower()
+                    if v == q_norm or v.startswith(q_norm) or q_norm in v:
+                        target_id = str(ckey)
+                        target_name = cname
+                        break
+            if not target_id:
+                return True, f"Не нашёл цель «{target_query}» в текущей сессии.", None
+
+        old_target_player_id = str(runtime.get("mind_link_target_player_id") or "").strip()
+        old_target_id = str(runtime.get("mind_link_target_id") or "").strip()
+        changed = False
+
+        if target_char is not None:
+            target_rf = getattr(target_char, "race_features", None)
+            target_rf_dict = dict(target_rf) if isinstance(target_rf, dict) else {}
+            target_runtime_raw = target_rf_dict.get("runtime")
+            target_runtime = dict(target_runtime_raw) if isinstance(target_runtime_raw, dict) else {}
+            can_reply_until_iso = str(target_runtime.get("mind_link_can_reply_until") or "").strip()
+            can_reply_until_dt = _parse_iso_datetime(can_reply_until_iso)
+            can_reply_owner = str(target_runtime.get("mind_link_can_reply_to") or "").strip()
+            if can_reply_owner and can_reply_owner != owner_player_id and isinstance(can_reply_until_dt, datetime) and can_reply_until_dt >= now_dt:
+                return True, f"{target_name}: сейчас отвечает телепатически другому собеседнику.", None
+
+        runtime["mind_link_target_id"] = target_id
+        runtime["mind_link_target_name"] = target_name
+        runtime["mind_link_target_player_id"] = target_player_id
+        runtime["mind_link_reply_until"] = (now_dt + timedelta(hours=1)).isoformat()
+        runtime["mind_link_last_set_at"] = now_dt.isoformat()
+        rf["runtime"] = runtime
+        ch.race_features = rf
+        _mark_race_features_modified(ch)
+        changed = True
+
+        if old_target_player_id and old_target_player_id != target_player_id:
+            for uid, (_sp, _pl) in uid_map.items():
+                prev_target_ch = chars_by_uid.get(uid)
+                if prev_target_ch is None:
+                    continue
+                if str(getattr(prev_target_ch, "player_id", "")) != old_target_player_id:
+                    continue
+                if _clear_kalashtar_reply_grant(prev_target_ch, owner_player_id=owner_player_id):
+                    _mark_race_features_modified(prev_target_ch)
+                    changed = True
+                break
+        elif old_target_id and old_target_id != target_id and not target_player_id:
+            # Fallback cleanup for stale owner pointer to non-player targets.
+            runtime.pop("mind_link_target_player_id", None)
+
+        if target_char is not None:
+            target_rf = getattr(target_char, "race_features", None)
+            target_rf_dict = dict(target_rf) if isinstance(target_rf, dict) else {}
+            target_runtime_raw = target_rf_dict.get("runtime")
+            target_runtime = dict(target_runtime_raw) if isinstance(target_runtime_raw, dict) else {}
+            target_runtime["mind_link_can_reply_to"] = owner_player_id
+            target_runtime["mind_link_can_reply_to_name"] = owner_name
+            target_runtime["mind_link_can_reply_until"] = runtime["mind_link_reply_until"]
+            target_rf_dict["runtime"] = target_runtime
+            target_char.race_features = target_rf_dict
+            _mark_race_features_modified(target_char)
+            changed = True
+
+        if changed:
+            await db.commit()
+        until_hhmm = _mind_link_until_hhmm(str(runtime.get("mind_link_reply_until") or ""))
+        return True, None, f"Связь разумов: установлена с {target_name}. Ответ разрешён до {until_hhmm or '1 часа'}."
+
+    if action == "mind_link_say":
+        text = _extract_mind_link_text(raw_text, reply=False)
+        if not text:
+            return True, "Используйте формат: «телепатия: <текст>».", None
+        target_id = str(runtime.get("mind_link_target_id") or "").strip()
+        target_name = str(runtime.get("mind_link_target_name") or "").strip() or target_id
+        reply_until_iso = str(runtime.get("mind_link_reply_until") or "").strip()
+        reply_until_dt = _parse_iso_datetime(reply_until_iso)
+        if not target_id:
+            return True, "Сначала установите связь: «связь разумов с <имя>».", None
+        if not isinstance(reply_until_dt, datetime) or reply_until_dt < now_dt:
+            runtime.pop("mind_link_target_id", None)
+            runtime.pop("mind_link_target_name", None)
+            runtime.pop("mind_link_target_player_id", None)
+            runtime.pop("mind_link_reply_until", None)
+            rf["runtime"] = runtime
+            ch.race_features = rf
+            _mark_race_features_modified(ch)
+            await db.commit()
+            return True, "Окно ответа по связи разумов истекло. Установите связь заново.", None
+        return True, None, f"(Телепатия → {target_name or target_id}): {text}"
+
+    # mind_link_reply
+    reply_text = _extract_mind_link_text(raw_text, reply=True)
+    if not reply_text:
+        return True, "Используйте формат: «ответ мысленно: <текст>».", None
+    grant_owner = str(runtime.get("mind_link_can_reply_to") or "").strip()
+    grant_owner_name = str(runtime.get("mind_link_can_reply_to_name") or "").strip() or "калаштар"
+    grant_until_iso = str(runtime.get("mind_link_can_reply_until") or "").strip()
+    grant_until_dt = _parse_iso_datetime(grant_until_iso)
+    if not grant_owner:
+        return True, "Сейчас вам некому отвечать телепатически.", None
+    if not isinstance(grant_until_dt, datetime) or grant_until_dt < now_dt:
+        _clear_kalashtar_reply_grant(ch)
+        _mark_race_features_modified(ch)
+        await db.commit()
+        return True, "Окно телепатического ответа истекло.", None
+    return True, None, f"(Телепатический ответ → {grant_owner_name}): {reply_text}"
     try:
         return datetime.fromisoformat(txt.replace("Z", "+00:00"))
     except ValueError:
@@ -2455,6 +2758,23 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                     await broadcast_state(session_id)
                     continue
 
+                handled_mind_link, mind_link_err, mind_link_msg = await _handle_kalashtar_mind_link_action(
+                    db,
+                    sess,
+                    player=player,
+                    session_id=session_id,
+                    combat_action=str(combat_action or ""),
+                    raw_text=text,
+                )
+                if handled_mind_link:
+                    if mind_link_err:
+                        await ws_error(mind_link_err, request_id=msg_request_id)
+                        continue
+                    if mind_link_msg:
+                        await add_system_event(db, sess, mind_link_msg)
+                    await broadcast_state(session_id)
+                    continue
+
                 if combat_action in {"combat_fury_of_small", "combat_fury_of_the_small"} and not combat_active:
                     await ws_error("Разъярённая мелкота доступна только в бою.", request_id=msg_request_id)
                     continue
@@ -2546,6 +2866,8 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                     if lower.startswith("ooc ") or cmdline.startswith("//"):
                         pass
                     elif (lower.startswith("gm ") or lower.startswith("gm:")) and is_admin_user:
+                        pass
+                    elif combat_action in {"mind_link_set", "mind_link_clear", "mind_link_say", "mind_link_reply"}:
                         pass
                     elif combat_action == "rest_long":
                         await ws_error("Сейчас бой, отдых невозможен.", request_id=msg_request_id)
@@ -2807,7 +3129,7 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                         continue
                     else:
                         await ws_error(
-                            "Combat Lock: в бою доступны только боевые команды (атака/конец хода/уклон/движение/рывок/отход/засада/взлёт/приземление/помощь/побег/разъярённая мелкота/яд грунга на оружии/кроличий прыжок/сильные ноги/сохранить лицо/жуткий сувенир/каменная выносливость/исцеляющие руки/небесное преобразование/незримая поступь/подводное дыхание/оружие дыхания) или OOC.",
+                            "Combat Lock: в бою доступны только боевые команды (атака/конец хода/уклон/движение/рывок/отход/засада/взлёт/приземление/помощь/побег/разъярённая мелкота/яд грунга на оружии/кроличий прыжок/сильные ноги/сохранить лицо/жуткий сувенир/каменная выносливость/исцеляющие руки/небесное преобразование/незримая поступь/подводное дыхание/оружие дыхания) или OOC/телепатия (mind link).",
                             request_id=msg_request_id,
                         )
                         continue
@@ -3904,6 +4226,23 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                         sess,
                         f"{actor_name}: Готово: следующий бросок d20 получит +1d4.",
                     )
+                    await broadcast_state(session_id)
+                    continue
+
+                handled_mind_link, mind_link_err, mind_link_msg = await _handle_kalashtar_mind_link_action(
+                    db,
+                    sess,
+                    player=player,
+                    session_id=session_id,
+                    combat_action=str(combat_action or ""),
+                    raw_text=text,
+                )
+                if handled_mind_link:
+                    if mind_link_err:
+                        await ws_error(mind_link_err, request_id=msg_request_id)
+                        continue
+                    if mind_link_msg:
+                        await add_system_event(db, sess, mind_link_msg)
                     await broadcast_state(session_id)
                     continue
 

@@ -1271,6 +1271,7 @@ function renderRaceChoices(){
   const isHarengon = raceKey === "harengon";
   const isHexblood = raceKey === "hexblood";
   const isHobgoblin = raceKey === "hobgoblin";
+  const isKalashtar = raceKey === "kalashtar";
   const isGithyanki = raceKey === "gith" && subraceKey === "githyanki";
   const langCfg = getLanguageChoiceConfig(ctx.effectiveTraits);
   const asiCfg = getAsiChoiceConfig(ctx.effectiveTraits, ctx.details.asi, raceKey);
@@ -1507,10 +1508,10 @@ function renderRaceChoices(){
     langSel2.appendChild(first2);
 
     const blockedLanguages = new Set();
-    if(isCustomLineage || isDhampir || isHarengon || isHexblood){
+    if(isCustomLineage || isDhampir || isHarengon || isHexblood || isKalashtar){
       blockedLanguages.add("common");
     }
-    if(isDhampir || isHexblood){
+    if(isDhampir || isHexblood || isKalashtar){
       const baseRaceLanguages = Array.isArray(ctx.details.languages)
         ? ctx.details.languages
         : (Array.isArray(ctx.race && ctx.race.languages) ? ctx.race.languages : []);
@@ -1540,10 +1541,10 @@ function renderRaceChoices(){
         const current1 = String(langSel.value || "").trim().toLowerCase();
         const current2 = String(langSel2.value || "").trim().toLowerCase();
         const blockedLanguages = new Set();
-        if(isCustomLineage || isDhampir || isHarengon || isHexblood){
+        if(isCustomLineage || isDhampir || isHarengon || isHexblood || isKalashtar){
           blockedLanguages.add("common");
         }
-        if(isDhampir || isHexblood){
+        if(isDhampir || isHexblood || isKalashtar){
           const baseRaceLanguages = Array.isArray(ctx.details.languages)
             ? ctx.details.languages
             : (Array.isArray(ctx.race && ctx.race.languages) ? ctx.race.languages : []);
@@ -2180,6 +2181,12 @@ async function createHero(){
     }
     if(choiceLang === choiceLang2){
       setMessage("Выбери два разных языка.", false);
+      return;
+    }
+  }
+  if(raceIdForValidation === "kalashtar"){
+    if(choiceLang === "common" || choiceLang === "quori"){
+      setMessage("Для Kalashtar дополнительный язык не может дублировать Common/Quori.", false);
       return;
     }
   }
