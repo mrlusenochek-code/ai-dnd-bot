@@ -175,6 +175,10 @@ CHAT_COMBAT_ACTION_PATTERNS: list[tuple[str, re.Pattern[str]]] = [
         ),
     ),
     (
+        "combat_hungry_jaws",
+        re.compile(r"(голодн\w+\s+паст\w*|hungry\s+jaws|кусаю\s+пасть\w*|особ\w+\s+укус\w*)", re.IGNORECASE),
+    ),
+    (
         "combat_takeoff",
         re.compile(r"(взлетаю|взлёт|поднимаюсь\s+в\s+воздух|в\s+воздух)", re.IGNORECASE),
     ),

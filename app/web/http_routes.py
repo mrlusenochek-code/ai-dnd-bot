@@ -710,6 +710,10 @@ def _build_race_features(selected_race: dict | None) -> dict[str, Any]:
                 nat_obj["no_armor_stack"] = bool(mech.get("no_armor_stack"))
             if mech.get("shield_applies") is not None:
                 nat_obj["shield_applies"] = bool(mech.get("shield_applies"))
+            if mech.get("requires_unarmored") is not None:
+                nat_obj["requires_unarmored"] = bool(mech.get("requires_unarmored"))
+            else:
+                nat_obj["requires_unarmored"] = True
             # only set if we actually found something useful
             if nat_obj:
                 out_nat = nat_obj
@@ -741,6 +745,13 @@ def _build_race_features(selected_race: dict | None) -> dict[str, Any]:
             duration = str(mech.get("duration") or "").strip()
             if duration:
                 breath["hold"] = duration
+            features["hold_breath"] = dict(mech)
+
+        if mtype == "cunning_artisan":
+            features["cunning_artisan"] = dict(mech)
+
+        if mtype == "hungry_jaws":
+            features["hungry_jaws"] = dict(mech)
 
         if mtype == "amphibious":
             breath["amphibious"] = True

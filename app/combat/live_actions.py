@@ -2068,6 +2068,178 @@ def handle_live_combat_action(
             None,
         )
 
+    if action == "combat_hungry_jaws":
+        state = get_combat(session_id)
+        if state is None or not state.active:
+            return None, "Combat is not active"
+        if not state.order:
+            end_combat(session_id)
+            return (
+                {
+                    "status": "Бой завершён",
+                    "open": False,
+                    "lines": [{"text": "Бой завершён: целей не осталось.", "muted": True}],
+                },
+                None,
+            )
+
+        attacker_key = state.order[state.turn_index]
+        attacker = state.combatants.get(attacker_key)
+        if attacker is None:
+            return None, "Combat state is inconsistent"
+        if str(getattr(attacker, "side", "")).lower() != "pc":
+            return None, "Голодная пасть доступна только персонажу игрока."
+        hungry_cfg = _race_feature(attacker, "hungry_jaws")
+        if hungry_cfg is None:
+            return None, "Голодная пасть недоступна."
+
+        race_features = attacker.race_features if isinstance(attacker.race_features, dict) else {}
+        runtime_raw = race_features.get("runtime")
+        runtime = dict(runtime_raw) if isinstance(runtime_raw, dict) else {}
+        uses_max = max(1, int(hungry_cfg.get("uses_max") or 1))
+        uses_used = max(0, int(runtime.get("hungry_jaws_uses_used") or 0))
+        if uses_used >= uses_max:
+            return None, "Голодная пасть уже использована до короткого/длительного отдыха."
+
+        blocked = _spend_bonus_action_or_block(state, attacker)
+        if blocked is not None:
+            return blocked, None
+
+        target = _first_living_opponent(state, attacker.side)
+        if target is None:
+            end_combat(session_id)
+            return (
+                {
+                    "status": "Бой завершён",
+                    "open": False,
+                    "lines": [{"text": "Бой завершён: целей не осталось.", "muted": True}],
+                },
+                None,
+            )
+
+        has_disadvantage = (
+            target.dodge_active
+            or _is_poisoned_condition_active(attacker)
+            or _is_taunted_attack_disadvantage(attacker, target)
+            or _has_sunlight_sensitivity_disadvantage(attacker)
+        )
+        hidden_step_advantage = _is_hidden_step_active(attacker)
+        has_advantage = (
+            attacker.help_attack_advantage
+            or hidden_step_advantage
+            or _has_pack_tactics_advantage(state, attacker, target)
+            or _has_active_grovel_advantage_for_attack(state, attacker, target)
+        )
+        roll_mode = "normal"
+        if has_advantage and not has_disadvantage:
+            roll_mode = "advantage"
+        elif has_disadvantage and not has_advantage:
+            roll_mode = "disadvantage"
+        roll_a, roll_b, d20_roll = _roll_check_compat(
+            roll_mode,
+            rng=random,
+            reroll_ones=_has_reroll_ones_scope(attacker, "attack"),
+        )
+        bonus_lines: list[dict[str, Any]] = []
+        d20_roll = _maybe_apply_built_for_success(attacker, d20_roll, bonus_lines)
+        d20_roll = _maybe_apply_vampiric_bite_bonus(attacker, d20_roll, bonus_lines)
+        attack_roll_repr = f"d20({roll_a})" if roll_b is None else f"d20({roll_a},{roll_b}) -> {d20_roll}"
+
+        str_mod = _actor_ability_mod(attacker, "str")
+        attack_bonus = _proficiency_bonus_for_actor(attacker) + str_mod
+        damage_bonus = str_mod
+        parsed = parse_dice("1d6")
+        n, sides = (1, 6) if parsed is None else parsed
+        damage_roll = sum(random.randint(1, max(1, sides)) for _ in range(max(1, n)))
+        resolution = resolve_attack_roll(
+            target_ac=target.ac,
+            d20_roll=d20_roll,
+            attack_bonus=attack_bonus,
+            damage_roll=damage_roll,
+            damage_bonus=damage_bonus,
+        )
+        hidden_step_broken = _break_hidden_step(attacker)
+        attacker.help_attack_advantage = False
+
+        runtime["hungry_jaws_uses_used"] = uses_used + 1
+        race_features["runtime"] = runtime
+        attacker.race_features = race_features
+
+        total_damage = int(resolution.total_damage)
+        lines_extra: list[dict[str, Any]] = []
+        lines_extra.extend(bonus_lines)
+        if resolution.is_hit:
+            pre_hp = target.hp_current
+            damage_to_apply, relentless_lines = _apply_relentless_endurance_if_needed(target=target, incoming_damage=total_damage)
+            lines_extra.extend(relentless_lines)
+            state = apply_damage(session_id, target.key, damage_to_apply, source=attacker.key)
+            if state is None:
+                return None, "Combat is not active"
+            target = state.combatants.get(target.key, target)
+            _maybe_apply_grung_contact_poison_on_melee_hit(
+                attacker=attacker,
+                target=target,
+                is_melee_hit=True,
+                lines=lines_extra,
+            )
+            if target.side == "pc" and pre_hp > 0 and target.hp_current == 0:
+                leftover = total_damage - pre_hp
+                if leftover >= target.hp_max:
+                    target.is_dead = True
+                    target.is_stable = False
+                    lines_extra.append({"text": f"Мгновенная смерть: {target.name} погибает."})
+                    _revert_shapechanger_on_death(target, lines_extra)
+
+            con_mod = _actor_ability_mod(attacker, "con")
+            temp_gain = max(1, con_mod)
+            prev_temp = max(0, int(getattr(attacker, "temp_hp", 0) or 0))
+            next_temp = max(prev_temp, temp_gain)
+            attacker.temp_hp = next_temp
+            if next_temp > prev_temp:
+                lines_extra.append({"text": f"Голодная пасть: временные хиты +{next_temp - prev_temp}.", "muted": True})
+            else:
+                lines_extra.append({"text": f"Голодная пасть: временные хиты остаются {prev_temp}.", "muted": True})
+
+        attack_line = (
+            f"Бросок атаки (Голодная пасть): {attack_roll_repr} + {resolution.attack_bonus} = "
+            f"{resolution.total_to_hit} vs AC {resolution.target_ac}"
+        )
+        if resolution.is_crit:
+            result_line = "Результат: критическое попадание"
+        elif resolution.is_hit:
+            result_line = "Результат: попадание"
+        else:
+            result_line = "Результат: промах"
+        if resolution.is_hit:
+            roll_damage = resolution.damage_roll * 2 if resolution.is_crit else resolution.damage_roll
+            damage_line = f"Урон: {roll_damage} + {resolution.damage_bonus} = {total_damage} piercing"
+        else:
+            damage_line = "Урон: 0 (промах)"
+        lines: list[dict[str, Any]] = [
+            {"text": f"Атака: {attacker.name} → {target.name}", "muted": True},
+            {"text": "Голодная пасть: укус 1d6 piercing (STR, +PROF к атаке).", "muted": True},
+            {"text": attack_line},
+            {"text": result_line},
+            {"text": damage_line},
+            {"text": f"{target.name}: HP {target.hp_current}/{target.hp_max}"},
+            {"text": f"Осталось использований: {max(0, uses_max - uses_used - 1)}/{uses_max}.", "muted": True},
+        ]
+        if hidden_step_broken:
+            lines.append({"text": "Незримая поступь прерывается: невидимость спадает.", "muted": True})
+        lines.extend(lines_extra)
+        if resolution.is_hit:
+            lines.append({"text": f"{attacker.name}: временные хиты {max(0, int(getattr(attacker, 'temp_hp', 0) or 0))}", "muted": True})
+        if target.hp_current <= 0:
+            lines.append({"text": f"{target.name} повержен."})
+        return (
+            {
+                "status": _combat_status(state),
+                "open": True,
+                "lines": lines,
+            },
+            None,
+        )
+
     if action == "combat_daunting_roar":
         state = get_combat(session_id)
         if state is None or not state.active:

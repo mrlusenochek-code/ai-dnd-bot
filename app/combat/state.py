@@ -17,6 +17,7 @@ class Combatant:
     hp_max: int
     ac: int
     initiative: int
+    temp_hp: int = 0
     dodge_active: bool = False
     dash_active: bool = False
     disengage_active: bool = False
@@ -341,8 +342,12 @@ def apply_damage(session_id: str, combatant_key: str, damage: int, *, source: st
         return None
 
     damage_input = max(0, int(damage))
-    damage_applied = min(max(0, int(combatant.hp_current)), damage_input)
-    combatant.last_damage_taken = damage_applied
+    temp_hp_before = max(0, int(getattr(combatant, "temp_hp", 0) or 0))
+    absorbed_by_temp = min(temp_hp_before, damage_input)
+    combatant.temp_hp = max(0, temp_hp_before - absorbed_by_temp)
+    hp_damage = max(0, damage_input - absorbed_by_temp)
+    damage_applied = min(max(0, int(combatant.hp_current)), hp_damage)
+    combatant.last_damage_taken = max(0, int(damage_applied + absorbed_by_temp))
     combatant.last_damage_taken_round = max(1, int(state.round_no))
     combatant.last_damage_taken_source = str(source or "").strip() or None
     combatant.hp_current = max(0, combatant.hp_current - damage_applied)
@@ -387,6 +392,7 @@ def combatant_to_dict(c: Combatant) -> dict[str, Any]:
         "side": c.side,
         "hp_current": max(0, int(c.hp_current)),
         "hp_max": max(0, int(c.hp_max)),
+        "temp_hp": max(0, int(getattr(c, "temp_hp", 0))),
         "ac": max(0, int(c.ac)),
         "initiative": int(c.initiative),
         "level": _normalize_level(c.level),
@@ -460,6 +466,7 @@ def combatant_from_dict(raw: Any) -> Combatant | None:
     side = raw.get("side")
     hp_current = raw.get("hp_current")
     hp_max = raw.get("hp_max")
+    temp_hp = raw.get("temp_hp", 0)
     ac = raw.get("ac")
     initiative = raw.get("initiative")
     is_dead = raw.get("is_dead", False)
@@ -480,6 +487,8 @@ def combatant_from_dict(raw: Any) -> Combatant | None:
         return None
     if not isinstance(hp_current, int) or not isinstance(hp_max, int):
         return None
+    if not isinstance(temp_hp, int) or isinstance(temp_hp, bool):
+        return None
     if not isinstance(ac, int) or not isinstance(initiative, int):
         return None
     if not isinstance(death_successes, int) or not isinstance(death_failures, int):
@@ -495,6 +504,7 @@ def combatant_from_dict(raw: Any) -> Combatant | None:
 
     hp_max_norm = max(0, hp_max)
     hp_current_norm = max(0, min(hp_current, hp_max_norm))
+    temp_hp_norm = max(0, int(temp_hp))
     death_successes_norm = max(0, min(death_successes, 3))
     death_failures_norm = max(0, min(death_failures, 3))
     raw_level = raw.get("level", 1)
@@ -538,6 +548,7 @@ def combatant_from_dict(raw: Any) -> Combatant | None:
         side=side,
         hp_current=hp_current_norm,
         hp_max=hp_max_norm,
+        temp_hp=temp_hp_norm,
         ac=max(0, ac),
         initiative=initiative,
         dodge_active=bool(raw.get("dodge_active", False)),

@@ -1550,6 +1550,49 @@ function openCharacterModal(){
   const leoninRoarText = (raceKey === "leonin" && leoninRoar)
     ? `Устрашающий рёв: бонусным действием, Сл = 8 + БМ + модиф. Телосложения, 10 фт, цель провалила => «испуган» вами до конца вашего след. хода (1/кор/дл отдых). Осталось: ${leoninRoarRemaining}/${leoninRoarMax}`
     : "";
+  const lizardfolkBite = Array.isArray(rf.natural_weapons)
+    ? rf.natural_weapons.find((x) => x && typeof x === "object" && String(x.key || "").trim().toLowerCase() === "bite_lizardfolk")
+    : null;
+  const lizardfolkBiteText = (raceKey === "lizardfolk" && lizardfolkBite)
+    ? "Укус: природное оружие 1к6 + СИЛ колющий"
+    : "";
+  const lizardfolkSwimText = (raceKey === "lizardfolk" && Number.isFinite(Number(speeds.swim_ft)))
+    ? `Плавание: ${Number(speeds.swim_ft)} фт`
+    : "";
+  const lizardfolkArtisan = (raceFeaturesMeta.cunning_artisan && typeof raceFeaturesMeta.cunning_artisan === "object")
+    ? raceFeaturesMeta.cunning_artisan
+    : null;
+  const lizardfolkArtisanText = (raceKey === "lizardfolk" && lizardfolkArtisan)
+    ? "Умелый ремесленник: на коротком отдыхе можно сделать: щит/дубинку/метательное копьё/1к4 дротика или иглы"
+    : "";
+  const lizardfolkHoldBreath = (raceFeaturesMeta.hold_breath && typeof raceFeaturesMeta.hold_breath === "object")
+    ? raceFeaturesMeta.hold_breath
+    : {};
+  const lizardfolkHoldBreathDuration = String(lizardfolkHoldBreath.duration || breath.hold || "").trim().toLowerCase();
+  const lizardfolkHoldBreathText = (raceKey === "lizardfolk" && lizardfolkHoldBreathDuration)
+    ? `Задерживание дыхания: ${lizardfolkHoldBreathDuration === "15_minutes" ? "15 минут" : lizardfolkHoldBreathDuration}`
+    : "";
+  const lizardfolkSkills = (raceKey === "lizardfolk" && Array.isArray(choices.skills))
+    ? choices.skills.map((x) => String(x || "").trim().toLowerCase()).filter(Boolean)
+    : [];
+  const lizardfolkSkillsRu = lizardfolkSkills.map((x) => getSkillNameRu(x)).filter(Boolean);
+  const lizardfolkHuntersLoreText = (raceKey === "lizardfolk" && lizardfolkSkillsRu.length > 0)
+    ? `Знания охотника: владение навыками: ${lizardfolkSkillsRu.join(", ")}`
+    : "";
+  const lizardfolkNaturalArmorText = (raceKey === "lizardfolk" && natArmorText)
+    ? "Природный доспех: без доспеха КД = 13 + модиф. ЛОВ (щит работает)"
+    : "";
+  const lizardfolkHungryJaws = (raceFeaturesMeta.hungry_jaws && typeof raceFeaturesMeta.hungry_jaws === "object")
+    ? raceFeaturesMeta.hungry_jaws
+    : null;
+  const lizardfolkHungryUsed = Number.isFinite(Number(runtime.hungry_jaws_uses_used)) ? Number(runtime.hungry_jaws_uses_used) : 0;
+  const lizardfolkHungryMax = Number.isFinite(Number(lizardfolkHungryJaws && lizardfolkHungryJaws.uses_max))
+    ? Number(lizardfolkHungryJaws.uses_max)
+    : 1;
+  const lizardfolkHungryRemaining = Math.max(0, lizardfolkHungryMax - lizardfolkHungryUsed);
+  const lizardfolkHungryJawsText = (raceKey === "lizardfolk" && lizardfolkHungryJaws)
+    ? `Голодная пасть: бонусным действием особая атака укусом; если попали — временные хиты = max(мод ТЕЛ,1); 1/кор/дл отдых. Осталось: ${lizardfolkHungryRemaining}/${lizardfolkHungryMax}`
+    : "";
   const kenkuSkills = (raceKey === "kenku" && Array.isArray(choices.skills) && choices.skills.length > 0)
     ? choices.skills.map((x) => String(x || "").trim().toLowerCase()).filter(Boolean)
     : [];
@@ -1766,7 +1809,7 @@ function openCharacterModal(){
   if(darkvisionFt !== null){
     details.push(`<div class="char-line"><strong>Тёмное зрение:</strong> ${escapeHtml(String(darkvisionFt))} фт</div>`);
   }
-  if(natArmorText){
+  if(natArmorText && raceKey !== "lizardfolk"){
     details.push(`<div class="char-line"><strong>Природный доспех:</strong> ${escapeHtml(natArmorText)}</div>`);
   }
   if(creatureTypeText){
@@ -1863,6 +1906,27 @@ function openCharacterModal(){
   }
   if(leoninRoarText){
     details.push(`<div class="char-line"><strong>Устрашающий рёв:</strong> ${escapeHtml(leoninRoarText.replace(/^Устрашающий рёв:\s*/, ""))}</div>`);
+  }
+  if(lizardfolkSwimText){
+    details.push(`<div class="char-line"><strong>Плавание:</strong> ${escapeHtml(lizardfolkSwimText.replace(/^Плавание:\s*/, ""))}</div>`);
+  }
+  if(lizardfolkBiteText){
+    details.push(`<div class="char-line"><strong>Укус:</strong> ${escapeHtml(lizardfolkBiteText.replace(/^Укус:\s*/, ""))}</div>`);
+  }
+  if(lizardfolkArtisanText){
+    details.push(`<div class="char-line"><strong>Умелый ремесленник:</strong> ${escapeHtml(lizardfolkArtisanText.replace(/^Умелый ремесленник:\s*/, ""))}</div>`);
+  }
+  if(lizardfolkHoldBreathText){
+    details.push(`<div class="char-line"><strong>Задерживание дыхания:</strong> ${escapeHtml(lizardfolkHoldBreathText.replace(/^Задерживание дыхания:\s*/, ""))}</div>`);
+  }
+  if(lizardfolkHuntersLoreText){
+    details.push(`<div class="char-line"><strong>Знания охотника:</strong> ${escapeHtml(lizardfolkHuntersLoreText.replace(/^Знания охотника:\s*/, ""))}</div>`);
+  }
+  if(lizardfolkNaturalArmorText){
+    details.push(`<div class="char-line"><strong>Природный доспех:</strong> ${escapeHtml(lizardfolkNaturalArmorText.replace(/^Природный доспех:\s*/, ""))}</div>`);
+  }
+  if(lizardfolkHungryJawsText){
+    details.push(`<div class="char-line"><strong>Голодная пасть:</strong> ${escapeHtml(lizardfolkHungryJawsText.replace(/^Голодная пасть:\s*/, ""))}</div>`);
   }
   if(kenkuTrainingText){
     details.push(`<div class="char-line"><strong>Обучение кенку:</strong> ${escapeHtml(kenkuTrainingText.replace(/^Обучение кенку:\s*/, ""))}</div>`);
@@ -2098,7 +2162,7 @@ function openCharacterModal(){
   if(hasActiveCombatant && combatSpeedsText) copyLines.push(`Скорости (боевые): ${combatSpeedsText}`);
   if(hasActiveCombatant && moveSpeedFt !== null && moveRemainingFt !== null) copyLines.push(`Перемещение: осталось ${moveRemainingFt} фт из ${moveSpeedFt} фт`);
   if(darkvisionFt !== null) copyLines.push(`Тёмное зрение: ${darkvisionFt} фт`);
-  if(natArmorText) copyLines.push(`Природный доспех: ${natArmorText}`);
+  if(natArmorText && raceKey !== "lizardfolk") copyLines.push(`Природный доспех: ${natArmorText}`);
   if(creatureTypeText) copyLines.push(creatureTypeText);
   if(resistancesRu.length) copyLines.push(`Сопротивления: ${resistancesRu.join(", ")}`);
   if(mechanicalNatureText) copyLines.push(mechanicalNatureText);
@@ -2127,6 +2191,13 @@ function openCharacterModal(){
   if(leoninClawsText) copyLines.push(leoninClawsText);
   if(leoninHuntersInstinctsText) copyLines.push(leoninHuntersInstinctsText);
   if(leoninRoarText) copyLines.push(leoninRoarText);
+  if(lizardfolkSwimText) copyLines.push(lizardfolkSwimText);
+  if(lizardfolkBiteText) copyLines.push(lizardfolkBiteText);
+  if(lizardfolkArtisanText) copyLines.push(lizardfolkArtisanText);
+  if(lizardfolkHoldBreathText) copyLines.push(lizardfolkHoldBreathText);
+  if(lizardfolkHuntersLoreText) copyLines.push(lizardfolkHuntersLoreText);
+  if(lizardfolkNaturalArmorText) copyLines.push(lizardfolkNaturalArmorText);
+  if(lizardfolkHungryJawsText) copyLines.push(lizardfolkHungryJawsText);
   if(kenkuTrainingText) copyLines.push(kenkuTrainingText);
   if(kenkuExpertForgeryText) copyLines.push(kenkuExpertForgeryText);
   if(kenkuMimicryText) copyLines.push(kenkuMimicryText);

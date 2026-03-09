@@ -269,8 +269,11 @@ def compute_ac(*, stats: dict, inventory: list[dict], equip_map: dict[str, str],
     nat = (race_features or {}).get("natural_armor") if isinstance(race_features, dict) else None
     nat_ac_base: int | None = None
     nat_no_armor_stack = False
+    nat_requires_unarmored = True
     if isinstance(nat, dict):
         nat_no_armor_stack = bool(nat.get("no_armor_stack"))
+        if nat.get("requires_unarmored") is not None:
+            nat_requires_unarmored = bool(nat.get("requires_unarmored"))
         if nat.get("ac") is not None:
             nat_ac_base = _safe_int(nat.get("ac"), None)  # type: ignore[arg-type]
         elif nat.get("ac_formula"):
@@ -282,9 +285,6 @@ def compute_ac(*, stats: dict, inventory: list[dict], equip_map: dict[str, str],
                 con = _safe_int(stats.get("con", 50), 50) if isinstance(stats, dict) else 50
                 con_mod = ability_mod_from_stat100(con)
                 nat_ac_base = 12 + con_mod
-
-    if isinstance(nat_ac_base, int):
-        ac = max(ac, nat_ac_base)
 
     by_id: dict[str, dict[str, Any]] = {}
     for entry in inventory if isinstance(inventory, list) else []:
@@ -304,6 +304,9 @@ def compute_ac(*, stats: dict, inventory: list[dict], equip_map: dict[str, str],
     armor_entry = by_id.get(body_item_id)
     armor_def = _item_def_for_inventory_entry(armor_entry) if armor_entry else None
     armor_equip = armor_def.equip if armor_def else None
+    armor_is_worn = bool(armor_equip and armor_equip.base_ac is not None)
+    if armor_is_worn and nat_requires_unarmored:
+        nat_ac_base = None
     if armor_equip and armor_equip.base_ac is not None:
         # If race natural armor does not stack with worn armor, ignore it.
         if nat_no_armor_stack:
@@ -319,6 +322,9 @@ def compute_ac(*, stats: dict, inventory: list[dict], equip_map: dict[str, str],
             ac = armor_base_ac
         else:
             ac = armor_base_ac
+
+    if isinstance(nat_ac_base, int):
+        ac = max(ac, nat_ac_base)
 
     shield_entry = by_id.get(shield_item_id)
     shield_def = _item_def_for_inventory_entry(shield_entry) if shield_entry else None

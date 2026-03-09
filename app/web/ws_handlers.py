@@ -1058,6 +1058,9 @@ def _reset_harengon_long_rest(ch: Character) -> bool:
     if "grovel_active_until_turn_start_of_actor_id" in runtime:
         runtime.pop("grovel_active_until_turn_start_of_actor_id", None)
         changed = True
+    if "hungry_jaws_uses_used" in runtime:
+        runtime.pop("hungry_jaws_uses_used", None)
+        changed = True
     if "daunting_roar_uses_used" in runtime:
         runtime.pop("daunting_roar_uses_used", None)
         changed = True
@@ -1099,6 +1102,9 @@ def _reset_combatant_harengon_long_rest(session_id: str, actor_key: str) -> bool
         changed = True
     if "grovel_active_until_turn_start_of_actor_id" in runtime:
         runtime.pop("grovel_active_until_turn_start_of_actor_id", None)
+        changed = True
+    if "hungry_jaws_uses_used" in runtime:
+        runtime.pop("hungry_jaws_uses_used", None)
         changed = True
     if "daunting_roar_uses_used" in runtime:
         runtime.pop("daunting_roar_uses_used", None)
@@ -1164,6 +1170,110 @@ def _apply_grung_water_dependency_long_rest(
     rf["runtime"] = runtime
     ch.race_features = rf
     return max(0, as_int(runtime.get("water_dependency_exhaustion_level"), 0)), True
+
+
+def _lizardfolk_cunning_artisan_feature(race_features: Any) -> dict[str, Any]:
+    if not isinstance(race_features, dict):
+        return {}
+    features_raw = race_features.get("features")
+    features = features_raw if isinstance(features_raw, dict) else {}
+    artisan_raw = features.get("cunning_artisan")
+    artisan = artisan_raw if isinstance(artisan_raw, dict) else {}
+    return artisan if artisan else {}
+
+
+def _apply_lizardfolk_cunning_artisan_craft(
+    ch: Character,
+    option_raw: str,
+    *,
+    rng: Any = None,
+) -> tuple[Optional[str], Optional[str], bool]:
+    artisan = _lizardfolk_cunning_artisan_feature(getattr(ch, "race_features", None))
+    if not artisan:
+        return None, "Умелый ремесленник недоступен вашей расе.", False
+
+    normalized = str(option_raw or "").strip().lower().replace("-", "_").replace(" ", "_")
+    alias_map = {
+        "щит": "shield",
+        "shield": "shield",
+        "дубинка": "club",
+        "club": "club",
+        "копье": "javelin",
+        "копьё": "javelin",
+        "метательное_копье": "javelin",
+        "метательное_копьё": "javelin",
+        "javelin": "javelin",
+        "дротики": "darts",
+        "дротик": "darts",
+        "darts": "darts",
+        "dart": "darts",
+        "иглы": "needles",
+        "игла": "needles",
+        "needles": "needles",
+        "blowgun_needles": "needles",
+    }
+    option = alias_map.get(normalized, normalized)
+    if option not in {"shield", "club", "javelin", "darts", "needles"}:
+        return None, "Недопустимый вариант ремесла. Доступно: shield/club/javelin/darts/needles.", False
+
+    stats_raw = getattr(ch, "stats", None)
+    stats = dict(stats_raw) if isinstance(stats_raw, dict) else {}
+    inv_raw = stats.get("_inv")
+    inv = list(inv_raw) if isinstance(inv_raw, list) else []
+
+    if option == "shield":
+        craft_name = "Щит"
+        craft_def = "shield"
+        qty = 1
+    elif option == "club":
+        craft_name = "Дубинка"
+        craft_def = "club"
+        qty = 1
+    elif option == "javelin":
+        craft_name = "Метательное копьё"
+        craft_def = "javelin"
+        qty = 1
+    elif option == "darts":
+        craft_name = "Дротик"
+        craft_def = "dart"
+        roller = rng if rng is not None else random
+        qty = max(1, int(roller.randint(1, 4)))
+    else:
+        craft_name = "Игла для духовой трубки"
+        craft_def = "blowgun_needle"
+        roller = rng if rng is not None else random
+        qty = max(1, int(roller.randint(1, 4)))
+
+    updated = False
+    for item in inv:
+        if not isinstance(item, dict):
+            continue
+        item_def = str(item.get("def") or "").strip().lower()
+        item_name = str(item.get("name") or "").strip().lower()
+        if item_def != craft_def and item_name != craft_name.lower():
+            continue
+        current_qty = max(1, as_int(item.get("qty"), 1))
+        item["qty"] = _clamp(current_qty + qty, 1, 99)
+        if not str(item.get("def") or "").strip():
+            item["def"] = craft_def
+        if not str(item.get("name") or "").strip():
+            item["name"] = craft_name
+        updated = True
+        break
+    if not updated:
+        inv.append(
+            {
+                "id": f"craft_{craft_def}_{len(inv)+1}",
+                "name": craft_name,
+                "qty": _clamp(qty, 1, 99),
+                "def": craft_def,
+            }
+        )
+
+    stats["_inv"] = inv
+    ch.stats = stats
+    crafted_label = f"{craft_name} x{qty}" if qty > 1 else craft_name
+    return f"Умелый ремесленник: создано {crafted_label}.", None, True
 
 
 def _apply_healing_hands_usage(ch: Character) -> tuple[Optional[int], Optional[str], bool]:
@@ -1739,6 +1849,9 @@ def _reset_racial_rest_uses(ch: Character, *, long_rest: bool = True) -> bool:
     if "grovel_active_until_turn_start_of_actor_id" in runtime:
         runtime.pop("grovel_active_until_turn_start_of_actor_id", None)
         changed = True
+    if "hungry_jaws_uses_used" in runtime:
+        runtime.pop("hungry_jaws_uses_used", None)
+        changed = True
     if "daunting_roar_uses_used" in runtime:
         runtime.pop("daunting_roar_uses_used", None)
         changed = True
@@ -1868,6 +1981,9 @@ def _reset_combatant_racial_rest_uses(session_id: str, actor_key: str, *, long_r
     if "grovel_active_until_turn_start_of_actor_id" in runtime:
         runtime.pop("grovel_active_until_turn_start_of_actor_id", None)
         changed = True
+    if "hungry_jaws_uses_used" in runtime:
+        runtime.pop("hungry_jaws_uses_used", None)
+        changed = True
     if "daunting_roar_uses_used" in runtime:
         runtime.pop("daunting_roar_uses_used", None)
         changed = True
@@ -1940,6 +2056,7 @@ async def _persist_relentless_endurance_used_from_combat_state(db, sess, session
     lucky_footwork_runtime_by_uid: dict[int, dict[str, Any]] = {}
     saving_face_runtime_by_uid: dict[int, dict[str, Any]] = {}
     grovel_runtime_by_uid: dict[int, dict[str, Any]] = {}
+    hungry_jaws_runtime_by_uid: dict[int, dict[str, Any]] = {}
     leonin_roar_runtime_by_uid: dict[int, dict[str, Any]] = {}
     fearless_runtime_by_uid: dict[int, dict[str, Any]] = {}
     for key, actor in (state.combatants or {}).items():
@@ -2025,6 +2142,10 @@ async def _persist_relentless_endurance_used_from_combat_state(db, sess, session
                 ).strip()
             if grovel_runtime:
                 grovel_runtime_by_uid[int(uid_raw)] = grovel_runtime
+        if "hungry_jaws_uses_used" in runtime:
+            hungry_jaws_runtime_by_uid[int(uid_raw)] = {
+                "hungry_jaws_uses_used": max(0, as_int(runtime.get("hungry_jaws_uses_used"), 0))
+            }
         if "daunting_roar_uses_used" in runtime:
             leonin_roar_runtime_by_uid[int(uid_raw)] = {
                 "daunting_roar_uses_used": max(0, as_int(runtime.get("daunting_roar_uses_used"), 0))
@@ -2050,6 +2171,7 @@ async def _persist_relentless_endurance_used_from_combat_state(db, sess, session
         and not lucky_footwork_runtime_by_uid
         and not saving_face_runtime_by_uid
         and not grovel_runtime_by_uid
+        and not hungry_jaws_runtime_by_uid
         and not leonin_roar_runtime_by_uid
         and not fearless_runtime_by_uid
     ):
@@ -2071,6 +2193,7 @@ async def _persist_relentless_endurance_used_from_combat_state(db, sess, session
             and uid not in lucky_footwork_runtime_by_uid
             and uid not in saving_face_runtime_by_uid
             and uid not in grovel_runtime_by_uid
+            and uid not in hungry_jaws_runtime_by_uid
             and uid not in leonin_roar_runtime_by_uid
             and uid not in fearless_runtime_by_uid
         ):
@@ -2201,6 +2324,12 @@ async def _persist_relentless_endurance_used_from_combat_state(db, sess, session
                     runtime["grovel_active_until_turn_start_of_actor_id"] = active_until
                 else:
                     runtime.pop("grovel_active_until_turn_start_of_actor_id", None)
+                local_changed = True
+        hungry_jaws_runtime = hungry_jaws_runtime_by_uid.get(uid)
+        if isinstance(hungry_jaws_runtime, dict):
+            uses_val = max(0, as_int(hungry_jaws_runtime.get("hungry_jaws_uses_used"), 0))
+            if max(0, as_int(runtime.get("hungry_jaws_uses_used"), 0)) != uses_val:
+                runtime["hungry_jaws_uses_used"] = uses_val
                 local_changed = True
         leonin_roar_runtime = leonin_roar_runtime_by_uid.get(uid)
         if isinstance(leonin_roar_runtime, dict):
@@ -2634,6 +2763,7 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                     "combat_escape",
                     "combat_grovel_cower_beg",
                     "combat_grung_poison_weapon",
+                    "combat_hungry_jaws",
                     "combat_rabbit_hop",
                     "combat_lucky_footwork",
                     "combat_saving_face",
@@ -3050,7 +3180,7 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                 if combat_action in {"combat_fury_of_small", "combat_fury_of_the_small"} and not combat_active:
                     await ws_error("Разъярённая мелкота доступна только в бою.", request_id=msg_request_id)
                     continue
-                if combat_action in {"combat_rabbit_hop", "combat_lucky_footwork", "combat_saving_face", "combat_taunt", "combat_fearless", "combat_daunting_roar", "combat_grovel_cower_beg"} and not combat_active:
+                if combat_action in {"combat_hungry_jaws", "combat_rabbit_hop", "combat_lucky_footwork", "combat_saving_face", "combat_taunt", "combat_fearless", "combat_daunting_roar", "combat_grovel_cower_beg"} and not combat_active:
                     await ws_error("Эта особенность доступна только в бою.", request_id=msg_request_id)
                     continue
                 if combat_action in {"combat_eerie_token_create", "combat_eerie_token_message", "combat_eerie_token_view"} and not combat_active:
@@ -3403,7 +3533,7 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                         continue
                     else:
                         await ws_error(
-                            "Combat Lock: в бою доступны только боевые команды (атака/конец хода/уклон/движение/рывок/отход/засада/взлёт/приземление/помощь/побег/пресмыкайся/разъярённая мелкота/яд грунга на оружии/кроличий прыжок/сильные ноги/сохранить лицо/насмешка/бесстрашие/устрашающий рёв/жуткий сувенир/каменная выносливость/исцеляющие руки/небесное преобразование/незримая поступь/подводное дыхание/оружие дыхания) или OOC/телепатия (mind link).",
+                            "Combat Lock: в бою доступны только боевые команды (атака/конец хода/уклон/движение/рывок/отход/засада/взлёт/приземление/помощь/побег/пресмыкайся/разъярённая мелкота/яд грунга на оружии/голодная пасть/кроличий прыжок/сильные ноги/сохранить лицо/насмешка/бесстрашие/устрашающий рёв/жуткий сувенир/каменная выносливость/исцеляющие руки/небесное преобразование/незримая поступь/подводное дыхание/оружие дыхания) или OOC/телепатия (mind link).",
                             request_id=msg_request_id,
                         )
                         continue
@@ -3677,6 +3807,35 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                         sess,
                         f"[REST] short {ch.name}: STA {old_sta}->{int(ch.sta or 0)}/{int(ch.sta_max or 0)}",
                     )
+                    if _lizardfolk_cunning_artisan_feature(getattr(ch, "race_features", None)):
+                        await add_system_event(
+                            db,
+                            sess,
+                            "Умелый ремесленник: на коротком отдыхе можно создать craft shield/club/javelin/darts/needles.",
+                        )
+                    await broadcast_state(session_id)
+                    continue
+
+                m_craft = re.match(r"^(?:craft|создаю|смастерить)\s+(.+)$", cmdline, re.IGNORECASE)
+                if m_craft:
+                    combat_state_now = get_combat(session_id)
+                    if combat_state_now is not None and combat_state_now.active:
+                        await ws_error("Ремесло недоступно во время боя", request_id=msg_request_id)
+                        continue
+                    ch = await get_character(db, sess.id, player.id)
+                    if not ch:
+                        await ws_error("No character. Use: char create ...", request_id=msg_request_id)
+                        continue
+                    option = str(m_craft.group(1) or "").strip()
+                    craft_msg, craft_err, changed = _apply_lizardfolk_cunning_artisan_craft(ch, option)
+                    if craft_err:
+                        await ws_error(craft_err, request_id=msg_request_id)
+                        continue
+                    if changed:
+                        flag_modified(ch, "stats")
+                        await db.commit()
+                    if craft_msg:
+                        await add_system_event(db, sess, craft_msg)
                     await broadcast_state(session_id)
                     continue
 
@@ -4582,7 +4741,7 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                 if combat_action in {"combat_fury_of_small", "combat_fury_of_the_small"} and not combat_active:
                     await ws_error("Разъярённая мелкота доступна только в бою.", request_id=msg_request_id)
                     continue
-                if combat_action in {"combat_rabbit_hop", "combat_lucky_footwork", "combat_saving_face", "combat_taunt", "combat_fearless", "combat_daunting_roar", "combat_grovel_cower_beg"} and not combat_active:
+                if combat_action in {"combat_hungry_jaws", "combat_rabbit_hop", "combat_lucky_footwork", "combat_saving_face", "combat_taunt", "combat_fearless", "combat_daunting_roar", "combat_grovel_cower_beg"} and not combat_active:
                     await ws_error("Эта особенность доступна только в бою.", request_id=msg_request_id)
                     continue
                 if combat_action in {"combat_eerie_token_create", "combat_eerie_token_message", "combat_eerie_token_view"} and not combat_active:
