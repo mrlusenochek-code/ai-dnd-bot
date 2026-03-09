@@ -435,7 +435,36 @@ def _apply_innate_spell_usage(ch: Character, spell_key: str) -> tuple[Optional[s
             "jump": "Прыжок",
             "misty_step": "Туманный шаг",
             "hex": "Сглаз",
+            "create_or_destroy_water": "Создание/уничтожение воды",
+            "gust_of_wind": "Порыв ветра",
+            "wall_of_water": "Стена воды",
         }.get(spell_key, display_name)
+
+    runtime_raw = rf.get("runtime")
+    runtime = dict(runtime_raw) if isinstance(runtime_raw, dict) else {}
+    triton_changed = False
+    race_key = str(rf.get("race_key") or "").strip().lower()
+    if race_key == "triton":
+        if spell_key == "gust_of_wind":
+            if bool(runtime.get("triton_gust_of_wind_used")) is not changed:
+                runtime["triton_gust_of_wind_used"] = changed
+                triton_changed = True
+        elif spell_key == "wall_of_water":
+            if bool(runtime.get("triton_wall_of_water_used")) is not changed:
+                runtime["triton_wall_of_water_used"] = changed
+                triton_changed = True
+            marker = datetime.now(timezone.utc).isoformat() if changed else None
+            if runtime.get("triton_active_water_wall") != marker:
+                runtime["triton_active_water_wall"] = marker
+                triton_changed = True
+        elif spell_key == "create_or_destroy_water":
+            if "triton_active_water_wall" not in runtime:
+                runtime["triton_active_water_wall"] = None
+                triton_changed = True
+        if triton_changed:
+            rf["runtime"] = runtime
+            ch.race_features = rf
+            changed = True or changed
     return display_name, None, changed
 
 
@@ -2377,6 +2406,9 @@ def _reset_racial_rest_uses(ch: Character, *, long_rest: bool = True) -> bool:
     if "grung_weapon_poison_armed" in runtime:
         runtime.pop("grung_weapon_poison_armed", None)
         changed = True
+    if "triton_active_water_wall" in runtime:
+        runtime["triton_active_water_wall"] = None
+        changed = True
     if "last_failed_dex_save" in runtime:
         runtime.pop("last_failed_dex_save", None)
         changed = True
@@ -2456,6 +2488,15 @@ def _reset_racial_rest_uses(ch: Character, *, long_rest: bool = True) -> bool:
             changed = True
         if "acid_spit_uses_used" in runtime:
             runtime["acid_spit_uses_used"] = 0
+            changed = True
+        if "triton_gust_of_wind_used" in runtime:
+            runtime["triton_gust_of_wind_used"] = False
+            changed = True
+        if "triton_wall_of_water_used" in runtime:
+            runtime["triton_wall_of_water_used"] = False
+            changed = True
+        if "triton_active_water_wall" in runtime:
+            runtime["triton_active_water_wall"] = None
             changed = True
         if "fearless_auto_success_used" in runtime:
             runtime.pop("fearless_auto_success_used", None)
@@ -2571,6 +2612,9 @@ def _reset_combatant_racial_rest_uses(session_id: str, actor_key: str, *, long_r
     if "grung_weapon_poison_armed" in runtime:
         runtime.pop("grung_weapon_poison_armed", None)
         changed = True
+    if "triton_active_water_wall" in runtime:
+        runtime["triton_active_water_wall"] = None
+        changed = True
     if "last_failed_dex_save" in runtime:
         runtime.pop("last_failed_dex_save", None)
         changed = True
@@ -2650,6 +2694,15 @@ def _reset_combatant_racial_rest_uses(session_id: str, actor_key: str, *, long_r
             changed = True
         if "acid_spit_uses_used" in runtime:
             runtime["acid_spit_uses_used"] = 0
+            changed = True
+        if "triton_gust_of_wind_used" in runtime:
+            runtime["triton_gust_of_wind_used"] = False
+            changed = True
+        if "triton_wall_of_water_used" in runtime:
+            runtime["triton_wall_of_water_used"] = False
+            changed = True
+        if "triton_active_water_wall" in runtime:
+            runtime["triton_active_water_wall"] = None
             changed = True
         if "fearless_auto_success_used" in runtime:
             runtime.pop("fearless_auto_success_used", None)

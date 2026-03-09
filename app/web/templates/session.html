@@ -1030,7 +1030,7 @@ function openCharacterModal(){
     "infernal": "Инфернальный",
     "celestial": "Небесный",
     "giant": "Великаний",
-    "primordial": "Первичный",
+    "primordial": "Первородный",
     "auran": "Ауран",
     "aquan": "Акван",
     "terran": "Терран",
@@ -1109,6 +1109,9 @@ function openCharacterModal(){
     "misty_step": "Туманный шаг",
     "disguise_self": "Маскировка",
     "hex": "Сглаз",
+    "create_or_destroy_water": "Создание/уничтожение воды",
+    "gust_of_wind": "Порыв ветра",
+    "wall_of_water": "Стена воды",
   };
   const infernalLegacySpells = innateSpells
     .filter((spell) => {
@@ -1862,6 +1865,39 @@ function openCharacterModal(){
       ? "Кошачья ловкость восстановится, если завершите свой ход без движения."
       : "Кошачья ловкость готова: в свой ход можете удвоить скорость.")
     : "";
+  const tritonAmphibious = raceFeaturesMeta.amphibious === true || breath.amphibious === true;
+  const tritonDepths = (raceFeaturesMeta.guardians_of_the_depths && typeof raceFeaturesMeta.guardians_of_the_depths === "object")
+    ? raceFeaturesMeta.guardians_of_the_depths
+    : null;
+  const tritonEmissary = (raceFeaturesMeta.emissary_of_the_sea && typeof raceFeaturesMeta.emissary_of_the_sea === "object")
+    ? raceFeaturesMeta.emissary_of_the_sea
+    : null;
+  const innateUsesRaw = (runtime.innate_spell_uses && typeof runtime.innate_spell_uses === "object") ? runtime.innate_spell_uses : {};
+  const tritonSpellByKey = Object.fromEntries(
+    innateSpells
+      .filter((spell) => ["create_or_destroy_water", "gust_of_wind", "wall_of_water"].includes(String((spell && spell.name) || "").trim().toLowerCase()))
+      .map((spell) => [String(spell.name || "").trim().toLowerCase(), spell])
+  );
+  const tritonSpellStatus = (spellKey, minLevel, usedFlag) => {
+    const requiredLevel = Number.isFinite(Number(minLevel)) ? Number(minLevel) : 1;
+    if(Number(ch.level || 1) < requiredLevel){
+      return `откроется на ${requiredLevel} уровне`;
+    }
+    const innateUsed = !!(((innateUsesRaw[spellKey] || {}).used) >= 1);
+    return (usedFlag || innateUsed) ? "восстановится после долгого отдыха" : "готово";
+  };
+  const tritonWaterMagicText = raceKey === "triton"
+    ? `Управление воздухом и водой: Создание/уничтожение воды — доступно всегда; Порыв ветра — ${tritonSpellStatus("gust_of_wind", 3, !!runtime.triton_gust_of_wind_used)}; Стена воды — ${tritonSpellStatus("wall_of_water", 5, !!runtime.triton_wall_of_water_used)}${runtime.triton_active_water_wall ? "; стена воды активна" : ""}`
+    : "";
+  const tritonAmphibiousText = (raceKey === "triton" && tritonAmphibious)
+    ? "Амфибия: можете дышать и воздухом, и водой"
+    : "";
+  const tritonDepthsText = (raceKey === "triton" && tritonDepths)
+    ? "Стражи глубин: сопротивление холоду, устойчивость к давлению глубин"
+    : "";
+  const tritonEmissaryText = (raceKey === "triton" && tritonEmissary)
+    ? "Посланник моря: можете общаться простыми идеями с морскими зверями"
+    : "";
   const tortleClaws = (raceFeaturesMeta.claws && typeof raceFeaturesMeta.claws === "object")
     ? raceFeaturesMeta.claws
     : null;
@@ -2318,6 +2354,18 @@ function openCharacterModal(){
   if(tabaxiFelineAgilityText){
     details.push(`<div class="char-line"><strong>Кошачья ловкость:</strong> ${escapeHtml(tabaxiFelineAgilityText.replace(/^Кошачья ловкость:\s*/, ""))}</div>`);
   }
+  if(tritonAmphibiousText){
+    details.push(`<div class="char-line"><strong>Амфибия:</strong> ${escapeHtml(tritonAmphibiousText.replace(/^Амфибия:\s*/, ""))}</div>`);
+  }
+  if(tritonDepthsText){
+    details.push(`<div class="char-line"><strong>Стражи глубин:</strong> ${escapeHtml(tritonDepthsText.replace(/^Стражи глубин:\s*/, ""))}</div>`);
+  }
+  if(tritonEmissaryText){
+    details.push(`<div class="char-line"><strong>Посланник моря:</strong> ${escapeHtml(tritonEmissaryText.replace(/^Посланник моря:\s*/, ""))}</div>`);
+  }
+  if(tritonWaterMagicText){
+    details.push(`<div class="char-line"><strong>Управление воздухом и водой:</strong> ${escapeHtml(tritonWaterMagicText.replace(/^Управление воздухом и водой:\s*/, ""))}</div>`);
+  }
   if(tortleNaturalArmorText){
     details.push(`<div class="char-line"><strong>Природная броня:</strong> ${escapeHtml(tortleNaturalArmorText.replace(/^Природная броня:\s*/, ""))}</div>`);
   }
@@ -2619,6 +2667,10 @@ function openCharacterModal(){
   if(tabaxiTalentText) copyLines.push(tabaxiTalentText);
   if(tabaxiClawsText) copyLines.push(tabaxiClawsText);
   if(tabaxiFelineAgilityText) copyLines.push(tabaxiFelineAgilityText);
+  if(tritonAmphibiousText) copyLines.push(tritonAmphibiousText);
+  if(tritonDepthsText) copyLines.push(tritonDepthsText);
+  if(tritonEmissaryText) copyLines.push(tritonEmissaryText);
+  if(tritonWaterMagicText) copyLines.push(tritonWaterMagicText);
   if(tortleNaturalArmorText) copyLines.push(tortleNaturalArmorText);
   if(tortleClawsText) copyLines.push(tortleClawsText);
   if(tortleHoldBreathText) copyLines.push(tortleHoldBreathText);

@@ -838,6 +838,21 @@ def _build_race_features(selected_race: dict | None) -> dict[str, Any]:
             breath["amphibious"] = True
             features["amphibious"] = True
 
+        if mtype == "guardians_of_the_depths":
+            if "cold" not in resist:
+                resist.append("cold")
+            features["guardians_of_the_depths"] = {
+                "type": "guardians_of_the_depths",
+                "cold_resistance": True,
+                "deep_pressure_adapted": True,
+            }
+
+        if mtype == "speak_with_beasts":
+            features["emissary_of_the_sea"] = {
+                "type": "speak_with_beasts",
+                "scope": str(mech.get("scope") or "").strip().lower() or "sea_beasts",
+            }
+
         if mtype == "poisonous_skin":
             features["poisonous_skin"] = dict(mech)
 
@@ -2400,6 +2415,13 @@ async def api_character_create(payload: dict):
             runtime = dict(runtime_raw) if isinstance(runtime_raw, dict) else {}
             runtime.setdefault("shell_defense_active", False)
             runtime.setdefault("shell_defense_entered_turn", "")
+            race_features["runtime"] = runtime
+        if isinstance(race_features, dict) and str(race_features.get("race_key") or "").strip().lower() == "triton":
+            runtime_raw = race_features.get("runtime")
+            runtime = dict(runtime_raw) if isinstance(runtime_raw, dict) else {}
+            runtime.setdefault("triton_gust_of_wind_used", False)
+            runtime.setdefault("triton_wall_of_water_used", False)
+            runtime.setdefault("triton_active_water_wall", None)
             race_features["runtime"] = runtime
         if isinstance(race_features, dict) and selected_subrace is not None:
             race_features["subrace"] = {

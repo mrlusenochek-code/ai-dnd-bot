@@ -10,6 +10,8 @@ INNATE_SPELL_KEY_PATTERNS: dict[str, re.Pattern[str]] = {
         r"создани(?:е|я).*(?:уничтожени(?:е|я)).*воды|create.*destroy.*water",
         re.IGNORECASE,
     ),
+    "gust_of_wind": re.compile(r"порыв\s+ветра|gust\s+of\s+wind", re.IGNORECASE),
+    "wall_of_water": re.compile(r"стен[аы]\s+воды|wall\s+of\s+water", re.IGNORECASE),
     "minor_illusion": re.compile(r"мала[яй]\s+иллюз\w*|minor\s+illusion", re.IGNORECASE),
     "dancing_lights": re.compile(r"танцующ[а-яё]*\s+огн[а-яё]*|dancing\s+lights", re.IGNORECASE),
     "faerie_fire": re.compile(r"волшебн[а-яё]*\s+ог(?:н|он)[а-яё]*|faerie\s+fire", re.IGNORECASE),
@@ -291,6 +293,7 @@ CHAT_COMBAT_ACTION_PATTERNS: list[tuple[str, re.Pattern[str]]] = [
             r"левитац|levitate|проход.*сквозь.*кам|passwall|создани[еия]\s+огня|produce\s+flame|"
             r"горящ(?:ие|их)\s+руки|burning\s+hands|формирован(?:ие|ия)\s+воды|shape\s+water|"
             r"создани(?:е|я).*(?:уничтожени(?:е|я)).*воды|create.*destroy.*water|"
+            r"порыв\s+ветра|gust\s+of\s+wind|стен[аы]\s+воды|wall\s+of\s+water|"
             r"мала[яй]\s+иллюз\w*|minor\s+illusion|"
             r"танцующ[а-яё]*\s+огн[а-яё]*|dancing\s+lights|волшебн[а-яё]*\s+ог(?:н|он)[а-яё]*|faerie\s+fire|"
             r"обнаружени[ея]\s+магии|detect\s+magic|маскировк\w*|disguise\s+self|"
