@@ -1003,6 +1003,15 @@ function openCharacterModal(){
   const healingHands = (raceFeaturesMeta.healing_hands && typeof raceFeaturesMeta.healing_hands === "object")
     ? raceFeaturesMeta.healing_hands
     : null;
+  const aasimarLightBearer = (raceFeaturesMeta.light_bearer && typeof raceFeaturesMeta.light_bearer === "object")
+    ? raceFeaturesMeta.light_bearer
+    : null;
+  const aasimarLightBearerSpell = aasimarLightBearer && aasimarLightBearer.spell && typeof aasimarLightBearer.spell === "object"
+    ? aasimarLightBearer.spell
+    : null;
+  const aasimarLightBearerText = aasimarLightBearerSpell
+    ? "Несущий свет: Свет — доступно всегда. Базовая характеристика — Харизма"
+    : "";
   const aasimarTransformation = (raceFeaturesMeta.aasimar_transformation && typeof raceFeaturesMeta.aasimar_transformation === "object")
     ? raceFeaturesMeta.aasimar_transformation
     : null;
@@ -1152,6 +1161,7 @@ function openCharacterModal(){
     "create_or_destroy_water": "Создание/уничтожение воды",
     "gust_of_wind": "Порыв ветра",
     "wall_of_water": "Стена воды",
+    "light": "Свет",
     "poison_spray": "Ядовитые брызги",
     "animal_friendship": "Дружба с животными",
     "suggestion": "Внушение",
@@ -2687,6 +2697,9 @@ function openCharacterModal(){
   if(healingHandsText){
     details.push(`<div class="char-line"><strong>Исцеляющие руки:</strong> ${escapeHtml(healingHandsText.replace(/^Исцеляющие руки:\s*/, ""))}</div>`);
   }
+  if(aasimarLightBearerText){
+    details.push(`<div class="char-line"><strong>Несущий свет:</strong> ${escapeHtml(aasimarLightBearerText.replace(/^Несущий свет:\s*/, ""))}</div>`);
+  }
   if(aasimarTransformationText){
     details.push(`<div class="char-line"><strong>Небесное преобразование:</strong> ${escapeHtml(aasimarTransformationText.replace(/^Небесное преобразование:\s*/, ""))}</div>`);
   }
@@ -2906,6 +2919,7 @@ function openCharacterModal(){
   if(growthSpurtText) copyLines.push(growthSpurtText);
   if(breatheUnderwaterText) copyLines.push(breatheUnderwaterText);
   if(healingHandsText) copyLines.push(healingHandsText);
+  if(aasimarLightBearerText) copyLines.push(aasimarLightBearerText);
   if(aasimarTransformationText) copyLines.push(aasimarTransformationText);
   if(tirelessPrecisionText) copyLines.push(tirelessPrecisionText);
   if(asiChoiceText) copyLines.push(asiChoiceText);

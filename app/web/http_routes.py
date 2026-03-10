@@ -1149,7 +1149,12 @@ def _build_race_features(selected_race: dict | None) -> dict[str, Any]:
                 spell_obj = dict(spell)
                 if no_material_components:
                     spell_obj["no_material_components"] = True
-                normalized_spells.append(dict(spell_obj))
+                normalized_spell = dict(spell_obj)
+                if not normalized_spell.get("name") and normalized_spell.get("spell_ref"):
+                    normalized_spell["name"] = normalized_spell.get("spell_ref")
+                if not normalized_spell.get("min_level"):
+                    normalized_spell["min_level"] = 1
+                normalized_spells.append(normalized_spell)
                 _append_innate_spell(ability=ability, spell_obj=spell_obj)
             if normalized_spells:
                 features["innate_spellcasting"] = {
@@ -1157,6 +1162,26 @@ def _build_race_features(selected_race: dict | None) -> dict[str, Any]:
                     "ability": ability,
                     "spells": normalized_spells,
                 }
+                if tkey == "light_cantrip":
+                    light_spell = next(
+                        (
+                            item
+                            for item in normalized_spells
+                            if str((item or {}).get("name") or (item or {}).get("spell_ref") or "").strip().lower() == "light"
+                        ),
+                        None,
+                    )
+                    if isinstance(light_spell, dict):
+                        features["light_bearer"] = {
+                            "type": "innate_spellcasting",
+                            "ability": ability,
+                            "spell": {
+                                "name": "light",
+                                "frequency": str(light_spell.get("frequency") or "at_will").strip().lower() or "at_will",
+                                "min_level": max(1, as_int(light_spell.get("min_level"), 1)),
+                                "ability": ability,
+                            },
+                        }
 
         if mtype == "innate_spellcasting_shared_cooldown":
             ability = str(mech.get("ability") or "").strip().lower()
