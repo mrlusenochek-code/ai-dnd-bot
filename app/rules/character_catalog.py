@@ -762,6 +762,38 @@ BASE_RACE_CATALOG: list[dict[str, Any]] = [
                     }
                 ],
             },
+            {
+                "key": "duergar",
+                "name_ru": "Дуэргар",
+                "asi": [{"stat": "str", "bonus": 1}],
+                "traits": [
+                    {
+                        "key": "superior_darkvision_120",
+                        "name_ru": "Усиленное тёмное зрение",
+                        "text_ru": "Видит в темноте на 120 футов.",
+                        "mechanics": {"type": "sense", "name": "darkvision", "range_ft": 120},
+                    },
+                    {
+                        "key": "sunlight_sensitivity",
+                        "name_ru": "Чувствительность к солнечному свету",
+                        "text_ru": "Под прямым солнцем хуже атакует и замечает детали взглядом.",
+                        "mechanics": {"type": "sunlight_sensitivity"},
+                    },
+                    {
+                        "key": "duergar_magic",
+                        "name_ru": "Магия дуэргара",
+                        "text_ru": "С 3 уровня: «Увеличение» 1/дл. отдых. С 5 уровня: «Невидимость» 1/дл. отдых.",
+                        "mechanics": {
+                            "type": "innate_spellcasting",
+                            "ability": "int",
+                            "spells": [
+                                {"level": 2, "name": "enlarge", "frequency": "1_per_long_rest", "min_level": 3},
+                                {"level": 2, "name": "invisibility", "frequency": "1_per_long_rest", "min_level": 5},
+                            ],
+                        },
+                    },
+                ],
+            },
         ],
         "tags": [],
     },

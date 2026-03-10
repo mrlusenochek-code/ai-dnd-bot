@@ -1150,6 +1150,8 @@ function openCharacterModal(){
     "hellish_rebuke": "Адское возмездие",
     "darkness": "Тьма",
     "druidcraft": "Искусство друидов",
+    "enlarge": "Увеличение",
+    "invisibility": "Невидимость",
     "enlarge_reduce": "Увеличение/уменьшение",
     "mage_hand": "Волшебная рука",
     "shield": "Щит",
@@ -1976,6 +1978,18 @@ function openCharacterModal(){
   const drowMagicText = drowSubraceActive
     ? `Врождённая магия дроу: Пляшущие огоньки — доступно всегда; Волшебный огонь — ${drowSpellStatus("faerie_fire", 3, !!runtime.drow_faerie_fire_used)}; Тьма — ${drowSpellStatus("darkness", 5, !!runtime.drow_darkness_used)}. Базовая характеристика — Харизма`
     : "";
+  const duergarSubraceActive = raceKey === "dwarf" && String((subrace.key || "")).trim().toLowerCase() === "duergar";
+  const duergarSpellStatus = (spellKey, minLevel, usedFlag) => {
+    const requiredLevel = Number.isFinite(Number(minLevel)) ? Number(minLevel) : 1;
+    if(Number(ch.level || 1) < requiredLevel){
+      return `откроется на ${requiredLevel} уровне`;
+    }
+    const innateUsed = !!(((innateUsesRaw[spellKey] || {}).used) >= 1);
+    return (usedFlag || innateUsed) ? "восстановится после долгого отдыха" : "готово";
+  };
+  const duergarMagicText = duergarSubraceActive
+    ? `Магия дуэргара: Увеличение — ${duergarSpellStatus("enlarge", 3, !!runtime.duergar_enlarge_used)}; Невидимость — ${duergarSpellStatus("invisibility", 5, !!runtime.duergar_invisibility_used)}. Базовая характеристика — Интеллект`
+    : "";
   const tritonAmphibiousText = (raceKey === "triton" && tritonAmphibious)
     ? "Амфибия: можете дышать и воздухом, и водой"
     : "";
@@ -2724,6 +2738,9 @@ function openCharacterModal(){
   if(drowMagicText){
     details.push(`<div class="char-line"><strong>Врождённая магия дроу:</strong> ${escapeHtml(drowMagicText.replace(/^Врождённая магия дроу:\s*/, ""))}</div>`);
   }
+  if(duergarMagicText){
+    details.push(`<div class="char-line"><strong>Магия дуэргара:</strong> ${escapeHtml(duergarMagicText.replace(/^Магия дуэргара:\s*/, ""))}</div>`);
+  }
   if(saveAdvantagesRu.length){
     details.push(`<div class="char-line"><strong>Преим. спасброски:</strong> ${escapeHtml(saveAdvantagesRu.join(", "))}</div>`);
   }
@@ -2927,6 +2944,7 @@ function openCharacterModal(){
   if(cantripChoiceText) copyLines.push(cantripChoiceText);
   if(highElfCantripText) copyLines.push(highElfCantripText);
   if(drowMagicText) copyLines.push(drowMagicText);
+  if(duergarMagicText) copyLines.push(duergarMagicText);
   if(saveAdvantagesRu.length) copyLines.push(`Преим. спасброски: ${saveAdvantagesRu.join(", ")}`);
   if(langsRu.length) copyLines.push(`Языки: ${langsRu.join(", ")}`);
   if(profSkills.length) copyLines.push(`Проф. навыков (раса): ${profSkills.join(", ")}`);

@@ -568,6 +568,8 @@ def _apply_innate_spell_usage(ch: Character, spell_key: str) -> tuple[Optional[s
             "detect_magic": "Обнаружение магии",
             "disguise_self": "Маскировка",
             "druidcraft": "Искусство друидов",
+            "enlarge": "Увеличение",
+            "invisibility": "Невидимость",
             "enlarge_reduce": "Увеличение/уменьшение",
             "darkness": "тьма",
             "thaumaturgy": "Тауматургия",
@@ -599,6 +601,7 @@ def _apply_innate_spell_usage(ch: Character, spell_key: str) -> tuple[Optional[s
     triton_changed = False
     yuanti_changed = False
     race_key = str(rf.get("race_key") or "").strip().lower()
+    subrace_key = str((((rf.get("subrace") or {}).get("key")) or "")).strip().lower()
     if race_key == "triton":
         if spell_key == "gust_of_wind":
             if bool(runtime.get("triton_gust_of_wind_used")) is not changed:
@@ -617,6 +620,20 @@ def _apply_innate_spell_usage(ch: Character, spell_key: str) -> tuple[Optional[s
                 runtime["triton_active_water_wall"] = None
                 triton_changed = True
         if triton_changed:
+            rf["runtime"] = runtime
+            ch.race_features = rf
+            changed = True or changed
+    if race_key == "dwarf" and subrace_key == "duergar":
+        duergar_changed = False
+        if spell_key == "enlarge":
+            if bool(runtime.get("duergar_enlarge_used")) is not changed:
+                runtime["duergar_enlarge_used"] = changed
+                duergar_changed = True
+        elif spell_key == "invisibility":
+            if bool(runtime.get("duergar_invisibility_used")) is not changed:
+                runtime["duergar_invisibility_used"] = changed
+                duergar_changed = True
+        if duergar_changed:
             rf["runtime"] = runtime
             ch.race_features = rf
             changed = True or changed
@@ -2857,6 +2874,12 @@ def _reset_racial_rest_uses(ch: Character, *, long_rest: bool = True) -> bool:
         if "drow_darkness_used" in runtime:
             runtime["drow_darkness_used"] = False
             changed = True
+        if "duergar_enlarge_used" in runtime:
+            runtime["duergar_enlarge_used"] = False
+            changed = True
+        if "duergar_invisibility_used" in runtime:
+            runtime["duergar_invisibility_used"] = False
+            changed = True
         if "yuanti_suggestion_used" in runtime:
             runtime["yuanti_suggestion_used"] = False
             changed = True
@@ -3080,6 +3103,12 @@ def _reset_combatant_racial_rest_uses(session_id: str, actor_key: str, *, long_r
             changed = True
         if "drow_darkness_used" in runtime:
             runtime["drow_darkness_used"] = False
+            changed = True
+        if "duergar_enlarge_used" in runtime:
+            runtime["duergar_enlarge_used"] = False
+            changed = True
+        if "duergar_invisibility_used" in runtime:
+            runtime["duergar_invisibility_used"] = False
             changed = True
         if "yuanti_suggestion_used" in runtime:
             runtime["yuanti_suggestion_used"] = False

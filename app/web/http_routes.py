@@ -1162,6 +1162,12 @@ def _build_race_features(selected_race: dict | None) -> dict[str, Any]:
                     "ability": ability,
                     "spells": normalized_spells,
                 }
+                if tkey == "duergar_magic":
+                    features["duergar_magic"] = {
+                        "type": "innate_spellcasting",
+                        "ability": ability,
+                        "spells": normalized_spells,
+                    }
                 if tkey == "light_cantrip":
                     light_spell = next(
                         (
@@ -2696,6 +2702,17 @@ async def api_character_create(payload: dict):
             runtime = dict(runtime_raw) if isinstance(runtime_raw, dict) else {}
             runtime.setdefault("drow_faerie_fire_used", False)
             runtime.setdefault("drow_darkness_used", False)
+            race_features["runtime"] = runtime
+        if (
+            isinstance(race_features, dict)
+            and str(race_features.get("race_key") or "").strip().lower() == "dwarf"
+            and selected_subrace is not None
+            and str(selected_subrace.get("key") or "").strip().lower() == "duergar"
+        ):
+            runtime_raw = race_features.get("runtime")
+            runtime = dict(runtime_raw) if isinstance(runtime_raw, dict) else {}
+            runtime.setdefault("duergar_enlarge_used", False)
+            runtime.setdefault("duergar_invisibility_used", False)
             race_features["runtime"] = runtime
         if isinstance(race_features, dict) and str(race_features.get("race_key") or "").strip().lower() == "yuan_ti_pureblood":
             runtime_raw = race_features.get("runtime")

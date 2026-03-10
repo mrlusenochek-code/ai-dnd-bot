@@ -28,6 +28,11 @@ INNATE_SPELL_KEY_PATTERNS: dict[str, re.Pattern[str]] = {
     "disguise_self": re.compile(r"маскировк\w*|disguise\s+self", re.IGNORECASE),
     "hex": re.compile(r"сглаз\w*|\bhex\b", re.IGNORECASE),
     "druidcraft": re.compile(r"искусств(?:о|а)\s+друид\w*|druidcraft", re.IGNORECASE),
+    "enlarge": re.compile(
+        r"\bувеличени[ея]\b(?!\s*/?\s*уменьшени[ея])|\benlarge\b(?!\s*/?\s*reduce|\s+reduce)",
+        re.IGNORECASE,
+    ),
+    "invisibility": re.compile(r"невидимост\w*|\binvisibility\b", re.IGNORECASE),
     "enlarge_reduce": re.compile(
         r"увеличени[ея]\s*/?\s*уменьшени[ея]|enlarge\s*/?\s*reduce|enlarge\s+reduce",
         re.IGNORECASE,
@@ -311,6 +316,7 @@ CHAT_COMBAT_ACTION_PATTERNS: list[tuple[str, re.Pattern[str]]] = [
             r"обнаружени[ея]\s+магии|detect\s+magic|маскировк\w*|disguise\s+self|"
             r"сглаз\w*|\bhex\b|"
             r"искусств(?:о|а)\s+друид\w*|druidcraft|"
+            r"\bувеличени[ея]\b|\benlarge\b|невидимост\w*|\binvisibility\b|"
             r"увеличени[ея]\s*/?\s*уменьшени[ея]|enlarge\s*/?\s*reduce|enlarge\s+reduce|"
             r"(?:заклинани[ея]\s+)?щит\b|shield|"
             r"обнаружени[ея]\s+мысл\w*|чтени[ея]\s+мысл\w*|detect\s+thoughts|"
