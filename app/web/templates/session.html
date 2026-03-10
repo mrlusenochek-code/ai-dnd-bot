@@ -1225,6 +1225,17 @@ function openCharacterModal(){
     "dancing_lights": "Пляшущие огоньки",
   };
   const cantripChoiceText = cantripKey ? `Заговор мага (выбор): ${CANTRIP_LABELS_RU[cantripKey] || cantripKey}` : "";
+  const highElfCantripFeature = (raceFeaturesMeta.high_elf_cantrip && typeof raceFeaturesMeta.high_elf_cantrip === "object")
+    ? raceFeaturesMeta.high_elf_cantrip
+    : null;
+  const highElfCantripSpell = highElfCantripFeature && highElfCantripFeature.spell && typeof highElfCantripFeature.spell === "object"
+    ? highElfCantripFeature.spell
+    : null;
+  const highElfCantripKey = String((highElfCantripSpell && highElfCantripSpell.name) || cantripKey || "").trim().toLowerCase();
+  const highElfCantripRu = highElfCantripKey ? (CANTRIP_LABELS_RU[highElfCantripKey] || highElfCantripKey) : "";
+  const highElfCantripText = (raceKey === "elf" && String((subrace.key || "")).trim().toLowerCase() === "high_elf" && highElfCantripRu)
+    ? `Заговор высшего эльфа: ${highElfCantripRu}. Это врождённое заклинание, базовая характеристика — Интеллект. Статус: доступно всегда`
+    : "";
   const tirelessSkillKey = String(tirelessChoice.skill || "").trim().toLowerCase();
   const tirelessToolKey = String(tirelessChoice.tool || "").trim().toLowerCase();
   const tirelessSkillRu = tirelessSkillKey ? getSkillNameRu(tirelessSkillKey) : "";
@@ -2622,6 +2633,9 @@ function openCharacterModal(){
   if(cantripChoiceText){
     details.push(`<div class="char-line"><strong>Заговор мага (выбор):</strong> ${escapeHtml(cantripChoiceText.replace(/^Заговор мага \(выбор\):\s*/, ""))}</div>`);
   }
+  if(highElfCantripText){
+    details.push(`<div class="char-line"><strong>Заговор высшего эльфа:</strong> ${escapeHtml(highElfCantripText.replace(/^Заговор высшего эльфа:\s*/, ""))}</div>`);
+  }
   if(saveAdvantagesRu.length){
     details.push(`<div class="char-line"><strong>Преим. спасброски:</strong> ${escapeHtml(saveAdvantagesRu.join(", "))}</div>`);
   }
@@ -2819,6 +2833,7 @@ function openCharacterModal(){
   if(asiChoiceText) copyLines.push(asiChoiceText);
   if(shapechangerText) copyLines.push(shapechangerText);
   if(cantripChoiceText) copyLines.push(cantripChoiceText);
+  if(highElfCantripText) copyLines.push(highElfCantripText);
   if(saveAdvantagesRu.length) copyLines.push(`Преим. спасброски: ${saveAdvantagesRu.join(", ")}`);
   if(langsRu.length) copyLines.push(`Языки: ${langsRu.join(", ")}`);
   if(profSkills.length) copyLines.push(`Проф. навыков (раса): ${profSkills.join(", ")}`);

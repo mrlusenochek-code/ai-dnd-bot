@@ -15,6 +15,12 @@ INNATE_SPELL_KEY_PATTERNS: dict[str, re.Pattern[str]] = {
     "poison_spray": re.compile(r"ядовит\w+\s+брызг\w*|poison\s+spray", re.IGNORECASE),
     "animal_friendship": re.compile(r"дружб\w+\s+с\s+животн\w*|animal\s+friendship", re.IGNORECASE),
     "suggestion": re.compile(r"внушени\w*|\bsuggestion\b", re.IGNORECASE),
+    "fire_bolt": re.compile(r"огненн\w+\s+снаряд\w*|fire\s+bolt", re.IGNORECASE),
+    "ray_of_frost": re.compile(r"луч\s+холод\w*|ray\s+of\s+frost", re.IGNORECASE),
+    "shocking_grasp": re.compile(r"электрошок\w*|shocking\s+grasp", re.IGNORECASE),
+    "mage_hand": re.compile(r"волшебн\w+\s+рук\w*|mage\s+hand", re.IGNORECASE),
+    "prestidigitation": re.compile(r"фокус\w*|prestidigitation", re.IGNORECASE),
+    "light": re.compile(r"\bсвет\b|\blight\b", re.IGNORECASE),
     "minor_illusion": re.compile(r"мала[яй]\s+иллюз\w*|minor\s+illusion", re.IGNORECASE),
     "dancing_lights": re.compile(r"танцующ[а-яё]*\s+огн[а-яё]*|dancing\s+lights", re.IGNORECASE),
     "faerie_fire": re.compile(r"волшебн[а-яё]*\s+ог(?:н|он)[а-яё]*|faerie\s+fire", re.IGNORECASE),
@@ -297,6 +303,9 @@ CHAT_COMBAT_ACTION_PATTERNS: list[tuple[str, re.Pattern[str]]] = [
             r"горящ(?:ие|их)\s+руки|burning\s+hands|формирован(?:ие|ия)\s+воды|shape\s+water|"
             r"создани(?:е|я).*(?:уничтожени(?:е|я)).*воды|create.*destroy.*water|"
             r"порыв\s+ветра|gust\s+of\s+wind|стен[аы]\s+воды|wall\s+of\s+water|"
+            r"ядовит\w+\s+брызг\w*|poison\s+spray|дружб\w+\s+с\s+животн\w*|animal\s+friendship|внушени\w*|\bsuggestion\b|"
+            r"огненн\w+\s+снаряд\w*|fire\s+bolt|луч\s+холод\w*|ray\s+of\s+frost|электрошок\w*|shocking\s+grasp|"
+            r"волшебн\w+\s+рук\w*|mage\s+hand|фокус\w*|prestidigitation|\bсвет\b|\blight\b|"
             r"мала[яй]\s+иллюз\w*|minor\s+illusion|"
             r"танцующ[а-яё]*\s+огн[а-яё]*|dancing\s+lights|волшебн[а-яё]*\s+ог(?:н|он)[а-яё]*|faerie\s+fire|"
             r"обнаружени[ея]\s+магии|detect\s+magic|маскировк\w*|disguise\s+self|"

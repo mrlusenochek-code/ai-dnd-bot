@@ -2711,6 +2711,52 @@ async def api_character_create(payload: dict):
             race_features["features"] = features_dict
         if isinstance(race_features, dict) and race_choice_cantrips:
             choices_dict["cantrips"] = list(race_choice_cantrips)
+            race_key_norm = str(race_features.get("race_key") or "").strip().lower()
+            subrace_raw = race_features.get("subrace")
+            subrace = subrace_raw if isinstance(subrace_raw, dict) else {}
+            subrace_key = str(subrace.get("key") or "").strip().lower()
+            if race_key_norm == "elf" and subrace_key == "high_elf":
+                selected_cantrip = race_choice_cantrips[0]
+                innate_raw = race_features.get("innate_spells")
+                innate_spells = list(innate_raw) if isinstance(innate_raw, list) else []
+                innate_spells = [
+                    item
+                    for item in innate_spells
+                    if not (
+                        isinstance(item, dict)
+                        and str(item.get("source") or "").strip().lower() == "high_elf_cantrip"
+                    )
+                ]
+                innate_spells.append(
+                    {
+                        "name": selected_cantrip,
+                        "frequency": "at_will",
+                        "min_level": 1,
+                        "ability": "int",
+                        "source": "high_elf_cantrip",
+                    }
+                )
+                race_features["innate_spells"] = innate_spells
+
+                features_raw = race_features.get("features")
+                features_dict: dict[str, Any] = features_raw if isinstance(features_raw, dict) else {}
+                high_elf_spell = {
+                    "name": selected_cantrip,
+                    "frequency": "at_will",
+                    "min_level": 1,
+                    "ability": "int",
+                }
+                features_dict["high_elf_cantrip"] = {
+                    "type": "innate_spellcasting",
+                    "ability": "int",
+                    "spell": dict(high_elf_spell),
+                }
+                features_dict["innate_spellcasting"] = {
+                    "type": "innate_spellcasting",
+                    "ability": "int",
+                    "spells": [dict(high_elf_spell)],
+                }
+                race_features["features"] = features_dict
         if isinstance(race_features, dict) and race_choice_martial_weapons:
             prof = race_features.get("proficiencies")
             prof_dict: dict[str, Any] = prof if isinstance(prof, dict) else {}

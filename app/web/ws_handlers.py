@@ -579,6 +579,14 @@ def _apply_innate_spell_usage(ch: Character, spell_key: str) -> tuple[Optional[s
             "poison_spray": "Ядовитые брызги",
             "animal_friendship": "Дружба с животными",
             "suggestion": "Внушение",
+            "fire_bolt": "Огненный снаряд",
+            "ray_of_frost": "Луч холода",
+            "shocking_grasp": "Электрошок",
+            "mage_hand": "Волшебная рука",
+            "minor_illusion": "Малая иллюзия",
+            "prestidigitation": "Фокусы",
+            "light": "Свет",
+            "dancing_lights": "Пляшущие огоньки",
         }.get(spell_key, display_name)
 
     runtime_raw = rf.get("runtime")
