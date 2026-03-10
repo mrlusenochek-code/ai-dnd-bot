@@ -913,6 +913,37 @@ function openCharacterModal(){
     ? raceFeaturesMeta.tinker
     : null;
   const tinkerText = tinker ? "Жестянщик: владение инструментами жестянщика; создание малых устройств" : "";
+  const TINKER_DEVICE_LABELS_RU = {
+    "clockwork_toy": "Заводная игрушка",
+    "fire_starter": "Зажигалка",
+    "music_box": "Музыкальная шкатулка",
+  };
+  const tinkerDevices = Array.isArray(runtime.tinker_devices)
+    ? runtime.tinker_devices.filter((x) => x && typeof x === "object" && x.active !== false)
+    : [];
+  const tinkerDeviceLines = tinkerDevices.map((device) => {
+    const id = String(device.id || "").trim();
+    const nameRu = String(device.name_ru || "").trim() || (TINKER_DEVICE_LABELS_RU[String(device.type || "").trim().toLowerCase()] || String(device.type || ""));
+    const expiresAt = String(device.expires_at || "").trim();
+    let expiresText = expiresAt;
+    if(expiresAt){
+      const dt = new Date(expiresAt);
+      if(!Number.isNaN(dt.getTime())){
+        expiresText = `${String(dt.getFullYear())}-${String(dt.getMonth() + 1).padStart(2, "0")}-${String(dt.getDate()).padStart(2, "0")} ${String(dt.getHours()).padStart(2, "0")}:${String(dt.getMinutes()).padStart(2, "0")}`;
+      }
+    }
+    return `${id} — ${nameRu}${expiresText ? ` — активно до ${expiresText}` : ""}`;
+  });
+  const tinkerDevicesText = tinker
+    ? (
+      tinkerDeviceLines.length
+        ? `Активные устройства: ${tinkerDeviceLines.join("; ")}`
+        : "Активных устройств нет"
+    )
+    : "";
+  const tinkerHintText = tinker
+    ? "Гномий механик: можно поддерживать до 3 устройств одновременно; каждое устройство работает 24 часа; по канону создание требует 1 час работы и материалов на 10 зм (пока это справка)."
+    : "";
   const sentryRest = (raceFeaturesMeta.sentry_rest && typeof raceFeaturesMeta.sentry_rest === "object")
     ? raceFeaturesMeta.sentry_rest
     : null;
@@ -2588,6 +2619,12 @@ function openCharacterModal(){
   if(tinkerText){
     details.push(`<div class="char-line"><strong>Жестянщик:</strong> ${escapeHtml(tinkerText.replace(/^Жестянщик:\s*/, ""))}</div>`);
   }
+  if(tinkerDevicesText){
+    details.push(`<div class="char-line"><strong>Устройства механика:</strong> ${escapeHtml(tinkerDevicesText)}</div>`);
+  }
+  if(tinkerHintText){
+    details.push(`<div class="char-line"><strong>Гномий механик:</strong> ${escapeHtml(tinkerHintText.replace(/^Гномий механик:\s*/, ""))}</div>`);
+  }
   if(telepathyText){
     details.push(`<div class="char-line"><strong>Телепатия:</strong> ${escapeHtml(telepathyText.replace(/^Телепатия:\s*/, ""))}</div>`);
   }
@@ -2819,6 +2856,8 @@ function openCharacterModal(){
   if(talkWithSmallBeastsText) copyLines.push(talkWithSmallBeastsText);
   if(expertiseText) copyLines.push(expertiseText);
   if(tinkerText) copyLines.push(tinkerText);
+  if(tinkerDevicesText) copyLines.push(tinkerDevicesText);
+  if(tinkerHintText) copyLines.push(tinkerHintText);
   if(telepathyText) copyLines.push(telepathyText);
   if(blackBloodText) copyLines.push(blackBloodText);
   if(telepathicInsightText) copyLines.push(telepathicInsightText);

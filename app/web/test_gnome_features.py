@@ -151,6 +151,8 @@ def test_rock_gnome_persists_tinker_and_expertise_and_tool_prof(monkeypatch) -> 
     prof = race_features.get("proficiencies") or {}
     tools = prof.get("tools") or []
     features = race_features.get("features") or {}
+    runtime = race_features.get("runtime") or {}
     assert "tinkers_tools" in tools
     assert isinstance(features.get("tinker"), dict)
     assert isinstance(features.get("expertise"), dict)
+    assert runtime.get("tinker_devices") == []

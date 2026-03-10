@@ -151,6 +151,11 @@ TOOL_LABELS_RU: dict[str, str] = {
     "viol": "Виола",
 }
 VALID_TOOL_KEYS = set(TOOL_LABELS_RU)
+TINKER_DEVICE_LABELS_RU: dict[str, str] = {
+    "clockwork_toy": "Заводная игрушка",
+    "fire_starter": "Зажигалка",
+    "music_box": "Музыкальная шкатулка",
+}
 
 
 def _resolve_build_player_gm_action_text():
@@ -638,6 +643,158 @@ def _parse_iso_datetime(raw_value: Any) -> Optional[datetime]:
         return datetime.fromisoformat(txt.replace("Z", "+00:00"))
     except ValueError:
         return None
+
+
+def _rock_gnome_tinker_feature(race_features: Any) -> dict[str, Any]:
+    rf = race_features if isinstance(race_features, dict) else {}
+    if str(rf.get("race_key") or "").strip().lower() != "gnome":
+        return {}
+    subrace_raw = rf.get("subrace")
+    subrace = subrace_raw if isinstance(subrace_raw, dict) else {}
+    if str(subrace.get("key") or "").strip().lower() != "rock_gnome":
+        return {}
+    features_raw = rf.get("features")
+    features = features_raw if isinstance(features_raw, dict) else {}
+    tinker_raw = features.get("tinker")
+    tinker = tinker_raw if isinstance(tinker_raw, dict) else {}
+    return dict(tinker) if tinker else {}
+
+
+def _tinker_runtime_devices(ch: Any) -> tuple[dict[str, Any], dict[str, Any], list[dict[str, Any]]]:
+    race_features = getattr(ch, "race_features", None)
+    rf = dict(race_features) if isinstance(race_features, dict) else {}
+    runtime_raw = rf.get("runtime")
+    runtime = dict(runtime_raw) if isinstance(runtime_raw, dict) else {}
+    devices_raw = runtime.get("tinker_devices")
+    devices = [dict(item) for item in devices_raw] if isinstance(devices_raw, list) else []
+    return rf, runtime, devices
+
+
+def _tinker_device_name_ru(device_type: str) -> str:
+    key = str(device_type or "").strip().lower()
+    return TINKER_DEVICE_LABELS_RU.get(key, key)
+
+
+def _cleanup_tinker_devices(ch: Any, *, now: Optional[datetime] = None) -> tuple[list[dict[str, Any]], bool]:
+    rf, runtime, devices = _tinker_runtime_devices(ch)
+    now_dt = now if isinstance(now, datetime) else utcnow()
+    keep: list[dict[str, Any]] = []
+    changed = False
+    for item in devices:
+        expires_at = _parse_iso_datetime(item.get("expires_at"))
+        active = bool(item.get("active", True))
+        if not active:
+            changed = True
+            continue
+        if isinstance(expires_at, datetime) and expires_at <= now_dt:
+            changed = True
+            continue
+        keep.append(item)
+    if changed or runtime.get("tinker_devices") != keep:
+        runtime["tinker_devices"] = keep
+        rf["runtime"] = runtime
+        ch.race_features = rf
+        changed = True
+    return keep, changed
+
+
+def _tinker_access_error(ch: Any) -> str | None:
+    rf = getattr(ch, "race_features", None)
+    tinker = _rock_gnome_tinker_feature(rf)
+    if not tinker:
+        return "Гномий механик доступен только скальному гному."
+    return None
+
+
+def _create_tinker_device(
+    ch: Any,
+    device_type: str,
+    *,
+    now: Optional[datetime] = None,
+) -> tuple[str | None, str | None, bool]:
+    access_error = _tinker_access_error(ch)
+    if access_error:
+        return access_error, None, False
+    tinker = _rock_gnome_tinker_feature(getattr(ch, "race_features", None))
+    option_keys = {
+        str((item or {}).get("key") or "").strip().lower()
+        for item in (tinker.get("options") if isinstance(tinker.get("options"), list) else [])
+        if isinstance(item, dict)
+    }
+    device_key = str(device_type or "").strip().lower()
+    if device_key not in option_keys:
+        return "Неизвестный тип устройства. Доступно: clockwork_toy, fire_starter, music_box.", None, False
+
+    devices, cleaned = _cleanup_tinker_devices(ch, now=now)
+    max_active = max(1, as_int(tinker.get("max_active_devices"), 3))
+    if len(devices) >= max_active:
+        return "У вас уже есть 3 активных устройства гномьего механика. Сначала разберите одно из них.", None, cleaned
+
+    rf, runtime, fresh_devices = _tinker_runtime_devices(ch)
+    now_dt = now if isinstance(now, datetime) else utcnow()
+    duration_hours = max(1, as_int(tinker.get("duration_hours"), 24))
+    expires_at = now_dt + timedelta(hours=duration_hours)
+    device_id = f"tk_{uuid.uuid4().hex[:4]}"
+    fresh_devices.append(
+        {
+            "id": device_id,
+            "type": device_key,
+            "name_ru": _tinker_device_name_ru(device_key),
+            "created_at": now_dt.isoformat(),
+            "expires_at": expires_at.isoformat(),
+            "active": True,
+        }
+    )
+    runtime["tinker_devices"] = fresh_devices
+    rf["runtime"] = runtime
+    ch.race_features = rf
+    msg = (
+        f"[TINKER] Создано устройство: {_tinker_device_name_ru(device_key)}\n"
+        f"ID: {device_id}\n"
+        f"Будет работать 24 часа."
+    )
+    return None, msg, True
+
+
+def _list_tinker_devices(ch: Any, *, now: Optional[datetime] = None) -> tuple[str | None, str | None, bool]:
+    access_error = _tinker_access_error(ch)
+    if access_error:
+        return access_error, None, False
+    devices, changed = _cleanup_tinker_devices(ch, now=now)
+    if not devices:
+        return None, "[TINKER] Активных устройств нет.", changed
+    lines = ["[TINKER] Активные устройства:"]
+    for item in devices:
+        expires_at = _parse_iso_datetime(item.get("expires_at"))
+        expires_text = expires_at.astimezone().strftime("%Y-%m-%d %H:%M") if isinstance(expires_at, datetime) else "—"
+        lines.append(
+            f"- {str(item.get('id') or '').strip()} — {str(item.get('name_ru') or _tinker_device_name_ru(item.get('type') or ''))} — активно до {expires_text}"
+        )
+    return None, "\n".join(lines), changed
+
+
+def _remove_tinker_device(ch: Any, device_id: str, *, now: Optional[datetime] = None) -> tuple[str | None, str | None, bool]:
+    access_error = _tinker_access_error(ch)
+    if access_error:
+        return access_error, None, False
+    _devices, cleaned = _cleanup_tinker_devices(ch, now=now)
+    rf, runtime, devices = _tinker_runtime_devices(ch)
+    needle = str(device_id or "").strip().lower()
+    keep: list[dict[str, Any]] = []
+    removed: dict[str, Any] | None = None
+    for item in devices:
+        item_id = str(item.get("id") or "").strip().lower()
+        if not removed and item_id == needle:
+            removed = item
+            continue
+        keep.append(item)
+    if removed is None:
+        return "Устройство с таким ID не найдено.", None, cleaned
+    runtime["tinker_devices"] = keep
+    rf["runtime"] = runtime
+    ch.race_features = rf
+    msg = f"[TINKER] Устройство разобрано: {str(removed.get('name_ru') or _tinker_device_name_ru(removed.get('type') or ''))} ({str(removed.get('id') or '').strip()})"
+    return None, msg, True
 
 
 def _kalashtar_mind_link_feature(race_features: Any) -> dict[str, Any]:
@@ -3923,6 +4080,71 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                     await broadcast_state(session_id)
                     continue
 
+                m_tinker_create = re.match(r"^tinker\s+create\s+(?P<kind>[a-z_]{3,40})$", cmdline, re.IGNORECASE)
+                if m_tinker_create:
+                    combat_state_now = get_combat(session_id)
+                    if combat_state_now is not None and combat_state_now.active:
+                        await ws_error("Гномий механик недоступен во время боя", request_id=msg_request_id)
+                        continue
+                    ch = await get_character(db, sess.id, player.id)
+                    if not ch:
+                        await ws_error("No character. Use: char create ...", request_id=msg_request_id)
+                        continue
+                    tinker_err, tinker_msg, tinker_changed = _create_tinker_device(ch, m_tinker_create.group("kind"))
+                    if tinker_err:
+                        await ws_error(tinker_err, request_id=msg_request_id)
+                        continue
+                    if tinker_changed:
+                        flag_modified(ch, "race_features")
+                        await db.commit()
+                    if tinker_msg:
+                        await add_system_event(db, sess, tinker_msg)
+                    await broadcast_state(session_id)
+                    continue
+
+                if re.match(r"^tinker\s+list$", cmdline, re.IGNORECASE):
+                    combat_state_now = get_combat(session_id)
+                    if combat_state_now is not None and combat_state_now.active:
+                        await ws_error("Гномий механик недоступен во время боя", request_id=msg_request_id)
+                        continue
+                    ch = await get_character(db, sess.id, player.id)
+                    if not ch:
+                        await ws_error("No character. Use: char create ...", request_id=msg_request_id)
+                        continue
+                    tinker_err, tinker_msg, tinker_changed = _list_tinker_devices(ch)
+                    if tinker_err:
+                        await ws_error(tinker_err, request_id=msg_request_id)
+                        continue
+                    if tinker_changed:
+                        flag_modified(ch, "race_features")
+                        await db.commit()
+                    if tinker_msg:
+                        await add_system_event(db, sess, tinker_msg)
+                    await broadcast_state(session_id)
+                    continue
+
+                m_tinker_remove = re.match(r"^tinker\s+remove\s+(?P<device_id>[a-z0-9_]{3,40})$", cmdline, re.IGNORECASE)
+                if m_tinker_remove:
+                    combat_state_now = get_combat(session_id)
+                    if combat_state_now is not None and combat_state_now.active:
+                        await ws_error("Гномий механик недоступен во время боя", request_id=msg_request_id)
+                        continue
+                    ch = await get_character(db, sess.id, player.id)
+                    if not ch:
+                        await ws_error("No character. Use: char create ...", request_id=msg_request_id)
+                        continue
+                    tinker_err, tinker_msg, tinker_changed = _remove_tinker_device(ch, m_tinker_remove.group("device_id"))
+                    if tinker_err:
+                        await ws_error(tinker_err, request_id=msg_request_id)
+                        continue
+                    if tinker_changed:
+                        flag_modified(ch, "race_features")
+                        await db.commit()
+                    if tinker_msg:
+                        await add_system_event(db, sess, tinker_msg)
+                    await broadcast_state(session_id)
+                    continue
+
                 combat_action = _detect_chat_combat_action(text)
                 if combat_action == "combat_fury_of_the_small":
                     combat_action = "combat_fury_of_small"
@@ -4824,7 +5046,8 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                         "gm <текст> (только админ), "
                         "name <НовоеИмя> (не тратит ход), "
                         "leave (выйти), kick <#> (админ), turn <#> (админ), "
-                        "init / init roll / init set <#> <val> / init start / init clear (админ)."
+                        "init / init roll / init set <#> <val> / init start / init clear (админ), "
+                        "tinker create <clockwork_toy|fire_starter|music_box>, tinker list, tinker remove <id>."
                     )
                     await broadcast_state(session_id)
                     continue

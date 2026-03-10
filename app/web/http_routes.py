@@ -2582,6 +2582,16 @@ async def api_character_create(payload: dict):
             runtime.setdefault("warforged_sentry_rest_active", False)
             runtime.setdefault("warforged_integrated_armor_state", None)
             race_features["runtime"] = runtime
+        if (
+            isinstance(race_features, dict)
+            and selected_subrace is not None
+            and str(selected_race.get("key") or "").strip().lower() == "gnome"
+            and str(selected_subrace.get("key") or "").strip().lower() == "rock_gnome"
+        ):
+            runtime_raw = race_features.get("runtime")
+            runtime = dict(runtime_raw) if isinstance(runtime_raw, dict) else {}
+            runtime.setdefault("tinker_devices", [])
+            race_features["runtime"] = runtime
         if isinstance(race_features, dict) and selected_subrace is not None:
             race_features["subrace"] = {
                 "key": str(selected_subrace.get("key") or "").strip(),
