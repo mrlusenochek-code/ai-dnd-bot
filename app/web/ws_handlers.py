@@ -620,6 +620,20 @@ def _apply_innate_spell_usage(ch: Character, spell_key: str) -> tuple[Optional[s
             rf["runtime"] = runtime
             ch.race_features = rf
             changed = True or changed
+    if race_key == "elf" and str(((rf.get("subrace") or {}).get("key") or "")).strip().lower() == "drow":
+        drow_changed = False
+        if spell_key == "faerie_fire":
+            if bool(runtime.get("drow_faerie_fire_used")) is not changed:
+                runtime["drow_faerie_fire_used"] = changed
+                drow_changed = True
+        elif spell_key == "darkness":
+            if bool(runtime.get("drow_darkness_used")) is not changed:
+                runtime["drow_darkness_used"] = changed
+                drow_changed = True
+        if drow_changed:
+            rf["runtime"] = runtime
+            ch.race_features = rf
+            changed = True or changed
     if race_key == "yuan_ti_pureblood":
         if runtime.get("yuanti_last_innate_spell") != spell_key:
             runtime["yuanti_last_innate_spell"] = spell_key
@@ -2817,6 +2831,12 @@ def _reset_racial_rest_uses(ch: Character, *, long_rest: bool = True) -> bool:
         if "triton_active_water_wall" in runtime:
             runtime["triton_active_water_wall"] = None
             changed = True
+        if "drow_faerie_fire_used" in runtime:
+            runtime["drow_faerie_fire_used"] = False
+            changed = True
+        if "drow_darkness_used" in runtime:
+            runtime["drow_darkness_used"] = False
+            changed = True
         if "yuanti_suggestion_used" in runtime:
             runtime["yuanti_suggestion_used"] = False
             changed = True
@@ -3028,6 +3048,12 @@ def _reset_combatant_racial_rest_uses(session_id: str, actor_key: str, *, long_r
             changed = True
         if "triton_active_water_wall" in runtime:
             runtime["triton_active_water_wall"] = None
+            changed = True
+        if "drow_faerie_fire_used" in runtime:
+            runtime["drow_faerie_fire_used"] = False
+            changed = True
+        if "drow_darkness_used" in runtime:
+            runtime["drow_darkness_used"] = False
             changed = True
         if "yuanti_suggestion_used" in runtime:
             runtime["yuanti_suggestion_used"] = False

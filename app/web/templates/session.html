@@ -1943,6 +1943,18 @@ function openCharacterModal(){
   const tritonWaterMagicText = raceKey === "triton"
     ? `Управление воздухом и водой: Создание/уничтожение воды — доступно всегда; Порыв ветра — ${tritonSpellStatus("gust_of_wind", 3, !!runtime.triton_gust_of_wind_used)}; Стена воды — ${tritonSpellStatus("wall_of_water", 5, !!runtime.triton_wall_of_water_used)}${runtime.triton_active_water_wall ? "; стена воды активна" : ""}`
     : "";
+  const drowSubraceActive = raceKey === "elf" && String((subrace.key || "")).trim().toLowerCase() === "drow";
+  const drowSpellStatus = (spellKey, minLevel, usedFlag) => {
+    const requiredLevel = Number.isFinite(Number(minLevel)) ? Number(minLevel) : 1;
+    if(Number(ch.level || 1) < requiredLevel){
+      return `откроется на ${requiredLevel} уровне`;
+    }
+    const innateUsed = !!(((innateUsesRaw[spellKey] || {}).used) >= 1);
+    return (usedFlag || innateUsed) ? "восстановится после долгого отдыха" : "готово";
+  };
+  const drowMagicText = drowSubraceActive
+    ? `Врождённая магия дроу: Пляшущие огоньки — доступно всегда; Волшебный огонь — ${drowSpellStatus("faerie_fire", 3, !!runtime.drow_faerie_fire_used)}; Тьма — ${drowSpellStatus("darkness", 5, !!runtime.drow_darkness_used)}. Базовая характеристика — Харизма`
+    : "";
   const tritonAmphibiousText = (raceKey === "triton" && tritonAmphibious)
     ? "Амфибия: можете дышать и воздухом, и водой"
     : "";
@@ -2682,6 +2694,9 @@ function openCharacterModal(){
   if(highElfCantripText){
     details.push(`<div class="char-line"><strong>Заговор высшего эльфа:</strong> ${escapeHtml(highElfCantripText.replace(/^Заговор высшего эльфа:\s*/, ""))}</div>`);
   }
+  if(drowMagicText){
+    details.push(`<div class="char-line"><strong>Врождённая магия дроу:</strong> ${escapeHtml(drowMagicText.replace(/^Врождённая магия дроу:\s*/, ""))}</div>`);
+  }
   if(saveAdvantagesRu.length){
     details.push(`<div class="char-line"><strong>Преим. спасброски:</strong> ${escapeHtml(saveAdvantagesRu.join(", "))}</div>`);
   }
@@ -2882,6 +2897,7 @@ function openCharacterModal(){
   if(shapechangerText) copyLines.push(shapechangerText);
   if(cantripChoiceText) copyLines.push(cantripChoiceText);
   if(highElfCantripText) copyLines.push(highElfCantripText);
+  if(drowMagicText) copyLines.push(drowMagicText);
   if(saveAdvantagesRu.length) copyLines.push(`Преим. спасброски: ${saveAdvantagesRu.join(", ")}`);
   if(langsRu.length) copyLines.push(`Языки: ${langsRu.join(", ")}`);
   if(profSkills.length) copyLines.push(`Проф. навыков (раса): ${profSkills.join(", ")}`);

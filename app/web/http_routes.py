@@ -1325,9 +1325,31 @@ def _build_race_features(selected_race: dict | None) -> dict[str, Any]:
         if tkey == "drow_magic":
             ability = str(mech.get("ability") or "").strip().lower()
             spells = _as_list(mech.get("spells"))
+            normalized_spells: list[dict[str, Any]] = []
             for spell in spells:
                 if isinstance(spell, dict):
+                    spell_ref = str(spell.get("spell_ref") or spell.get("name") or "").strip().lower()
+                    frequency = "at_will" if str(spell.get("kind") or "").strip().lower() == "cantrip" else ""
+                    if as_int(spell.get("uses_per_day"), 0) > 0:
+                        frequency = "1_per_long_rest"
+                    spell_entry: dict[str, Any] = {
+                        "name": spell_ref,
+                        "frequency": frequency,
+                        "min_level": max(1, as_int(spell.get("min_level"), 1)),
+                    }
+                    normalized_spells.append(spell_entry)
                     _append_innate_spell(ability=ability, spell_obj=spell)
+            if normalized_spells:
+                features["drow_magic"] = {
+                    "type": "innate_spellcasting",
+                    "ability": ability,
+                    "spells": normalized_spells,
+                }
+                features["innate_spellcasting"] = {
+                    "type": "innate_spellcasting",
+                    "ability": ability,
+                    "spells": normalized_spells,
+                }
 
         if tkey == "sunlight_sensitivity":
             disadvantage = _uniq_lower_str_list(mech.get("disadvantage"))
@@ -2599,6 +2621,17 @@ async def api_character_create(payload: dict):
             runtime.setdefault("triton_gust_of_wind_used", False)
             runtime.setdefault("triton_wall_of_water_used", False)
             runtime.setdefault("triton_active_water_wall", None)
+            race_features["runtime"] = runtime
+        if (
+            isinstance(race_features, dict)
+            and str(race_features.get("race_key") or "").strip().lower() == "elf"
+            and selected_subrace is not None
+            and str(selected_subrace.get("key") or "").strip().lower() == "drow"
+        ):
+            runtime_raw = race_features.get("runtime")
+            runtime = dict(runtime_raw) if isinstance(runtime_raw, dict) else {}
+            runtime.setdefault("drow_faerie_fire_used", False)
+            runtime.setdefault("drow_darkness_used", False)
             race_features["runtime"] = runtime
         if isinstance(race_features, dict) and str(race_features.get("race_key") or "").strip().lower() == "yuan_ti_pureblood":
             runtime_raw = race_features.get("runtime")
