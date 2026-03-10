@@ -1179,7 +1179,7 @@ function openCharacterModal(){
       if(spellLimitText) parts.push(spellLimitText);
       return parts.length ? `${spellNameRu} (${parts.join(", ")})` : spellNameRu;
     });
-  const infernalLegacyText = infernalLegacySpells.length
+  const infernalLegacyText = (raceKey !== "tiefling" && infernalLegacySpells.length)
     ? `Дьявольское наследие: ${infernalLegacySpells.join("; ")}`
     : "";
   const hasPoisonResistance = resistances.map((x) => String(x || "").trim().toLowerCase()).includes("poison");
@@ -1943,6 +1943,17 @@ function openCharacterModal(){
   const tritonWaterMagicText = raceKey === "triton"
     ? `Управление воздухом и водой: Создание/уничтожение воды — доступно всегда; Порыв ветра — ${tritonSpellStatus("gust_of_wind", 3, !!runtime.triton_gust_of_wind_used)}; Стена воды — ${tritonSpellStatus("wall_of_water", 5, !!runtime.triton_wall_of_water_used)}${runtime.triton_active_water_wall ? "; стена воды активна" : ""}`
     : "";
+  const tieflingSpellStatus = (spellKey, minLevel, usedFlag) => {
+    const requiredLevel = Number.isFinite(Number(minLevel)) ? Number(minLevel) : 1;
+    if(Number(ch.level || 1) < requiredLevel){
+      return `откроется на ${requiredLevel} уровне`;
+    }
+    const innateUsed = !!(((innateUsesRaw[spellKey] || {}).used) >= 1);
+    return (usedFlag || innateUsed) ? "восстановится после долгого отдыха" : "готово";
+  };
+  const tieflingInfernalLegacyText = raceKey === "tiefling"
+    ? `Адское наследие: Тауматургия — доступно всегда; Адская кара — ${tieflingSpellStatus("hellish_rebuke", 3, !!runtime.tiefling_hellish_rebuke_used)}; Тьма — ${tieflingSpellStatus("darkness", 5, !!runtime.tiefling_darkness_used)}. Базовая характеристика — Харизма`
+    : "";
   const drowSubraceActive = raceKey === "elf" && String((subrace.key || "")).trim().toLowerCase() === "drow";
   const drowSpellStatus = (spellKey, minLevel, usedFlag) => {
     const requiredLevel = Number.isFinite(Number(minLevel)) ? Number(minLevel) : 1;
@@ -2285,6 +2296,9 @@ function openCharacterModal(){
   }
   if(infernalLegacyText){
     details.push(`<div class="char-line"><strong>Дьявольское наследие:</strong> ${escapeHtml(infernalLegacyText.replace(/^Дьявольское наследие:\s*/, ""))}</div>`);
+  }
+  if(tieflingInfernalLegacyText){
+    details.push(`<div class="char-line"><strong>Адское наследие:</strong> ${escapeHtml(tieflingInfernalLegacyText.replace(/^Адское наследие:\s*/, ""))}</div>`);
   }
   if(saveAdvantageConditionsRu.length){
     details.push(`<div class="char-line"><strong>Преим. против:</strong> ${escapeHtml(saveAdvantageConditionsRu.join(", "))} (спасброски)</div>`);
@@ -2761,6 +2775,7 @@ function openCharacterModal(){
   if(healingSpellsAffectConstructText) copyLines.push(healingSpellsAffectConstructText);
   if(hellishResistanceText) copyLines.push(hellishResistanceText);
   if(infernalLegacyText) copyLines.push(infernalLegacyText);
+  if(tieflingInfernalLegacyText) copyLines.push(tieflingInfernalLegacyText);
   if(githMentalDisciplineText) copyLines.push(githMentalDisciplineText);
   if(githMartialProdigyText) copyLines.push(githMartialProdigyText);
   if(decadentMasteryText) copyLines.push(decadentMasteryText);

@@ -620,6 +620,20 @@ def _apply_innate_spell_usage(ch: Character, spell_key: str) -> tuple[Optional[s
             rf["runtime"] = runtime
             ch.race_features = rf
             changed = True or changed
+    if race_key == "tiefling":
+        tiefling_changed = False
+        if spell_key == "hellish_rebuke":
+            if bool(runtime.get("tiefling_hellish_rebuke_used")) is not changed:
+                runtime["tiefling_hellish_rebuke_used"] = changed
+                tiefling_changed = True
+        elif spell_key == "darkness":
+            if bool(runtime.get("tiefling_darkness_used")) is not changed:
+                runtime["tiefling_darkness_used"] = changed
+                tiefling_changed = True
+        if tiefling_changed:
+            rf["runtime"] = runtime
+            ch.race_features = rf
+            changed = True or changed
     if race_key == "elf" and str(((rf.get("subrace") or {}).get("key") or "")).strip().lower() == "drow":
         drow_changed = False
         if spell_key == "faerie_fire":
@@ -2831,6 +2845,12 @@ def _reset_racial_rest_uses(ch: Character, *, long_rest: bool = True) -> bool:
         if "triton_active_water_wall" in runtime:
             runtime["triton_active_water_wall"] = None
             changed = True
+        if "tiefling_hellish_rebuke_used" in runtime:
+            runtime["tiefling_hellish_rebuke_used"] = False
+            changed = True
+        if "tiefling_darkness_used" in runtime:
+            runtime["tiefling_darkness_used"] = False
+            changed = True
         if "drow_faerie_fire_used" in runtime:
             runtime["drow_faerie_fire_used"] = False
             changed = True
@@ -3048,6 +3068,12 @@ def _reset_combatant_racial_rest_uses(session_id: str, actor_key: str, *, long_r
             changed = True
         if "triton_active_water_wall" in runtime:
             runtime["triton_active_water_wall"] = None
+            changed = True
+        if "tiefling_hellish_rebuke_used" in runtime:
+            runtime["tiefling_hellish_rebuke_used"] = False
+            changed = True
+        if "tiefling_darkness_used" in runtime:
+            runtime["tiefling_darkness_used"] = False
             changed = True
         if "drow_faerie_fire_used" in runtime:
             runtime["drow_faerie_fire_used"] = False

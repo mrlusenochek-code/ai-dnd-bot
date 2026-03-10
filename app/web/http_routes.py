@@ -1296,6 +1296,7 @@ def _build_race_features(selected_race: dict | None) -> dict[str, Any]:
         if mtype == "spell_grants":
             ability = str(mech.get("casting_ability") or "").strip().lower()
             grants = _as_list(mech.get("grants"))
+            normalized_spells: list[dict[str, Any]] = []
             for grant in grants:
                 if not isinstance(grant, dict):
                     continue
@@ -1320,7 +1321,25 @@ def _build_race_features(selected_race: dict | None) -> dict[str, Any]:
                 if spell_level >= 0:
                     spell_obj["spell_level"] = spell_level
                     spell_obj["level"] = spell_level
+                normalized_spells.append(
+                    {
+                        "name": spell_key,
+                        "frequency": frequency,
+                        "min_level": max(1, as_int(grant.get("min_level"), 1)),
+                    }
+                )
                 _append_innate_spell(ability=ability, spell_obj=spell_obj)
+            if normalized_spells:
+                features["infernal_legacy"] = {
+                    "type": "innate_spellcasting",
+                    "ability": ability,
+                    "spells": normalized_spells,
+                }
+                features["innate_spellcasting"] = {
+                    "type": "innate_spellcasting",
+                    "ability": ability,
+                    "spells": normalized_spells,
+                }
 
         if tkey == "drow_magic":
             ability = str(mech.get("ability") or "").strip().lower()
@@ -2621,6 +2640,12 @@ async def api_character_create(payload: dict):
             runtime.setdefault("triton_gust_of_wind_used", False)
             runtime.setdefault("triton_wall_of_water_used", False)
             runtime.setdefault("triton_active_water_wall", None)
+            race_features["runtime"] = runtime
+        if isinstance(race_features, dict) and str(race_features.get("race_key") or "").strip().lower() == "tiefling":
+            runtime_raw = race_features.get("runtime")
+            runtime = dict(runtime_raw) if isinstance(runtime_raw, dict) else {}
+            runtime.setdefault("tiefling_hellish_rebuke_used", False)
+            runtime.setdefault("tiefling_darkness_used", False)
             race_features["runtime"] = runtime
         if (
             isinstance(race_features, dict)
