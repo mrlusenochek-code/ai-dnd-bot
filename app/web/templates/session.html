@@ -1035,7 +1035,7 @@ function openCharacterModal(){
     "aquan": "Акван",
     "terran": "Терран",
     "ignan": "Игнан",
-    "abyssal": "Бездонный",
+    "abyssal": "Бездный",
     "sylvan": "Сильван",
     "undercommon": "Подобщий",
     "deep_speech": "Глубинная речь",
@@ -1112,6 +1112,9 @@ function openCharacterModal(){
     "create_or_destroy_water": "Создание/уничтожение воды",
     "gust_of_wind": "Порыв ветра",
     "wall_of_water": "Стена воды",
+    "poison_spray": "Ядовитые брызги",
+    "animal_friendship": "Дружба с животными",
+    "suggestion": "Внушение",
   };
   const infernalLegacySpells = innateSpells
     .filter((spell) => {
@@ -1898,6 +1901,28 @@ function openCharacterModal(){
   const tritonEmissaryText = (raceKey === "triton" && tritonEmissary)
     ? "Посланник моря: можете общаться простыми идеями с морскими зверями"
     : "";
+  const yuantiPoisonImmunity = (raceFeaturesMeta.poison_immunity && typeof raceFeaturesMeta.poison_immunity === "object")
+    ? raceFeaturesMeta.poison_immunity
+    : null;
+  const yuantiMagicResistance = (raceFeaturesMeta.magic_resistance && typeof raceFeaturesMeta.magic_resistance === "object")
+    ? raceFeaturesMeta.magic_resistance
+    : null;
+  const yuantiSuggestionStatus = () => {
+    if(Number(ch.level || 1) < 3){
+      return "откроется на 3 уровне";
+    }
+    const innateUsed = !!(((innateUsesRaw.suggestion || {}).used) >= 1);
+    return (runtime.yuanti_suggestion_used || innateUsed) ? "восстановится после долгого отдыха" : "готово";
+  };
+  const yuantiPoisonImmunityText = (raceKey === "yuan_ti_pureblood" && yuantiPoisonImmunity)
+    ? "Иммунитет к яду: иммунитет к урону ядом и состоянию «отравленный»"
+    : "";
+  const yuantiMagicResistanceText = (raceKey === "yuan_ti_pureblood" && yuantiMagicResistance)
+    ? "Сопротивление магии: преимущество на спасброски от заклинаний и других магических эффектов"
+    : "";
+  const yuantiInnateMagicText = raceKey === "yuan_ti_pureblood"
+    ? `Врождённая магия: Ядовитые брызги — доступно всегда; Дружба с животными (только змеи) — доступно всегда; Внушение — ${yuantiSuggestionStatus()}`
+    : "";
   const warforgedResilience = (raceFeaturesMeta.constructed_resilience && typeof raceFeaturesMeta.constructed_resilience === "object")
     ? raceFeaturesMeta.constructed_resilience
     : null;
@@ -2399,6 +2424,15 @@ function openCharacterModal(){
   if(tritonWaterMagicText){
     details.push(`<div class="char-line"><strong>Управление воздухом и водой:</strong> ${escapeHtml(tritonWaterMagicText.replace(/^Управление воздухом и водой:\s*/, ""))}</div>`);
   }
+  if(yuantiPoisonImmunityText){
+    details.push(`<div class="char-line"><strong>Иммунитет к яду:</strong> ${escapeHtml(yuantiPoisonImmunityText.replace(/^Иммунитет к яду:\s*/, ""))}</div>`);
+  }
+  if(yuantiMagicResistanceText){
+    details.push(`<div class="char-line"><strong>Сопротивление магии:</strong> ${escapeHtml(yuantiMagicResistanceText.replace(/^Сопротивление магии:\s*/, ""))}</div>`);
+  }
+  if(yuantiInnateMagicText){
+    details.push(`<div class="char-line"><strong>Врождённая магия:</strong> ${escapeHtml(yuantiInnateMagicText.replace(/^Врождённая магия:\s*/, ""))}</div>`);
+  }
   if(warforgedSpecializedDesignText){
     details.push(`<div class="char-line"><strong>Специальная сборка:</strong> ${escapeHtml(warforgedSpecializedDesignText.replace(/^Специальная сборка:\s*/, ""))}</div>`);
   }
@@ -2716,6 +2750,9 @@ function openCharacterModal(){
   if(tritonDepthsText) copyLines.push(tritonDepthsText);
   if(tritonEmissaryText) copyLines.push(tritonEmissaryText);
   if(tritonWaterMagicText) copyLines.push(tritonWaterMagicText);
+  if(yuantiPoisonImmunityText) copyLines.push(yuantiPoisonImmunityText);
+  if(yuantiMagicResistanceText) copyLines.push(yuantiMagicResistanceText);
+  if(yuantiInnateMagicText) copyLines.push(yuantiInnateMagicText);
   if(warforgedSpecializedDesignText) copyLines.push(warforgedSpecializedDesignText);
   if(warforgedIntegratedProtectionText) copyLines.push(warforgedIntegratedProtectionText);
   if(warforgedConstructedResilienceText) copyLines.push(warforgedConstructedResilienceText);

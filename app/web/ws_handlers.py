@@ -438,11 +438,15 @@ def _apply_innate_spell_usage(ch: Character, spell_key: str) -> tuple[Optional[s
             "create_or_destroy_water": "Создание/уничтожение воды",
             "gust_of_wind": "Порыв ветра",
             "wall_of_water": "Стена воды",
+            "poison_spray": "Ядовитые брызги",
+            "animal_friendship": "Дружба с животными",
+            "suggestion": "Внушение",
         }.get(spell_key, display_name)
 
     runtime_raw = rf.get("runtime")
     runtime = dict(runtime_raw) if isinstance(runtime_raw, dict) else {}
     triton_changed = False
+    yuanti_changed = False
     race_key = str(rf.get("race_key") or "").strip().lower()
     if race_key == "triton":
         if spell_key == "gust_of_wind":
@@ -462,6 +466,18 @@ def _apply_innate_spell_usage(ch: Character, spell_key: str) -> tuple[Optional[s
                 runtime["triton_active_water_wall"] = None
                 triton_changed = True
         if triton_changed:
+            rf["runtime"] = runtime
+            ch.race_features = rf
+            changed = True or changed
+    if race_key == "yuan_ti_pureblood":
+        if runtime.get("yuanti_last_innate_spell") != spell_key:
+            runtime["yuanti_last_innate_spell"] = spell_key
+            yuanti_changed = True
+        if spell_key == "suggestion":
+            if bool(runtime.get("yuanti_suggestion_used")) is not changed:
+                runtime["yuanti_suggestion_used"] = changed
+                yuanti_changed = True
+        if yuanti_changed:
             rf["runtime"] = runtime
             ch.race_features = rf
             changed = True or changed
@@ -2498,6 +2514,12 @@ def _reset_racial_rest_uses(ch: Character, *, long_rest: bool = True) -> bool:
         if "triton_active_water_wall" in runtime:
             runtime["triton_active_water_wall"] = None
             changed = True
+        if "yuanti_suggestion_used" in runtime:
+            runtime["yuanti_suggestion_used"] = False
+            changed = True
+        if "yuanti_last_innate_spell" in runtime:
+            runtime["yuanti_last_innate_spell"] = None
+            changed = True
         if "fearless_auto_success_used" in runtime:
             runtime.pop("fearless_auto_success_used", None)
             changed = True
@@ -2703,6 +2725,12 @@ def _reset_combatant_racial_rest_uses(session_id: str, actor_key: str, *, long_r
             changed = True
         if "triton_active_water_wall" in runtime:
             runtime["triton_active_water_wall"] = None
+            changed = True
+        if "yuanti_suggestion_used" in runtime:
+            runtime["yuanti_suggestion_used"] = False
+            changed = True
+        if "yuanti_last_innate_spell" in runtime:
+            runtime["yuanti_last_innate_spell"] = None
             changed = True
         if "fearless_auto_success_used" in runtime:
             runtime.pop("fearless_auto_success_used", None)

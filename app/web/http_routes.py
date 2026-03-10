@@ -692,8 +692,16 @@ def _build_race_features(selected_race: dict | None) -> dict[str, Any]:
                 resist.append(damage_type)
 
         if mtype == "damage_and_condition_immunity":
-            immune_damage.extend([str(x) for x in _as_list(mech.get("damage")) if str(x)])
-            immune_cond.extend([str(x) for x in _as_list(mech.get("conditions")) if str(x)])
+            damage_items = [str(x) for x in _as_list(mech.get("damage")) if str(x)]
+            condition_items = [str(x) for x in _as_list(mech.get("conditions")) if str(x)]
+            immune_damage.extend(damage_items)
+            immune_cond.extend(condition_items)
+            if tkey:
+                features[tkey] = {
+                    "type": "damage_and_condition_immunity",
+                    "damage": _uniq_lower_str_list(damage_items),
+                    "conditions": _uniq_lower_str_list(condition_items),
+                }
 
         if mtype == "skill_proficiency":
             sk = str(mech.get("skill") or "").strip().lower()
@@ -1134,13 +1142,21 @@ def _build_race_features(selected_race: dict | None) -> dict[str, Any]:
             ability = str(mech.get("ability") or "").strip().lower()
             no_material_components = bool(mech.get("no_material_components"))
             spells = _as_list(mech.get("spells"))
+            normalized_spells: list[dict[str, Any]] = []
             for spell in spells:
                 if not isinstance(spell, dict):
                     continue
                 spell_obj = dict(spell)
                 if no_material_components:
                     spell_obj["no_material_components"] = True
+                normalized_spells.append(dict(spell_obj))
                 _append_innate_spell(ability=ability, spell_obj=spell_obj)
+            if normalized_spells:
+                features["innate_spellcasting"] = {
+                    "type": "innate_spellcasting",
+                    "ability": ability,
+                    "spells": normalized_spells,
+                }
 
         if mtype == "innate_spellcasting_shared_cooldown":
             ability = str(mech.get("ability") or "").strip().lower()
@@ -2553,6 +2569,12 @@ async def api_character_create(payload: dict):
             runtime.setdefault("triton_gust_of_wind_used", False)
             runtime.setdefault("triton_wall_of_water_used", False)
             runtime.setdefault("triton_active_water_wall", None)
+            race_features["runtime"] = runtime
+        if isinstance(race_features, dict) and str(race_features.get("race_key") or "").strip().lower() == "yuan_ti_pureblood":
+            runtime_raw = race_features.get("runtime")
+            runtime = dict(runtime_raw) if isinstance(runtime_raw, dict) else {}
+            runtime.setdefault("yuanti_suggestion_used", False)
+            runtime.setdefault("yuanti_last_innate_spell", None)
             race_features["runtime"] = runtime
         if isinstance(race_features, dict) and str(race_features.get("race_key") or "").strip().lower() == "warforged":
             runtime_raw = race_features.get("runtime")

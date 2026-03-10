@@ -632,7 +632,9 @@ def _proficiency_bonus_for_actor(actor: Any) -> int:
     return max(2, int(proficiency_bonus(level)))
 
 
-def _set_poisoned_condition(actor: Any, *, save_dc: int, rounds: int, source: str) -> None:
+def _set_poisoned_condition(actor: Any, *, save_dc: int, rounds: int, source: str) -> bool:
+    if _has_condition_immunity(actor, "poisoned"):
+        return False
     race_features, runtime, conditions = _conditions_runtime(actor)
     poisoned_raw = conditions.get("poisoned")
     poisoned = dict(poisoned_raw) if isinstance(poisoned_raw, dict) else {}
@@ -645,6 +647,7 @@ def _set_poisoned_condition(actor: Any, *, save_dc: int, rounds: int, source: st
     runtime["conditions"] = conditions
     race_features["runtime"] = runtime
     actor.race_features = race_features
+    return True
 
 
 def _set_leonin_roar_frightened_condition(target: Any, *, source_actor_id: str) -> bool:
@@ -776,8 +779,8 @@ def _maybe_apply_grung_contact_poison_on_melee_hit(
         return
     duration_key = str(contact.get("duration") or "").strip().lower()
     rounds = 10 if duration_key == "1_minute" else max(1, int(contact.get("rounds") or 10))
-    _set_poisoned_condition(attacker, save_dc=dc, rounds=rounds, source="grung_contact_poison")
-    lines.append({"text": f"{attacker.name} получает состояние «отравлен» (до {rounds} раундов, повторы в конце хода).", "muted": True})
+    if _set_poisoned_condition(attacker, save_dc=dc, rounds=rounds, source="grung_contact_poison"):
+        lines.append({"text": f"{attacker.name} получает состояние «отравлен» (до {rounds} раундов, повторы в конце хода).", "muted": True})
 
 
 def _rabbit_hop_runtime(actor: Any) -> tuple[dict[str, Any], dict[str, Any], int]:
