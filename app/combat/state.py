@@ -68,6 +68,27 @@ def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+def _reset_bugbear_surprise_attack_runtime(combatant: Combatant) -> bool:
+    changed = False
+    if max(0, int(getattr(combatant, "turns_taken", 0) or 0)) != 0:
+        combatant.turns_taken = 0
+        changed = True
+    if bool(getattr(combatant, "surprise_attack_used", False)):
+        combatant.surprise_attack_used = False
+        changed = True
+    return changed
+
+
+def _cleanup_battle_runtime(state: CombatState | None) -> bool:
+    if state is None:
+        return False
+    changed = False
+    for combatant in state.combatants.values():
+        if _reset_bugbear_surprise_attack_runtime(combatant):
+            changed = True
+    return changed
+
+
 def _normalize_turn_index(state: CombatState, previous_key: str | None = None) -> None:
     if not state.order:
         state.turn_index = 0
@@ -173,6 +194,8 @@ def _normalize_level(value: Any) -> int:
 
 def start_combat(session_id: str, *, reason: str | None = None) -> CombatState:
     _ = reason
+    existing = _COMBAT_BY_SESSION.get(session_id)
+    _cleanup_battle_runtime(existing)
     state = CombatState(
         active=True,
         round_no=1,
@@ -186,6 +209,8 @@ def start_combat(session_id: str, *, reason: str | None = None) -> CombatState:
 
 
 def end_combat(session_id: str) -> None:
+    state = _COMBAT_BY_SESSION.get(session_id)
+    _cleanup_battle_runtime(state)
     _COMBAT_BY_SESSION.pop(session_id, None)
 
 
