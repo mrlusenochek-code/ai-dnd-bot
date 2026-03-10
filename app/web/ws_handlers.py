@@ -637,6 +637,30 @@ def _apply_innate_spell_usage(ch: Character, spell_key: str) -> tuple[Optional[s
             rf["runtime"] = runtime
             ch.race_features = rf
             changed = True or changed
+    if race_key == "gith":
+        gith_changed = False
+        if subrace_key == "githyanki":
+            if spell_key == "jump":
+                if bool(runtime.get("githyanki_jump_used")) is not changed:
+                    runtime["githyanki_jump_used"] = changed
+                    gith_changed = True
+            elif spell_key == "misty_step":
+                if bool(runtime.get("githyanki_misty_step_used")) is not changed:
+                    runtime["githyanki_misty_step_used"] = changed
+                    gith_changed = True
+        elif subrace_key == "githzerai":
+            if spell_key == "shield":
+                if bool(runtime.get("githzerai_shield_used")) is not changed:
+                    runtime["githzerai_shield_used"] = changed
+                    gith_changed = True
+            elif spell_key == "detect_thoughts":
+                if bool(runtime.get("githzerai_detect_thoughts_used")) is not changed:
+                    runtime["githzerai_detect_thoughts_used"] = changed
+                    gith_changed = True
+        if gith_changed:
+            rf["runtime"] = runtime
+            ch.race_features = rf
+            changed = True or changed
     if race_key == "tiefling":
         tiefling_changed = False
         if spell_key == "hellish_rebuke":
@@ -2880,6 +2904,18 @@ def _reset_racial_rest_uses(ch: Character, *, long_rest: bool = True) -> bool:
         if "duergar_invisibility_used" in runtime:
             runtime["duergar_invisibility_used"] = False
             changed = True
+        if "githyanki_jump_used" in runtime:
+            runtime["githyanki_jump_used"] = False
+            changed = True
+        if "githyanki_misty_step_used" in runtime:
+            runtime["githyanki_misty_step_used"] = False
+            changed = True
+        if "githzerai_shield_used" in runtime:
+            runtime["githzerai_shield_used"] = False
+            changed = True
+        if "githzerai_detect_thoughts_used" in runtime:
+            runtime["githzerai_detect_thoughts_used"] = False
+            changed = True
         if "yuanti_suggestion_used" in runtime:
             runtime["yuanti_suggestion_used"] = False
             changed = True
@@ -3109,6 +3145,18 @@ def _reset_combatant_racial_rest_uses(session_id: str, actor_key: str, *, long_r
             changed = True
         if "duergar_invisibility_used" in runtime:
             runtime["duergar_invisibility_used"] = False
+            changed = True
+        if "githyanki_jump_used" in runtime:
+            runtime["githyanki_jump_used"] = False
+            changed = True
+        if "githyanki_misty_step_used" in runtime:
+            runtime["githyanki_misty_step_used"] = False
+            changed = True
+        if "githzerai_shield_used" in runtime:
+            runtime["githzerai_shield_used"] = False
+            changed = True
+        if "githzerai_detect_thoughts_used" in runtime:
+            runtime["githzerai_detect_thoughts_used"] = False
             changed = True
         if "yuanti_suggestion_used" in runtime:
             runtime["yuanti_suggestion_used"] = False

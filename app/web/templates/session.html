@@ -1510,36 +1510,28 @@ function openCharacterModal(){
   const githMentalDisciplineText = hasGithMentalDiscipline
     ? "Ментальная дисциплина: преимущество на спасброски от очарования и испуга"
     : "";
-  const githPsionicSpellOrder = ["mage_hand", "shield", "detect_thoughts", "jump", "misty_step"];
-  const githPsionicSpellRows = innateSpells
-    .filter((spell) => githPsionicSpellOrder.includes(String(spell.name || "").trim().toLowerCase()))
-    .sort((a, b) => githPsionicSpellOrder.indexOf(String(a.name || "").trim().toLowerCase()) - githPsionicSpellOrder.indexOf(String(b.name || "").trim().toLowerCase()))
-    .map((spell) => {
-      const key = String(spell.name || "").trim().toLowerCase();
-      const spellNameRu = _INNATE_SPELL_RU[key] || key;
-      const spellFrequency = String(spell.frequency || "").trim().toLowerCase();
-      const spellMinLevel = Number.isFinite(Number(spell.min_level)) ? Number(spell.min_level) : null;
-      const parts = [];
-      if(spellFrequency === "at_will"){
-        parts.push("без лимита");
-      }else if(spellFrequency === "1_per_long_rest"){
-        parts.push("1/дл отдых");
-      }
-      if(spellMinLevel !== null && spellMinLevel > 1){
-        parts.push(`с ${spellMinLevel} ур.`);
-      }
-      if(String(spell.note || "").trim().toLowerCase() === "invisible"){
-        parts.push("невидима");
-      }
-      return parts.length ? `${spellNameRu} (${parts.join(", ")})` : spellNameRu;
-    });
+  const githSpellStatus = (spellKey, minLevel, usedFlag) => {
+    const requiredLevel = Number.isFinite(Number(minLevel)) ? Number(minLevel) : 1;
+    if(Number(ch.level || 1) < requiredLevel){
+      return `откроется на ${requiredLevel} уровне`;
+    }
+    const innateUsed = !!(((innateUsesRaw[spellKey] || {}).used) >= 1);
+    return (usedFlag || innateUsed) ? "восстановится после долгого отдыха" : "готово";
+  };
   const githNoMaterialComponents = innateSpells.some((spell) => spell && spell.no_material_components === true);
   const githPsionicsTitle = subraceKey === "githzerai"
     ? "Псионика гитцераев"
     : (subraceKey === "githyanki" ? "Псионика гитъянки" : "Псионика");
-  const githPsionicsText = (raceKey === "gith" && githPsionicSpellRows.length > 0)
-    ? `${githPsionicsTitle}: ${githPsionicSpellRows.join("; ")}${githNoMaterialComponents ? ". Без материальных компонентов." : ""}`
-    : "";
+  const githPsionicsText = (() => {
+    if(raceKey !== "gith") return "";
+    if(subraceKey === "githyanki"){
+      return `Псионика гитъянки: Волшебная рука — доступно всегда (невидима); Прыжок — ${githSpellStatus("jump", 3, !!runtime.githyanki_jump_used)}; Туманный шаг — ${githSpellStatus("misty_step", 5, !!runtime.githyanki_misty_step_used)}. Базовая характеристика — Интеллект${githNoMaterialComponents ? ". Без материальных компонентов." : ""}`;
+    }
+    if(subraceKey === "githzerai"){
+      return `Псионика гитцераев: Волшебная рука — доступно всегда (невидима); Щит — ${githSpellStatus("shield", 3, !!runtime.githzerai_shield_used)}; Обнаружение мыслей — ${githSpellStatus("detect_thoughts", 5, !!runtime.githzerai_detect_thoughts_used)}. Базовая характеристика — Мудрость${githNoMaterialComponents ? ". Без материальных компонентов." : ""}`;
+    }
+    return "";
+  })();
   const hareTrigger = (raceFeaturesMeta.hare_trigger && typeof raceFeaturesMeta.hare_trigger === "object")
     ? raceFeaturesMeta.hare_trigger
     : null;

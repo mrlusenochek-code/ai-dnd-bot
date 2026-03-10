@@ -2800,6 +2800,21 @@ async def api_character_create(payload: dict):
                 "skill": race_choice_decadent_skill or None,
                 "tool": race_choice_decadent_tool or None,
             }
+        if (
+            isinstance(race_features, dict)
+            and str(selected_race.get("key") or "").strip().lower() == "gith"
+            and selected_subrace is not None
+        ):
+            runtime_raw = race_features.get("runtime")
+            runtime = dict(runtime_raw) if isinstance(runtime_raw, dict) else {}
+            selected_subrace_key = str(selected_subrace.get("key") or "").strip().lower()
+            if selected_subrace_key == "githyanki":
+                runtime.setdefault("githyanki_jump_used", False)
+                runtime.setdefault("githyanki_misty_step_used", False)
+            if selected_subrace_key == "githzerai":
+                runtime.setdefault("githzerai_shield_used", False)
+                runtime.setdefault("githzerai_detect_thoughts_used", False)
+            race_features["runtime"] = runtime
         if isinstance(race_features, dict) and race_choice_languages:
             base_langs = race_features.get("languages")
             base_langs_list = base_langs if isinstance(base_langs, list) else []
