@@ -849,6 +849,16 @@ function getSkillChoiceConfig(traits){
     const mech = (t.mechanics && typeof t.mechanics === "object") ? t.mechanics : {};
     const mtype = String(mech.type || "").trim().toLowerCase();
     if(mtype !== "choose_skill_proficiency" && mtype !== "choose_skill_proficiencies"){
+      if(mtype === "specialized_design"){
+        const count = Number(mech.choose_skill ?? 0);
+        if(count > 0){
+          out.required = true;
+          out.count = count;
+          out.from = [];
+          out.traitKey = traitKey || "specialized_design";
+          return out;
+        }
+      }
       if(mtype === "ancestral_legacy"){
         const count = Number(mech.fallback_choose_skills ?? 0);
         if(count > 0){
@@ -952,6 +962,12 @@ function getToolChoiceConfig(traits){
       out.required = true;
       out.choices = choose;
       out.from = Array.from(new Set(from));
+      return out;
+    }
+    if(mtype === "specialized_design" && Number(mech.choose_tool ?? 0) > 0){
+      out.required = true;
+      out.choices = Number(mech.choose_tool ?? 1);
+      out.from = ["any"];
       return out;
     }
     if(mtype === "proficiency_bundle" && chooseMusical > 0){
@@ -2534,12 +2550,18 @@ async function createHero(){
           {stat: choiceAsi1, bonus: asiBonus},
           {stat: choiceAsi2, bonus: asiBonus},
         ];
+      if(raceKey === "warforged" && choiceAsi1){
+        raceChoices.asi_plus1_stat = choiceAsi1;
+      }
     }
   }
   if(choiceSkill){
     raceChoices.skills = Number(raceChoiceState.skillCount || 0) >= 2
       ? [choiceSkill, choiceSkill2]
       : [choiceSkill];
+    if(raceKey === "warforged"){
+      raceChoices.specialized_design_skill = choiceSkill;
+    }
   }
   if(choiceFeat){
     raceChoices.feats = [choiceFeat];
@@ -2554,6 +2576,9 @@ async function createHero(){
     raceChoices.tools = Number(raceChoiceState.toolCount || 0) >= 2
       ? [choiceTool, choiceTool2]
       : [choiceTool];
+    if(raceKey === "warforged"){
+      raceChoices.specialized_design_tool = choiceTool;
+    }
   }
   if(raceChoiceState.githDecadentRequired){
     raceChoices.decadent_mastery = {
@@ -2578,6 +2603,9 @@ async function createHero(){
     raceChoices.draconic_ancestry = choiceAncestry;
   }
   if(Object.keys(raceChoices).length > 0){
+    if(raceKey === "warforged" && choiceLang){
+      raceChoices.extra_language = choiceLang;
+    }
     payload.race_choices = raceChoices;
   }
   const r = await fetch("/api/character/create", {

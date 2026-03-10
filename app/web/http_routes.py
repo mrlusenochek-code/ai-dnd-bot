@@ -112,6 +112,38 @@ MARTIAL_WEAPON_WHITELIST = {
     "longbow",
     "net",
 }
+LANGUAGE_WHITELIST = {
+    "common",
+    "dwarvish",
+    "elvish",
+    "halfling",
+    "gnomish",
+    "orc",
+    "draconic",
+    "goblin",
+    "infernal",
+    "celestial",
+    "giant",
+    "primordial",
+    "auran",
+    "aquan",
+    "terran",
+    "ignan",
+    "abyssal",
+    "sylvan",
+    "undercommon",
+    "deep_speech",
+    "thieves_cant",
+    "gith",
+    "quori",
+    "leonin",
+    "tabaxi",
+    "vedalken",
+    "aarakocra",
+    "loxodon",
+    "minotaur",
+    "grung",
+}
 
 
 @router.get("/", response_class=HTMLResponse)
@@ -838,6 +870,32 @@ def _build_race_features(selected_race: dict | None) -> dict[str, Any]:
             breath["amphibious"] = True
             features["amphibious"] = True
 
+        if mtype == "constructed_resilience":
+            adv_conditions = _uniq_lower_str_list(mech.get("advantage_on_saves"))
+            resistances = _uniq_lower_str_list(mech.get("damage_resistance"))
+            immunity_conditions = _uniq_lower_str_list(mech.get("condition_immunity"))
+            no_need_items = _uniq_lower_str_list(mech.get("no_need"))
+            save_advantage_conditions.extend(adv_conditions)
+            resist.extend(resistances)
+            immune_cond.extend(immunity_conditions)
+            if no_need_items:
+                existing_no_need = _uniq_lower_str_list(needs.get("no_need"))
+                merged_no_need: list[str] = []
+                for item in [*existing_no_need, *no_need_items]:
+                    if item and item not in merged_no_need:
+                        merged_no_need.append(item)
+                needs["no_need"] = merged_no_need
+            if bool(mech.get("cannot_be_magically_slept")) and "magic_sleep" not in immune_cond:
+                immune_cond.append("magic_sleep")
+            features["constructed_resilience"] = {
+                "type": "constructed_resilience",
+                "advantage_on_saves": adv_conditions,
+                "damage_resistance": resistances,
+                "condition_immunity": immunity_conditions,
+                "no_need": no_need_items,
+                "cannot_be_magically_slept": bool(mech.get("cannot_be_magically_slept")),
+            }
+
         if mtype == "guardians_of_the_depths":
             if "cold" not in resist:
                 resist.append("cold")
@@ -1190,6 +1248,25 @@ def _build_race_features(selected_race: dict | None) -> dict[str, Any]:
 
         if mtype == "sentry_rest":
             features["sentry_rest"] = dict(mech)
+
+        if mtype == "integrated_protection":
+            features["integrated_protection"] = {
+                "type": "integrated_protection",
+                "ac_bonus": max(0, as_int(mech.get("ac_bonus"), 0)),
+                "armor_integrate_hours": max(0, as_int(mech.get("armor_integrate_hours"), 0)),
+                "cannot_be_removed_by_force": bool(mech.get("cannot_be_removed_by_force")),
+            }
+
+        if mtype == "specialized_design":
+            choose_skill = max(0, as_int(mech.get("choose_skill"), 0))
+            choose_tool = max(0, as_int(mech.get("choose_tool"), 0))
+            features["specialized_design"] = {
+                "type": "specialized_design",
+                "choose_skill": choose_skill,
+                "choose_tool": choose_tool,
+            }
+            if choose_tool > 0:
+                features["tool_choice"] = {"choose": choose_tool, "from": ["any"]}
 
         if mtype == "built_for_success":
             features["built_for_success"] = dict(mech)
@@ -1571,8 +1648,18 @@ async def api_character_create(payload: dict):
             if lang in seen_language_keys:
                 raise HTTPException(status_code=400, detail="Language choices must be distinct")
             seen_language_keys.add(lang)
+            if lang and lang not in LANGUAGE_WHITELIST:
+                raise HTTPException(status_code=400, detail=f"Invalid language choice: {lang}")
             if lang and lang not in race_choice_languages:
                 race_choice_languages.append(lang)
+        raw_extra_language = str(race_choices_payload.get("extra_language") or "").strip().lower()
+        if raw_extra_language:
+            if raw_extra_language not in LANGUAGE_WHITELIST:
+                raise HTTPException(status_code=400, detail=f"Invalid language choice: {raw_extra_language}")
+            if raw_extra_language in seen_language_keys:
+                raise HTTPException(status_code=400, detail="Language choices must be distinct")
+            seen_language_keys.add(raw_extra_language)
+            race_choice_languages.append(raw_extra_language)
         raw_asi = race_choices_payload.get("asi")
         raw_asi_list = raw_asi if isinstance(raw_asi, list) else []
         seen_asi_stats: set[str] = set()
@@ -1590,6 +1677,14 @@ async def api_character_create(payload: dict):
                 raise HTTPException(status_code=400, detail="ASI stats must be distinct")
             seen_asi_stats.add(stat)
             race_choice_asi.append({"stat": stat, "bonus": bonus})
+        raw_asi_plus1_stat = str(race_choices_payload.get("asi_plus1_stat") or "").strip().lower()
+        if raw_asi_plus1_stat:
+            if raw_asi_plus1_stat not in allowed_asi_stats:
+                raise HTTPException(status_code=400, detail=f"Invalid ASI stat choice: {raw_asi_plus1_stat}")
+            if raw_asi_plus1_stat in seen_asi_stats:
+                raise HTTPException(status_code=400, detail="ASI stats must be distinct")
+            seen_asi_stats.add(raw_asi_plus1_stat)
+            race_choice_asi.append({"stat": raw_asi_plus1_stat, "bonus": 1})
         raw_skills = race_choices_payload.get("skills")
         raw_skills_list = raw_skills if isinstance(raw_skills, list) else []
         seen_skill_keys: set[str] = set()
@@ -1623,6 +1718,14 @@ async def api_character_create(payload: dict):
                 raise HTTPException(status_code=400, detail="Skill choices must be distinct")
             seen_skill_keys.add(skill)
             race_choice_skills.append(skill)
+        raw_specialized_skill = str(race_choices_payload.get("specialized_design_skill") or "").strip().lower()
+        if raw_specialized_skill:
+            if raw_specialized_skill not in allowed_skill_keys:
+                raise HTTPException(status_code=400, detail=f"Invalid skill choice: {raw_specialized_skill}")
+            if raw_specialized_skill in seen_skill_keys:
+                raise HTTPException(status_code=400, detail="Skill choices must be distinct")
+            seen_skill_keys.add(raw_specialized_skill)
+            race_choice_skills.append(raw_specialized_skill)
         raw_feats = race_choices_payload.get("feats")
         raw_feats_list = raw_feats if isinstance(raw_feats, list) else []
         allowed_feat_keys = {
@@ -1649,6 +1752,9 @@ async def api_character_create(payload: dict):
             tool = str(item or "").strip().lower()
             if tool and tool not in race_choice_tools:
                 race_choice_tools.append(tool)
+        raw_specialized_tool = str(race_choices_payload.get("specialized_design_tool") or "").strip().lower()
+        if raw_specialized_tool and raw_specialized_tool not in race_choice_tools:
+            race_choice_tools.append(raw_specialized_tool)
         raw_cantrips = race_choices_payload.get("cantrips")
         raw_cantrips_list = raw_cantrips if isinstance(raw_cantrips, list) else []
         for item in raw_cantrips_list:
@@ -1932,6 +2038,10 @@ async def api_character_create(payload: dict):
                                     from_items.append(skill_key)
                             if from_items and not required_race_skill_options:
                                 required_race_skill_options = from_items
+                    elif mtype == "specialized_design":
+                        choose_skill = max(as_int(mech.get("choose_skill"), 0), 0)
+                        if choose_skill > 0:
+                            required_race_skill_count = max(required_race_skill_count, choose_skill)
                     elif mtype == "ancestral_legacy":
                         fallback_count = max(as_int(mech.get("fallback_choose_skills"), 0), 0)
                         if fallback_count > 0:
@@ -2235,7 +2345,28 @@ async def api_character_create(payload: dict):
                 raise HTTPException(status_code=400, detail="Simic Hybrid language must be Elvish or Vedalken")
             if race_choice_animal_enhancement_lvl1 not in simic_lvl1_options:
                 raise HTTPException(status_code=400, detail="Simic Hybrid level 1 animal enhancement choice is required")
-        elif race_choice_animal_enhancement_lvl1:
+        if effective_race_key == "warforged":
+            if len(race_choice_asi) != 1 or as_int((race_choice_asi[0] or {}).get("bonus"), 0) != 1:
+                raise HTTPException(status_code=400, detail="Warforged requires exactly one +1 ASI choice")
+            warforged_asi_stat = str((race_choice_asi[0] or {}).get("stat") or "").strip().lower()
+            if warforged_asi_stat not in {"str", "dex", "int", "wis", "cha"}:
+                raise HTTPException(status_code=400, detail="Warforged ASI +1 must be str/dex/int/wis/cha")
+            if warforged_asi_stat == "con":
+                raise HTTPException(status_code=400, detail="Warforged ASI +1 cannot be con")
+            if len(race_choice_skills) != 1:
+                raise HTTPException(status_code=400, detail="Warforged specialized design requires exactly 1 skill choice")
+            if len(race_choice_tools) != 1:
+                raise HTTPException(status_code=400, detail="Warforged specialized design requires exactly 1 tool choice")
+            if race_choice_tools[0] not in TIRELESS_PRECISION_TOOL_WHITELIST:
+                raise HTTPException(status_code=400, detail=f"Invalid race tool choice: {race_choice_tools[0]}")
+            if len(race_choice_languages) != 1:
+                raise HTTPException(status_code=400, detail="Warforged extra language choice is required")
+            warforged_lang = race_choice_languages[0]
+            if warforged_lang == "common":
+                raise HTTPException(status_code=400, detail="Warforged extra language must not duplicate Common")
+            if warforged_lang in base_race_language_keys:
+                raise HTTPException(status_code=400, detail="Warforged extra language must be distinct from base languages")
+        if race_choice_animal_enhancement_lvl1 and effective_race_key != "simic_hybrid":
             raise HTTPException(status_code=400, detail="Animal enhancement choice is not available for selected race")
         elif race_choice_innate_ability and effective_race_key not in {"hexblood", "kender"}:
             raise HTTPException(
@@ -2423,6 +2554,12 @@ async def api_character_create(payload: dict):
             runtime.setdefault("triton_wall_of_water_used", False)
             runtime.setdefault("triton_active_water_wall", None)
             race_features["runtime"] = runtime
+        if isinstance(race_features, dict) and str(race_features.get("race_key") or "").strip().lower() == "warforged":
+            runtime_raw = race_features.get("runtime")
+            runtime = dict(runtime_raw) if isinstance(runtime_raw, dict) else {}
+            runtime.setdefault("warforged_sentry_rest_active", False)
+            runtime.setdefault("warforged_integrated_armor_state", None)
+            race_features["runtime"] = runtime
         if isinstance(race_features, dict) and selected_subrace is not None:
             race_features["subrace"] = {
                 "key": str(selected_subrace.get("key") or "").strip(),
@@ -2502,7 +2639,8 @@ async def api_character_create(payload: dict):
             choices_dict["size"] = race_choice_size
         if isinstance(race_features, dict) and race_choice_asi:
             choices_dict["asi"] = list(race_choice_asi)
-            if str(race_features.get("race_key") or "").strip().lower() == "simic_hybrid" and len(race_choice_asi) == 1:
+            race_key_norm = str(race_features.get("race_key") or "").strip().lower()
+            if race_key_norm in {"simic_hybrid", "warforged"} and len(race_choice_asi) == 1:
                 choices_dict["asi_plus1_stat"] = str((race_choice_asi[0] or {}).get("stat") or "").strip().lower()
         if isinstance(race_features, dict) and race_choice_skills:
             prof = race_features.get("proficiencies")
@@ -2530,6 +2668,25 @@ async def api_character_create(payload: dict):
             prof_dict["tools"] = merged_tools
             race_features["proficiencies"] = prof_dict
             choices_dict["tools"] = list(race_choice_tools)
+        if isinstance(race_features, dict) and str(race_features.get("race_key") or "").strip().lower() == "warforged":
+            features_raw = race_features.get("features")
+            features_dict = dict(features_raw) if isinstance(features_raw, dict) else {}
+            specialized_raw = features_dict.get("specialized_design")
+            specialized = dict(specialized_raw) if isinstance(specialized_raw, dict) else {"type": "specialized_design"}
+            if race_choice_skills:
+                specialized["chosen_skill"] = race_choice_skills[0]
+                choices_dict["specialized_design_skill"] = race_choice_skills[0]
+            if race_choice_tools:
+                specialized["chosen_tool"] = race_choice_tools[0]
+                choices_dict["specialized_design_tool"] = race_choice_tools[0]
+            features_dict["specialized_design"] = specialized
+            extra_lang_raw = features_dict.get("extra_language_choice")
+            extra_lang = dict(extra_lang_raw) if isinstance(extra_lang_raw, dict) else {"type": "language_choice"}
+            if race_choice_languages:
+                extra_lang["chosen"] = race_choice_languages[0]
+                choices_dict["extra_language"] = race_choice_languages[0]
+            features_dict["extra_language_choice"] = extra_lang
+            race_features["features"] = features_dict
         if isinstance(race_features, dict) and race_choice_cantrips:
             choices_dict["cantrips"] = list(race_choice_cantrips)
         if isinstance(race_features, dict) and race_choice_martial_weapons:

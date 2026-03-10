@@ -348,5 +348,8 @@ def compute_ac(*, stats: dict, inventory: list[dict], equip_map: dict[str, str],
         armor_cat = equipped_armor_category(inventory=inventory, equip_map=equip_map)
         if armor_cat != "heavy":
             ac += _safe_int(carapace_cfg.get("ac_bonus"), 0)
+    integrated_protection_cfg = rf_features.get("integrated_protection") if isinstance(rf_features, dict) else None
+    if isinstance(integrated_protection_cfg, dict):
+        ac += _safe_int(integrated_protection_cfg.get("ac_bonus"), 0)
 
     return _clamp(ac, 1, 50)

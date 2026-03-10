@@ -1898,6 +1898,39 @@ function openCharacterModal(){
   const tritonEmissaryText = (raceKey === "triton" && tritonEmissary)
     ? "Посланник моря: можете общаться простыми идеями с морскими зверями"
     : "";
+  const warforgedResilience = (raceFeaturesMeta.constructed_resilience && typeof raceFeaturesMeta.constructed_resilience === "object")
+    ? raceFeaturesMeta.constructed_resilience
+    : null;
+  const warforgedIntegratedProtection = (raceFeaturesMeta.integrated_protection && typeof raceFeaturesMeta.integrated_protection === "object")
+    ? raceFeaturesMeta.integrated_protection
+    : null;
+  const warforgedSpecializedDesign = (raceFeaturesMeta.specialized_design && typeof raceFeaturesMeta.specialized_design === "object")
+    ? raceFeaturesMeta.specialized_design
+    : null;
+  const warforgedSkillKey = String(
+    (warforgedSpecializedDesign && warforgedSpecializedDesign.chosen_skill)
+    || choices.specialized_design_skill
+    || ""
+  ).trim().toLowerCase();
+  const warforgedToolKey = String(
+    (warforgedSpecializedDesign && warforgedSpecializedDesign.chosen_tool)
+    || choices.specialized_design_tool
+    || ""
+  ).trim().toLowerCase();
+  const warforgedSkillRu = warforgedSkillKey ? getSkillNameRu(warforgedSkillKey) : "";
+  const warforgedToolRu = warforgedToolKey ? (TOOL_LABELS_RU[warforgedToolKey] || warforgedToolKey) : "";
+  const warforgedSpecializedDesignText = (raceKey === "warforged" && (warforgedSkillRu || warforgedToolRu))
+    ? `Специальная сборка: навык ${warforgedSkillRu || "—"}, инструмент ${warforgedToolRu || "—"}`
+    : "";
+  const warforgedIntegratedProtectionText = (raceKey === "warforged" && warforgedIntegratedProtection)
+    ? `Встроенная защита: +${Number.isFinite(Number(warforgedIntegratedProtection.ac_bonus)) ? Number(warforgedIntegratedProtection.ac_bonus) : 1} к КД; доспехи (кроме щита) нужно встраивать и извлекать по ${Number.isFinite(Number(warforgedIntegratedProtection.armor_integrate_hours)) ? Number(warforgedIntegratedProtection.armor_integrate_hours) : 1} часу; нельзя снять против вашей воли, пока вы живы`
+    : "";
+  const warforgedConstructedResilienceText = (raceKey === "warforged" && warforgedResilience)
+    ? "Стойкость кованых: преимущество к спасброскам от отравления; сопротивление урону ядом; иммунитет к болезням; не нужно есть, пить, дышать и спать; нельзя магически усыпить"
+    : "";
+  const warforgedSentryRestText = (raceKey === "warforged" && sentryRest)
+    ? `Отдых стража: во время длительного отдыха ${sentryRestHours} часов остаётесь неподвижны, но в сознании`
+    : "";
   const tortleClaws = (raceFeaturesMeta.claws && typeof raceFeaturesMeta.claws === "object")
     ? raceFeaturesMeta.claws
     : null;
@@ -2366,6 +2399,18 @@ function openCharacterModal(){
   if(tritonWaterMagicText){
     details.push(`<div class="char-line"><strong>Управление воздухом и водой:</strong> ${escapeHtml(tritonWaterMagicText.replace(/^Управление воздухом и водой:\s*/, ""))}</div>`);
   }
+  if(warforgedSpecializedDesignText){
+    details.push(`<div class="char-line"><strong>Специальная сборка:</strong> ${escapeHtml(warforgedSpecializedDesignText.replace(/^Специальная сборка:\s*/, ""))}</div>`);
+  }
+  if(warforgedIntegratedProtectionText){
+    details.push(`<div class="char-line"><strong>Встроенная защита:</strong> ${escapeHtml(warforgedIntegratedProtectionText.replace(/^Встроенная защита:\s*/, ""))}</div>`);
+  }
+  if(warforgedConstructedResilienceText){
+    details.push(`<div class="char-line"><strong>Стойкость кованых:</strong> ${escapeHtml(warforgedConstructedResilienceText.replace(/^Стойкость кованых:\s*/, ""))}</div>`);
+  }
+  if(warforgedSentryRestText){
+    details.push(`<div class="char-line"><strong>Отдых стража:</strong> ${escapeHtml(warforgedSentryRestText.replace(/^Отдых стража:\s*/, ""))}</div>`);
+  }
   if(tortleNaturalArmorText){
     details.push(`<div class="char-line"><strong>Природная броня:</strong> ${escapeHtml(tortleNaturalArmorText.replace(/^Природная броня:\s*/, ""))}</div>`);
   }
@@ -2671,6 +2716,10 @@ function openCharacterModal(){
   if(tritonDepthsText) copyLines.push(tritonDepthsText);
   if(tritonEmissaryText) copyLines.push(tritonEmissaryText);
   if(tritonWaterMagicText) copyLines.push(tritonWaterMagicText);
+  if(warforgedSpecializedDesignText) copyLines.push(warforgedSpecializedDesignText);
+  if(warforgedIntegratedProtectionText) copyLines.push(warforgedIntegratedProtectionText);
+  if(warforgedConstructedResilienceText) copyLines.push(warforgedConstructedResilienceText);
+  if(warforgedSentryRestText) copyLines.push(warforgedSentryRestText);
   if(tortleNaturalArmorText) copyLines.push(tortleNaturalArmorText);
   if(tortleClawsText) copyLines.push(tortleClawsText);
   if(tortleHoldBreathText) copyLines.push(tortleHoldBreathText);
