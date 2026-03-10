@@ -21,7 +21,7 @@ INNATE_SPELL_KEY_PATTERNS: dict[str, re.Pattern[str]] = {
     "mage_hand": re.compile(r"волшебн\w+\s+рук\w*|mage\s+hand", re.IGNORECASE),
     "prestidigitation": re.compile(r"фокус\w*|prestidigitation", re.IGNORECASE),
     "light": re.compile(r"\bсвет\b|\blight\b", re.IGNORECASE),
-    "minor_illusion": re.compile(r"мала[яй]\s+иллюз\w*|minor\s+illusion", re.IGNORECASE),
+    "minor_illusion": re.compile(r"мал(?:ая|ую|ой|ые|ых)?\s+иллюз\w*|minor\s+illusion", re.IGNORECASE),
     "dancing_lights": re.compile(r"танцующ[а-яё]*\s+огн[а-яё]*|dancing\s+lights", re.IGNORECASE),
     "faerie_fire": re.compile(r"волшебн[а-яё]*\s+ог(?:н|он)[а-яё]*|faerie\s+fire", re.IGNORECASE),
     "detect_magic": re.compile(r"обнаружени[ея]\s+магии|detect\s+magic", re.IGNORECASE),

@@ -872,10 +872,17 @@ function openCharacterModal(){
   const stonecunningText = stonecunning
     ? "Знание камня: преимущество/экспертиза по Истории (каменная кладка)"
     : "";
-  const talkWithSmallBeasts = (raceFeaturesMeta.talk_with_small_beasts && typeof raceFeaturesMeta.talk_with_small_beasts === "object")
-    ? raceFeaturesMeta.talk_with_small_beasts
+  const speakWithSmallBeasts = (raceFeaturesMeta.speak_with_small_beasts && typeof raceFeaturesMeta.speak_with_small_beasts === "object")
+    ? raceFeaturesMeta.speak_with_small_beasts
     : null;
-  const talkWithSmallBeastsText = talkWithSmallBeasts ? "Речь малых зверей" : "";
+  const talkWithSmallBeasts = speakWithSmallBeasts || (
+    (raceFeaturesMeta.talk_with_small_beasts && typeof raceFeaturesMeta.talk_with_small_beasts === "object")
+      ? raceFeaturesMeta.talk_with_small_beasts
+      : null
+  );
+  const talkWithSmallBeastsText = talkWithSmallBeasts
+    ? "Общение с мелкими зверями: можете передавать простые идеи маленьким и ещё меньшим зверям"
+    : "";
   const speechOfBeastAndLeaf = (raceFeaturesMeta.speech_of_beast_and_leaf && typeof raceFeaturesMeta.speech_of_beast_and_leaf === "object")
     ? raceFeaturesMeta.speech_of_beast_and_leaf
     : null;
@@ -974,7 +981,9 @@ function openCharacterModal(){
     const frequency = String(spell.frequency || "").trim().toLowerCase();
     return name === "minor_illusion" && frequency === "at_will";
   });
-  const naturalIllusionistText = hasMinorIllusionAtWill ? "Природный иллюзионист: Малая иллюзия (заговор)" : "";
+  const naturalIllusionistText = hasMinorIllusionAtWill
+    ? "Природный иллюзионист: Малая иллюзия. Это врождённая магия, базовая характеристика — Интеллект. Статус: доступно всегда"
+    : "";
   const trance = (raceFeaturesMeta.trance && typeof raceFeaturesMeta.trance === "object")
     ? raceFeaturesMeta.trance
     : null;

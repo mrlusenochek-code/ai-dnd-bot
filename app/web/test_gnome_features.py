@@ -132,7 +132,8 @@ def test_forest_gnome_persists_minor_illusion_and_talk_with_small_beasts(monkeyp
     )
     assert found_minor_illusion is True
     features = race_features.get("features") or {}
-    assert isinstance(features.get("talk_with_small_beasts"), dict)
+    talk_small_beasts = features.get("speak_with_small_beasts") or features.get("talk_with_small_beasts")
+    assert isinstance(talk_small_beasts, dict)
 
 
 def test_rock_gnome_persists_tinker_and_expertise_and_tool_prof(monkeypatch) -> None:

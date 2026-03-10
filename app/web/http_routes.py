@@ -1468,9 +1468,39 @@ def _build_race_features(selected_race: dict | None) -> dict[str, Any]:
                         "level": 0,
                     },
                 )
+                features["innate_spellcasting"] = {
+                    "type": "innate_spellcasting",
+                    "ability": ability,
+                    "spells": [
+                        {
+                            "name": spell_key,
+                            "frequency": "at_will",
+                            "min_level": 1,
+                        }
+                    ],
+                }
+                if tkey == "natural_illusionist" and spell_key == "minor_illusion":
+                    features["forest_gnome_cantrip"] = {
+                        "type": "innate_spellcasting",
+                        "ability": ability,
+                        "spell": {
+                            "name": spell_key,
+                            "frequency": "at_will",
+                            "min_level": 1,
+                            "ability": ability,
+                        },
+                    }
 
         if mtype == "talk_with_small_beasts":
-            features["talk_with_small_beasts"] = dict(mech)
+            scope = "small_or_smaller_beasts"
+            features["speak_with_small_beasts"] = {
+                "type": "speak_with_beasts",
+                "scope": scope,
+            }
+            features["talk_with_small_beasts"] = {
+                "type": "speak_with_beasts",
+                "scope": scope,
+            }
 
         if mtype == "expertise":
             features["expertise"] = dict(mech)
