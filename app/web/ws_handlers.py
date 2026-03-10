@@ -293,6 +293,7 @@ def _tireless_precision_bonus_for_check(
     *,
     kind: str,
     key: str,
+    proficient: bool = True,
     rng: Any = None,
 ) -> tuple[int, str]:
     if not isinstance(race_features, dict):
@@ -308,6 +309,8 @@ def _tireless_precision_bonus_for_check(
     key_norm = str(key or "").strip().lower()
     kind_norm = str(kind or "").strip().lower()
     if kind_norm == "skill":
+        if not proficient:
+            return 0, ""
         if not selected_skill or key_norm != selected_skill:
             return 0, ""
     elif kind_norm == "tool":
@@ -429,6 +432,35 @@ def _format_toolcheck_log(
     if dc is not None:
         lines.append(f"DC {dc} -> {'успех' if total >= dc else 'провал'}")
     return "\n".join(lines)
+
+
+def _format_check_log(
+    *,
+    character_name: str,
+    key: str,
+    roll_a: int,
+    roll_b: Optional[int],
+    roll: int,
+    mod: int,
+    tp_bonus_text: str,
+    extra_bonus_texts: list[str],
+    total: int,
+    dc: Optional[int],
+) -> str:
+    rolls_text = str(roll) if roll_b is None else f"{roll_a}/{roll_b}->{roll}"
+    bonus_texts: list[str] = []
+    if tp_bonus_text:
+        bonus_texts.append(f"Tireless Precision {tp_bonus_text}")
+    bonus_texts.extend([text for text in extra_bonus_texts if isinstance(text, str) and text])
+
+    msg = f"[CHECK] {character_name}: {key} = {rolls_text} + {mod:+d}"
+    if bonus_texts:
+        msg += " + " + " + ".join(bonus_texts)
+    msg += f" => {total}"
+    if dc is not None:
+        ok = total >= dc
+        msg += f" (DC {dc}) {'SUCCESS' if ok else 'FAIL'}"
+    return msg
 
 
 def _detect_vampiric_bite_empower(text: str) -> str | None:
@@ -5564,6 +5596,7 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                             mod = max(_manual_candidate_mod(c, skills_by_key) for c in candidates)
                     elif key in CHAR_STAT_KEYS:
                         mod = _ability_mod_from_stats(ch.stats, key)
+                        skill_proficient = False
                     else:
                         q_skill = await db.execute(
                             select(Skill).where(
@@ -5576,6 +5609,11 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                         ability_mod = _ability_mod_from_stats(ch.stats, ability_key) if ability_key else 0
                         skill_bonus = _skill_bonus_from_rank_and_level(sk.rank, ch.level) if sk else 0
                         mod = ability_mod + skill_bonus
+                        skill_proficient = bool(sk and int(getattr(sk, "rank", 0) or 0) > 0)
+                    if "|" in key:
+                        skill_proficient = False
+                    elif key in CHAR_STAT_KEYS:
+                        skill_proficient = False
 
                     mapped_mode = {
                         "roll": "normal",
@@ -5639,21 +5677,23 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                         getattr(ch, "race_features", None),
                         kind=str(check_payload["kind"]),
                         key=key,
+                        proficient=skill_proficient,
                     )
                     total = base_total + tp_bonus + bfs_bonus + vamp_bonus + past_life_bonus
-                    rolls_text = str(roll) if rb is None else f"{ra}/{rb}->{roll}"
-                    bonus_texts = [
-                        text
-                        for text in (tp_bonus_text, bfs_bonus_text, vamp_bonus_text, past_life_bonus_text)
-                        if isinstance(text, str) and text
-                    ]
-                    msg = f"[CHECK] {ch.name}: {key} = {rolls_text} + {mod:+d}"
-                    if bonus_texts:
-                        msg += " + " + " + ".join(bonus_texts)
-                    msg += f" => {total}"
+                    msg = _format_check_log(
+                        character_name=ch.name,
+                        key=key,
+                        roll_a=ra,
+                        roll_b=rb,
+                        roll=roll,
+                        mod=mod,
+                        tp_bonus_text=tp_bonus_text,
+                        extra_bonus_texts=[bfs_bonus_text, vamp_bonus_text, past_life_bonus_text],
+                        total=total,
+                        dc=dc,
+                    )
                     if dc is not None:
                         ok = total >= dc
-                        msg += f" (DC {dc}) {'SUCCESS' if ok else 'FAIL'}"
                         if not ok:
                             sf_bonus = _hobgoblin_mark_saving_face_pending(
                                 session_id=session_id,
