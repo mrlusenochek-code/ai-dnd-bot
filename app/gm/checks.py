@@ -396,7 +396,7 @@ def _check_kind_for_name(raw_kind: Any, normalized_name: str) -> str:
     kind = str(raw_kind or "").strip().lower()
     if normalized_name in CHAR_STAT_KEYS:
         return "ability"
-    if kind in {"skill", "ability", "stat"}:
+    if kind in {"skill", "ability", "stat", "tool"}:
         return kind
     return "skill"
 

@@ -116,6 +116,42 @@ from app.web.ws_turns import (
 
 logger = logging.getLogger("app.web" ".server")
 
+TOOL_LABELS_RU: dict[str, str] = {
+    "thieves_tools": "Воровские инструменты",
+    "smith_tools": "Инструменты кузнеца",
+    "mason_tools": "Инструменты каменщика",
+    "brewer_supplies": "Принадлежности пивовара",
+    "tinkers_tools": "Инструменты жестянщика",
+    "herbalism_kit": "Набор травника",
+    "disguise_kit": "Набор для грима",
+    "forgery_kit": "Набор фальсификатора",
+    "navigator_tools": "Инструменты навигатора",
+    "alchemists_supplies": "Принадлежности алхимика",
+    "calligraphers_supplies": "Принадлежности каллиграфа",
+    "carpenters_tools": "Инструменты плотника",
+    "cartographers_tools": "Инструменты картографа",
+    "cobblers_tools": "Инструменты сапожника",
+    "cooks_utensils": "Кухонная утварь",
+    "glassblowers_tools": "Инструменты стеклодува",
+    "jewelers_tools": "Инструменты ювелира",
+    "leatherworkers_tools": "Инструменты кожевника",
+    "painters_supplies": "Принадлежности художника",
+    "potters_tools": "Инструменты гончара",
+    "weavers_tools": "Инструменты ткача",
+    "woodcarvers_tools": "Инструменты резчика по дереву",
+    "bagpipes": "Волынка",
+    "drum": "Барабан",
+    "dulcimer": "Цимбалы",
+    "flute": "Флейта",
+    "horn": "Рожок",
+    "lute": "Лютня",
+    "lyre": "Лира",
+    "pan_flute": "Свирель Пана",
+    "shawm": "Шалмей",
+    "viol": "Виола",
+}
+VALID_TOOL_KEYS = set(TOOL_LABELS_RU)
+
 
 def _resolve_build_player_gm_action_text():
     # Lazy import to avoid server_impl <-> ws_handlers import cycle
@@ -286,6 +322,108 @@ def _tireless_precision_bonus_for_check(
     roller = rng if rng is not None else random
     value = max(1, int(roller.randint(1, 4)))
     return value, f"1d4({value})"
+
+
+def _tool_label_ru(tool_key: str) -> str:
+    key = str(tool_key or "").strip().lower()
+    return TOOL_LABELS_RU.get(key, key)
+
+
+def _character_tool_proficiencies(ch: Any) -> set[str]:
+    race_features = getattr(ch, "race_features", None)
+    rf = race_features if isinstance(race_features, dict) else {}
+    proficiencies_raw = rf.get("proficiencies")
+    proficiencies = proficiencies_raw if isinstance(proficiencies_raw, dict) else {}
+    tools_raw = proficiencies.get("tools")
+    tools = tools_raw if isinstance(tools_raw, list) else []
+    return {str(item or "").strip().lower() for item in tools if str(item or "").strip()}
+
+
+def _toolcheck_access_error(ch: Any, tool_key: str) -> str | None:
+    key = str(tool_key or "").strip().lower()
+    if key not in VALID_TOOL_KEYS:
+        return f"Неизвестный инструмент: {key}"
+    if key not in _character_tool_proficiencies(ch):
+        return f"У персонажа нет владения инструментом: {_tool_label_ru(key)}"
+    return None
+
+
+def _parse_toolcheck_command(cmdline: str) -> tuple[str | None, str | None, int | None, str | None]:
+    parts = str(cmdline or "").split()
+    usage = "Использование: toolcheck [adv|dis] <tool_key> [dc N]"
+    if len(parts) < 2:
+        return None, None, None, usage
+
+    mode = "normal"
+    idx = 1
+    if idx < len(parts) and parts[idx].lower() in {"adv", "dis"}:
+        mode = "advantage" if parts[idx].lower() == "adv" else "disadvantage"
+        idx += 1
+    if idx >= len(parts):
+        return None, None, None, usage
+
+    tool_key = str(parts[idx] or "").strip().lower()
+    idx += 1
+    if not tool_key:
+        return None, None, None, usage
+
+    dc: int | None = None
+    if idx < len(parts):
+        tok = parts[idx].lower()
+        if tok.startswith("dc"):
+            if tok == "dc":
+                if idx + 1 >= len(parts):
+                    return None, None, None, "Использование: toolcheck ... dc <N>"
+                dc = as_int(parts[idx + 1], -1)
+                idx += 2
+            else:
+                dc = as_int(tok[2:], -1)
+                idx += 1
+        else:
+            return None, None, None, usage
+    if idx != len(parts):
+        return None, None, None, usage
+    if dc is not None and dc < 0:
+        return None, None, None, "DC должен быть не меньше 0"
+    return mode, tool_key, dc, None
+
+
+def _format_d20_roll(mode: str, roll_a: int, roll_b: Optional[int], chosen: int) -> str:
+    normalized = str(mode or "normal").strip().lower()
+    if roll_b is None:
+        return f"d20({chosen})"
+    prefix = "adv" if normalized == "advantage" else "dis"
+    return f"{prefix} d20({roll_a}, {roll_b}) -> {chosen}"
+
+
+def _format_toolcheck_log(
+    *,
+    tool_name_ru: str,
+    mode: str,
+    roll_a: int,
+    roll_b: Optional[int],
+    roll: int,
+    mod: int,
+    tp_bonus: int,
+    tp_bonus_text: str,
+    extra_bonus_texts: list[str],
+    total: int,
+    dc: Optional[int],
+) -> str:
+    lines = [
+        f"[TOOL] Проверка инструмента: {tool_name_ru}",
+        f"Бросок: {_format_d20_roll(mode, roll_a, roll_b, roll)}",
+        f"Бонус: {mod:+d}",
+    ]
+    if tp_bonus > 0 and tp_bonus_text:
+        lines.append(f"Tireless Precision: +{tp_bonus_text}")
+    for text in extra_bonus_texts:
+        if text:
+            lines.append(f"Доп. бонус: +{text}")
+    lines.append(f"Итого: {total}")
+    if dc is not None:
+        lines.append(f"DC {dc} -> {'успех' if total >= dc else 'провал'}")
+    return "\n".join(lines)
 
 
 def _detect_vampiric_bite_empower(text: str) -> str | None:
@@ -5186,46 +5324,12 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                     continue
 
                 if lower.startswith("toolcheck"):
-                    parts = cmdline.split()
-                    if len(parts) < 2:
-                        await ws_error("Usage: toolcheck [adv|dis] <tool_key> [dc N]", request_id=msg_request_id)
+                    mapped_mode, tool_key, dc, parse_error = _parse_toolcheck_command(cmdline)
+                    if parse_error:
+                        await ws_error(parse_error, request_id=msg_request_id)
                         continue
-                    mode = "roll"
-                    idx = 1
-                    if idx < len(parts) and parts[idx].lower() in ("adv", "dis"):
-                        mode = parts[idx].lower()
-                        idx += 1
-                    if idx >= len(parts):
-                        await ws_error("Usage: toolcheck [adv|dis] <tool_key> [dc N]", request_id=msg_request_id)
-                        continue
-
-                    tool_key = parts[idx].lower()
-                    idx += 1
-                    if not tool_key:
-                        await ws_error("Usage: toolcheck [adv|dis] <tool_key> [dc N]", request_id=msg_request_id)
-                        continue
-
-                    dc: Optional[int] = None
-                    if idx < len(parts):
-                        tok = parts[idx].lower()
-                        if tok.startswith("dc"):
-                            if tok == "dc":
-                                if idx + 1 >= len(parts):
-                                    await ws_error("Usage: toolcheck ... dc <N>", request_id=msg_request_id)
-                                    continue
-                                dc = as_int(parts[idx + 1], -1)
-                                idx += 2
-                            else:
-                                dc = as_int(tok[2:], -1)
-                                idx += 1
-                        else:
-                            await ws_error("Usage: toolcheck [adv|dis] <tool_key> [dc N]", request_id=msg_request_id)
-                            continue
-                    if idx != len(parts):
-                        await ws_error("Usage: toolcheck [adv|dis] <tool_key> [dc N]", request_id=msg_request_id)
-                        continue
-                    if dc is not None and dc < 0:
-                        await ws_error("DC must be >= 0", request_id=msg_request_id)
+                    if not tool_key or not mapped_mode:
+                        await ws_error("Использование: toolcheck [adv|dis] <tool_key> [dc N]", request_id=msg_request_id)
                         continue
 
                     ch = await get_character(db, sess.id, player.id)
@@ -5233,11 +5337,11 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                         await ws_error("No character. Use: char create ...", request_id=msg_request_id)
                         continue
 
-                    mapped_mode = {
-                        "roll": "normal",
-                        "adv": "advantage",
-                        "dis": "disadvantage",
-                    }.get(mode, "normal")
+                    toolcheck_error = _toolcheck_access_error(ch, tool_key)
+                    if toolcheck_error:
+                        await ws_error(toolcheck_error, request_id=msg_request_id)
+                        continue
+
                     mod = 0
                     mapped_mode = _mode_with_poisoned_disadvantage(mapped_mode, getattr(ch, "race_features", None))
                     mapped_mode = _mode_with_sunlight_disadvantage(
@@ -5245,7 +5349,10 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                         getattr(ch, "race_features", None),
                         sunlight_bright=bool(settings_get(sess, "sunlight_bright", False)),
                     )
-                    ra, rb, roll = roll_check(mapped_mode)
+                    ra, rb, roll = roll_check(
+                        mapped_mode,
+                        reroll_ones=_lucky_scope_enabled(getattr(ch, "race_features", None), "check"),
+                    )
                     check_payload = {
                         "actor_uid": _player_uid(player),
                         "kind": "tool",
@@ -5265,18 +5372,21 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                         key=tool_key,
                     )
                     total = base_total + tp_bonus + vamp_bonus
-                    d20_text = str(roll) if rb is None else f"{ra}/{rb}->{roll}"
-
-                    msg = f"[TOOL] {ch.name}: {tool_key} = d20({d20_text}) + {mod:+d} => {total}"
-                    if tp_bonus > 0 and tp_bonus_text:
-                        msg = f"[TOOL] {ch.name}: {tool_key} = d20({d20_text}) + {mod:+d} + {tp_bonus_text} => {total}"
-                    if vamp_bonus > 0 and vamp_bonus_text:
-                        msg = f"[TOOL] {ch.name}: {tool_key} = d20({d20_text}) + {mod:+d} + {vamp_bonus_text} => {total}"
-                    if tp_bonus > 0 and tp_bonus_text and vamp_bonus > 0 and vamp_bonus_text:
-                        msg = f"[TOOL] {ch.name}: {tool_key} = d20({d20_text}) + {mod:+d} + {tp_bonus_text} + {vamp_bonus_text} => {total}"
+                    msg = _format_toolcheck_log(
+                        tool_name_ru=_tool_label_ru(tool_key),
+                        mode=mapped_mode,
+                        roll_a=ra,
+                        roll_b=rb,
+                        roll=roll,
+                        mod=mod,
+                        tp_bonus=tp_bonus,
+                        tp_bonus_text=tp_bonus_text,
+                        extra_bonus_texts=[vamp_bonus_text] if vamp_bonus > 0 and vamp_bonus_text else [],
+                        total=total,
+                        dc=dc,
+                    )
                     if dc is not None:
                         ok = total >= dc
-                        msg += f" (DC {dc}) {'SUCCESS' if ok else 'FAIL'}"
                         if not ok:
                             sf_bonus = _hobgoblin_mark_saving_face_pending(
                                 session_id=session_id,
