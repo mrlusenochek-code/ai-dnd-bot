@@ -1167,6 +1167,7 @@ def _build_race_features(selected_race: dict | None) -> dict[str, Any]:
                 frequency = "shared_1_per_long_rest"
             spells = _as_list(mech.get("spells"))
             normalized_spells: list[str] = []
+            normalized_entries: list[dict[str, Any]] = []
             for spell_item in spells:
                 if isinstance(spell_item, dict):
                     spell_name = str(spell_item.get("name") or spell_item.get("spell_ref") or "").strip().lower()
@@ -1175,6 +1176,13 @@ def _build_race_features(selected_race: dict | None) -> dict[str, Any]:
                 if not spell_name:
                     continue
                 normalized_spells.append(spell_name)
+                normalized_entries.append(
+                    {
+                        "name": spell_name,
+                        "frequency": frequency,
+                        "min_level": 1,
+                    }
+                )
                 innate_spells.append(
                     {
                         "ability": ability,
@@ -1198,6 +1206,12 @@ def _build_race_features(selected_race: dict | None) -> dict[str, Any]:
             # Keep backward-compatible key used by existing Firbolg UI/tests.
             if tkey == "firbolg_magic":
                 features["firbolg_magic"] = shared_magic_cfg
+            if normalized_entries:
+                features["innate_spellcasting"] = {
+                    "type": "innate_spellcasting",
+                    "ability": ability,
+                    "spells": normalized_entries,
+                }
 
         if mtype == "invisibility_burst":
             features["hidden_step"] = dict(mech)
