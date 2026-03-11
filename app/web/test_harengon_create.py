@@ -122,6 +122,8 @@ def test_harengon_create_requires_choices_and_persists_features(monkeypatch) -> 
     assert isinstance(features.get("hare_trigger"), dict)
     assert isinstance(features.get("lucky_footwork"), dict)
     assert isinstance(features.get("rabbit_hop"), dict)
+    runtime = race_features.get("runtime") or {}
+    assert int(runtime.get("rabbit_hop_uses_used") or 0) == 0
 
     choices = race_features.get("choices") or {}
     assert str(choices.get("size") or "").strip().lower() == "small"
@@ -189,4 +191,4 @@ def test_harengon_ui_texts_present_in_session_template() -> None:
     template = (Path(__file__).resolve().parents[0] / "templates" / "session.html").read_text(encoding="utf-8")
     assert "Заячье сердце: +БМ к инициативе" in template
     assert "Сильные ноги: реакцией после провала спасброска Ловкости" in template
-    assert "Кроличий прыжок: бонусным действием 5×БМ футов" in template
+    assert "Кроличий прыжок: статус" in template

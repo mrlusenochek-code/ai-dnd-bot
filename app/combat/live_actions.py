@@ -1933,6 +1933,10 @@ def handle_live_combat_action(
         attacker.race_features = race_features
 
         distance_ft = 5 * _proficiency_bonus_for_actor(attacker)
+        base_move_speed, remaining_ft = _movement_budget_for_actor(attacker)
+        attacker.move_speed_ft = base_move_speed + distance_ft
+        attacker.move_remaining_ft = remaining_ft + distance_ft
+        attacker.move_remaining = attacker.move_remaining_ft
         remaining = max(0, uses_max - used)
         return (
             {
@@ -1940,6 +1944,7 @@ def handle_live_combat_action(
                 "open": True,
                 "lines": [
                     {"text": f"Кроличий прыжок: {attacker.name} перемещается на {distance_ft} фт (без провоцированных атак)."},
+                    {"text": f"Движение: +{distance_ft} (итого {attacker.move_remaining_ft})", "muted": True},
                     {"text": f"Осталось: {remaining}/{uses_max}.", "muted": True},
                 ],
             },

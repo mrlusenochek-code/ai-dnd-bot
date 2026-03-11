@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from app.combat.live_actions import handle_live_combat_action
 from app.combat.state import Combatant, end_combat, get_combat, start_combat
+from app.combat.turns import advance_turn_in_state
 from app.web import ws_handlers
 
 
@@ -63,12 +64,14 @@ def test_harengon_rabbit_hop_bonus_action_uses_and_long_rest_reset() -> None:
         assert patch_1 is not None
         texts_1 = _line_texts(patch_1)
         assert any("10 фт" in t for t in texts_1)
+        assert any("Движение: +10" in t for t in texts_1)
 
         state_now = get_combat(session_id)
         assert state_now is not None
         pc = state_now.combatants["pc_1"]
         runtime = (pc.race_features or {}).get("runtime") or {}
         assert int(runtime.get("rabbit_hop_uses_used") or 0) == 1
+        assert pc.move_remaining_ft == 40
         assert pc.bonus_action_available is False
 
         # next turn: reset bonus action manually for isolated action test
@@ -88,6 +91,14 @@ def test_harengon_rabbit_hop_bonus_action_uses_and_long_rest_reset() -> None:
         assert reset_changed is True
         runtime_reset = ((pc.race_features or {}).get("runtime") or {})
         assert int(runtime_reset.get("rabbit_hop_uses_used") or 0) == 0
+
+        advance_turn_in_state(state_now)
+        advance_turn_in_state(state_now)
+        runtime_turn_reset = ((pc.race_features or {}).get("runtime") or {})
+        assert "rabbit_hop_no_oa" not in runtime_turn_reset
+        assert "rabbit_hop_no_oa_round" not in runtime_turn_reset
+        assert pc.move_remaining_ft == 30
+        assert pc.move_speed_ft == 30
 
         pc.bonus_action_available = True
         patch_4, err_4 = handle_live_combat_action("combat_rabbit_hop", session_id)

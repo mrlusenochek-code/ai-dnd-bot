@@ -1579,8 +1579,12 @@ function openCharacterModal(){
   const rabbitHopUsesMax = rabbitHopPb;
   const rabbitHopUsed = Number.isFinite(Number(runtime.rabbit_hop_uses_used)) ? Number(runtime.rabbit_hop_uses_used) : 0;
   const rabbitHopRemaining = Math.max(0, rabbitHopUsesMax - rabbitHopUsed);
+  const rabbitHopDistanceFt = rabbitHopPb * 5;
+  const rabbitHopStatusText = rabbitHopRemaining > 0
+    ? "готово"
+    : "потрачено, восстановится после долгого отдыха";
   const rabbitHopText = (raceKey === "harengon" && rabbitHop)
-    ? `Кроличий прыжок: бонусным действием 5×БМ футов без провоцированных атак; использований БМ/дл. отдых; требует скорость > 0. Осталось: ${rabbitHopRemaining}/${rabbitHopUsesMax}`
+    ? `Кроличий прыжок: статус ${rabbitHopStatusText}; прыжок ${rabbitHopDistanceFt} фт бонусным действием без провоцированных атак; использований ${rabbitHopRemaining}/${rabbitHopUsesMax}; требует скорость > 0`
     : "";
   const savingFace = (raceFeaturesMeta.saving_face && typeof raceFeaturesMeta.saving_face === "object")
     ? raceFeaturesMeta.saving_face
