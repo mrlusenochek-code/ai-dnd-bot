@@ -1532,6 +1532,11 @@ def _build_race_features(selected_race: dict | None) -> dict[str, Any]:
         if mtype == "fey_ancestry":
             save_advantage_conditions.append("charmed")
             immune_cond.append("magic_sleep")
+            features["fey_ancestry"] = {
+                "type": "fey_ancestry",
+                "advantage_on_saves_vs": ["charmed"],
+                "immune_to_magical_sleep": True,
+            }
 
         if mtype == "magic_resistance":
             for ability in allowed_save_abilities:

@@ -591,6 +591,10 @@ def _has_condition_immunity(actor: Any, condition_key: str) -> bool:
     return False
 
 
+def _has_magical_sleep_immunity(actor: Any) -> bool:
+    return _has_condition_immunity(actor, "magic_sleep")
+
+
 def _conditions_runtime(actor: Any) -> tuple[dict[str, Any], dict[str, Any], dict[str, Any]]:
     race_features = actor.race_features if isinstance(getattr(actor, "race_features", None), dict) else {}
     runtime_raw = race_features.get("runtime")
