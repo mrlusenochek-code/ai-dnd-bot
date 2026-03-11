@@ -593,6 +593,182 @@ def _format_check_log(
     return msg
 
 
+def _parse_save_command(
+    cmdline: str,
+) -> tuple[bool, str, bool, str, str, int | None, str | None]:
+    parts = str(cmdline or "").split()
+    usage = "Использование: save [magic] [adv|dis] [footwork] <str|dex|con|int|wis|cha> [vs <tag>] [dc N]"
+    if len(parts) < 2:
+        return False, "roll", False, "", "", None, usage
+
+    is_magic_save = False
+    mode = "roll"
+    idx = 1
+    if idx < len(parts) and parts[idx].lower() == "magic":
+        is_magic_save = True
+        idx += 1
+    if idx < len(parts) and parts[idx].lower() in ("adv", "dis"):
+        mode = parts[idx].lower()
+        idx += 1
+    use_footwork = False
+    if idx < len(parts) and parts[idx].lower() == "footwork":
+        use_footwork = True
+        idx += 1
+    if idx >= len(parts):
+        return False, "roll", False, "", "", None, usage
+
+    vs_tag = ""
+    ability = ""
+    if idx < len(parts) and parts[idx].lower() == "vs":
+        if idx + 2 >= len(parts):
+            return False, "roll", False, "", "", None, "Использование: save [magic] [adv|dis] [footwork] <ability> [vs <tag>] [dc N]"
+        vs_tag = _normalize_save_tag(parts[idx + 1])
+        ability = parts[idx + 2].lower()
+        idx += 3
+    else:
+        ability = parts[idx].lower()
+        idx += 1
+        if idx < len(parts) and parts[idx].lower() == "vs":
+            if idx + 1 >= len(parts):
+                return False, "roll", False, "", "", None, "Использование: save [magic] [adv|dis] [footwork] <ability> [vs <tag>] [dc N]"
+            vs_tag = _normalize_save_tag(parts[idx + 1])
+            idx += 2
+
+    if ability not in CHAR_STAT_KEYS:
+        return False, "roll", False, "", "", None, "Unknown ability key"
+
+    dc: Optional[int] = None
+    if idx < len(parts):
+        tok = parts[idx].lower()
+        if tok.startswith("dc"):
+            if tok == "dc":
+                if idx + 1 >= len(parts):
+                    return False, "roll", False, "", "", None, "Usage: save ... dc <N>"
+                dc = as_int(parts[idx + 1], -1)
+                idx += 2
+            else:
+                dc = as_int(tok[2:], -1)
+                idx += 1
+        else:
+            return False, "roll", False, "", "", None, usage
+    if idx != len(parts):
+        return False, "roll", False, "", "", None, usage
+    if dc is not None and dc < 0:
+        return False, "roll", False, "", "", None, "DC must be >= 0"
+
+    return is_magic_save, mode, use_footwork, ability, vs_tag, dc, None
+
+
+def _runtime_has_active_prone(race_features: Any) -> bool:
+    if not isinstance(race_features, dict):
+        return False
+    runtime_raw = race_features.get("runtime")
+    runtime = runtime_raw if isinstance(runtime_raw, dict) else {}
+    conditions_raw = runtime.get("conditions")
+    conditions = conditions_raw if isinstance(conditions_raw, dict) else {}
+    prone_raw = conditions.get("prone")
+    prone = prone_raw if isinstance(prone_raw, dict) else {}
+    if bool(prone.get("active")):
+        return True
+    return max(0, as_int(prone.get("remaining_rounds"), 0)) > 0
+
+
+def _harengon_effective_speed_ft(
+    ch: Character,
+    *,
+    session_id: str,
+    player_uid: int | None,
+) -> int:
+    if player_uid is not None:
+        state = get_combat(session_id)
+        if state is not None and state.active:
+            actor = state.combatants.get(f"pc_{player_uid}")
+            if actor is not None:
+                move_speed = max(0, as_int(getattr(actor, "move_speed_ft", 0), 0))
+                if move_speed > 0:
+                    return move_speed
+                return max(0, as_int(getattr(actor, "speed_ft", 0), 0))
+
+    race_features = getattr(ch, "race_features", None)
+    rf = race_features if isinstance(race_features, dict) else {}
+    runtime_raw = rf.get("runtime")
+    runtime = runtime_raw if isinstance(runtime_raw, dict) else {}
+    override = runtime.get("speed_override_ft")
+    if override is not None:
+        return max(0, as_int(override, 0))
+    speeds_raw = rf.get("speeds")
+    speeds = speeds_raw if isinstance(speeds_raw, dict) else {}
+    walk_ft = as_int(speeds.get("walk_ft"), as_int(rf.get("speed_ft"), 0))
+    return max(0, int(walk_ft))
+
+
+def _harengon_is_prone(
+    ch: Character,
+    *,
+    session_id: str,
+    player_uid: int | None,
+) -> bool:
+    if player_uid is not None:
+        state = get_combat(session_id)
+        if state is not None and state.active:
+            actor = state.combatants.get(f"pc_{player_uid}")
+            if actor is not None:
+                actor_rf = actor.race_features if isinstance(actor.race_features, dict) else {}
+                return _runtime_has_active_prone(actor_rf)
+    return _runtime_has_active_prone(getattr(ch, "race_features", None))
+
+
+def _consume_harengon_lucky_footwork_for_save(
+    ch: Character,
+    *,
+    session_id: str,
+    player_uid: int | None,
+    requested: bool,
+    ability: str,
+    base_total: int,
+    dc: int | None,
+    rng: Any = None,
+) -> tuple[int, str, str, bool, str | None]:
+    if not requested:
+        return 0, "", "", False, None
+    if str(ability or "").strip().lower() != "dex":
+        return 0, "", "", False, "Сильные ноги можно применять только к спасброску Ловкости."
+    if dc is None:
+        return 0, "", "", False, "Для Сильных ног укажите DC спасброска."
+
+    race_features = getattr(ch, "race_features", None)
+    rf = dict(race_features) if isinstance(race_features, dict) else {}
+    features_raw = rf.get("features")
+    features = features_raw if isinstance(features_raw, dict) else {}
+    lucky_cfg = features.get("lucky_footwork")
+    if not isinstance(lucky_cfg, dict):
+        return 0, "", "", False, "Сильные ноги недоступны вашей расе."
+    if _harengon_is_prone(ch, session_id=session_id, player_uid=player_uid):
+        return 0, "", "", False, "Сильные ноги недоступны: вы сбиты с ног."
+    if _harengon_effective_speed_ft(ch, session_id=session_id, player_uid=player_uid) <= 0:
+        return 0, "", "", False, "Сильные ноги недоступны: скорость должна быть больше 0."
+    if base_total >= dc:
+        return 0, "", "Lucky Footwork не понадобилась.", False, None
+
+    roller = rng if rng is not None else random
+    bonus = max(1, int(roller.randint(1, 4)))
+    new_total = base_total + bonus
+    runtime = dict(rf.get("runtime")) if isinstance(rf.get("runtime"), dict) else {}
+    runtime["last_dex_save_result"] = {
+        "dc": max(0, int(dc)),
+        "total": int(base_total),
+        "bonus": bonus,
+        "new_total": new_total,
+        "resolved": True,
+        "success": new_total >= dc,
+        "via_footwork": True,
+    }
+    runtime.pop("last_failed_dex_save", None)
+    rf["runtime"] = runtime
+    ch.race_features = rf
+    return bonus, f"1d4({bonus})", "", True, None
+
+
 def _format_save_log(
     *,
     character_name: str,
@@ -608,6 +784,9 @@ def _format_save_log(
     auto_advantage_reason: str,
     total: int,
     dc: Optional[int],
+    footwork_note: str = "",
+    footwork_bonus_text: str = "",
+    footwork_new_total: int | None = None,
 ) -> str:
     vs_suffix = f" vs {vs_tag}" if vs_tag else ""
     msg = (
@@ -623,6 +802,13 @@ def _format_save_log(
     if dc is not None:
         ok = total >= dc
         msg += f" (DC {dc}) {'SUCCESS' if ok else 'FAIL'}"
+    if footwork_note:
+        msg += f" | {footwork_note}"
+    elif footwork_bonus_text and footwork_new_total is not None and dc is not None:
+        msg += (
+            f" | Lucky Footwork: +{footwork_bonus_text}"
+            f" | Новый итог: {footwork_new_total} (DC {dc}) {'SUCCESS' if footwork_new_total >= dc else 'FAIL'}"
+        )
     return msg
 
 
@@ -1754,6 +1940,8 @@ def _sync_character_runtime_to_combat_actor(session_id: str, player_uid: int | N
         "knowledge_past_life_armed",
         "knowledge_from_a_past_life_pending",
         "knowledge_from_a_past_life_last_result",
+        "last_failed_dex_save",
+        "last_dex_save_result",
     }
     for key in runtime_keys:
         if key in runtime:
@@ -5425,7 +5613,7 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                         "de" "ps.Character commands: char create <Name> [Class], me, hp <+N|-N|N>, sta <+N|-N|N>, rest|rest long|rest short|rest hd <N>, "
                         "stat <str|dex|con|int|wis|cha> <0..100>, check|statcheck|skillcheck [adv|dis] [pastlife] <цель> [dc N] (ручной бросок, опционально), "
                         "toolcheck [adv|dis] [pastlife] <tool_key> [dc N], "
-                        "save [adv|dis] <str|dex|con|int|wis|cha> [vs <poison|frightened|charmed>] [dc N], "
+                        "save [magic] [adv|dis] [footwork] <str|dex|con|int|wis|cha> [vs <poison|frightened|charmed>] [dc N], "
                         "save magic [adv|dis] <str|dex|con|int|wis|cha> [vs <poison|frightened|charmed>] [dc N].",
                     )
                     await broadcast_state(session_id)
@@ -6054,85 +6242,9 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                     continue
 
                 if lower.startswith("save"):
-                    parts = cmdline.split()
-                    if len(parts) < 2:
-                        await ws_error(
-                            "Usage: save [adv|dis] <str|dex|con|int|wis|cha> [vs <tag>] [dc N]",
-                            request_id=msg_request_id,
-                        )
-                        continue
-                    is_magic_save = False
-                    mode = "roll"
-                    idx = 1
-                    if idx < len(parts) and parts[idx].lower() == "magic":
-                        is_magic_save = True
-                        idx += 1
-                    if idx < len(parts) and parts[idx].lower() in ("adv", "dis"):
-                        mode = parts[idx].lower()
-                        idx += 1
-                    if idx >= len(parts):
-                        await ws_error(
-                            "Usage: save [adv|dis] <str|dex|con|int|wis|cha> [vs <tag>] [dc N]",
-                            request_id=msg_request_id,
-                        )
-                        continue
-
-                    vs_tag = ""
-                    ability = ""
-                    if idx < len(parts) and parts[idx].lower() == "vs":
-                        if idx + 2 >= len(parts):
-                            await ws_error(
-                                "Usage: save [adv|dis] <ability> [vs <tag>] [dc N]",
-                                request_id=msg_request_id,
-                            )
-                            continue
-                        vs_tag = _normalize_save_tag(parts[idx + 1])
-                        ability = parts[idx + 2].lower()
-                        idx += 3
-                    else:
-                        ability = parts[idx].lower()
-                        idx += 1
-                        if idx < len(parts) and parts[idx].lower() == "vs":
-                            if idx + 1 >= len(parts):
-                                await ws_error(
-                                    "Usage: save [adv|dis] <ability> [vs <tag>] [dc N]",
-                                    request_id=msg_request_id,
-                                )
-                                continue
-                            vs_tag = _normalize_save_tag(parts[idx + 1])
-                            idx += 2
-
-                    if ability not in CHAR_STAT_KEYS:
-                        await ws_error("Unknown ability key", request_id=msg_request_id)
-                        continue
-
-                    dc: Optional[int] = None
-                    if idx < len(parts):
-                        tok = parts[idx].lower()
-                        if tok.startswith("dc"):
-                            if tok == "dc":
-                                if idx + 1 >= len(parts):
-                                    await ws_error("Usage: save ... dc <N>", request_id=msg_request_id)
-                                    continue
-                                dc = as_int(parts[idx + 1], -1)
-                                idx += 2
-                            else:
-                                dc = as_int(tok[2:], -1)
-                                idx += 1
-                        else:
-                            await ws_error(
-                                "Usage: save [adv|dis] <ability> [vs <tag>] [dc N]",
-                                request_id=msg_request_id,
-                            )
-                            continue
-                    if idx != len(parts):
-                        await ws_error(
-                            "Usage: save [adv|dis] <ability> [vs <tag>] [dc N]",
-                            request_id=msg_request_id,
-                        )
-                        continue
-                    if dc is not None and dc < 0:
-                        await ws_error("DC must be >= 0", request_id=msg_request_id)
+                    is_magic_save, mode, use_footwork, ability, vs_tag, dc, parse_error = _parse_save_command(cmdline)
+                    if parse_error:
+                        await ws_error(parse_error, request_id=msg_request_id)
                         continue
 
                     ch = await get_character(db, sess.id, player.id)
@@ -6180,8 +6292,45 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                     bfs_bonus, bfs_bonus_text, bfs_changed = _consume_built_for_success_for_d20(ch)
                     if bfs_changed:
                         flag_modified(ch, "race_features")
+                    base_total_with_bonus = base_total + bfs_bonus
+                    footwork_bonus = 0
+                    footwork_bonus_text = ""
+                    footwork_note = ""
+                    footwork_changed = False
+                    footwork_error = None
+                    if use_footwork:
+                        (
+                            footwork_bonus,
+                            footwork_bonus_text,
+                            footwork_note,
+                            footwork_changed,
+                            footwork_error,
+                        ) = _consume_harengon_lucky_footwork_for_save(
+                            ch,
+                            session_id=session_id,
+                            player_uid=_player_uid(player),
+                            requested=True,
+                            ability=ability,
+                            base_total=base_total_with_bonus,
+                            dc=dc,
+                        )
+                    if footwork_error:
+                        await ws_error(footwork_error, request_id=msg_request_id)
+                        continue
+                    if bfs_changed:
+                        pass
+                    if footwork_changed:
+                        flag_modified(ch, "race_features")
+                        runtime_now = (
+                            dict(ch.race_features.get("runtime"))
+                            if isinstance(getattr(ch, "race_features", None), dict)
+                            and isinstance(ch.race_features.get("runtime"), dict)
+                            else {}
+                        )
+                        _sync_character_runtime_to_combat_actor(session_id, _player_uid(player), runtime_now)
+                    if bfs_changed or footwork_changed:
                         await db.commit()
-                    total = base_total + bfs_bonus
+                    total = base_total_with_bonus + footwork_bonus
                     save_prefix = "save magic" if is_magic_save else "save"
                     msg = _format_save_log(
                         character_name=ch.name,
@@ -6195,12 +6344,15 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                         mod=mod,
                         extra_bonus_texts=[bfs_bonus_text] if bfs_bonus > 0 and bfs_bonus_text else [],
                         auto_advantage_reason=auto_advantage_reason,
-                        total=total,
+                        total=base_total_with_bonus if use_footwork else total,
                         dc=dc,
+                        footwork_note=footwork_note,
+                        footwork_bonus_text=footwork_bonus_text,
+                        footwork_new_total=total if use_footwork and footwork_bonus_text else None,
                     )
                     if dc is not None:
                         ok = total >= dc
-                        if not ok:
+                        if not ok and not use_footwork:
                             if (
                                 ability == "dex"
                                 and _harengon_mark_failed_dex_save_context(
