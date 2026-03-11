@@ -120,5 +120,7 @@ def test_half_orc_create_applies_asi_and_persists_features(monkeypatch) -> None:
     assert "intimidation" in prof_skills
 
     features = race_features.get("features") or {}
+    runtime = race_features.get("runtime") or {}
     assert isinstance(features.get("relentless_endurance"), dict)
     assert isinstance(features.get("savage_attacks"), dict)
+    assert runtime.get("relentless_endurance_used") is False

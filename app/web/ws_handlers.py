@@ -3198,7 +3198,7 @@ def _reset_racial_rest_uses(ch: Character, *, long_rest: bool = True) -> bool:
     if "breath_weapon_used" in runtime:
         runtime.pop("breath_weapon_used", None)
         changed = True
-    if "relentless_endurance_used" in runtime:
+    if long_rest and "relentless_endurance_used" in runtime:
         runtime.pop("relentless_endurance_used", None)
         changed = True
     if "built_for_success_used" in runtime:
@@ -3440,7 +3440,7 @@ def _reset_combatant_racial_rest_uses(session_id: str, actor_key: str, *, long_r
     if "breath_weapon_used" in runtime:
         runtime.pop("breath_weapon_used", None)
         changed = True
-    if "relentless_endurance_used" in runtime:
+    if long_rest and "relentless_endurance_used" in runtime:
         runtime.pop("relentless_endurance_used", None)
         changed = True
     if "built_for_success_used" in runtime:

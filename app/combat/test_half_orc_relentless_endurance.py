@@ -2,7 +2,8 @@ from __future__ import annotations
 
 from app.combat.live_actions import handle_live_combat_action
 from app.combat.resolution import AttackResolution
-from app.combat.state import Combatant, end_combat, get_combat, start_combat
+from app.combat.state import Combatant, apply_damage, end_combat, get_combat, start_combat
+from app.web import ws_handlers
 
 
 def _line_texts(patch) -> list[str]:
@@ -142,5 +143,41 @@ def test_relentless_endurance_does_not_prevent_instant_death(monkeypatch) -> Non
         texts = _line_texts(patch)
         assert any("Мгновенная смерть" in t for t in texts)
         assert not any("Неукротимая стойкость" in t for t in texts)
+    finally:
+        end_combat(session_id)
+
+
+def test_relentless_endurance_triggers_via_apply_damage_pipeline() -> None:
+    session_id = "test_half_orc_relentless_endurance_apply_damage_pipeline"
+    _build_state(session_id, hp_current=4, hp_max=20)
+    try:
+        state = apply_damage(session_id, "pc_1", 6, source="test")
+        assert state is not None
+        target = state.combatants["pc_1"]
+        assert target.hp_current == 1
+        runtime = ((target.race_features or {}).get("runtime") or {})
+        assert runtime.get("relentless_endurance_used") is True
+    finally:
+        end_combat(session_id)
+
+
+def test_relentless_endurance_resets_only_on_long_rest() -> None:
+    session_id = "test_half_orc_relentless_endurance_long_rest_only"
+    _build_state(session_id, hp_current=5, hp_max=20)
+    try:
+        state = get_combat(session_id)
+        assert state is not None
+        target = state.combatants["pc_1"]
+        target.race_features["runtime"] = {"relentless_endurance_used": True}
+
+        short_changed = ws_handlers._reset_combatant_racial_rest_uses(session_id, "pc_1", long_rest=False)
+        assert short_changed is False
+        runtime_after_short = ((target.race_features or {}).get("runtime") or {})
+        assert runtime_after_short.get("relentless_endurance_used") is True
+
+        long_changed = ws_handlers._reset_combatant_racial_rest_uses(session_id, "pc_1", long_rest=True)
+        assert long_changed is True
+        runtime_after_long = ((target.race_features or {}).get("runtime") or {})
+        assert "relentless_endurance_used" not in runtime_after_long
     finally:
         end_combat(session_id)

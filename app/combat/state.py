@@ -209,6 +209,29 @@ def _combatant_has_damage_resistance(combatant: Combatant, damage_type: str) -> 
     return any(str(item or "").strip().lower() == needle for item in resistances)
 
 
+def _maybe_apply_relentless_endurance_in_state(combatant: Combatant, incoming_damage: int) -> tuple[int, bool]:
+    race_features = combatant.race_features if isinstance(combatant.race_features, dict) else {}
+    features_raw = race_features.get("features")
+    features = features_raw if isinstance(features_raw, dict) else {}
+    relentless = features.get("relentless_endurance")
+    if not isinstance(relentless, dict):
+        return incoming_damage, False
+    pre_hp = max(0, int(getattr(combatant, "hp_current", 0) or 0))
+    hp_max = max(0, int(getattr(combatant, "hp_max", 0) or 0))
+    if pre_hp <= 0 or incoming_damage < pre_hp:
+        return incoming_damage, False
+    if (incoming_damage - pre_hp) >= hp_max:
+        return incoming_damage, False
+    runtime_raw = race_features.get("runtime")
+    runtime = dict(runtime_raw) if isinstance(runtime_raw, dict) else {}
+    if bool(runtime.get("relentless_endurance_used", False)):
+        return incoming_damage, False
+    runtime["relentless_endurance_used"] = True
+    race_features["runtime"] = runtime
+    combatant.race_features = race_features
+    return max(0, pre_hp - 1), True
+
+
 def _resolve_mode_speed(*, speed_ft: int, movement_speeds: dict[str, int] | None, movement_mode: str | None) -> int:
     base_speed = max(0, int(speed_ft))
     speeds = movement_speeds if isinstance(movement_speeds, dict) else {}
@@ -416,6 +439,7 @@ def apply_damage(
             damage_input = 0
         elif _combatant_has_damage_resistance(combatant, damage_type_key):
             damage_input //= 2
+    damage_input, _relentless_triggered = _maybe_apply_relentless_endurance_in_state(combatant, damage_input)
     temp_hp_before = max(0, int(getattr(combatant, "temp_hp", 0) or 0))
     absorbed_by_temp = min(temp_hp_before, damage_input)
     combatant.temp_hp = max(0, temp_hp_before - absorbed_by_temp)

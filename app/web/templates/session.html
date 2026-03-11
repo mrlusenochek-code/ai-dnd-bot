@@ -807,7 +807,7 @@ function openCharacterModal(){
     : null;
   const nimbleEscape = raceFeaturesMeta.nimble_escape === true;
   const relentlessEnduranceText = relentlessEndurance
-    ? "Неукротимая стойкость: 1/дл отдых, при 0 HP -> 1 HP (если не убит мгновенно)"
+    ? `Неукротимая стойкость: когда должны упасть до 0 HP, остаётесь на 1 HP (1/дл отдых; ${Boolean(runtime.relentless_endurance_used) ? "потрачено, восстановится после долгого отдыха" : "готово"})`
     : "";
   const savageAttacksText = savageAttacks
     ? "Свирепые атаки: на крите рукопашным оружием +1 кость урона оружия"
