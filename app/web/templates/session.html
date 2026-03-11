@@ -1895,7 +1895,7 @@ function openCharacterModal(){
     ? "Сокрушительные рога: после попадания melee в действии Атака — бонусным действием толчок 10 фт (Сл=8+БМ+мод СИЛ)"
     : "";
   const owlinFlightText = (raceKey === "owlin" && Number.isFinite(Number(speeds.fly_ft)) && Number(speeds.fly_ft) > 0)
-    ? `Полёт: ${flySpeedEqualsWalk ? "скорость полёта = ходьба; " : ""}нельзя в средних/тяжёлых доспехах${flyBlockedByArmor ? " (полёт недоступен из-за брони)" : ""}`
+    ? `Полёт: скорость полёта ${Number(speeds.fly_ft)} фт${flySpeedEqualsWalk ? " (равна ходьбе)" : ""}; средние и тяжёлые доспехи мешают полёту${flyBlockedByArmor ? ". Полёт недоступен в текущих доспехах." : ""}`
     : "";
   const owlinStealthText = (raceKey === "owlin" && profSkills.includes("stealth"))
     ? "Владение: Скрытность"

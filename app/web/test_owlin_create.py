@@ -170,8 +170,8 @@ def test_owlin_ui_texts_present_in_templates() -> None:
     session_template = (Path(__file__).resolve().parents[0] / "templates" / "session.html").read_text(encoding="utf-8")
     create_template = (Path(__file__).resolve().parents[0] / "templates" / "character_create.html").read_text(encoding="utf-8")
 
-    assert "скорость полёта = ходьба;" in session_template
-    assert "полёт недоступен из-за брони" in session_template
+    assert "скорость полёта ${Number(speeds.fly_ft)} фт" in session_template
+    assert "Полёт недоступен в текущих доспехах." in session_template
     assert "Владение: Скрытность" in session_template
     assert 'const isOwlin = raceKey === "owlin";' in create_template
     assert "const needsSize = isCustomLineage || isDhampir || isHarengon || isHexblood || isOwlin || isReborn;" in create_template
