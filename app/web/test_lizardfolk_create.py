@@ -123,6 +123,8 @@ def test_lizardfolk_create_requires_two_skills_and_persists_features(monkeypatch
     assert int((features.get("hungry_jaws") or {}).get("uses_max") or 0) == 1
     assert isinstance(features.get("cunning_artisan"), dict)
     assert isinstance(features.get("hold_breath"), dict)
+    runtime = race_features.get("runtime") or {}
+    assert int(runtime.get("hungry_jaws_uses_used") or 0) == 0
 
     prof = race_features.get("proficiencies") or {}
     skills = [str(x).strip().lower() for x in (prof.get("skills") or [])]
@@ -173,3 +175,4 @@ def test_lizardfolk_ui_texts_present_in_session_template() -> None:
     assert "Укус: природное оружие 1к6 + СИЛ колющий" in template
     assert "Умелый ремесленник: на коротком отдыхе можно сделать" in template
     assert "Голодная пасть: бонусным действием особая атака укусом" in template
+    assert "Статус: ${lizardfolkHungryStatus}" in template

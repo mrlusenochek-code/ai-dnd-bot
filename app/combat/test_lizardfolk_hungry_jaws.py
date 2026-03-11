@@ -94,3 +94,64 @@ def test_lizardfolk_hungry_jaws_bonus_action_temp_hp_and_rest_reset(monkeypatch)
         assert patch_after_rest is not None
     finally:
         end_combat(session_id)
+
+
+def test_lizardfolk_hungry_jaws_uses_existing_bite_path_and_logs_remaining_uses(monkeypatch) -> None:
+    session_id = "test_lizardfolk_hungry_jaws_uses_existing_bite_path_and_logs_remaining_uses"
+    state = start_combat(session_id)
+    state.combatants["pc_1"] = Combatant(
+        key="pc_1",
+        name="Lizardfolk",
+        side="pc",
+        hp_current=20,
+        hp_max=20,
+        temp_hp=2,
+        ac=13,
+        initiative=20,
+        level=1,
+        action_available=True,
+        bonus_action_available=True,
+        reaction_available=True,
+        stats={"str": 60, "dex": 50, "con": 60, "int": 50, "wis": 50, "cha": 50},
+        race_features={
+            "features": {
+                "hungry_jaws": {
+                    "activation": "bonus_action",
+                    "temp_hp_formula": "max(con_mod,1)",
+                    "uses": "per_short_or_long_rest",
+                    "uses_max": 1,
+                }
+            },
+            "runtime": {"hungry_jaws_uses_used": 0},
+        },
+    )
+    state.combatants["enemy_1"] = Combatant(
+        key="enemy_1",
+        name="Bandit",
+        side="enemy",
+        hp_current=20,
+        hp_max=20,
+        ac=10,
+        initiative=10,
+        stats={"str": 50, "dex": 50, "con": 50, "wis": 50},
+    )
+    state.order = ["pc_1", "enemy_1"]
+    state.turn_index = 0
+
+    rolls = iter([14, 2])
+    monkeypatch.setattr("app.combat.live_actions.random.randint", lambda _a, _b: next(rolls))
+
+    try:
+        patch, err = handle_live_combat_action("combat_hungry_jaws", session_id)
+        assert err is None
+        assert patch is not None
+        texts = _line_texts(patch)
+        assert any("укус" in t.lower() for t in texts)
+        assert any("осталось использований: 0/1" in t.lower() for t in texts)
+
+        st = get_combat(session_id)
+        assert st is not None
+        actor = st.combatants["pc_1"]
+        assert int(getattr(actor, "temp_hp", 0) or 0) >= 2
+    finally:
+        end_combat(session_id)

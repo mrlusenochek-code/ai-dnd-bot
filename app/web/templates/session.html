@@ -1680,8 +1680,11 @@ function openCharacterModal(){
     ? Number(lizardfolkHungryJaws.uses_max)
     : 1;
   const lizardfolkHungryRemaining = Math.max(0, lizardfolkHungryMax - lizardfolkHungryUsed);
+  const lizardfolkHungryStatus = lizardfolkHungryRemaining > 0
+    ? "готово"
+    : "потрачено, восстановится после короткого/долгого отдыха";
   const lizardfolkHungryJawsText = (raceKey === "lizardfolk" && lizardfolkHungryJaws)
-    ? `Голодная пасть: бонусным действием особая атака укусом; если попали — временные хиты = max(мод ТЕЛ,1); 1/кор/дл отдых. Осталось: ${lizardfolkHungryRemaining}/${lizardfolkHungryMax}`
+    ? `Голодная пасть: бонусным действием особая атака укусом; если попали — временные хиты = max(мод ТЕЛ,1); 1/кор/дл отдых. Статус: ${lizardfolkHungryStatus}. Осталось: ${lizardfolkHungryRemaining}/${lizardfolkHungryMax}`
     : "";
   const kenkuSkills = (raceKey === "kenku" && Array.isArray(choices.skills) && choices.skills.length > 0)
     ? choices.skills.map((x) => String(x || "").trim().toLowerCase()).filter(Boolean)

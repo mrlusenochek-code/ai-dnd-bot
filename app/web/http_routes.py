@@ -2642,6 +2642,11 @@ async def api_character_create(payload: dict):
             runtime.setdefault("mind_link_reply_until", "")
             runtime.setdefault("mind_link_last_set_at", "")
             race_features["runtime"] = runtime
+        if isinstance(race_features, dict) and str(race_features.get("race_key") or "").strip().lower() == "lizardfolk":
+            runtime_raw = race_features.get("runtime")
+            runtime = dict(runtime_raw) if isinstance(runtime_raw, dict) else {}
+            runtime.setdefault("hungry_jaws_uses_used", 0)
+            race_features["runtime"] = runtime
         if isinstance(race_features, dict) and str(race_features.get("race_key") or "").strip().lower() == "kender":
             runtime_raw = race_features.get("runtime")
             runtime = dict(runtime_raw) if isinstance(runtime_raw, dict) else {}
