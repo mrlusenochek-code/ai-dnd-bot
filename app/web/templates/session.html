@@ -2146,13 +2146,11 @@ function openCharacterModal(){
     ? Number(runtime.knowledge_past_life_uses_used)
     : 0;
   const rebornPastLifeRemaining = Math.max(0, rebornPb - rebornPastLifeUsed);
-  const rebornPastLifePending = runtime.knowledge_from_a_past_life_pending && typeof runtime.knowledge_from_a_past_life_pending === "object";
-  const rebornPastLifeArmed = !!runtime.knowledge_past_life_armed;
   const rebornDeathlessNatureText = (raceKey === "reborn" && rebornDeathlessNature)
     ? `Бессмертная природа: преимущество на спасброски от болезней и отравления${rebornHasDeathSaveAdvantage ? "; преимущество на спасброски смерти" : ""}; ${hasPoisonResistance ? "сопротивление урону ядом; " : ""}не нужно есть/пить/дышать/спать; магия не может усыпить; длительный отдых ${rebornLongRestHours} часа, оставаясь в сознании`
     : "";
   const rebornPastLifeText = (raceKey === "reborn" && rebornPastLife)
-    ? `Знания из прошлой жизни: после броска d20 к проверке навыка можно добавить 1к6; использований: БМ/дл. отдых. Осталось: ${rebornPastLifeRemaining}/${rebornPb}${rebornPastLifePending ? "; ожидает применение к последней проваленной проверке" : (rebornPastLifeArmed ? "; готово к следующей проверке навыка" : "")}`
+    ? `Знания из прошлой жизни: можете добавить 1к6 к проверке характеристики. Использований: ${rebornPastLifeRemaining}/${rebornPb}. Восстанавливается после долгого отдыха.`
     : "";
   const orcMenacingText = (raceKey === "orc" && profSkills.includes("intimidation"))
     ? "Угрожающий: владение Запугивание"

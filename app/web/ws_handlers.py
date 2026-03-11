@@ -417,24 +417,42 @@ def _toolcheck_access_error(ch: Any, tool_key: str) -> str | None:
     return None
 
 
-def _parse_toolcheck_command(cmdline: str) -> tuple[str | None, str | None, int | None, str | None]:
+def _parse_check_command(
+    cmdline: str,
+) -> tuple[str | None, str | None, bool, str | None, int | None, str, str | None]:
     parts = str(cmdline or "").split()
-    usage = "Использование: toolcheck [adv|dis] <tool_key> [dc N]"
+    usage = "Использование: check|statcheck|skillcheck [adv|dis] [pastlife] <цель> [dc N]"
     if len(parts) < 2:
-        return None, None, None, usage
+        return None, None, False, None, None, "", usage
 
-    mode = "normal"
+    command = str(parts[0] or "").strip().lower()
+    if command not in {"check", "statcheck", "skillcheck"}:
+        return None, None, False, None, None, "", usage
+
+    mode = "roll"
     idx = 1
     if idx < len(parts) and parts[idx].lower() in {"adv", "dis"}:
-        mode = "advantage" if parts[idx].lower() == "adv" else "disadvantage"
+        mode = parts[idx].lower()
+        idx += 1
+    use_past_life = False
+    if idx < len(parts) and parts[idx].lower() == "pastlife":
+        use_past_life = True
         idx += 1
     if idx >= len(parts):
-        return None, None, None, usage
+        return None, None, False, None, None, "", usage
 
-    tool_key = str(parts[idx] or "").strip().lower()
+    key_tokens: list[str] = [parts[idx].lower()]
     idx += 1
-    if not tool_key:
-        return None, None, None, usage
+    while idx < len(parts) and not parts[idx].lower().startswith("dc"):
+        key_tokens.append(parts[idx].lower())
+        idx += 1
+    check_tag = ""
+    if key_tokens and key_tokens[-1] == "smell":
+        check_tag = "smell"
+        key_tokens = key_tokens[:-1]
+    key = _normalize_check_name(" ".join(key_tokens))
+    if not key:
+        return None, None, False, None, None, "", usage
 
     dc: int | None = None
     if idx < len(parts):
@@ -442,19 +460,64 @@ def _parse_toolcheck_command(cmdline: str) -> tuple[str | None, str | None, int 
         if tok.startswith("dc"):
             if tok == "dc":
                 if idx + 1 >= len(parts):
-                    return None, None, None, "Использование: toolcheck ... dc <N>"
+                    return None, None, False, None, None, "", "Использование: ... dc <N>"
                 dc = as_int(parts[idx + 1], -1)
                 idx += 2
             else:
                 dc = as_int(tok[2:], -1)
                 idx += 1
         else:
-            return None, None, None, usage
+            return None, None, False, None, None, "", usage
     if idx != len(parts):
-        return None, None, None, usage
+        return None, None, False, None, None, "", usage
     if dc is not None and dc < 0:
-        return None, None, None, "DC должен быть не меньше 0"
-    return mode, tool_key, dc, None
+        return None, None, False, None, None, "", "DC должен быть не меньше 0"
+
+    return command, mode, use_past_life, key, dc, check_tag, None
+
+
+def _parse_toolcheck_command(cmdline: str) -> tuple[str | None, str | None, int | None, bool, str | None]:
+    parts = str(cmdline or "").split()
+    usage = "Использование: toolcheck [adv|dis] [pastlife] <tool_key> [dc N]"
+    if len(parts) < 2:
+        return None, None, None, False, usage
+
+    mode = "normal"
+    idx = 1
+    if idx < len(parts) and parts[idx].lower() in {"adv", "dis"}:
+        mode = "advantage" if parts[idx].lower() == "adv" else "disadvantage"
+        idx += 1
+    use_past_life = False
+    if idx < len(parts) and parts[idx].lower() == "pastlife":
+        use_past_life = True
+        idx += 1
+    if idx >= len(parts):
+        return None, None, None, False, usage
+
+    tool_key = str(parts[idx] or "").strip().lower()
+    idx += 1
+    if not tool_key:
+        return None, None, None, False, usage
+
+    dc: int | None = None
+    if idx < len(parts):
+        tok = parts[idx].lower()
+        if tok.startswith("dc"):
+            if tok == "dc":
+                if idx + 1 >= len(parts):
+                    return None, None, None, False, "Использование: toolcheck ... dc <N>"
+                dc = as_int(parts[idx + 1], -1)
+                idx += 2
+            else:
+                dc = as_int(tok[2:], -1)
+                idx += 1
+        else:
+            return None, None, None, False, usage
+    if idx != len(parts):
+        return None, None, None, False, usage
+    if dc is not None and dc < 0:
+        return None, None, None, False, "DC должен быть не меньше 0"
+    return mode, tool_key, dc, use_past_life, None
 
 
 def _format_d20_roll(mode: str, roll_a: int, roll_b: Optional[int], chosen: int) -> str:
@@ -476,6 +539,7 @@ def _format_toolcheck_log(
     tp_bonus: int,
     tp_bonus_text: str,
     extra_bonus_texts: list[str],
+    past_life_uses_text: str = "",
     total: int,
     dc: Optional[int],
 ) -> str:
@@ -488,10 +552,12 @@ def _format_toolcheck_log(
         lines.append(f"Tireless Precision: +{tp_bonus_text}")
     for text in extra_bonus_texts:
         if text:
-            lines.append(f"Доп. бонус: +{text}")
+            lines.append(text if ":" in text else f"Доп. бонус: +{text}")
     lines.append(f"Итого: {total}")
     if dc is not None:
         lines.append(f"DC {dc} -> {'успех' if total >= dc else 'провал'}")
+    if past_life_uses_text:
+        lines.append(past_life_uses_text)
     return "\n".join(lines)
 
 
@@ -505,6 +571,7 @@ def _format_check_log(
     mod: int,
     tp_bonus_text: str,
     extra_bonus_texts: list[str],
+    past_life_uses_text: str = "",
     total: int,
     dc: Optional[int],
 ) -> str:
@@ -521,6 +588,8 @@ def _format_check_log(
     if dc is not None:
         ok = total >= dc
         msg += f" (DC {dc}) {'SUCCESS' if ok else 'FAIL'}"
+    if past_life_uses_text:
+        msg += f" | {past_life_uses_text}"
     return msg
 
 
@@ -1827,6 +1896,48 @@ def _consume_reborn_past_life_for_skill_check(ch: Character, *, kind: str) -> tu
     rf["runtime"] = runtime
     ch.race_features = rf
     return bonus, f"1d6 (Знания из прошлой жизни: {bonus})", True
+
+
+def _consume_reborn_past_life_bonus_for_check(
+    ch: Character,
+    *,
+    requested: bool,
+    kind: str,
+    rng: Any = None,
+) -> tuple[int, str, str, bool, str | None]:
+    if not requested:
+        return 0, "", "", False, None
+    kind_norm = str(kind or "").strip().lower()
+    if kind_norm not in {"ability", "skill", "tool"}:
+        return 0, "", "", False, "Знания из прошлой жизни можно применять только к проверкам характеристик, навыков и инструментов."
+
+    feature = _reborn_past_life_feature(ch)
+    if not feature:
+        return 0, "", "", False, "Знания из прошлой жизни недоступны вашей расе."
+
+    race_features = getattr(ch, "race_features", None)
+    rf = dict(race_features) if isinstance(race_features, dict) else {}
+    runtime = dict(rf.get("runtime")) if isinstance(rf.get("runtime"), dict) else {}
+    uses_max = _reborn_past_life_uses_max(ch, feature)
+    used = max(0, as_int(runtime.get("knowledge_past_life_uses_used"), 0))
+    if uses_max <= 0 or used >= uses_max:
+        return 0, "", "", False, "Знания из прошлой жизни уже использованы до долгого отдыха."
+
+    roller = rng if rng is not None else random
+    bonus = max(1, int(roller.randint(1, 6)))
+    runtime["knowledge_past_life_uses_used"] = used + 1
+    runtime["knowledge_past_life_armed"] = False
+    runtime.pop("knowledge_from_a_past_life_pending", None)
+    rf["runtime"] = runtime
+    ch.race_features = rf
+    remaining = max(0, uses_max - (used + 1))
+    return (
+        bonus,
+        f"Knowledge from a Past Life 1d6({bonus})",
+        f"Осталось использований: {remaining}/{uses_max}",
+        True,
+        None,
+    )
 
 
 def _simic_lvl1_options() -> set[str]:
@@ -5312,8 +5423,8 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                         db,
                         sess,
                         "de" "ps.Character commands: char create <Name> [Class], me, hp <+N|-N|N>, sta <+N|-N|N>, rest|rest long|rest short|rest hd <N>, "
-                        "stat <str|dex|con|int|wis|cha> <0..100>, check [adv|dis] <stat_or_skill> [dc N] (ручной бросок, опционально), "
-                        "toolcheck [adv|dis] <tool_key> [dc N], "
+                        "stat <str|dex|con|int|wis|cha> <0..100>, check|statcheck|skillcheck [adv|dis] [pastlife] <цель> [dc N] (ручной бросок, опционально), "
+                        "toolcheck [adv|dis] [pastlife] <tool_key> [dc N], "
                         "save [adv|dis] <str|dex|con|int|wis|cha> [vs <poison|frightened|charmed>] [dc N], "
                         "save magic [adv|dis] <str|dex|con|int|wis|cha> [vs <poison|frightened|charmed>] [dc N].",
                     )
@@ -5608,54 +5719,28 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                     await broadcast_state(session_id)
                     continue
 
-                if lower.startswith("check"):
-                    parts = cmdline.split()
-                    if len(parts) < 2:
-                        await ws_error("Usage: check [adv|dis] <stat_or_skill> [dc N]", request_id=msg_request_id)
+                if lower.startswith(("check", "statcheck", "skillcheck")):
+                    command_kind, mode, use_past_life, key, dc, check_tag, parse_error = _parse_check_command(cmdline)
+                    if parse_error:
+                        await ws_error(parse_error, request_id=msg_request_id)
                         continue
-                    mode = "roll"
-                    idx = 1
-                    if idx < len(parts) and parts[idx].lower() in ("adv", "dis"):
-                        mode = parts[idx].lower()
-                        idx += 1
-                    if idx >= len(parts):
-                        await ws_error("Usage: check [adv|dis] <stat_or_skill> [dc N]", request_id=msg_request_id)
+                    if not command_kind or not mode or not key:
+                        await ws_error(
+                            "Использование: check|statcheck|skillcheck [adv|dis] [pastlife] <цель> [dc N]",
+                            request_id=msg_request_id,
+                        )
                         continue
-
-                    key_tokens: list[str] = [parts[idx].lower()]
-                    idx += 1
-                    while idx < len(parts) and not parts[idx].lower().startswith("dc"):
-                        key_tokens.append(parts[idx].lower())
-                        idx += 1
-                    check_tag = ""
-                    if key_tokens and key_tokens[-1] == "smell":
-                        check_tag = "smell"
-                        key_tokens = key_tokens[:-1]
-                    key = _normalize_check_name(" ".join(key_tokens))
-                    if not key:
-                        await ws_error("Usage: check [adv|dis] <stat_or_skill> [smell] [dc N]", request_id=msg_request_id)
+                    if command_kind == "statcheck" and key not in CHAR_STAT_KEYS:
+                        await ws_error(
+                            "Использование: statcheck [adv|dis] [pastlife] <str|dex|con|int|wis|cha> [dc N]",
+                            request_id=msg_request_id,
+                        )
                         continue
-                    dc: Optional[int] = None
-                    if idx < len(parts):
-                        tok = parts[idx].lower()
-                        if tok.startswith("dc"):
-                            if tok == "dc":
-                                if idx + 1 >= len(parts):
-                                    await ws_error("Usage: check ... dc <N>", request_id=msg_request_id)
-                                    continue
-                                dc = as_int(parts[idx + 1], -1)
-                                idx += 2
-                            else:
-                                dc = as_int(tok[2:], -1)
-                                idx += 1
-                        else:
-                            await ws_error("Usage: check [adv|dis] <stat_or_skill> [dc N]", request_id=msg_request_id)
-                            continue
-                    if idx != len(parts):
-                        await ws_error("Usage: check [adv|dis] <stat_or_skill> [dc N]", request_id=msg_request_id)
-                        continue
-                    if dc is not None and dc < 0:
-                        await ws_error("DC must be >= 0", request_id=msg_request_id)
+                    if command_kind == "skillcheck" and (key in CHAR_STAT_KEYS or "|" in key):
+                        await ws_error(
+                            "Использование: skillcheck [adv|dis] [pastlife] <skill> [dc N]",
+                            request_id=msg_request_id,
+                        )
                         continue
 
                     ch = await get_character(db, sess.id, player.id)
@@ -5748,10 +5833,26 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                     base_total = int(res["total"])
                     bfs_bonus, bfs_bonus_text, bfs_changed = _consume_built_for_success_for_d20(ch)
                     vamp_bonus, vamp_bonus_text, vamp_changed = _consume_vampiric_bite_bonus_for_d20(ch)
-                    past_life_bonus, past_life_bonus_text, past_life_changed = _consume_reborn_past_life_for_skill_check(
-                        ch,
-                        kind=str(check_payload["kind"]),
+                    past_life_bonus, past_life_bonus_text, past_life_uses_text, past_life_changed, past_life_error = (
+                        _consume_reborn_past_life_bonus_for_check(
+                            ch,
+                            requested=use_past_life,
+                            kind=str(check_payload["kind"]),
+                        )
                     )
+                    if past_life_error:
+                        await ws_error(past_life_error, request_id=msg_request_id)
+                        continue
+                    legacy_past_life_bonus = 0
+                    legacy_past_life_bonus_text: Optional[str] = None
+                    legacy_past_life_changed = False
+                    if not use_past_life:
+                        legacy_past_life_bonus, legacy_past_life_bonus_text, legacy_past_life_changed = (
+                            _consume_reborn_past_life_for_skill_check(
+                                ch,
+                                kind=str(check_payload["kind"]),
+                            )
+                        )
                     if bfs_changed:
                         flag_modified(ch, "race_features")
                     if vamp_changed:
@@ -5765,7 +5866,17 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                             else {}
                         )
                         _sync_character_runtime_to_combat_actor(session_id, _player_uid(player), runtime_now)
-                    if bfs_changed or vamp_changed or past_life_changed:
+                    if legacy_past_life_changed:
+                        runtime_now = (
+                            dict(ch.race_features.get("runtime"))
+                            if isinstance(getattr(ch, "race_features", None), dict)
+                            and isinstance(ch.race_features.get("runtime"), dict)
+                            else {}
+                        )
+                        _sync_character_runtime_to_combat_actor(session_id, _player_uid(player), runtime_now)
+                    if legacy_past_life_changed:
+                        flag_modified(ch, "race_features")
+                    if bfs_changed or vamp_changed or past_life_changed or legacy_past_life_changed:
                         await db.commit()
                     tp_bonus, tp_bonus_text = _tireless_precision_bonus_for_check(
                         getattr(ch, "race_features", None),
@@ -5773,7 +5884,14 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                         key=key,
                         proficient=skill_proficient,
                     )
-                    total = base_total + tp_bonus + bfs_bonus + vamp_bonus + past_life_bonus
+                    total = (
+                        base_total
+                        + tp_bonus
+                        + bfs_bonus
+                        + vamp_bonus
+                        + past_life_bonus
+                        + legacy_past_life_bonus
+                    )
                     msg = _format_check_log(
                         character_name=ch.name,
                         key=key,
@@ -5782,7 +5900,13 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                         roll=roll,
                         mod=mod,
                         tp_bonus_text=tp_bonus_text,
-                        extra_bonus_texts=[bfs_bonus_text, vamp_bonus_text, past_life_bonus_text],
+                        extra_bonus_texts=[
+                            bfs_bonus_text,
+                            vamp_bonus_text,
+                            past_life_bonus_text,
+                            legacy_past_life_bonus_text,
+                        ],
+                        past_life_uses_text=past_life_uses_text,
                         total=total,
                         dc=dc,
                     )
@@ -5818,12 +5942,12 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                     continue
 
                 if lower.startswith("toolcheck"):
-                    mapped_mode, tool_key, dc, parse_error = _parse_toolcheck_command(cmdline)
+                    mapped_mode, tool_key, dc, use_past_life, parse_error = _parse_toolcheck_command(cmdline)
                     if parse_error:
                         await ws_error(parse_error, request_id=msg_request_id)
                         continue
                     if not tool_key or not mapped_mode:
-                        await ws_error("Использование: toolcheck [adv|dis] <tool_key> [dc N]", request_id=msg_request_id)
+                        await ws_error("Использование: toolcheck [adv|dis] [pastlife] <tool_key> [dc N]", request_id=msg_request_id)
                         continue
 
                     ch = await get_character(db, sess.id, player.id)
@@ -5857,15 +5981,35 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                     res = build_check_result(check_payload, mod=mod, roll_a=ra, roll_b=rb, roll=roll)
                     base_total = int(res["total"])
                     vamp_bonus, vamp_bonus_text, vamp_changed = _consume_vampiric_bite_bonus_for_d20(ch)
+                    past_life_bonus, past_life_bonus_text, past_life_uses_text, past_life_changed, past_life_error = (
+                        _consume_reborn_past_life_bonus_for_check(
+                            ch,
+                            requested=use_past_life,
+                            kind="tool",
+                        )
+                    )
+                    if past_life_error:
+                        await ws_error(past_life_error, request_id=msg_request_id)
+                        continue
                     if vamp_changed:
                         flag_modified(ch, "race_features")
+                    if past_life_changed:
+                        flag_modified(ch, "race_features")
+                        runtime_now = (
+                            dict(ch.race_features.get("runtime"))
+                            if isinstance(getattr(ch, "race_features", None), dict)
+                            and isinstance(ch.race_features.get("runtime"), dict)
+                            else {}
+                        )
+                        _sync_character_runtime_to_combat_actor(session_id, _player_uid(player), runtime_now)
+                    if vamp_changed or past_life_changed:
                         await db.commit()
                     tp_bonus, tp_bonus_text = _tireless_precision_bonus_for_check(
                         getattr(ch, "race_features", None),
                         kind="tool",
                         key=tool_key,
                     )
-                    total = base_total + tp_bonus + vamp_bonus
+                    total = base_total + tp_bonus + vamp_bonus + past_life_bonus
                     msg = _format_toolcheck_log(
                         tool_name_ru=_tool_label_ru(tool_key),
                         mode=mapped_mode,
@@ -5875,7 +6019,17 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                         mod=mod,
                         tp_bonus=tp_bonus,
                         tp_bonus_text=tp_bonus_text,
-                        extra_bonus_texts=[vamp_bonus_text] if vamp_bonus > 0 and vamp_bonus_text else [],
+                        extra_bonus_texts=[
+                            text
+                            for text in (
+                                vamp_bonus_text,
+                                f"{past_life_bonus_text.replace('Knowledge from a Past Life ', 'Knowledge from a Past Life: +')}"
+                                if past_life_bonus_text
+                                else "",
+                            )
+                            if text
+                        ],
+                        past_life_uses_text=past_life_uses_text,
                         total=total,
                         dc=dc,
                     )

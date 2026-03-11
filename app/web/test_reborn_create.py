@@ -194,6 +194,6 @@ def test_reborn_ui_texts_present_in_templates() -> None:
     create_template = (Path(__file__).resolve().parents[0] / "templates" / "character_create.html").read_text(encoding="utf-8")
 
     assert "Бессмертная природа:" in session_template
-    assert "Знания из прошлой жизни: после броска d20 к проверке навыка можно добавить 1к6" in session_template
+    assert "Знания из прошлой жизни: можете добавить 1к6 к проверке характеристики." in session_template
     assert 'const isReborn = raceKey === "reborn";' in create_template
     assert "const needsSize = isCustomLineage || isDhampir || isHarengon || isHexblood || isOwlin || isReborn;" in create_template
