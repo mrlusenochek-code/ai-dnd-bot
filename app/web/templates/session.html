@@ -1026,6 +1026,15 @@ function openCharacterModal(){
   const aasimarLightBearerText = aasimarLightBearerSpell
     ? "Несущий свет: Свет — доступно всегда. Базовая характеристика — Харизма"
     : "";
+  const aasimarCelestialResistance = (raceFeaturesMeta.celestial_resistance && typeof raceFeaturesMeta.celestial_resistance === "object")
+    ? raceFeaturesMeta.celestial_resistance
+    : null;
+  const aasimarCelestialResistanceDamage = aasimarCelestialResistance && Array.isArray(aasimarCelestialResistance.damage)
+    ? aasimarCelestialResistance.damage.map((x) => String(x || "").trim().toLowerCase()).filter(Boolean)
+    : [];
+  const aasimarCelestialResistanceText = aasimarCelestialResistanceDamage.includes("necrotic") && aasimarCelestialResistanceDamage.includes("radiant")
+    ? "Небесная устойчивость: сопротивление некротическому урону и урону излучением"
+    : "";
   const aasimarTransformation = (raceFeaturesMeta.aasimar_transformation && typeof raceFeaturesMeta.aasimar_transformation === "object")
     ? raceFeaturesMeta.aasimar_transformation
     : null;
@@ -2726,6 +2735,9 @@ function openCharacterModal(){
   if(aasimarLightBearerText){
     details.push(`<div class="char-line"><strong>Несущий свет:</strong> ${escapeHtml(aasimarLightBearerText.replace(/^Несущий свет:\s*/, ""))}</div>`);
   }
+  if(aasimarCelestialResistanceText){
+    details.push(`<div class="char-line"><strong>Небесная устойчивость:</strong> ${escapeHtml(aasimarCelestialResistanceText.replace(/^Небесная устойчивость:\s*/, ""))}</div>`);
+  }
   if(aasimarTransformationText){
     details.push(`<div class="char-line"><strong>Небесное преобразование:</strong> ${escapeHtml(aasimarTransformationText.replace(/^Небесное преобразование:\s*/, ""))}</div>`);
   }
@@ -2949,6 +2961,7 @@ function openCharacterModal(){
   if(breatheUnderwaterText) copyLines.push(breatheUnderwaterText);
   if(healingHandsText) copyLines.push(healingHandsText);
   if(aasimarLightBearerText) copyLines.push(aasimarLightBearerText);
+  if(aasimarCelestialResistanceText) copyLines.push(aasimarCelestialResistanceText);
   if(aasimarTransformationText) copyLines.push(aasimarTransformationText);
   if(tirelessPrecisionText) copyLines.push(tirelessPrecisionText);
   if(asiChoiceText) copyLines.push(asiChoiceText);

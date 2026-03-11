@@ -308,6 +308,9 @@ def test_aasimar_protector_applies_asi_and_persists_features(monkeypatch) -> Non
     assert "radiant" in resistances
 
     features = race_features.get("features") or {}
+    celestial_resistance = features.get("celestial_resistance") or {}
+    assert celestial_resistance.get("type") == "damage_resistance"
+    assert celestial_resistance.get("damage") == ["necrotic", "radiant"]
     assert isinstance(features.get("healing_hands"), dict)
 
     transformation = features.get("aasimar_transformation") or {}
