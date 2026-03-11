@@ -125,6 +125,9 @@ def test_locathah_create_persists_expected_race_features(monkeypatch) -> None:
     assert {"frightened", "poisoned", "charmed", "stunned", "paralyzed", "sleep"}.issubset(adv_conditions)
 
     features = race_features.get("features") or {}
+    leviathan_will = features.get("leviathan_will") or {}
+    assert leviathan_will.get("type") == "save_advantage_vs_condition"
+    assert leviathan_will.get("conditions") == ["frightened", "poisoned", "charmed", "stunned", "paralyzed", "sleep"]
     assert isinstance(features.get("limited_amphibious"), dict)
 
 

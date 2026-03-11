@@ -338,6 +338,15 @@ def _auto_save_advantage_reason(
         normalized = [_normalize_save_tag(str(item or "")) for item in conditions]
         if _normalize_save_tag(vs_tag) in normalized:
             return "Loxodon Serenity"
+    leviathan_will = features.get("leviathan_will")
+    if isinstance(leviathan_will, dict):
+        conditions_raw = leviathan_will.get("conditions")
+        conditions = conditions_raw if isinstance(conditions_raw, list) else []
+        normalized = {_normalize_save_tag(str(item or "")) for item in conditions}
+        normalized.discard("")
+        tag = _normalize_save_tag(vs_tag)
+        if tag and (tag in normalized or (tag == "poison" and "poisoned" in normalized)):
+            return "Leviathan Will"
     dwarven_resilience = features.get("dwarven_resilience")
     if isinstance(dwarven_resilience, dict) and _normalize_save_tag(vs_tag) in {"poison", "poisoned"}:
         return "Dwarven Resilience"
