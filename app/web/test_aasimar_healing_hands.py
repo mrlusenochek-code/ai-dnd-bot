@@ -47,6 +47,11 @@ def test_healing_hands_long_rest_usage_cycle() -> None:
     assert changed_2 is False
     assert ch.hp == 13
 
+    short_rest_changed = ws_handlers._reset_racial_rest_uses(ch, long_rest=False)
+    assert short_rest_changed is False
+    runtime_after_short_rest = (ch.race_features or {}).get("runtime") or {}
+    assert runtime_after_short_rest.get("healing_hands_used") is True
+
     reset_changed = ws_handlers._reset_racial_rest_uses(ch)
     assert reset_changed is True
     runtime_after_reset = (ch.race_features or {}).get("runtime") or {}
@@ -111,6 +116,11 @@ def test_healing_hands_in_combat_requires_turn_and_spends_action() -> None:
         assert "Исцеляющие руки" in first_text
 
         state.combatants["pc_1"].race_features = ch.race_features
+        reset_short = ws_handlers._reset_combatant_racial_rest_uses(session_id, "pc_1", long_rest=False)
+        assert reset_short is False
+        combat_runtime_short = (state.combatants["pc_1"].race_features or {}).get("runtime") or {}
+        assert combat_runtime_short.get("healing_hands_used") is True
+
         reset_combatant = ws_handlers._reset_combatant_racial_rest_uses(session_id, "pc_1")
         assert reset_combatant is True
         combat_runtime = (state.combatants["pc_1"].race_features or {}).get("runtime") or {}

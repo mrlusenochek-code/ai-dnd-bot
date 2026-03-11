@@ -1059,8 +1059,12 @@ function openCharacterModal(){
   const healingHandsUsesText = healingHands ? formatUsesText(healingHands.uses, healingHands.uses_max) : "";
   const healingHandsAmountKey = healingHands ? String(healingHands.amount || "").trim().toLowerCase() : "";
   const healingHandsAmountText = healingHandsAmountKey === "level" ? "уровень" : String((healingHands && healingHands.amount) || "").trim();
+  const healingHandsUsed = !!runtime.healing_hands_used;
+  const healingHandsStatusText = healingHandsUsed
+    ? "потрачено, восстановится после долгого отдыха"
+    : "готово";
   const healingHandsText = healingHands
-    ? `Исцеляющие руки: ${healingHandsUsesText || "—"}, лечение = ${healingHandsAmountText || "—"}`
+    ? `Исцеляющие руки: статус ${healingHandsStatusText}; ${healingHandsUsesText || "—"}, лечение = ${healingHandsAmountText || "—"}`
     : "";
   const aasimarKindKey = aasimarTransformation ? String(aasimarTransformation.kind || "").trim().toLowerCase() : "";
   const aasimarKindText = aasimarKindKey ? (_AASIMAR_KIND_RU[aasimarKindKey] || aasimarKindKey) : "—";
