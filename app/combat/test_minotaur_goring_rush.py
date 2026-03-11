@@ -130,3 +130,94 @@ def test_minotaur_goring_rush_blocks_without_dash_or_without_20ft_move() -> None
         assert "20" in err_short_move
     finally:
         end_combat(session_id)
+
+
+def test_minotaur_goring_rush_expires_on_next_turn_if_unused() -> None:
+    session_id = "test_minotaur_goring_rush_expires_on_next_turn_if_unused"
+    state = start_combat(session_id)
+    state.combatants["pc_1"] = Combatant(
+        key="pc_1",
+        name="Minotaur",
+        side="pc",
+        hp_current=20,
+        hp_max=20,
+        ac=14,
+        initiative=20,
+        action_available=True,
+        bonus_action_available=True,
+        speed_ft=30,
+        move_speed_ft=30,
+        move_remaining_ft=30,
+        move_remaining=30,
+        stats={"str": 60, "dex": 50, "con": 55},
+        race_features={"features": {"goring_rush": {"requires": {"dash": True, "move_ft": 20}}}, "runtime": {}},
+    )
+    state.combatants["enemy_1"] = Combatant(
+        key="enemy_1",
+        name="Bandit",
+        side="enemy",
+        hp_current=20,
+        hp_max=20,
+        ac=12,
+        initiative=10,
+    )
+    state.order = ["pc_1", "enemy_1"]
+    state.turn_index = 0
+    try:
+        dash_patch, dash_err = handle_live_combat_action("combat_dash", session_id)
+        assert dash_err is None
+        assert dash_patch is not None
+        move_patch, move_err = handle_live_combat_action("combat_move", session_id, distance_ft=20)
+        assert move_err is None
+        assert move_patch is not None
+
+        state_now = get_combat(session_id)
+        assert state_now is not None
+        runtime = ((state_now.combatants["pc_1"].race_features or {}).get("runtime") or {})
+        assert bool(runtime.get("goring_rush_available")) is True
+
+        end_turn_patch, end_turn_err = handle_live_combat_action("combat_end_turn", session_id)
+        assert end_turn_err is None
+        assert end_turn_patch is not None
+
+        state_after = get_combat(session_id)
+        assert state_after is not None
+        runtime_after = ((state_after.combatants["pc_1"].race_features or {}).get("runtime") or {})
+        assert bool(runtime_after.get("goring_rush_available")) is False
+    finally:
+        end_combat(session_id)
+
+
+def test_minotaur_goring_rush_does_not_leak_between_battles() -> None:
+    session_id = "test_minotaur_goring_rush_does_not_leak_between_battles"
+    state = start_combat(session_id)
+    state.combatants["pc_1"] = Combatant(
+        key="pc_1",
+        name="Minotaur",
+        side="pc",
+        hp_current=20,
+        hp_max=20,
+        ac=14,
+        initiative=20,
+        race_features={
+            "features": {"goring_rush": {"requires": {"dash": True, "move_ft": 20}}},
+            "runtime": {"goring_rush_available": True, "hammering_horns_available": True, "hammering_horns_target_id": "enemy_1"},
+        },
+    )
+    state.combatants["enemy_1"] = Combatant(
+        key="enemy_1",
+        name="Bandit",
+        side="enemy",
+        hp_current=20,
+        hp_max=20,
+        ac=12,
+        initiative=10,
+    )
+
+    end_combat(session_id)
+
+    assert get_combat(session_id) is None
+    runtime = ((state.combatants["pc_1"].race_features or {}).get("runtime") or {})
+    assert bool(runtime.get("goring_rush_available")) is False
+    assert bool(runtime.get("hammering_horns_available")) is False
+    assert str(runtime.get("hammering_horns_target_id") or "") == ""

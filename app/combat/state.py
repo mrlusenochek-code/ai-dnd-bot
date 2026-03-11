@@ -91,6 +91,27 @@ def _reset_goblin_fury_runtime(combatant: Combatant) -> bool:
     return True
 
 
+def _reset_minotaur_charge_runtime(combatant: Combatant) -> bool:
+    race_features = combatant.race_features if isinstance(getattr(combatant, "race_features", None), dict) else {}
+    runtime_raw = race_features.get("runtime")
+    runtime = dict(runtime_raw) if isinstance(runtime_raw, dict) else {}
+    changed = False
+    if bool(runtime.get("goring_rush_available")):
+        runtime["goring_rush_available"] = False
+        changed = True
+    if bool(runtime.get("hammering_horns_available")):
+        runtime["hammering_horns_available"] = False
+        changed = True
+    if str(runtime.get("hammering_horns_target_id") or "").strip():
+        runtime["hammering_horns_target_id"] = ""
+        changed = True
+    if not changed:
+        return False
+    race_features["runtime"] = runtime
+    combatant.race_features = race_features
+    return True
+
+
 def _cleanup_battle_runtime(state: CombatState | None) -> bool:
     if state is None:
         return False
@@ -99,6 +120,8 @@ def _cleanup_battle_runtime(state: CombatState | None) -> bool:
         if _reset_bugbear_surprise_attack_runtime(combatant):
             changed = True
         if _reset_goblin_fury_runtime(combatant):
+            changed = True
+        if _reset_minotaur_charge_runtime(combatant):
             changed = True
     return changed
 

@@ -212,6 +212,29 @@ def advance_turn_in_state(state: CombatState) -> CombatState:
                     race_features.pop("runtime", None)
                 combatant.race_features = race_features
 
+    previous_key = state.order[state.turn_index]
+    previous_combatant = state.combatants.get(previous_key)
+    if previous_combatant is not None:
+        previous_race_features = previous_combatant.race_features if isinstance(previous_combatant.race_features, dict) else {}
+        previous_runtime_raw = previous_race_features.get("runtime")
+        previous_runtime = dict(previous_runtime_raw) if isinstance(previous_runtime_raw, dict) else {}
+        previous_runtime_changed = False
+        if "goring_rush_available" in previous_runtime:
+            previous_runtime.pop("goring_rush_available", None)
+            previous_runtime_changed = True
+        if "hammering_horns_available" in previous_runtime:
+            previous_runtime.pop("hammering_horns_available", None)
+            previous_runtime_changed = True
+        if "hammering_horns_target_id" in previous_runtime:
+            previous_runtime.pop("hammering_horns_target_id", None)
+            previous_runtime_changed = True
+        if previous_runtime_changed:
+            if previous_runtime:
+                previous_race_features["runtime"] = previous_runtime
+            else:
+                previous_race_features.pop("runtime", None)
+            previous_combatant.race_features = previous_race_features
+
     state.turn_index = (state.turn_index + 1) % len(state.order)
     if state.turn_index == 0:
         state.round_no += 1
@@ -248,15 +271,6 @@ def advance_turn_in_state(state: CombatState) -> CombatState:
         runtime_raw = race_features.get("runtime")
         runtime = dict(runtime_raw) if isinstance(runtime_raw, dict) else {}
         runtime_changed = False
-        if "goring_rush_available" in runtime:
-            runtime.pop("goring_rush_available", None)
-            runtime_changed = True
-        if "hammering_horns_available" in runtime:
-            runtime.pop("hammering_horns_available", None)
-            runtime_changed = True
-        if "hammering_horns_target_id" in runtime:
-            runtime.pop("hammering_horns_target_id", None)
-            runtime_changed = True
         if "aggressive_used_turn_id" in runtime:
             runtime.pop("aggressive_used_turn_id", None)
             runtime_changed = True
