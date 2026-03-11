@@ -286,7 +286,8 @@ def _apply_savage_attacks_bonus(*, attacker: Any, profile: Any, is_crit: bool, t
         return total_damage, extra_lines
     if not bool(getattr(profile, "is_melee_weapon", False)):
         return total_damage, extra_lines
-    if _race_feature(attacker, "savage_attacks") is None:
+    savage_attacks = _race_feature(attacker, "savage_attacks")
+    if savage_attacks is None:
         return total_damage, extra_lines
     parsed = parse_dice(str(getattr(profile, "damage_dice", "") or "").strip().lower())
     if parsed is None:
@@ -294,8 +295,20 @@ def _apply_savage_attacks_bonus(*, attacker: Any, profile: Any, is_crit: bool, t
     _count, sides = parsed
     if sides <= 0:
         return total_damage, extra_lines
-    extra_damage = random.randint(1, sides)
-    extra_lines.append({"text": f"Свирепые атаки: +{extra_damage} (доп. кость урона оружия).", "muted": True})
+    extra_weapon_damage_die = 1
+    if isinstance(savage_attacks, dict):
+        try:
+            extra_weapon_damage_die = max(1, int(savage_attacks.get("extra_weapon_damage_die", 1)))
+        except Exception:
+            extra_weapon_damage_die = 1
+    extra_rolls = [random.randint(1, sides) for _ in range(extra_weapon_damage_die)]
+    extra_damage = sum(extra_rolls)
+    extra_lines.append(
+        {
+            "text": f"Свирепые атаки: +{extra_damage} ({extra_weapon_damage_die}d{sides} доп. кость урона оружия).",
+            "muted": True,
+        }
+    )
     return total_damage + extra_damage, extra_lines
 
 
