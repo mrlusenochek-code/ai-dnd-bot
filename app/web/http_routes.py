@@ -687,6 +687,14 @@ def _build_race_features(selected_race: dict | None) -> dict[str, Any]:
                     "type": "damage_resistance",
                     "damage": damage_items,
                 }
+            if tkey == "hellish_resistance":
+                damage_items = _uniq_lower_str_list(mech.get("damage"))
+                if damage_type:
+                    damage_items = _uniq_lower_str_list([*damage_items, damage_type])
+                features["hellish_resistance"] = {
+                    "type": "damage_resistance",
+                    "damage": damage_items,
+                }
 
         if mtype == "glide":
             features["glide"] = {

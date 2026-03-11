@@ -108,6 +108,10 @@ def test_tiefling_persists_infernal_legacy_and_fire_resistance(monkeypatch) -> N
     race_features = ((json.loads(response.body).get("character") or {}).get("race_features") or {})
     resistances = [str(x).strip().lower() for x in (race_features.get("resistances") or [])]
     assert "fire" in resistances
+    features = race_features.get("features") or {}
+    hellish_resistance = features.get("hellish_resistance") or {}
+    assert hellish_resistance.get("type") == "damage_resistance"
+    assert hellish_resistance.get("damage") == ["fire"]
 
     innate_spells = race_features.get("innate_spells") or []
     spell_map = {
