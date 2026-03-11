@@ -12,6 +12,10 @@ def test_build_race_features_persists_vedalken_save_advantage() -> None:
     saves = race_features.get("saves") or {}
     advantage = saves.get("advantage") or []
     assert advantage == ["int", "wis", "cha"]
+    features = race_features.get("features") or {}
+    dispassion = features.get("vedalken_dispassion") or {}
+    assert dispassion.get("type") == "save_advantage"
+    assert dispassion.get("abilities") == ["int", "wis", "cha"]
 
 
 def test_effective_save_mode_auto_advantage_for_vedalken() -> None:

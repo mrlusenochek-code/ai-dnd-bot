@@ -1441,6 +1441,11 @@ def _build_race_features(selected_race: dict | None) -> dict[str, Any]:
                     abilities.append(ability)
             if abilities:
                 saves["advantage"] = abilities
+            if tkey == "vedalken_dispassion":
+                features["vedalken_dispassion"] = {
+                    "type": "save_advantage",
+                    "abilities": list(abilities),
+                }
 
         if mtype == "save_advantage":
             vs_key = str(mech.get("vs") or "").strip().lower()
@@ -1461,6 +1466,11 @@ def _build_race_features(selected_race: dict | None) -> dict[str, Any]:
                         save_advantage_vs_magic.append(ability)
             elif abilities:
                 saves["advantage"] = abilities
+            if tkey == "vedalken_dispassion" and abilities:
+                features["vedalken_dispassion"] = {
+                    "type": "save_advantage",
+                    "abilities": list(abilities),
+                }
 
         if mtype == "save_advantage_conditions":
             save_advantage_conditions.extend(_uniq_lower_str_list(mech.get("conditions")))

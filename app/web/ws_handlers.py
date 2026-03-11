@@ -288,6 +288,53 @@ def _effective_save_mode(
     return mode
 
 
+def _auto_save_advantage_reason(
+    race_features: Any,
+    ability: str,
+    *,
+    vs_magic: bool = False,
+    vs_tag: str = "",
+) -> str:
+    ability_key = str(ability or "").strip().lower()
+    if ability_key not in CHAR_STAT_KEYS or not isinstance(race_features, dict):
+        return ""
+
+    runtime_raw = race_features.get("runtime")
+    runtime = runtime_raw if isinstance(runtime_raw, dict) else {}
+    if bool(runtime.get("shell_defense_active")) and ability_key in {"str", "con"}:
+        return "Защита панцирем"
+
+    features_raw = race_features.get("features")
+    features = features_raw if isinstance(features_raw, dict) else {}
+    dispassion = features.get("vedalken_dispassion")
+    if isinstance(dispassion, dict):
+        abilities_raw = dispassion.get("abilities")
+        abilities = abilities_raw if isinstance(abilities_raw, list) else []
+        normalized = [str(item or "").strip().lower() for item in abilities]
+        if ability_key in normalized:
+            return "Vedalken Dispassion"
+
+    saves_raw = race_features.get("saves")
+    saves = saves_raw if isinstance(saves_raw, dict) else {}
+    if vs_magic:
+        if isinstance(features.get("magic_resistance"), dict):
+            return "Magic Resistance"
+        adv_magic_raw = saves.get("advantage_vs_magic")
+        advantages_vs_magic = adv_magic_raw if isinstance(adv_magic_raw, list) else []
+        if ability_key in [str(item or "").strip().lower() for item in advantages_vs_magic]:
+            return "Магическое преимущество"
+
+    tag = _normalize_save_tag(vs_tag)
+    if tag:
+        adv_conditions_raw = saves.get("advantage_conditions")
+        adv_conditions = adv_conditions_raw if isinstance(adv_conditions_raw, list) else []
+        for item in adv_conditions:
+            cond_key = _normalize_save_tag(str(item or ""))
+            if cond_key == tag:
+                return f"Преимущество против: {tag}"
+    return ""
+
+
 def _tireless_precision_bonus_for_check(
     race_features: Any,
     *,
@@ -457,6 +504,39 @@ def _format_check_log(
     if bonus_texts:
         msg += " + " + " + ".join(bonus_texts)
     msg += f" => {total}"
+    if dc is not None:
+        ok = total >= dc
+        msg += f" (DC {dc}) {'SUCCESS' if ok else 'FAIL'}"
+    return msg
+
+
+def _format_save_log(
+    *,
+    character_name: str,
+    save_prefix: str,
+    ability: str,
+    vs_tag: str,
+    mode: str,
+    roll_a: int,
+    roll_b: Optional[int],
+    roll: int,
+    mod: int,
+    extra_bonus_texts: list[str],
+    auto_advantage_reason: str,
+    total: int,
+    dc: Optional[int],
+) -> str:
+    vs_suffix = f" vs {vs_tag}" if vs_tag else ""
+    msg = (
+        f"[SAVE] {character_name}: {save_prefix} {ability}{vs_suffix} = "
+        f"{_format_d20_roll(mode, roll_a, roll_b, roll)} + {mod:+d}"
+    )
+    bonus_texts = [text for text in extra_bonus_texts if isinstance(text, str) and text]
+    if bonus_texts:
+        msg += " + " + " + ".join(bonus_texts)
+    msg += f" => {total}"
+    if auto_advantage_reason and str(mode or "").strip().lower() == "advantage":
+        msg += f" [Источник преимущества: {auto_advantage_reason}]"
     if dc is not None:
         ok = total >= dc
         msg += f" (DC {dc}) {'SUCCESS' if ok else 'FAIL'}"
@@ -5904,6 +5984,16 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                         vs_magic=is_magic_save,
                         vs_tag=vs_tag,
                     )
+                    auto_advantage_reason = (
+                        _auto_save_advantage_reason(
+                            getattr(ch, "race_features", None),
+                            ability,
+                            vs_magic=is_magic_save,
+                            vs_tag=vs_tag,
+                        )
+                        if requested_mode == "normal" and mapped_mode == "advantage"
+                        else ""
+                    )
                     mod = _ability_mod_from_stats(ch.stats, ability)
 
                     ra, rb, roll = roll_check(
@@ -5924,19 +6014,24 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                         flag_modified(ch, "race_features")
                         await db.commit()
                     total = base_total + bfs_bonus
-                    d20_text = str(roll) if rb is None else f"{ra}/{rb}->{roll}"
-
                     save_prefix = "save magic" if is_magic_save else "save"
-                    vs_suffix = f" vs {vs_tag}" if vs_tag else ""
-                    msg = f"[SAVE] {ch.name}: {save_prefix} {ability}{vs_suffix} = d20({d20_text}) + {mod:+d} => {total}"
-                    if bfs_bonus > 0 and bfs_bonus_text:
-                        msg = (
-                            f"[SAVE] {ch.name}: {save_prefix} {ability}{vs_suffix} = "
-                            f"d20({d20_text}) + {mod:+d} + {bfs_bonus_text} => {total}"
-                        )
+                    msg = _format_save_log(
+                        character_name=ch.name,
+                        save_prefix=save_prefix,
+                        ability=ability,
+                        vs_tag=vs_tag,
+                        mode=mapped_mode,
+                        roll_a=ra,
+                        roll_b=rb,
+                        roll=roll,
+                        mod=mod,
+                        extra_bonus_texts=[bfs_bonus_text] if bfs_bonus > 0 and bfs_bonus_text else [],
+                        auto_advantage_reason=auto_advantage_reason,
+                        total=total,
+                        dc=dc,
+                    )
                     if dc is not None:
                         ok = total >= dc
-                        msg += f" (DC {dc}) {'SUCCESS' if ok else 'FAIL'}"
                         if not ok:
                             if (
                                 ability == "dex"
