@@ -2029,6 +2029,9 @@ function openCharacterModal(){
   const fairyFlightText = (raceKey === "fairy" && Number.isFinite(Number(speeds.fly_ft)) && Number(speeds.fly_ft) > 0)
     ? `Полёт: скорость полёта ${Number(speeds.fly_ft)} фт${flySpeedEqualsWalk ? " (равна ходьбе)" : ""}; средние и тяжёлые доспехи мешают полёту${flyBlockedByArmor ? ". Полёт недоступен в текущих доспехах." : ""}`
     : "";
+  const aarakocraFlightText = (raceKey === "aarakocra" && Number.isFinite(Number(speeds.fly_ft)) && Number(speeds.fly_ft) > 0)
+    ? `Полёт: скорость полёта ${Number(speeds.fly_ft)} фт; средние и тяжёлые доспехи мешают полёту${flyBlockedByArmor ? ". Полёт недоступен в текущих доспехах." : ""}`
+    : "";
   const drowSubraceActive = raceKey === "elf" && String((subrace.key || "")).trim().toLowerCase() === "drow";
   const drowSpellStatus = (spellKey, minLevel, usedFlag) => {
     const requiredLevel = Number.isFinite(Number(minLevel)) ? Number(minLevel) : 1;
@@ -2395,6 +2398,9 @@ function openCharacterModal(){
   }
   if(fairyFlightText){
     details.push(`<div class="char-line"><strong>Полёт:</strong> ${escapeHtml(fairyFlightText.replace(/^Полёт:\s*/, ""))}</div>`);
+  }
+  if(aarakocraFlightText){
+    details.push(`<div class="char-line"><strong>Полёт:</strong> ${escapeHtml(aarakocraFlightText.replace(/^Полёт:\s*/, ""))}</div>`);
   }
   if(saveAdvantageConditionsRu.length){
     details.push(`<div class="char-line"><strong>Преим. против:</strong> ${escapeHtml(saveAdvantageConditionsRu.join(", "))} (спасброски)</div>`);
@@ -2886,6 +2892,7 @@ function openCharacterModal(){
   if(tieflingInfernalLegacyText) copyLines.push(tieflingInfernalLegacyText);
   if(fairyMagicText) copyLines.push(fairyMagicText);
   if(fairyFlightText) copyLines.push(fairyFlightText);
+  if(aarakocraFlightText) copyLines.push(aarakocraFlightText);
   if(githMentalDisciplineText) copyLines.push(githMentalDisciplineText);
   if(githMartialProdigyText) copyLines.push(githMartialProdigyText);
   if(decadentMasteryText) copyLines.push(decadentMasteryText);
