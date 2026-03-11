@@ -72,11 +72,11 @@ SHAPECHANGER_PERSONA_CAPTURE_RE = re.compile(
     re.IGNORECASE,
 )
 MIND_LINK_SET_CAPTURE_RE = re.compile(
-    r"(?:связь\s+разумов\s+с|телепатия\s+с|mind\s+link)\s+(?P<target>[^\n\r]{1,120})$",
+    r"(?:связь\s+разумов\s+с|телепатия\s+с|mind\s+link|mindlink\s+open|мысленн\w*\s+связ\w*\s+откры\w*)\s+(?P<target>[^\n\r]{1,120})$",
     re.IGNORECASE,
 )
 MIND_LINK_SAY_CAPTURE_RE = re.compile(
-    r"(?:телепатия|мысленно|mind)\s*:\s*(?P<text>[^\n\r]+)$",
+    r"(?:телепатия|мысленно|mind)\s*:\s*(?P<text>[^\n\r]+)$|(?:mindlink\s+send|мысленн\w*\s+связ\w*\s+отправ\w*)\s+(?P<text_alt>[^\n\r]+)$",
     re.IGNORECASE,
 )
 MIND_LINK_REPLY_CAPTURE_RE = re.compile(
@@ -286,15 +286,19 @@ CHAT_COMBAT_ACTION_PATTERNS: list[tuple[str, re.Pattern[str]]] = [
     ),
     (
         "mind_link_set",
-        re.compile(r"(связь\s+разумов\s+с\s+\S+|телепатия\s+с\s+\S+|mind\s+link\s+(?!off\b)\S+)", re.IGNORECASE),
+        re.compile(r"(связь\s+разумов\s+с\s+\S+|телепатия\s+с\s+\S+|mind\s+link\s+(?!off\b)\S+|mindlink\s+open\s+\S+|мысленн\w*\s+связ\w*\s+откры\w*\s+\S+)", re.IGNORECASE),
+    ),
+    (
+        "mind_link_status",
+        re.compile(r"(mindlink\s+status|мысленн\w*\s+связ\w*\s+статус)", re.IGNORECASE),
     ),
     (
         "mind_link_clear",
-        re.compile(r"(разорва\w*\s+связ\w*|снят\w*\s+связ\w*|mind\s+link\s+off|unlink\b)", re.IGNORECASE),
+        re.compile(r"(разорва\w*\s+связ\w*|снят\w*\s+связ\w*|mind\s+link\s+off|unlink\b|mindlink\s+close|мысленн\w*\s+связ\w*\s+закры\w*)", re.IGNORECASE),
     ),
     (
         "mind_link_say",
-        re.compile(r"(телепатия\s*:|мысленно\s*:|mind\s*:)", re.IGNORECASE),
+        re.compile(r"(телепатия\s*:|мысленно\s*:|mind\s*:|mindlink\s+send\s+|мысленн\w*\s+связ\w*\s+отправ\w*\s+)", re.IGNORECASE),
     ),
     (
         "mind_link_reply",

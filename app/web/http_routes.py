@@ -2708,6 +2708,8 @@ async def api_character_create(payload: dict):
             runtime_raw = race_features.get("runtime")
             runtime = dict(runtime_raw) if isinstance(runtime_raw, dict) else {}
             runtime.setdefault("mind_link_target_id", "")
+            runtime.setdefault("mind_link_target_name", "")
+            runtime.setdefault("mind_link_target_player_id", "")
             runtime.setdefault("mind_link_reply_until", "")
             runtime.setdefault("mind_link_last_set_at", "")
             race_features["runtime"] = runtime

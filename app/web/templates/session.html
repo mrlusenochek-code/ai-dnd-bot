@@ -1760,7 +1760,7 @@ function openCharacterModal(){
     ? (kalashtarMindLinkExpired
       ? `цель: ${kalashtarMindLinkTarget}; окно ответа истекло`
       : `цель: ${kalashtarMindLinkTarget}${kalashtarMindLinkUntilText ? `; ответ до ${kalashtarMindLinkUntilText}` : ""}`)
-    : "цель не выбрана";
+    : "связь не активна";
   const kalashtarMindLinkText = (raceKey === "kalashtar" && kalashtarMindLink)
     ? `Связь разумов: телепатия (дистанция = уровень×10 фт), можно разрешить ответ 1 час (одно существо). Текущий статус: ${kalashtarMindLinkStatus}`
     : "";

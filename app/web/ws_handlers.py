@@ -1343,7 +1343,10 @@ def _extract_mind_link_text(text: str, *, reply: bool = False) -> str:
     m = pattern.search(txt)
     if not m:
         return ""
-    return str(m.group("text") or "").strip()
+    if reply:
+        return str(m.group("text") or "").strip()
+    value = str((m.groupdict().get("text") or m.groupdict().get("text_alt") or "")).strip()
+    return value
 
 
 def _mind_link_until_hhmm(iso_value: str) -> str:
@@ -1351,6 +1354,59 @@ def _mind_link_until_hhmm(iso_value: str) -> str:
     if not isinstance(dt, datetime):
         return ""
     return dt.astimezone().strftime("%H:%M")
+
+
+def _parse_mind_link_command(cmdline: str) -> tuple[str | None, str | None]:
+    txt = str(cmdline or "").strip()
+    if not txt:
+        return None, None
+    lowered = txt.lower()
+    if lowered == "mindlink status":
+        return "mind_link_status", None
+    if lowered == "mindlink close":
+        return "mind_link_clear", None
+    if lowered == "мысленная связь статус":
+        return "mind_link_status", None
+    if lowered == "мысленная связь закрыть":
+        return "mind_link_clear", None
+    if lowered.startswith("mindlink open "):
+        return "mind_link_set", txt[len("mindlink open "):].strip()
+    if lowered.startswith("mindlink send "):
+        return "mind_link_say", txt[len("mindlink send "):].strip()
+    if lowered.startswith("мысленная связь открыть "):
+        return "mind_link_set", txt[len("мысленная связь открыть "):].strip()
+    if lowered.startswith("мысленная связь отправить "):
+        return "mind_link_say", txt[len("мысленная связь отправить "):].strip()
+    return None, None
+
+
+def _mind_link_status_message(ch: Character) -> tuple[Optional[str], Optional[str], bool]:
+    race_features = getattr(ch, "race_features", None)
+    rf = dict(race_features) if isinstance(race_features, dict) else {}
+    mind_link_cfg = _kalashtar_mind_link_feature(rf)
+    if not mind_link_cfg:
+        return "Связь разумов недоступна вашей расе.", None, False
+    runtime_raw = rf.get("runtime")
+    runtime = dict(runtime_raw) if isinstance(runtime_raw, dict) else {}
+    now_dt = utcnow()
+    changed = False
+    target_name = str(runtime.get("mind_link_target_name") or runtime.get("mind_link_target_id") or "").strip()
+    until_iso = str(runtime.get("mind_link_reply_until") or "").strip()
+    until_dt = _parse_iso_datetime(until_iso)
+    if target_name and until_iso and (not isinstance(until_dt, datetime) or until_dt < now_dt):
+        for key in ("mind_link_target_id", "mind_link_target_name", "mind_link_target_player_id", "mind_link_reply_until"):
+            runtime.pop(key, None)
+        rf["runtime"] = runtime
+        ch.race_features = rf
+        changed = True
+        target_name = ""
+        until_iso = ""
+        until_dt = None
+    if not target_name:
+        return None, "[RACE] Связь разумов: не активна.", changed
+    until_hhmm = _mind_link_until_hhmm(until_iso)
+    suffix = f" Ответ разрешён до {until_hhmm}." if until_hhmm else ""
+    return None, f"[RACE] Связь разумов активна с {target_name}.{suffix}", changed
 
 
 async def _handle_kalashtar_mind_link_action(
@@ -1363,7 +1419,7 @@ async def _handle_kalashtar_mind_link_action(
     raw_text: str,
 ) -> tuple[bool, Optional[str], Optional[str]]:
     action = str(combat_action or "").strip().lower()
-    if action not in {"mind_link_set", "mind_link_clear", "mind_link_say", "mind_link_reply"}:
+    if action not in {"mind_link_set", "mind_link_clear", "mind_link_say", "mind_link_reply", "mind_link_status"}:
         return False, None, None
 
     ch = await get_character(db, sess.id, player.id)
@@ -1398,6 +1454,13 @@ async def _handle_kalashtar_mind_link_action(
         _mark_race_features_modified(ch)
         await db.commit()
 
+    if action == "mind_link_status":
+        status_err, status_msg, changed = _mind_link_status_message(ch)
+        if changed:
+            _mark_race_features_modified(ch)
+            await db.commit()
+        return True, status_err, status_msg
+
     if action == "mind_link_clear":
         old_target_player_id = str(runtime.get("mind_link_target_player_id") or "").strip()
         changed = False
@@ -1424,7 +1487,8 @@ async def _handle_kalashtar_mind_link_action(
                 break
         if changed:
             await db.commit()
-        return True, None, "Связь разумов: разорвана."
+            return True, None, "Связь разумов: разорвана."
+        return True, None, "Связь разумов уже не активна."
 
     if action == "mind_link_set":
         target_query = _extract_mind_link_target(raw_text)
@@ -1486,9 +1550,12 @@ async def _handle_kalashtar_mind_link_action(
                         break
             if not target_id:
                 return True, f"Не нашёл цель «{target_query}» в текущей сессии.", None
+        if target_player_id and target_player_id == owner_player_id:
+            return True, "Нельзя установить связь разумов с собой.", None
 
         old_target_player_id = str(runtime.get("mind_link_target_player_id") or "").strip()
         old_target_id = str(runtime.get("mind_link_target_id") or "").strip()
+        old_target_name = str(runtime.get("mind_link_target_name") or old_target_id or "").strip()
         changed = False
 
         if target_char is not None:
@@ -1543,6 +1610,8 @@ async def _handle_kalashtar_mind_link_action(
         if changed:
             await db.commit()
         until_hhmm = _mind_link_until_hhmm(str(runtime.get("mind_link_reply_until") or ""))
+        if old_target_name and old_target_name != target_name:
+            return True, None, f"Связь разумов: переключена с {old_target_name} на {target_name}. Ответ разрешён до {until_hhmm or '1 часа'}."
         return True, None, f"Связь разумов: установлена с {target_name}. Ответ разрешён до {until_hhmm or '1 часа'}."
 
     if action == "mind_link_say":
@@ -5469,6 +5538,33 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                     await broadcast_state(session_id)
                     continue
 
+                mind_link_action, mind_link_arg = _parse_mind_link_command(cmdline)
+                if mind_link_action:
+                    synthetic_text = text
+                    if mind_link_action == "mind_link_set":
+                        synthetic_text = f"mind link {mind_link_arg or ''}".strip()
+                    elif mind_link_action == "mind_link_say":
+                        synthetic_text = f"mind: {mind_link_arg or ''}".strip()
+                    elif mind_link_action == "mind_link_clear":
+                        synthetic_text = "mind link off"
+                    handled_mind_link, mind_link_err, mind_link_msg = await _handle_kalashtar_mind_link_action(
+                        db,
+                        sess,
+                        player=player,
+                        session_id=session_id,
+                        combat_action=mind_link_action,
+                        raw_text=synthetic_text,
+                    )
+                    if handled_mind_link:
+                        if mind_link_err:
+                            await ws_error(mind_link_err, request_id=msg_request_id)
+                            continue
+                        if mind_link_msg:
+                            actor_name = str(getattr((await get_character(db, sess.id, player.id)) or None, "name", "") or player.display_name).strip() or player.display_name
+                            await add_system_event(db, sess, f"{actor_name}: {mind_link_msg}")
+                        await broadcast_state(session_id)
+                        continue
+
                 if combat_action in {"sunlight_on", "sunlight_off"}:
                     if not await is_admin(db, sess, player):
                         await ws_error("Только админ может переключать яркое солнце.", request_id=msg_request_id)
@@ -5593,7 +5689,7 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                         pass
                     elif combat_action == "arm_past_life_knowledge":
                         pass
-                    elif combat_action in {"mind_link_set", "mind_link_clear", "mind_link_say", "mind_link_reply"}:
+                    elif combat_action in {"mind_link_set", "mind_link_clear", "mind_link_say", "mind_link_reply", "mind_link_status"}:
                         pass
                     elif combat_action == "rest_long":
                         await ws_error("Сейчас бой, отдых невозможен.", request_id=msg_request_id)
@@ -7282,6 +7378,33 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                         await add_system_event(db, sess, mind_link_msg)
                     await broadcast_state(session_id)
                     continue
+
+                mind_link_action, mind_link_arg = _parse_mind_link_command(cmdline)
+                if mind_link_action:
+                    synthetic_text = text
+                    if mind_link_action == "mind_link_set":
+                        synthetic_text = f"mind link {mind_link_arg or ''}".strip()
+                    elif mind_link_action == "mind_link_say":
+                        synthetic_text = f"mind: {mind_link_arg or ''}".strip()
+                    elif mind_link_action == "mind_link_clear":
+                        synthetic_text = "mind link off"
+                    handled_mind_link, mind_link_err, mind_link_msg = await _handle_kalashtar_mind_link_action(
+                        db,
+                        sess,
+                        player=player,
+                        session_id=session_id,
+                        combat_action=mind_link_action,
+                        raw_text=synthetic_text,
+                    )
+                    if handled_mind_link:
+                        if mind_link_err:
+                            await ws_error(mind_link_err, request_id=msg_request_id)
+                            continue
+                        if mind_link_msg:
+                            actor_name = str(getattr((await get_character(db, sess.id, player.id)) or None, "name", "") or player.display_name).strip() or player.display_name
+                            await add_system_event(db, sess, f"{actor_name}: {mind_link_msg}")
+                        await broadcast_state(session_id)
+                        continue
 
                 if combat_action in {"sunlight_on", "sunlight_off"}:
                     if not await is_admin(db, sess, player):
