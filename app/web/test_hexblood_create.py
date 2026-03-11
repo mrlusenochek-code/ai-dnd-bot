@@ -145,6 +145,11 @@ def test_hexblood_create_requires_choices_and_persists_features(monkeypatch) -> 
     assert (choices.get("skills") or []) == ["arcana", "insight"]
     assert str(choices.get("innate_spellcasting_ability") or "").strip().lower() == "wis"
 
+    runtime = race_features.get("runtime") or {}
+    assert int(runtime.get("eerie_token_uses_used") or 0) == 0
+    assert str(runtime.get("eerie_token_id") or "") == ""
+    assert bool(runtime.get("eerie_token_sense_active")) is False
+
 
 def test_hexblood_create_rejects_missing_or_invalid_choices(monkeypatch) -> None:
     _setup_create_mocks(monkeypatch)

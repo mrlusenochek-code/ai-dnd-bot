@@ -112,6 +112,24 @@ def _reset_minotaur_charge_runtime(combatant: Combatant) -> bool:
     return True
 
 
+def _reset_eerie_token_battle_runtime(combatant: Combatant) -> bool:
+    race_features = combatant.race_features if isinstance(getattr(combatant, "race_features", None), dict) else {}
+    runtime_raw = race_features.get("runtime")
+    runtime = dict(runtime_raw) if isinstance(runtime_raw, dict) else {}
+    changed = False
+    if bool(runtime.get("eerie_token_sense_active")):
+        runtime["eerie_token_sense_active"] = False
+        changed = True
+    if max(0, int(runtime.get("eerie_token_remote_view_rounds_left") or 0)) != 0:
+        runtime["eerie_token_remote_view_rounds_left"] = 0
+        changed = True
+    if not changed:
+        return False
+    race_features["runtime"] = runtime
+    combatant.race_features = race_features
+    return True
+
+
 def _cleanup_battle_runtime(state: CombatState | None) -> bool:
     if state is None:
         return False
@@ -122,6 +140,8 @@ def _cleanup_battle_runtime(state: CombatState | None) -> bool:
         if _reset_goblin_fury_runtime(combatant):
             changed = True
         if _reset_minotaur_charge_runtime(combatant):
+            changed = True
+        if _reset_eerie_token_battle_runtime(combatant):
             changed = True
     return changed
 

@@ -1445,10 +1445,13 @@ function openCharacterModal(){
     : null;
   const eerieUsesMax = Number.isFinite(Number((eerieToken && eerieToken.uses_max))) ? Number(eerieToken.uses_max) : 1;
   const eerieUsesUsed = Number.isFinite(Number(runtime.eerie_token_uses_used)) ? Number(runtime.eerie_token_uses_used) : 0;
+  const eerieTokenId = String(runtime.eerie_token_id || "").trim();
   const eerieActive = Boolean(runtime.eerie_token_active);
   const eerieConsumed = Boolean(runtime.eerie_token_consumed);
+  const eerieSenseActive = Boolean(runtime.eerie_token_sense_active);
   const eerieCreatedAt = String(runtime.eerie_token_created_at || "").trim();
-  const eerieStatus = eerieActive ? "активен" : (eerieConsumed ? "уничтожен" : "не активен");
+  const eerieRemoteViewRoundsLeft = Number.isFinite(Number(runtime.eerie_token_remote_view_rounds_left)) ? Number(runtime.eerie_token_remote_view_rounds_left) : 0;
+  const eerieStatus = eerieSenseActive ? "сенсорная связь активна" : (eerieActive ? "активен" : (eerieConsumed ? "уничтожен" : "не создан"));
   const eerieCreatedLabel = (() => {
     if(!eerieCreatedAt) return "—";
     const dt = new Date(eerieCreatedAt);
@@ -1456,7 +1459,7 @@ function openCharacterModal(){
     return dt.toLocaleString("ru-RU");
   })();
   const eerieTokenText = (raceKey === "hexblood" && eerieToken)
-    ? `Жуткий сувенир: создание бонусным действием, 1/дл. отдых; действием — телепатическое сообщение до 25 слов (10 миль); действием — «взор» на 1 минуту (10 миль), после чего сувенир уничтожается. Статус: ${eerieStatus}; использовано ${eerieUsesUsed}/${eerieUsesMax}; создан: ${eerieCreatedLabel}`
+    ? `Жуткий сувенир: создание бонусным действием, 1/дл. отдых; можно отправлять короткие сообщения до 25 слов и настроиться на восприятие через талисман. Статус: ${eerieStatus}; ID: ${eerieTokenId || "—"}; сенсорная связь: ${eerieSenseActive ? "активна" : "нет"}${eerieRemoteViewRoundsLeft > 0 ? ` (${eerieRemoteViewRoundsLeft} раунд.)` : ""}; использовано ${eerieUsesUsed}/${eerieUsesMax}; создан: ${eerieCreatedLabel}`
     : "";
   const draconicKey = String(draconicChoice.key || "").trim().toLowerCase();
   const draconicDamage = String(draconicChoice.damage_type || "").trim().toLowerCase();

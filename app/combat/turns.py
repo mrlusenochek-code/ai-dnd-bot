@@ -176,6 +176,15 @@ def advance_turn_in_state(state: CombatState) -> CombatState:
             ending_combatant.race_features = race_features
             if rounds_left <= 0:
                 _clear_shifter_shift_runtime(ending_combatant)
+        if bool(runtime.get("eerie_token_sense_active")):
+            rounds_left = max(0, int(runtime.get("eerie_token_remote_view_rounds_left") or 0))
+            if rounds_left > 0:
+                rounds_left -= 1
+            runtime["eerie_token_remote_view_rounds_left"] = rounds_left
+            if rounds_left <= 0:
+                runtime["eerie_token_sense_active"] = False
+            race_features["runtime"] = runtime
+            ending_combatant.race_features = race_features
         _normalize_tabaxi_feline_agility_runtime(ending_combatant)
     if ending_combatant is not None:
         source_actor_key = str(getattr(ending_combatant, "key", "") or "")

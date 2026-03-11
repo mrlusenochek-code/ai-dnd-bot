@@ -81,10 +81,15 @@ def test_hexblood_eerie_token_create_message_view_and_long_rest_reset() -> None:
         assert int(runtime.get("eerie_token_uses_used") or 0) == 1
         assert pc.bonus_action_available is False
 
+        first_id = str(runtime.get("eerie_token_id") or "")
         pc.bonus_action_available = True
         create_again_patch, create_again_err = handle_live_combat_action("combat_eerie_token_create", session_id)
-        assert create_again_patch is None
-        assert create_again_err is not None and "долгого" in create_again_err.lower()
+        assert create_again_err is None
+        assert create_again_patch is not None
+        runtime_after_replace = ((pc.race_features or {}).get("runtime") or {})
+        assert str(runtime_after_replace.get("eerie_token_id") or "").startswith("et_")
+        assert str(runtime_after_replace.get("eerie_token_id") or "") != first_id
+        assert int(runtime_after_replace.get("eerie_token_uses_used") or 0) == 1
 
         long_message = " ".join([f"слово{i}" for i in range(1, 27)])
         msg_fail_patch, msg_fail_err = handle_live_combat_action(
@@ -115,6 +120,13 @@ def test_hexblood_eerie_token_create_message_view_and_long_rest_reset() -> None:
         runtime_after_view = (pc.race_features or {}).get("runtime") or {}
         assert runtime_after_view.get("eerie_token_active") is False
         assert runtime_after_view.get("eerie_token_consumed") is True
+        assert runtime_after_view.get("eerie_token_sense_active") is True
+        assert int(runtime_after_view.get("eerie_token_remote_view_rounds_left") or 0) == 10
+
+        pc.bonus_action_available = True
+        create_after_view_patch, create_after_view_err = handle_live_combat_action("combat_eerie_token_create", session_id)
+        assert create_after_view_patch is None
+        assert create_after_view_err is not None and "долгого" in create_after_view_err.lower()
 
         reset_changed = ws_handlers._reset_combatant_racial_rest_uses(session_id, "pc_1", long_rest=True)
         assert reset_changed is True

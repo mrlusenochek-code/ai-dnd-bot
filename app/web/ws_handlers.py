@@ -1619,6 +1619,185 @@ def _apply_breathe_underwater_usage(ch: Character, *, now: Optional[datetime] = 
     return until_dt.isoformat(), until_dt.astimezone().strftime("%H:%M"), None, True
 
 
+def _hexblood_eerie_token_feature(ch: Character) -> dict[str, Any]:
+    race_features = getattr(ch, "race_features", None)
+    rf = dict(race_features) if isinstance(race_features, dict) else {}
+    features_raw = rf.get("features")
+    features = dict(features_raw) if isinstance(features_raw, dict) else {}
+    eerie_raw = features.get("eerie_token")
+    eerie = dict(eerie_raw) if isinstance(eerie_raw, dict) else {}
+    if eerie:
+        return eerie
+    return {}
+
+
+def _hexblood_eerie_token_state(ch: Character) -> tuple[dict[str, Any], dict[str, Any], dict[str, Any]]:
+    race_features = getattr(ch, "race_features", None)
+    rf = dict(race_features) if isinstance(race_features, dict) else {}
+    runtime_raw = rf.get("runtime")
+    runtime = dict(runtime_raw) if isinstance(runtime_raw, dict) else {}
+    return rf, runtime, _hexblood_eerie_token_feature(ch)
+
+
+def _eerie_token_created_label(iso_value: str) -> str:
+    dt = _parse_iso_datetime(iso_value)
+    if not isinstance(dt, datetime):
+        return "—"
+    return dt.astimezone().strftime("%d.%m.%Y %H:%M")
+
+
+def _eerie_token_status_message(ch: Character) -> tuple[Optional[str], Optional[str], bool]:
+    _rf, runtime, eerie_cfg = _hexblood_eerie_token_state(ch)
+    if not eerie_cfg:
+        return "Жуткий сувенир доступен только ведьминой крови.", None, False
+    token_id = str(runtime.get("eerie_token_id") or "").strip()
+    active = bool(runtime.get("eerie_token_active"))
+    consumed = bool(runtime.get("eerie_token_consumed"))
+    sense_active = bool(runtime.get("eerie_token_sense_active"))
+    created_at = str(runtime.get("eerie_token_created_at") or "").strip()
+    uses_max = max(1, as_int(eerie_cfg.get("uses_max"), 1))
+    uses_used = max(0, as_int(runtime.get("eerie_token_uses_used"), 0))
+    rounds_left = max(0, as_int(runtime.get("eerie_token_remote_view_rounds_left"), 0))
+    if sense_active:
+        status = "сенсорная связь активна"
+    elif active:
+        status = "активен"
+    elif consumed:
+        status = "уничтожен"
+    elif token_id:
+        status = "сохранён, но не активен"
+    else:
+        status = "не создан"
+    suffix = ""
+    if rounds_left > 0:
+        suffix = f"; восприятие осталось на {rounds_left} раунд."
+    return (
+        None,
+        (
+            "[RACE] Жуткий сувенир. "
+            f"Статус: {status}; ID: {token_id or '—'}; "
+            f"создан: {_eerie_token_created_label(created_at)}; "
+            f"сенсорная связь: {'да' if sense_active else 'нет'}; "
+            f"использовано {uses_used}/{uses_max}{suffix}"
+        ),
+        False,
+    )
+
+
+def _create_eerie_token(ch: Character, *, now: Optional[datetime] = None) -> tuple[Optional[str], Optional[str], bool]:
+    rf, runtime, eerie_cfg = _hexblood_eerie_token_state(ch)
+    if not eerie_cfg:
+        return "Жуткий сувенир доступен только ведьминой крови.", None, False
+    uses_max = max(1, as_int(eerie_cfg.get("uses_max"), 1))
+    used = max(0, as_int(runtime.get("eerie_token_uses_used"), 0))
+    active = bool(runtime.get("eerie_token_active")) and not bool(runtime.get("eerie_token_consumed"))
+    current_id = str(runtime.get("eerie_token_id") or "").strip()
+    replacing = active and bool(current_id)
+    if used >= uses_max and not replacing:
+        return "Жуткий сувенир уже использован до долгого отдыха.", None, False
+    token_id = f"et_{uuid.uuid4().hex[:8]}"
+    now_dt = now if isinstance(now, datetime) else utcnow()
+    if not replacing:
+        runtime["eerie_token_uses_used"] = used + 1
+    runtime["eerie_token_id"] = token_id
+    runtime["eerie_token_active"] = True
+    runtime["eerie_token_consumed"] = False
+    runtime["eerie_token_created_at"] = now_dt.isoformat()
+    runtime["eerie_token_last_message"] = ""
+    runtime["eerie_token_sense_active"] = False
+    runtime["eerie_token_remote_view_rounds_left"] = 0
+    runtime["eerie_token_expires_on_next_long_rest"] = True
+    rf["runtime"] = runtime
+    ch.race_features = rf
+    action = "заменён" if replacing else "создан"
+    remaining = max(0, uses_max - max(0, as_int(runtime.get("eerie_token_uses_used"), 0)))
+    return None, f"[RACE] Жуткий сувенир {action}. ID: {token_id}. Осталось использований: {remaining}/{uses_max}.", True
+
+
+def _remove_eerie_token(ch: Character) -> tuple[Optional[str], Optional[str], bool]:
+    rf, runtime, eerie_cfg = _hexblood_eerie_token_state(ch)
+    if not eerie_cfg:
+        return "Жуткий сувенир доступен только ведьминой крови.", None, False
+    token_id = str(runtime.get("eerie_token_id") or "").strip()
+    active = bool(runtime.get("eerie_token_active"))
+    consumed = bool(runtime.get("eerie_token_consumed"))
+    sense_active = bool(runtime.get("eerie_token_sense_active"))
+    if not token_id and not active and not consumed and not sense_active:
+        return "Нет активного или сохранённого Жуткого сувенира.", None, False
+    for key in (
+        "eerie_token_id",
+        "eerie_token_active",
+        "eerie_token_consumed",
+        "eerie_token_created_at",
+        "eerie_token_last_message",
+        "eerie_token_sense_active",
+        "eerie_token_remote_view_rounds_left",
+    ):
+        if key in runtime:
+            runtime.pop(key, None)
+    rf["runtime"] = runtime
+    ch.race_features = rf
+    return None, f"[RACE] Жуткий сувенир удалён. Последний ID: {token_id or '—'}.", True
+
+
+def _send_eerie_token_message(ch: Character, message: str) -> tuple[Optional[str], Optional[str], bool]:
+    rf, runtime, eerie_cfg = _hexblood_eerie_token_state(ch)
+    if not eerie_cfg:
+        return "Жуткий сувенир доступен только ведьминой крови.", None, False
+    if not bool(runtime.get("eerie_token_active")) or bool(runtime.get("eerie_token_consumed")):
+        return "Нет активного Жуткого сувенира.", None, False
+    text = str(message or "").strip()
+    if not text:
+        return "Укажите текст сообщения после `eerie token send`.", None, False
+    words = [w for w in re.findall(r"\S+", text) if w.strip()]
+    max_words = max(1, as_int(eerie_cfg.get("message_words_max"), 25))
+    if len(words) > max_words:
+        return f"Сообщение слишком длинное: максимум {max_words} слов.", None, False
+    runtime["eerie_token_last_message"] = text
+    rf["runtime"] = runtime
+    ch.race_features = rf
+    return None, "[RACE] Сообщение отправлено через Жуткий сувенир.", True
+
+
+def _activate_eerie_token_sense(
+    ch: Character,
+    *,
+    in_combat: bool = False,
+) -> tuple[Optional[str], Optional[str], bool]:
+    rf, runtime, eerie_cfg = _hexblood_eerie_token_state(ch)
+    if not eerie_cfg:
+        return "Жуткий сувенир доступен только ведьминой крови.", None, False
+    if not bool(runtime.get("eerie_token_active")) or bool(runtime.get("eerie_token_consumed")):
+        return "Нет активного Жуткого сувенира.", None, False
+    runtime["eerie_token_active"] = False
+    runtime["eerie_token_consumed"] = True
+    runtime["eerie_token_sense_active"] = True
+    runtime["eerie_token_remote_view_rounds_left"] = 10 if in_combat else 0
+    rf["runtime"] = runtime
+    ch.race_features = rf
+    if in_combat:
+        return None, "[RACE] Сенсорная связь через Жуткий сувенир активирована на 1 минуту. Сувенир уничтожен.", True
+    return None, "[RACE] Сенсорная связь через Жуткий сувенир активирована. Сувенир уничтожен.", True
+
+
+def _parse_eerie_token_command(cmdline: str) -> tuple[str | None, str | None]:
+    txt = str(cmdline or "").strip()
+    if not txt:
+        return None, None
+    lowered = txt.lower()
+    if lowered == "eerie token create":
+        return "create", None
+    if lowered == "eerie token status":
+        return "status", None
+    if lowered == "eerie token remove":
+        return "remove", None
+    if lowered == "eerie token sense":
+        return "sense", None
+    if lowered.startswith("eerie token send "):
+        return "send", txt[len("eerie token send "):].strip()
+    return None, None
+
+
 def _mode_with_poisoned_disadvantage(mode: str, race_features: Any) -> str:
     mode_norm = str(mode or "normal").strip().lower()
     if mode_norm not in {"normal", "advantage", "disadvantage"}:
@@ -3424,8 +3603,17 @@ def _reset_racial_rest_uses(ch: Character, *, long_rest: bool = True) -> bool:
         if "eerie_token_consumed" in runtime:
             runtime.pop("eerie_token_consumed", None)
             changed = True
+        if "eerie_token_id" in runtime:
+            runtime.pop("eerie_token_id", None)
+            changed = True
         if "eerie_token_created_at" in runtime:
             runtime.pop("eerie_token_created_at", None)
+            changed = True
+        if "eerie_token_last_message" in runtime:
+            runtime.pop("eerie_token_last_message", None)
+            changed = True
+        if "eerie_token_sense_active" in runtime:
+            runtime.pop("eerie_token_sense_active", None)
             changed = True
         if "eerie_token_expires_on_next_long_rest" in runtime:
             runtime.pop("eerie_token_expires_on_next_long_rest", None)
@@ -3669,8 +3857,17 @@ def _reset_combatant_racial_rest_uses(session_id: str, actor_key: str, *, long_r
         if "eerie_token_consumed" in runtime:
             runtime.pop("eerie_token_consumed", None)
             changed = True
+        if "eerie_token_id" in runtime:
+            runtime.pop("eerie_token_id", None)
+            changed = True
         if "eerie_token_created_at" in runtime:
             runtime.pop("eerie_token_created_at", None)
+            changed = True
+        if "eerie_token_last_message" in runtime:
+            runtime.pop("eerie_token_last_message", None)
+            changed = True
+        if "eerie_token_sense_active" in runtime:
+            runtime.pop("eerie_token_sense_active", None)
             changed = True
         if "eerie_token_expires_on_next_long_rest" in runtime:
             runtime.pop("eerie_token_expires_on_next_long_rest", None)
@@ -5100,6 +5297,62 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                     await broadcast_state(session_id)
                     continue
 
+                eerie_token_action, eerie_token_arg = _parse_eerie_token_command(cmdline)
+                if eerie_token_action:
+                    ch = await get_character(db, sess.id, player.id)
+                    if not ch:
+                        await ws_error("Персонаж не найден.", request_id=msg_request_id)
+                        continue
+                    if combat_active and eerie_token_action in {"create", "send", "sense"}:
+                        mapped_action = {
+                            "create": "combat_eerie_token_create",
+                            "send": "combat_eerie_token_message",
+                            "sense": "combat_eerie_token_view",
+                        }.get(eerie_token_action, "")
+                        combat_patch, combat_err = handle_live_combat_action(
+                            mapped_action,
+                            session_id,
+                            raw_text=text,
+                        )
+                        if combat_err:
+                            await ws_error(combat_err, request_id=msg_request_id)
+                            continue
+                        if combat_patch:
+                            await _broadcast_state_unlocked(session_id, combat_log_ui_patch=combat_patch)
+                        continue
+
+                    eerie_err: Optional[str] = None
+                    eerie_msg: Optional[str] = None
+                    eerie_changed = False
+                    if eerie_token_action == "create":
+                        eerie_err, eerie_msg, eerie_changed = _create_eerie_token(ch)
+                    elif eerie_token_action == "status":
+                        eerie_err, eerie_msg, eerie_changed = _eerie_token_status_message(ch)
+                    elif eerie_token_action == "remove":
+                        eerie_err, eerie_msg, eerie_changed = _remove_eerie_token(ch)
+                    elif eerie_token_action == "send":
+                        eerie_err, eerie_msg, eerie_changed = _send_eerie_token_message(ch, eerie_token_arg or "")
+                    elif eerie_token_action == "sense":
+                        eerie_err, eerie_msg, eerie_changed = _activate_eerie_token_sense(ch, in_combat=False)
+                    if eerie_err:
+                        await ws_error(eerie_err, request_id=msg_request_id)
+                        continue
+                    if eerie_changed:
+                        flag_modified(ch, "race_features")
+                        await db.commit()
+                        runtime_now = (
+                            dict(ch.race_features.get("runtime"))
+                            if isinstance(getattr(ch, "race_features", None), dict)
+                            and isinstance(ch.race_features.get("runtime"), dict)
+                            else {}
+                        )
+                        _sync_character_runtime_to_combat_actor(session_id, _player_uid(player), runtime_now)
+                    if eerie_msg:
+                        actor_name = str(getattr(ch, "name", "") or player.display_name).strip() or player.display_name
+                        await add_system_event(db, sess, f"{actor_name}: {eerie_msg}")
+                    await broadcast_state(session_id)
+                    continue
+
                 handled_mind_link, mind_link_err, mind_link_msg = await _handle_kalashtar_mind_link_action(
                     db,
                     sess,
@@ -5676,7 +5929,8 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                         "name <НовоеИмя> (не тратит ход), "
                         "leave (выйти), kick <#> (админ), turn <#> (админ), "
                         "init / init roll / init set <#> <val> / init start / init clear (админ), "
-                        "tinker create <clockwork_toy|fire_starter|music_box>, tinker list, tinker remove <id>."
+                        "tinker create <clockwork_toy|fire_starter|music_box>, tinker list, tinker remove <id>, "
+                        "eerie token create|status|remove|send <message>|sense."
                     )
                     await broadcast_state(session_id)
                     continue
@@ -6797,6 +7051,62 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                     if jump_msg:
                         actor_name = str(getattr(ch, "name", "") or player.display_name).strip() or player.display_name
                         await add_system_event(db, sess, f"{actor_name}: {jump_msg}")
+                    await broadcast_state(session_id)
+                    continue
+
+                eerie_token_action, eerie_token_arg = _parse_eerie_token_command(cmdline)
+                if eerie_token_action:
+                    ch = await get_character(db, sess.id, player.id)
+                    if not ch:
+                        await ws_error("Персонаж не найден.", request_id=msg_request_id)
+                        continue
+                    if combat_active and eerie_token_action in {"create", "send", "sense"}:
+                        mapped_action = {
+                            "create": "combat_eerie_token_create",
+                            "send": "combat_eerie_token_message",
+                            "sense": "combat_eerie_token_view",
+                        }.get(eerie_token_action, "")
+                        combat_patch, combat_err = handle_live_combat_action(
+                            mapped_action,
+                            session_id,
+                            raw_text=text,
+                        )
+                        if combat_err:
+                            await ws_error(combat_err, request_id=msg_request_id)
+                            continue
+                        if combat_patch:
+                            await _broadcast_state_unlocked(session_id, combat_log_ui_patch=combat_patch)
+                        continue
+
+                    eerie_err: Optional[str] = None
+                    eerie_msg: Optional[str] = None
+                    eerie_changed = False
+                    if eerie_token_action == "create":
+                        eerie_err, eerie_msg, eerie_changed = _create_eerie_token(ch)
+                    elif eerie_token_action == "status":
+                        eerie_err, eerie_msg, eerie_changed = _eerie_token_status_message(ch)
+                    elif eerie_token_action == "remove":
+                        eerie_err, eerie_msg, eerie_changed = _remove_eerie_token(ch)
+                    elif eerie_token_action == "send":
+                        eerie_err, eerie_msg, eerie_changed = _send_eerie_token_message(ch, eerie_token_arg or "")
+                    elif eerie_token_action == "sense":
+                        eerie_err, eerie_msg, eerie_changed = _activate_eerie_token_sense(ch, in_combat=False)
+                    if eerie_err:
+                        await ws_error(eerie_err, request_id=msg_request_id)
+                        continue
+                    if eerie_changed:
+                        flag_modified(ch, "race_features")
+                        await db.commit()
+                        runtime_now = (
+                            dict(ch.race_features.get("runtime"))
+                            if isinstance(getattr(ch, "race_features", None), dict)
+                            and isinstance(ch.race_features.get("runtime"), dict)
+                            else {}
+                        )
+                        _sync_character_runtime_to_combat_actor(session_id, _player_uid(player), runtime_now)
+                    if eerie_msg:
+                        actor_name = str(getattr(ch, "name", "") or player.display_name).strip() or player.display_name
+                        await add_system_event(db, sess, f"{actor_name}: {eerie_msg}")
                     await broadcast_state(session_id)
                     continue
 

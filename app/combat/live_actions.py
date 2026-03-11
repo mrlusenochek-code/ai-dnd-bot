@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import re
 import random
+import uuid
 from types import SimpleNamespace
 from datetime import datetime, timezone
 from typing import Any, Optional
@@ -2664,25 +2665,39 @@ def handle_live_combat_action(
         uses_max = max(1, int(eerie_cfg.get("uses_max") or 1))
         race_features, runtime = _eerie_token_runtime(actor)
         used = max(0, int(runtime.get("eerie_token_uses_used") or 0))
-        if used >= uses_max:
+        active_existing = bool(runtime.get("eerie_token_active")) and not bool(runtime.get("eerie_token_consumed"))
+        replacing = active_existing and bool(str(runtime.get("eerie_token_id") or "").strip())
+        if used >= uses_max and not replacing:
             return None, "Жуткий сувенир уже использован до долгого отдыха."
         blocked = _spend_bonus_action_or_block(state, actor)
         if blocked is not None:
             return blocked, None
-        runtime["eerie_token_uses_used"] = used + 1
+        if not replacing:
+            runtime["eerie_token_uses_used"] = used + 1
         runtime["eerie_token_active"] = True
         runtime["eerie_token_consumed"] = False
+        runtime["eerie_token_id"] = f"et_{uuid.uuid4().hex[:8]}"
         runtime["eerie_token_created_at"] = datetime.now(timezone.utc).isoformat()
+        runtime["eerie_token_last_message"] = ""
+        runtime["eerie_token_sense_active"] = False
+        runtime["eerie_token_remote_view_rounds_left"] = 0
         runtime["eerie_token_expires_on_next_long_rest"] = True
         race_features["runtime"] = runtime
         actor.race_features = race_features
+        token_action = "заменяет" if replacing else "создаёт"
         return (
             {
                 "status": _combat_status(state),
                 "open": True,
                 "lines": [
-                    {"text": f"{actor.name} создаёт Жуткий сувенир.", "muted": True},
-                    {"text": f"Жуткий сувенир: активен. Осталось использований: {max(0, uses_max - used - 1)}/{uses_max}.", "muted": True},
+                    {"text": f"{actor.name} {token_action} Жуткий сувенир.", "muted": True},
+                    {
+                        "text": (
+                            f"Жуткий сувенир: ID {runtime['eerie_token_id']}, активен. "
+                            f"Осталось использований: {max(0, uses_max - int(runtime.get('eerie_token_uses_used') or 0))}/{uses_max}."
+                        ),
+                        "muted": True,
+                    },
                 ],
             },
             None,
@@ -2725,12 +2740,15 @@ def handle_live_combat_action(
         blocked = _spend_action_or_block(state, actor)
         if blocked is not None:
             return blocked, None
+        runtime["eerie_token_last_message"] = message
+        race_features["runtime"] = runtime
+        actor.race_features = race_features
         return (
             {
                 "status": _combat_status(state),
                 "open": True,
                 "lines": [
-                    {"text": "Жуткий сувенир: сообщение (<=25 слов) отправлено носителю (до 10 миль).", "muted": True},
+                    {"text": f"Жуткий сувенир: сообщение (до {max_words} слов) отправлено носителю (до 10 миль).", "muted": True},
                 ],
             },
             None,
@@ -2768,6 +2786,8 @@ def handle_live_combat_action(
             return blocked, None
         runtime["eerie_token_active"] = False
         runtime["eerie_token_consumed"] = True
+        runtime["eerie_token_sense_active"] = True
+        runtime["eerie_token_remote_view_rounds_left"] = 10
         race_features["runtime"] = runtime
         actor.race_features = race_features
         return (
@@ -2775,7 +2795,7 @@ def handle_live_combat_action(
                 "status": _combat_status(state),
                 "open": True,
                 "lines": [
-                    {"text": "Жуткий сувенир: вы видите/слышите вокруг сувенира 1 минуту (до 10 миль). Сувенир уничтожен.", "muted": True},
+                    {"text": "Жуткий сувенир: сенсорная связь активирована на 1 минуту (до 10 миль). Сувенир уничтожен.", "muted": True},
                 ],
             },
             None,

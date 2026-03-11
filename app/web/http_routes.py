@@ -2682,7 +2682,11 @@ async def api_character_create(payload: dict):
             runtime.setdefault("eerie_token_uses_used", 0)
             runtime.setdefault("eerie_token_active", False)
             runtime.setdefault("eerie_token_consumed", False)
+            runtime.setdefault("eerie_token_id", "")
             runtime.setdefault("eerie_token_created_at", "")
+            runtime.setdefault("eerie_token_last_message", "")
+            runtime.setdefault("eerie_token_sense_active", False)
+            runtime.setdefault("eerie_token_remote_view_rounds_left", 0)
             runtime.setdefault("eerie_token_expires_on_next_long_rest", True)
             race_features["runtime"] = runtime
         if isinstance(race_features, dict) and str(race_features.get("race_key") or "").strip().lower() == "hobgoblin":
