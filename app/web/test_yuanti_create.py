@@ -120,7 +120,8 @@ def test_yuanti_create_without_extra_choices(monkeypatch) -> None:
     magic_resistance = features.get("magic_resistance") or {}
     innate_spellcasting = features.get("innate_spellcasting") or {}
     assert poison_immunity.get("type") == "damage_and_condition_immunity"
-    assert magic_resistance.get("applies_to") == "all_magic_saves"
+    assert magic_resistance.get("type") == "magic_resistance"
+    assert magic_resistance.get("advantage_on_saves_vs") == ["spells", "magical_effects"]
     assert innate_spellcasting.get("type") == "innate_spellcasting"
 
     innate_spells = race_features.get("innate_spells") or []

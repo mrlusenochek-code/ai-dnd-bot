@@ -1553,7 +1553,10 @@ def _build_race_features(selected_race: dict | None) -> dict[str, Any]:
             for ability in allowed_save_abilities:
                 if ability not in save_advantage_vs_magic:
                     save_advantage_vs_magic.append(ability)
-            features["magic_resistance"] = {"applies_to": "all_magic_saves"}
+            features["magic_resistance"] = {
+                "type": "magic_resistance",
+                "advantage_on_saves_vs": ["spells", "magical_effects"],
+            }
 
         if mtype == "ac_bonus_if_no_heavy_armor":
             features["ac_bonus_if_no_heavy_armor"] = {"ac_bonus": max(0, as_int(mech.get("ac_bonus"), 0))}
