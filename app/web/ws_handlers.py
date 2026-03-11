@@ -3179,6 +3179,48 @@ def _extract_shapechanger_persona(text: str) -> str:
     return persona
 
 
+def _parse_shapechanger_command(cmdline: str) -> tuple[str | None, str | None]:
+    txt = str(cmdline or "").strip()
+    if not txt:
+        return None, None
+    lowered = txt.lower()
+    if lowered == "shapechange status":
+        return "status", None
+    if lowered == "shapechange revert":
+        return "revert", None
+    if lowered == "shapechange assume":
+        return "assume", ""
+    if lowered.startswith("shapechange assume "):
+        return "assume", txt[len("shapechange assume "):].strip()
+    return None, None
+
+
+def _shapechanger_status_message(ch: Character) -> tuple[Optional[str], Optional[str], bool]:
+    race_features = getattr(ch, "race_features", None)
+    rf = dict(race_features) if isinstance(race_features, dict) else {}
+    features_raw = rf.get("features")
+    features = dict(features_raw) if isinstance(features_raw, dict) else {}
+    shape_cfg_raw = features.get("shapechanger")
+    shape_cfg = dict(shape_cfg_raw) if isinstance(shape_cfg_raw, dict) else {}
+    if not shape_cfg:
+        return "Перевёртыш недоступен вашей расе.", None, False
+    runtime_raw = rf.get("runtime")
+    runtime = dict(runtime_raw) if isinstance(runtime_raw, dict) else {}
+    shape_raw = runtime.get("shapechanger")
+    shape = dict(shape_raw) if isinstance(shape_raw, dict) else {}
+    active = bool(shape.get("active"))
+    persona = str(shape.get("persona") or "").strip()
+    voice = str(shape.get("voice") or "").strip()
+    status = (persona or "неуточнённый образ") if active else "естественный облик"
+    notes: list[str] = []
+    if active and voice:
+        notes.append(f"голос: {voice}")
+    if bool(shape_cfg.get("equipment_unchanged")):
+        notes.append("одежда и снаряжение не меняются автоматически")
+    suffix = f" ({'; '.join(notes)})" if notes else ""
+    return None, f"[RACE] Перевёртыш. Текущий облик: {status}.{suffix}", False
+
+
 def _apply_shapechanger(
     ch: Character,
     *,
@@ -3292,7 +3334,8 @@ def _apply_shapechanger_in_combat(
     if shape_err:
         return None, shape_err, False
 
-    actor.action_available = False
+    if changed:
+        actor.action_available = False
     actor.race_features = dict(getattr(ch, "race_features", {}) or {})
 
     actor_name = str(getattr(ch, "name", "") or getattr(actor, "name", "") or "Персонаж").strip() or "Персонаж"
@@ -5297,6 +5340,62 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                     await broadcast_state(session_id)
                     continue
 
+                shapechanger_action, shapechanger_arg = _parse_shapechanger_command(cmdline)
+                if shapechanger_action:
+                    ch = await get_character(db, sess.id, player.id)
+                    if not ch:
+                        await ws_error("Персонаж не найден.", request_id=msg_request_id)
+                        continue
+                    if shapechanger_action == "status":
+                        shape_err, shape_msg, _shape_changed = _shapechanger_status_message(ch)
+                        if shape_err:
+                            await ws_error(shape_err, request_id=msg_request_id)
+                            continue
+                        if shape_msg:
+                            actor_name = str(getattr(ch, "name", "") or player.display_name).strip() or player.display_name
+                            await add_system_event(db, sess, f"{actor_name}: {shape_msg}")
+                        await broadcast_state(session_id)
+                        continue
+                    if shapechanger_action == "assume" and not str(shapechanger_arg or "").strip():
+                        await ws_error("Укажите описание после `shapechange assume`.", request_id=msg_request_id)
+                        continue
+                    if combat_active:
+                        player_uid = _player_uid(player)
+                        player_key = f"pc_{player_uid}" if player_uid is not None else ""
+                        combat_patch, shape_err, changed = _apply_shapechanger_in_combat(
+                            session_id,
+                            player_key,
+                            ch,
+                            active=shapechanger_action == "assume",
+                            persona=shapechanger_arg if shapechanger_action == "assume" else "",
+                            voice="",
+                        )
+                        if shape_err:
+                            await ws_error(shape_err, request_id=msg_request_id)
+                            continue
+                        if changed:
+                            flag_modified(ch, "race_features")
+                            await db.commit()
+                        if combat_patch:
+                            await _broadcast_state_unlocked(session_id, combat_log_ui_patch=combat_patch)
+                        continue
+                    msg, shape_err, changed = _apply_shapechanger(
+                        ch,
+                        active=shapechanger_action == "assume",
+                        persona=shapechanger_arg if shapechanger_action == "assume" else "",
+                        voice="",
+                    )
+                    if shape_err:
+                        await ws_error(shape_err, request_id=msg_request_id)
+                        continue
+                    if changed:
+                        flag_modified(ch, "race_features")
+                        await db.commit()
+                    actor_name = str(getattr(ch, "name", "") or player.display_name).strip() or player.display_name
+                    await add_system_event(db, sess, f"{actor_name}: {msg or 'Меняет облик.'}")
+                    await broadcast_state(session_id)
+                    continue
+
                 eerie_token_action, eerie_token_arg = _parse_eerie_token_command(cmdline)
                 if eerie_token_action:
                     ch = await get_character(db, sess.id, player.id)
@@ -5930,7 +6029,8 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                         "leave (выйти), kick <#> (админ), turn <#> (админ), "
                         "init / init roll / init set <#> <val> / init start / init clear (админ), "
                         "tinker create <clockwork_toy|fire_starter|music_box>, tinker list, tinker remove <id>, "
-                        "eerie token create|status|remove|send <message>|sense."
+                        "eerie token create|status|remove|send <message>|sense, "
+                        "shapechange assume <description>|status|revert."
                     )
                     await broadcast_state(session_id)
                     continue
@@ -7051,6 +7151,62 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                     if jump_msg:
                         actor_name = str(getattr(ch, "name", "") or player.display_name).strip() or player.display_name
                         await add_system_event(db, sess, f"{actor_name}: {jump_msg}")
+                    await broadcast_state(session_id)
+                    continue
+
+                shapechanger_action, shapechanger_arg = _parse_shapechanger_command(cmdline)
+                if shapechanger_action:
+                    ch = await get_character(db, sess.id, player.id)
+                    if not ch:
+                        await ws_error("Персонаж не найден.", request_id=msg_request_id)
+                        continue
+                    if shapechanger_action == "status":
+                        shape_err, shape_msg, _shape_changed = _shapechanger_status_message(ch)
+                        if shape_err:
+                            await ws_error(shape_err, request_id=msg_request_id)
+                            continue
+                        if shape_msg:
+                            actor_name = str(getattr(ch, "name", "") or player.display_name).strip() or player.display_name
+                            await add_system_event(db, sess, f"{actor_name}: {shape_msg}")
+                        await broadcast_state(session_id)
+                        continue
+                    if shapechanger_action == "assume" and not str(shapechanger_arg or "").strip():
+                        await ws_error("Укажите описание после `shapechange assume`.", request_id=msg_request_id)
+                        continue
+                    if combat_active:
+                        player_uid = _player_uid(player)
+                        player_key = f"pc_{player_uid}" if player_uid is not None else ""
+                        combat_patch, shape_err, changed = _apply_shapechanger_in_combat(
+                            session_id,
+                            player_key,
+                            ch,
+                            active=shapechanger_action == "assume",
+                            persona=shapechanger_arg if shapechanger_action == "assume" else "",
+                            voice="",
+                        )
+                        if shape_err:
+                            await ws_error(shape_err, request_id=msg_request_id)
+                            continue
+                        if changed:
+                            flag_modified(ch, "race_features")
+                            await db.commit()
+                        if combat_patch:
+                            await _broadcast_state_unlocked(session_id, combat_log_ui_patch=combat_patch)
+                        continue
+                    msg, shape_err, changed = _apply_shapechanger(
+                        ch,
+                        active=shapechanger_action == "assume",
+                        persona=shapechanger_arg if shapechanger_action == "assume" else "",
+                        voice="",
+                    )
+                    if shape_err:
+                        await ws_error(shape_err, request_id=msg_request_id)
+                        continue
+                    if changed:
+                        flag_modified(ch, "race_features")
+                        await db.commit()
+                    actor_name = str(getattr(ch, "name", "") or player.display_name).strip() or player.display_name
+                    await add_system_event(db, sess, f"{actor_name}: {msg or 'Меняет облик.'}")
                     await broadcast_state(session_id)
                     continue
 

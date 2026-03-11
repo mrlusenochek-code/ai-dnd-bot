@@ -1386,14 +1386,20 @@ function openCharacterModal(){
   const tirelessPrecisionText = (tirelessSkillRu && tirelessToolRu)
     ? `Неустанная скрупулёзность: навык ${tirelessSkillRu}, инструмент ${tirelessToolRu}, бонус 1d4`
     : "";
+  const shapechangerFeature = (raceFeaturesMeta.shapechanger && typeof raceFeaturesMeta.shapechanger === "object")
+    ? raceFeaturesMeta.shapechanger
+    : null;
   const shapechangerRuntime = (runtime.shapechanger && typeof runtime.shapechanger === "object")
     ? runtime.shapechanger
     : null;
   const shapechangerActive = !!(shapechangerRuntime && shapechangerRuntime.active === true);
   const shapechangerPersona = String((shapechangerRuntime && shapechangerRuntime.persona) || "").trim();
+  const shapechangerTraitText = shapechangerFeature
+    ? `Перевёртыш: можете менять внешний вид и голос${shapechangerFeature.equipment_unchanged === true ? "; одежда и снаряжение не меняются автоматически" : ""}`
+    : "";
   const shapechangerText = shapechangerActive
     ? `Облик: ${shapechangerPersona || "неуточнённый образ"}`
-    : "Облик: истинная форма";
+    : "Облик: естественная форма";
   const shapechangerHistoryRaw = Array.isArray(runtime.shapechanger_history) ? runtime.shapechanger_history : [];
   const shapechangerHistory = shapechangerHistoryRaw
     .filter((x) => x && typeof x === "object")
@@ -2786,6 +2792,9 @@ function openCharacterModal(){
   if(asiChoiceText){
     details.push(`<div class="char-line"><strong>ASI (выбор):</strong> ${escapeHtml(asiChoiceText.replace(/^ASI \(выбор\):\s*/, ""))}</div>`);
   }
+  if(shapechangerTraitText){
+    details.push(`<div class="char-line"><strong>Перевёртыш:</strong> ${escapeHtml(shapechangerTraitText.replace(/^Перевёртыш:\s*/, ""))}</div>`);
+  }
   if(shapechangerText){
     details.push(`<div class="char-line"><strong>Облик:</strong> ${escapeHtml(shapechangerText.replace(/^Облик:\s*/, ""))}</div>`);
   }
@@ -3005,6 +3014,7 @@ function openCharacterModal(){
   if(aasimarTransformationText) copyLines.push(aasimarTransformationText);
   if(tirelessPrecisionText) copyLines.push(tirelessPrecisionText);
   if(asiChoiceText) copyLines.push(asiChoiceText);
+  if(shapechangerTraitText) copyLines.push(shapechangerTraitText);
   if(shapechangerText) copyLines.push(shapechangerText);
   if(cantripChoiceText) copyLines.push(cantripChoiceText);
   if(highElfCantripText) copyLines.push(highElfCantripText);
