@@ -1451,6 +1451,11 @@ def _build_race_features(selected_race: dict | None) -> dict[str, Any]:
             vs_key = str(mech.get("vs") or "").strip().lower()
             if vs_key == "frightened":
                 save_advantage_conditions.append("frightened")
+                if tkey == "brave":
+                    features["brave"] = {
+                        "type": "save_advantage_vs_condition",
+                        "conditions": ["frightened"],
+                    }
             abilities = []
             save_items = _as_list(mech.get("saves"))
             if not save_items:

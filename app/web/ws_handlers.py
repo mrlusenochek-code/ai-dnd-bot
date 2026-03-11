@@ -320,6 +320,9 @@ def _auto_save_advantage_reason(
         normalized = [str(item or "").strip().lower() for item in abilities]
         if ability_key in normalized:
             return "Kalashtar Dual Mind"
+    brave = features.get("brave")
+    if isinstance(brave, dict) and _normalize_save_tag(vs_tag) == "frightened":
+        return "Brave"
     fey_ancestry = features.get("fey_ancestry")
     if isinstance(fey_ancestry, dict) and _normalize_save_tag(vs_tag) == "charmed":
         return "Fey Ancestry"

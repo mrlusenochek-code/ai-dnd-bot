@@ -109,6 +109,9 @@ def test_halfling_persists_lucky_brave_and_nimbleness(monkeypatch) -> None:
     reroll_ones = features.get("reroll_ones") or {}
     scope = set(reroll_ones.get("scope") or [])
     assert {"attack", "check", "save"}.issubset(scope)
+    brave = features.get("brave") or {}
+    assert brave.get("type") == "save_advantage_vs_condition"
+    assert brave.get("conditions") == ["frightened"]
     assert features.get("move_through_larger_creatures") is True
     assert "frightened" in (saves.get("advantage_conditions") or [])
 
