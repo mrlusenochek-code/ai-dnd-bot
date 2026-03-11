@@ -123,6 +123,9 @@ def test_kalashtar_create_requires_language_and_persists_features(monkeypatch) -
     dual_mind = features.get("dual_mind") or {}
     assert dual_mind.get("type") == "save_advantage"
     assert dual_mind.get("abilities") == ["wis"]
+    mental_discipline = features.get("mental_discipline") or {}
+    assert mental_discipline.get("type") == "damage_resistance"
+    assert mental_discipline.get("damage") == ["psychic"]
     mind_link = features.get("mind_link") or {}
     assert str(mind_link.get("range_formula") or "").strip().lower() == "level*10"
     assert str(mind_link.get("allow_reply_duration") or "").strip().lower() == "1_hour"
