@@ -313,6 +313,13 @@ def _auto_save_advantage_reason(
         normalized = [str(item or "").strip().lower() for item in abilities]
         if ability_key in normalized:
             return "Vedalken Dispassion"
+    dual_mind = features.get("dual_mind")
+    if isinstance(dual_mind, dict):
+        abilities_raw = dual_mind.get("abilities")
+        abilities = abilities_raw if isinstance(abilities_raw, list) else []
+        normalized = [str(item or "").strip().lower() for item in abilities]
+        if ability_key in normalized:
+            return "Kalashtar Dual Mind"
 
     saves_raw = race_features.get("saves")
     saves = saves_raw if isinstance(saves_raw, dict) else {}

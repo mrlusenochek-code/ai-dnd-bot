@@ -12,6 +12,10 @@ def test_kalashtar_build_race_features_persists_wis_save_advantage() -> None:
     saves = race_features.get("saves") or {}
     advantage = [str(x).strip().lower() for x in (saves.get("advantage") or [])]
     assert advantage == ["wis"]
+    features = race_features.get("features") or {}
+    dual_mind = features.get("dual_mind") or {}
+    assert dual_mind.get("type") == "save_advantage"
+    assert dual_mind.get("abilities") == ["wis"]
 
 
 def test_kalashtar_effective_save_mode_auto_advantage_for_wis_only() -> None:

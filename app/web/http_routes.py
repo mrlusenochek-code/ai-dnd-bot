@@ -1466,6 +1466,11 @@ def _build_race_features(selected_race: dict | None) -> dict[str, Any]:
                         save_advantage_vs_magic.append(ability)
             elif abilities:
                 saves["advantage"] = abilities
+            if tkey == "dual_mind" and abilities:
+                features["dual_mind"] = {
+                    "type": "save_advantage",
+                    "abilities": list(abilities),
+                }
             if tkey == "vedalken_dispassion" and abilities:
                 features["vedalken_dispassion"] = {
                     "type": "save_advantage",
