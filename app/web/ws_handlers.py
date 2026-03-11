@@ -1764,7 +1764,7 @@ def _has_hare_trigger_feature(race_features: Any) -> bool:
     return isinstance(features.get("hare_trigger"), dict)
 
 
-def _roll_initiative_with_racial_bonus(ch: Character | None, *, rng: Any = None) -> tuple[int, int]:
+def _roll_initiative_details(ch: Character | None, *, rng: Any = None) -> tuple[int, int, int, int]:
     dex = 50
     level = 1
     race_features: Any = {}
@@ -1776,9 +1776,23 @@ def _roll_initiative_with_racial_bonus(ch: Character | None, *, rng: Any = None)
             if isinstance(dex_raw, int):
                 dex = int(dex_raw)
         race_features = getattr(ch, "race_features", None)
+    dex_mod = ability_mod_from_stat100(dex)
     base = roll_initiative(dex, rng=(rng if rng is not None else random))
     bonus = proficiency_bonus(level) if _has_hare_trigger_feature(race_features) else 0
-    return base + bonus, bonus
+    return base + bonus, base, dex_mod, bonus
+
+
+def _roll_initiative_with_racial_bonus(ch: Character | None, *, rng: Any = None) -> tuple[int, int]:
+    total, _base, _dex_mod, bonus = _roll_initiative_details(ch, rng=rng)
+    return total, bonus
+
+
+def _format_initiative_roll_line(name: str, *, total: int, base: int, dex_mod: int, hare_bonus: int) -> str:
+    d20_roll = base - dex_mod
+    parts = [f"d20({d20_roll})", f"ЛОВ {dex_mod:+d}"]
+    if hare_bonus > 0:
+        parts.append(f"Заячье сердце {hare_bonus:+d}")
+    return f"{name}: {' + '.join(parts)} = {total}"
 
 
 def _harengon_mark_failed_dex_save_context(
@@ -6609,26 +6623,30 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                             )
                             chars_by_pid = {ch.player_id: ch for ch in qc.scalars().all()}
                         hare_trigger_rows: list[str] = []
+                        init_roll_details: dict[str, tuple[int, int, int, int]] = {}
                         for spx in sps_active:
                             ch = chars_by_pid.get(spx.player_id)
-                            val, hare_bonus = _roll_initiative_with_racial_bonus(ch, rng=random)
+                            val, base, dex_mod, hare_bonus = _roll_initiative_details(ch, rng=random)
                             _set_init_value(sess, spx.player_id, val)
-                            if hare_bonus > 0:
-                                nm = names.get(str(spx.player_id), str(spx.player_id))
-                                hare_trigger_rows.append(f"  #{spx.join_order} {nm}: +{hare_bonus} (Заячье сердце)")
+                            init_roll_details[str(spx.player_id)] = (val, base, dex_mod, hare_bonus)
                         await db.commit()
                         init_map = _get_init_map(sess)
                         lines = []
                         for spx in sps_active:
                             nm = names.get(str(spx.player_id), str(spx.player_id))
-                            lines.append(f"  #{spx.join_order} {nm}: {init_map.get(str(spx.player_id), 0)}")
-                        bonus_text = ""
-                        if hare_trigger_rows:
-                            bonus_text = "\nИнициатива (Заячье сердце):\n" + "\n".join(hare_trigger_rows)
+                            detail = init_roll_details.get(str(spx.player_id))
+                            if detail is not None:
+                                total, base, dex_mod, hare_bonus = detail
+                                total = int(init_map.get(str(spx.player_id), total) or 0)
+                                lines.append(f"  #{spx.join_order} {_format_initiative_roll_line(nm, total=total, base=base, dex_mod=dex_mod, hare_bonus=hare_bonus)}")
+                                if hare_bonus > 0:
+                                    hare_trigger_rows.append(f"  #{spx.join_order} {nm}: +{hare_bonus} (Заячье сердце)")
+                            else:
+                                lines.append(f"  #{spx.join_order} {nm}: {init_map.get(str(spx.player_id), 0)}")
                         await add_system_event(
                             db,
                             sess,
-                            "Инициатива: всем брошено 1d20 + мод ЛОВ:\n" + "\n".join(lines) + bonus_text,
+                            "Инициатива: всем брошено 1d20 + мод ЛОВ:\n" + "\n".join(lines),
                         )
                         await broadcast_state(session_id)
                         continue
