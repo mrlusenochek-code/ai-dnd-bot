@@ -112,6 +112,13 @@ def _reset_minotaur_charge_runtime(combatant: Combatant) -> bool:
     return True
 
 
+def _reset_centaur_charge_runtime(combatant: Combatant) -> bool:
+    if not bool(getattr(combatant, "charge_hooves_available", False)):
+        return False
+    combatant.charge_hooves_available = False
+    return True
+
+
 def _reset_eerie_token_battle_runtime(combatant: Combatant) -> bool:
     race_features = combatant.race_features if isinstance(getattr(combatant, "race_features", None), dict) else {}
     runtime_raw = race_features.get("runtime")
@@ -138,6 +145,8 @@ def _cleanup_battle_runtime(state: CombatState | None) -> bool:
         if _reset_bugbear_surprise_attack_runtime(combatant):
             changed = True
         if _reset_goblin_fury_runtime(combatant):
+            changed = True
+        if _reset_centaur_charge_runtime(combatant):
             changed = True
         if _reset_minotaur_charge_runtime(combatant):
             changed = True

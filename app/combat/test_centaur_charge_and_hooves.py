@@ -136,3 +136,89 @@ def test_centaur_charge_not_available_below_30ft(monkeypatch) -> None:
         assert state_after_attack.turn_index == 1
     finally:
         end_combat(session_id)
+
+
+def test_centaur_charge_not_available_without_melee_hit(monkeypatch) -> None:
+    session_id = "test_centaur_charge_not_available_without_melee_hit"
+    _build_centaur_state(session_id)
+
+    rolls = iter([2, 4])
+    monkeypatch.setattr("app.combat.live_actions.random.randint", lambda _a, _b: next(rolls))
+
+    try:
+        move_patch, move_err = handle_live_combat_action("combat_move", session_id, distance_ft=30)
+        assert move_err is None
+        assert move_patch is not None
+
+        attack_patch, attack_err = handle_live_combat_action("combat_attack", session_id)
+        assert attack_err is None
+        assert attack_patch is not None
+        attack_texts = _line_texts(attack_patch)
+        assert not any("Разбег: можно бонусным действием ударить копытами" in t for t in attack_texts)
+
+        state_after_attack = get_combat(session_id)
+        assert state_after_attack is not None
+        pc_after_attack = state_after_attack.combatants["pc_1"]
+        assert pc_after_attack.charge_hooves_available is False
+        assert pc_after_attack.bonus_action_available is True
+    finally:
+        end_combat(session_id)
+
+
+def test_centaur_charge_expires_on_next_turn_if_unused(monkeypatch) -> None:
+    session_id = "test_centaur_charge_expires_on_next_turn_if_unused"
+    _build_centaur_state(session_id)
+
+    rolls = iter([15, 4])
+    monkeypatch.setattr("app.combat.live_actions.random.randint", lambda _a, _b: next(rolls))
+
+    try:
+        move_patch, move_err = handle_live_combat_action("combat_move", session_id, distance_ft=30)
+        assert move_err is None
+        assert move_patch is not None
+
+        attack_patch, attack_err = handle_live_combat_action("combat_attack", session_id)
+        assert attack_err is None
+        assert attack_patch is not None
+
+        state_after_attack = get_combat(session_id)
+        assert state_after_attack is not None
+        assert state_after_attack.combatants["pc_1"].charge_hooves_available is True
+
+        state_after_enemy = handle_live_combat_action("combat_end_turn", session_id)[0]
+        assert state_after_enemy is not None
+        next_state = get_combat(session_id)
+        assert next_state is not None
+        assert next_state.turn_index == 1
+
+        state_after_return = handle_live_combat_action("combat_end_turn", session_id)[0]
+        assert state_after_return is not None
+        final_state = get_combat(session_id)
+        assert final_state is not None
+        assert final_state.turn_index == 0
+        assert final_state.combatants["pc_1"].charge_hooves_available is False
+    finally:
+        end_combat(session_id)
+
+
+def test_centaur_charge_does_not_leak_between_battles() -> None:
+    session_id = "test_centaur_charge_does_not_leak_between_battles"
+    state = start_combat(session_id)
+    state.combatants["pc_1"] = Combatant(
+        key="pc_1",
+        name="Centaur",
+        side="pc",
+        hp_current=30,
+        hp_max=30,
+        ac=13,
+        initiative=20,
+        charge_hooves_available=True,
+        race_features={"features": {"charge": {"move_ft": 30, "activation": "bonus_action", "bonus_attack": "hooves"}}},
+    )
+    state.order = ["pc_1"]
+    state.turn_index = 0
+
+    end_combat(session_id)
+    restarted = start_combat(session_id)
+    assert restarted.active is True
+    assert restarted.combatants == {}
