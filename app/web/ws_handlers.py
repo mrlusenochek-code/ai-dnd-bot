@@ -266,9 +266,9 @@ def _effective_save_mode(
         adv_key = str(item or "").strip().lower()
         if adv_key == ability_key:
             return "advantage"
+    features_raw = race_features.get("features")
+    features = features_raw if isinstance(features_raw, dict) else {}
     if vs_magic:
-        features_raw = race_features.get("features")
-        features = features_raw if isinstance(features_raw, dict) else {}
         if isinstance(features.get("magic_resistance"), dict):
             return "advantage"
         adv_magic_raw = saves.get("advantage_vs_magic")
@@ -278,6 +278,14 @@ def _effective_save_mode(
             if adv_key == ability_key:
                 return "advantage"
     tag = _normalize_save_tag(vs_tag)
+    deathless_nature = features.get("deathless_nature")
+    if isinstance(deathless_nature, dict) and tag:
+        adv_tags_raw = deathless_nature.get("advantage_on_saves")
+        adv_tags = adv_tags_raw if isinstance(adv_tags_raw, list) else []
+        normalized_tags = {_normalize_save_tag(str(item or "")) for item in adv_tags}
+        normalized_tags.discard("")
+        if tag in normalized_tags or (tag == "poison" and "poisoned" in normalized_tags):
+            return "advantage"
     if tag:
         adv_conditions_raw = saves.get("advantage_conditions")
         adv_conditions = adv_conditions_raw if isinstance(adv_conditions_raw, list) else []
@@ -333,6 +341,15 @@ def _auto_save_advantage_reason(
     dwarven_resilience = features.get("dwarven_resilience")
     if isinstance(dwarven_resilience, dict) and _normalize_save_tag(vs_tag) in {"poison", "poisoned"}:
         return "Dwarven Resilience"
+    deathless_nature = features.get("deathless_nature")
+    if isinstance(deathless_nature, dict):
+        adv_tags_raw = deathless_nature.get("advantage_on_saves")
+        adv_tags = adv_tags_raw if isinstance(adv_tags_raw, list) else []
+        normalized_tags = {_normalize_save_tag(str(item or "")) for item in adv_tags}
+        normalized_tags.discard("")
+        tag = _normalize_save_tag(vs_tag)
+        if tag and (tag in normalized_tags or (tag == "poison" and "poisoned" in normalized_tags)):
+            return "Deathless Nature"
     fey_ancestry = features.get("fey_ancestry")
     if isinstance(fey_ancestry, dict) and _normalize_save_tag(vs_tag) == "charmed":
         return "Fey Ancestry"

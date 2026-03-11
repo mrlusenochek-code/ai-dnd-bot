@@ -1526,6 +1526,7 @@ def _build_race_features(selected_race: dict | None) -> dict[str, Any]:
             if bool(mech.get("cannot_be_magically_slept")) and "magic_sleep" not in immune_cond:
                 immune_cond.append("magic_sleep")
             features["deathless_nature"] = {
+                "type": "deathless_nature",
                 "advantage_on_saves": _uniq_lower_str_list(mech.get("advantage_on_saves")),
                 "damage_resistance": _uniq_lower_str_list(mech.get("damage_resistance")),
                 "no_need": no_need_items,
