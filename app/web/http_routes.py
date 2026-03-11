@@ -1464,6 +1464,11 @@ def _build_race_features(selected_race: dict | None) -> dict[str, Any]:
                 for ability in abilities:
                     if ability not in save_advantage_vs_magic:
                         save_advantage_vs_magic.append(ability)
+                if tkey == "gnome_cunning":
+                    features["gnome_cunning"] = {
+                        "type": "save_advantage_vs_magic",
+                        "abilities": list(abilities),
+                    }
             elif abilities:
                 saves["advantage"] = abilities
             if tkey == "dual_mind" and abilities:

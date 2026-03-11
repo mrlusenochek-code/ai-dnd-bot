@@ -326,6 +326,13 @@ def _auto_save_advantage_reason(
     if vs_magic:
         if isinstance(features.get("magic_resistance"), dict):
             return "Magic Resistance"
+        gnome_cunning = features.get("gnome_cunning")
+        if isinstance(gnome_cunning, dict):
+            abilities_raw = gnome_cunning.get("abilities")
+            abilities = abilities_raw if isinstance(abilities_raw, list) else []
+            normalized = [str(item or "").strip().lower() for item in abilities]
+            if ability_key in normalized:
+                return "Gnome Cunning"
         adv_magic_raw = saves.get("advantage_vs_magic")
         advantages_vs_magic = adv_magic_raw if isinstance(adv_magic_raw, list) else []
         if ability_key in [str(item or "").strip().lower() for item in advantages_vs_magic]:

@@ -108,6 +108,10 @@ def test_gnome_persists_advantage_vs_magic(monkeypatch) -> None:
     saves = race_features.get("saves") or {}
     advantage_vs_magic = saves.get("advantage_vs_magic") or []
     assert sorted(advantage_vs_magic) == ["cha", "int", "wis"]
+    features = race_features.get("features") or {}
+    gnome_cunning = features.get("gnome_cunning") or {}
+    assert gnome_cunning.get("type") == "save_advantage_vs_magic"
+    assert gnome_cunning.get("abilities") == ["int", "wis", "cha"]
 
 
 def test_forest_gnome_persists_minor_illusion_and_talk_with_small_beasts(monkeypatch) -> None:
