@@ -323,6 +323,9 @@ def _auto_save_advantage_reason(
     brave = features.get("brave")
     if isinstance(brave, dict) and _normalize_save_tag(vs_tag) == "frightened":
         return "Brave"
+    dwarven_resilience = features.get("dwarven_resilience")
+    if isinstance(dwarven_resilience, dict) and _normalize_save_tag(vs_tag) in {"poison", "poisoned"}:
+        return "Dwarven Resilience"
     fey_ancestry = features.get("fey_ancestry")
     if isinstance(fey_ancestry, dict) and _normalize_save_tag(vs_tag) == "charmed":
         return "Fey Ancestry"

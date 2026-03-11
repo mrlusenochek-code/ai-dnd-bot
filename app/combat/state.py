@@ -187,6 +187,28 @@ def _sanitize_movement_mode(value: Any) -> str | None:
     return mode or None
 
 
+def _combatant_has_damage_immunity(combatant: Combatant, damage_type: str) -> bool:
+    race_features = combatant.race_features if isinstance(combatant.race_features, dict) else {}
+    immunities_raw = race_features.get("immunities")
+    immunities = immunities_raw if isinstance(immunities_raw, dict) else {}
+    damage_raw = immunities.get("damage")
+    damage_items = damage_raw if isinstance(damage_raw, list) else []
+    needle = str(damage_type or "").strip().lower()
+    if not needle:
+        return False
+    return any(str(item or "").strip().lower() == needle for item in damage_items)
+
+
+def _combatant_has_damage_resistance(combatant: Combatant, damage_type: str) -> bool:
+    race_features = combatant.race_features if isinstance(combatant.race_features, dict) else {}
+    resist_raw = race_features.get("resistances")
+    resistances = resist_raw if isinstance(resist_raw, list) else []
+    needle = str(damage_type or "").strip().lower()
+    if not needle:
+        return False
+    return any(str(item or "").strip().lower() == needle for item in resistances)
+
+
 def _resolve_mode_speed(*, speed_ft: int, movement_speeds: dict[str, int] | None, movement_mode: str | None) -> int:
     base_speed = max(0, int(speed_ft))
     speeds = movement_speeds if isinstance(movement_speeds, dict) else {}
@@ -371,7 +393,14 @@ def upsert_pc(
     return state
 
 
-def apply_damage(session_id: str, combatant_key: str, damage: int, *, source: str | None = None) -> CombatState | None:
+def apply_damage(
+    session_id: str,
+    combatant_key: str,
+    damage: int,
+    *,
+    damage_type: str | None = None,
+    source: str | None = None,
+) -> CombatState | None:
     state = get_combat(session_id)
     if state is None or not state.active:
         return None
@@ -381,6 +410,12 @@ def apply_damage(session_id: str, combatant_key: str, damage: int, *, source: st
         return None
 
     damage_input = max(0, int(damage))
+    damage_type_key = str(damage_type or "").strip().lower()
+    if damage_type_key:
+        if _combatant_has_damage_immunity(combatant, damage_type_key):
+            damage_input = 0
+        elif _combatant_has_damage_resistance(combatant, damage_type_key):
+            damage_input //= 2
     temp_hp_before = max(0, int(getattr(combatant, "temp_hp", 0) or 0))
     absorbed_by_temp = min(temp_hp_before, damage_input)
     combatant.temp_hp = max(0, temp_hp_before - absorbed_by_temp)

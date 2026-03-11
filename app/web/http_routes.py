@@ -782,6 +782,12 @@ def _build_race_features(selected_race: dict | None) -> dict[str, Any]:
             resist.extend(_uniq_lower_str_list(mech.get("resistances")))
         if _uniq_lower_str_list(mech.get("saves_advantage")):
             save_advantage_conditions.extend(_uniq_lower_str_list(mech.get("saves_advantage")))
+        if tkey == "dwarven_resilience":
+            features["dwarven_resilience"] = {
+                "type": "poison_resilience",
+                "advantage_on_saves_vs": _uniq_lower_str_list(mech.get("saves_advantage")),
+                "damage_resistance": _uniq_lower_str_list(mech.get("resistances")),
+            }
         if _uniq_lower_str_list(mech.get("immunities")):
             immune_cond.extend(_uniq_lower_str_list(mech.get("immunities")))
 

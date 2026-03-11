@@ -118,6 +118,8 @@ def test_dwarf_persists_darkvision_poison_resilience_and_stonecunning(monkeypatc
     features = race_features.get("features") or {}
 
     assert int(senses.get("darkvision_ft") or 0) == 60
+    dwarven_resilience = features.get("dwarven_resilience") or {}
+    assert dwarven_resilience.get("type") == "poison_resilience"
     assert "poison" in resistances
     assert "poison" in (saves.get("advantage_conditions") or [])
     assert movement.get("ignore_heavy_armor_speed_penalty") is True

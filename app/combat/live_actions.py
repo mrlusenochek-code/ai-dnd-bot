@@ -737,7 +737,7 @@ def _consume_grung_weapon_poison_on_hit(
         lines.append({"text": f"Яд грунга (оружие): +{poison_damage} ({damage_expr}) урона ядом.", "muted": True})
     if poison_damage <= 0:
         return get_combat(session_id), target
-    state = apply_damage(session_id, target.key, poison_damage, source=attacker.key)
+    state = apply_damage(session_id, target.key, poison_damage, damage_type=poison_damage_type, source=attacker.key)
     if state is None:
         return None, target
     return state, state.combatants.get(target.key, target)
