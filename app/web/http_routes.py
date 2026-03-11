@@ -2724,6 +2724,17 @@ async def api_character_create(payload: dict):
             runtime.setdefault("duergar_enlarge_used", False)
             runtime.setdefault("duergar_invisibility_used", False)
             race_features["runtime"] = runtime
+        if isinstance(race_features, dict) and str(race_features.get("race_key") or "").strip().lower() == "firbolg":
+            runtime_raw = race_features.get("runtime")
+            runtime = dict(runtime_raw) if isinstance(runtime_raw, dict) else {}
+            hidden_raw = runtime.get("hidden_step")
+            hidden = dict(hidden_raw) if isinstance(hidden_raw, dict) else {}
+            hidden.setdefault("used", 0)
+            hidden.setdefault("active", False)
+            hidden.setdefault("source", "hidden_step")
+            hidden.setdefault("expires_on_owner_turn_start", True)
+            runtime["hidden_step"] = hidden
+            race_features["runtime"] = runtime
         if isinstance(race_features, dict) and str(race_features.get("race_key") or "").strip().lower() == "yuan_ti_pureblood":
             runtime_raw = race_features.get("runtime")
             runtime = dict(runtime_raw) if isinstance(runtime_raw, dict) else {}

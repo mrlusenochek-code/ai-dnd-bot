@@ -909,8 +909,18 @@ function openCharacterModal(){
   const hiddenStep = (raceFeaturesMeta.hidden_step && typeof raceFeaturesMeta.hidden_step === "object")
     ? raceFeaturesMeta.hidden_step
     : null;
+  const hiddenStepRuntime = (runtime.hidden_step && typeof runtime.hidden_step === "object")
+    ? runtime.hidden_step
+    : {};
+  const hiddenStepUsesMax = Math.max(1, Number(hiddenStep && hiddenStep.uses_max) || 1);
+  const hiddenStepUsed = Number(hiddenStepRuntime.used || 0) >= hiddenStepUsesMax;
+  const hiddenStepActive = !!hiddenStepRuntime.active;
+  const hiddenStepRechargeText = "короткого/долгого отдыха";
+  const hiddenStepStatus = hiddenStepActive
+    ? "активен до начала вашего следующего хода или до атаки/урона/принуждения к спасброску"
+    : (hiddenStepUsed ? `восстановится после ${hiddenStepRechargeText}` : "готово");
   const hiddenStepText = hiddenStep
-    ? "Незримая поступь: бонусным действием становитесь невидимым до начала следующего хода или пока не атакуете/не бросите кость урона/не заставите цель делать спасбросок; 1/короткий или длительный отдых"
+    ? `Незримая поступь: ${hiddenStepStatus}. Бонусным действием становитесь невидимым до начала следующего хода или пока не атакуете/не бросите кость урона/не заставите цель делать спасбросок; 1/короткий или длительный отдых`
     : "";
   const expertise = (raceFeaturesMeta.expertise && typeof raceFeaturesMeta.expertise === "object")
     ? raceFeaturesMeta.expertise

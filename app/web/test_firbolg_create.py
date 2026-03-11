@@ -134,6 +134,10 @@ def test_firbolg_create_has_fixed_asi_and_features(monkeypatch) -> None:
     assert isinstance(features.get("powerful_build"), dict)
     assert isinstance(features.get("speech_of_beast_and_leaf"), dict)
     assert ((features.get("firbolg_magic") or {}).get("special") or {}).get("disguise_self_height_delta_ft") == -3
+    runtime = race_features.get("runtime") or {}
+    hidden_runtime = runtime.get("hidden_step") or {}
+    assert hidden_runtime.get("used") == 0
+    assert hidden_runtime.get("active") is False
 
     carry = race_features.get("carry") or {}
     assert carry.get("powerful_build") is True
