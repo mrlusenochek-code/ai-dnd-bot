@@ -549,6 +549,7 @@ def _maybe_apply_fury_of_small(*, actor: Any, target: Any, lines: list[dict[str,
         lines.append({"text": "Разъярённая мелкота: уже использована до отдыха.", "muted": True})
         return 0
     if not _is_target_larger_than_actor(actor=actor, target=target):
+        lines.append({"text": "Разъярённая мелкота не сработала: цель не больше вас по размеру.", "muted": True})
         return 0
     bonus = max(1, int(getattr(actor, "level", 1) or 1))
     runtime["fury_of_small_used"] = True

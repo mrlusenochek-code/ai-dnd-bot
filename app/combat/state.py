@@ -79,12 +79,26 @@ def _reset_bugbear_surprise_attack_runtime(combatant: Combatant) -> bool:
     return changed
 
 
+def _reset_goblin_fury_runtime(combatant: Combatant) -> bool:
+    race_features = combatant.race_features if isinstance(getattr(combatant, "race_features", None), dict) else {}
+    runtime_raw = race_features.get("runtime")
+    runtime = dict(runtime_raw) if isinstance(runtime_raw, dict) else {}
+    if not bool(runtime.get("fury_of_small_armed")):
+        return False
+    runtime["fury_of_small_armed"] = False
+    race_features["runtime"] = runtime
+    combatant.race_features = race_features
+    return True
+
+
 def _cleanup_battle_runtime(state: CombatState | None) -> bool:
     if state is None:
         return False
     changed = False
     for combatant in state.combatants.values():
         if _reset_bugbear_surprise_attack_runtime(combatant):
+            changed = True
+        if _reset_goblin_fury_runtime(combatant):
             changed = True
     return changed
 

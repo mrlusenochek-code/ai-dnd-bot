@@ -26,6 +26,7 @@ def test_goblin_feature_texts_are_present_in_session_template() -> None:
     template = template_path.read_text(encoding="utf-8")
 
     assert "Разъярённая мелкота: когда наносите урон существу больше вас" in template
+    assert "статус: ${furyUsageText}; осталось: ${furyOfTheSmallRemaining}/${furyOfTheSmallMax}" in template
     assert "Шустрый побег: бонусным действием каждый ваш ход: Отход или Засада" in template
 
 

@@ -138,6 +138,7 @@ def test_goblin_fury_of_the_small_end_to_end(monkeypatch) -> None:
         assert hit_medium_patch is not None
         hit_medium_lines = _line_texts(hit_medium_patch)
         assert not any("Разъярённая мелкота:" in t for t in hit_medium_lines)
+        assert any("цель не больше вас по размеру" in t.lower() for t in hit_medium_lines)
 
         runtime_after_small = ((state_now.combatants["pc_1"].race_features or {}).get("runtime") or {})
         assert runtime_after_small.get("fury_of_small_armed") is True
@@ -157,3 +158,19 @@ def test_goblin_fury_of_the_small_end_to_end(monkeypatch) -> None:
         assert runtime_after_second_large.get("fury_of_small_armed") is False
     finally:
         end_combat(session_id)
+
+
+def test_goblin_fury_of_the_small_cleans_armed_state_on_end_combat() -> None:
+    session_id = "test_goblin_fury_of_the_small_cleans_armed_state_on_end_combat"
+    _build_state(session_id)
+    state = get_combat(session_id)
+    assert state is not None
+    actor = state.combatants["pc_1"]
+    runtime = ((actor.race_features or {}).get("runtime") or {})
+    runtime["fury_of_small_armed"] = True
+    actor.race_features["runtime"] = runtime
+
+    end_combat(session_id)
+
+    runtime_after = ((actor.race_features or {}).get("runtime") or {})
+    assert runtime_after.get("fury_of_small_armed") is False

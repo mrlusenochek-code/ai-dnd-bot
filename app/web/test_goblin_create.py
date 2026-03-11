@@ -118,3 +118,6 @@ def test_goblin_create_persists_json_features(monkeypatch) -> None:
     assert str(fury.get("uses") or "").strip().lower() == "per_short_or_long_rest"
     assert str(fury.get("condition") or "").strip().lower() == "target_size_larger_than_you"
     assert features.get("nimble_escape") is True
+    runtime = race_features.get("runtime") or {}
+    assert runtime.get("fury_of_small_used") is False
+    assert runtime.get("fury_of_small_armed") is False

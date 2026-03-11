@@ -2642,6 +2642,12 @@ async def api_character_create(payload: dict):
             runtime.setdefault("mind_link_reply_until", "")
             runtime.setdefault("mind_link_last_set_at", "")
             race_features["runtime"] = runtime
+        if isinstance(race_features, dict) and str(race_features.get("race_key") or "").strip().lower() == "goblin":
+            runtime_raw = race_features.get("runtime")
+            runtime = dict(runtime_raw) if isinstance(runtime_raw, dict) else {}
+            runtime.setdefault("fury_of_small_used", False)
+            runtime.setdefault("fury_of_small_armed", False)
+            race_features["runtime"] = runtime
         if isinstance(race_features, dict) and str(race_features.get("race_key") or "").strip().lower() == "lizardfolk":
             runtime_raw = race_features.get("runtime")
             runtime = dict(runtime_raw) if isinstance(runtime_raw, dict) else {}

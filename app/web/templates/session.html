@@ -825,11 +825,15 @@ function openCharacterModal(){
     : "";
   const furyOfTheSmallUsed = Boolean(runtime.fury_of_small_used);
   const furyOfTheSmallArmed = Boolean(runtime.fury_of_small_armed);
+  const furyOfTheSmallMax = Number.isFinite(Number(furyOfTheSmall && furyOfTheSmall.uses_max))
+    ? Number(furyOfTheSmall.uses_max)
+    : 1;
+  const furyOfTheSmallRemaining = furyOfTheSmallUsed ? 0 : furyOfTheSmallMax;
   const furyUsageText = furyOfTheSmallUsed
-    ? "заряд израсходован до отдыха"
+    ? "потрачено, восстановится после короткого/долгого отдыха"
     : (furyOfTheSmallArmed ? "подготовлено" : "готово");
   const furyOfTheSmallText = furyOfTheSmall
-    ? `Разъярённая мелкота: когда наносите урон существу больше вас — можете добавить урон = ваш уровень (1/кор/дл отдых; ${furyUsageText})`
+    ? `Разъярённая мелкота: когда наносите урон существу больше вас — можете добавить урон = ваш уровень (1/кор/дл отдых; статус: ${furyUsageText}; осталось: ${furyOfTheSmallRemaining}/${furyOfTheSmallMax})`
     : "";
   const nimbleEscapeText = nimbleEscape
     ? "Шустрый побег: бонусным действием каждый ваш ход: Отход или Засада"
