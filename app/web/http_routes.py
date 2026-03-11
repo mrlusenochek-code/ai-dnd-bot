@@ -1058,8 +1058,15 @@ def _build_race_features(selected_race: dict | None) -> dict[str, Any]:
         if mtype == "hammering_horns":
             features["hammering_horns"] = dict(mech)
 
-        if mtype == "bonus_action_move_toward_enemy" and tkey == "aggressive":
-            features["aggressive"] = dict(mech)
+        if mtype == "adrenaline_rush":
+            features["adrenaline_rush"] = {
+                "type": "adrenaline_rush",
+                "activation": str(mech.get("activation") or "bonus_action").strip().lower() or "bonus_action",
+                "movement": str(mech.get("movement") or "dash").strip().lower() or "dash",
+                "temp_hp_formula": str(mech.get("temp_hp_formula") or "proficiency_bonus").strip().lower() or "proficiency_bonus",
+                "uses_formula": str(mech.get("uses_formula") or "proficiency_bonus").strip().lower() or "proficiency_bonus",
+                "recharge": str(mech.get("recharge") or "per_long_rest").strip().lower() or "per_long_rest",
+            }
 
         if mtype == "expert_forgery":
             features["expert_forgery"] = dict(mech)
@@ -2653,6 +2660,11 @@ async def api_character_create(payload: dict):
             runtime_raw = race_features.get("runtime")
             runtime = dict(runtime_raw) if isinstance(runtime_raw, dict) else {}
             runtime.setdefault("relentless_endurance_used", False)
+            race_features["runtime"] = runtime
+        if isinstance(race_features, dict) and str(race_features.get("race_key") or "").strip().lower() == "orc":
+            runtime_raw = race_features.get("runtime")
+            runtime = dict(runtime_raw) if isinstance(runtime_raw, dict) else {}
+            runtime.setdefault("adrenaline_rush_uses_used", 0)
             race_features["runtime"] = runtime
         if isinstance(race_features, dict) and str(race_features.get("race_key") or "").strip().lower() == "kalashtar":
             runtime_raw = race_features.get("runtime")

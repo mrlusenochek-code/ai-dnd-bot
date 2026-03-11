@@ -1165,8 +1165,8 @@ def _has_hammering_horns_feature(actor: Any) -> bool:
     return isinstance(cfg, dict) and bool(cfg)
 
 
-def _has_aggressive_feature(actor: Any) -> bool:
-    cfg = _race_feature(actor, "aggressive")
+def _has_adrenaline_rush_feature(actor: Any) -> bool:
+    cfg = _race_feature(actor, "adrenaline_rush")
     return isinstance(cfg, dict) and bool(cfg)
 
 
@@ -4009,7 +4009,7 @@ def handle_live_combat_action(
             None,
         )
 
-    if action == "combat_aggressive":
+    if action in {"combat_adrenaline_rush", "combat_aggressive"}:
         state = get_combat(session_id)
         if state is None or not state.active:
             return None, "Combat is not active"
@@ -4029,42 +4029,39 @@ def handle_live_combat_action(
         if actor is None:
             return None, "Combat state is inconsistent"
         if str(getattr(actor, "side", "")).lower() != "pc":
-            return None, "Агрессивный доступен только персонажу игрока."
-        if not _has_aggressive_feature(actor):
-            return None, "Агрессивный недоступен."
+            return None, "Прилив адреналина доступен только персонажу игрока."
+        if not _has_adrenaline_rush_feature(actor):
+            return None, "Прилив адреналина недоступен."
 
-        move_speed_ft, move_remaining_ft = _movement_budget_for_actor(actor)
-        actor.move_speed_ft = move_speed_ft
-        if move_speed_ft <= 0 or max(0, int(getattr(actor, "speed_ft", move_speed_ft))) <= 0:
-            return None, "Агрессивный недоступен: скорость равна 0."
-        if move_remaining_ft <= 0:
-            return None, "Агрессивный недоступен: перемещение в этом ходу уже исчерпано."
+        race_features = actor.race_features if isinstance(getattr(actor, "race_features", None), dict) else {}
+        runtime_raw = race_features.get("runtime")
+        runtime = dict(runtime_raw) if isinstance(runtime_raw, dict) else {}
+        adrenaline_cfg = _race_feature(actor, "adrenaline_rush") or {}
+        uses_formula = str(adrenaline_cfg.get("uses_formula") or "").strip().lower()
+        if uses_formula == "proficiency_bonus":
+            uses_max = _proficiency_bonus_for_actor(actor)
+        else:
+            uses_max = max(1, int(adrenaline_cfg.get("uses_max") or 1))
+        uses_used = max(0, int(runtime.get("adrenaline_rush_uses_used") or 0))
+        if uses_used >= uses_max:
+            return None, "Прилив адреналина уже израсходован до длительного отдыха."
 
         blocked = _spend_bonus_action_or_block(state, actor)
         if blocked is not None:
             return blocked, None
 
-        target = _first_living_opponent(state, actor.side)
-        if target is None:
-            end_combat(session_id)
-            return (
-                {
-                    "status": "Бой завершён",
-                    "open": False,
-                    "lines": [{"text": "Бой завершён: целей не осталось.", "muted": True}],
-                },
-                None,
-            )
-
-        rush_ft = min(move_remaining_ft, move_speed_ft)
-        actor.move_remaining_ft = max(0, move_remaining_ft - rush_ft)
+        base_move_speed, remaining_ft = _movement_budget_for_actor(actor)
+        actor.dash_active = True
+        actor.move_speed_ft = base_move_speed
+        actor.move_remaining_ft = remaining_ft + base_move_speed
         actor.move_remaining = actor.move_remaining_ft
-        actor.moved_this_turn_ft = max(0, int(getattr(actor, "moved_this_turn_ft", 0))) + rush_ft
 
-        race_features = actor.race_features if isinstance(getattr(actor, "race_features", None), dict) else {}
-        runtime_raw = race_features.get("runtime")
-        runtime = dict(runtime_raw) if isinstance(runtime_raw, dict) else {}
-        runtime["aggressive_used_turn_id"] = f"round:{max(1, int(state.round_no))}|turns:{max(0, int(getattr(actor, 'turns_taken', 0)))}"
+        temp_hp_gain = _proficiency_bonus_for_actor(actor)
+        prev_temp = max(0, int(getattr(actor, "temp_hp", 0) or 0))
+        next_temp = max(prev_temp, temp_hp_gain)
+        actor.temp_hp = next_temp
+
+        runtime["adrenaline_rush_uses_used"] = uses_used + 1
         race_features["runtime"] = runtime
         actor.race_features = race_features
 
@@ -4073,13 +4070,16 @@ def handle_live_combat_action(
                 "status": _combat_status(state),
                 "open": True,
                 "lines": [
+                    {"text": f"Прилив адреналина: {actor.name} совершает рывок бонусным действием.", "muted": True},
+                    {"text": f"Движение: +{base_move_speed} (итого {actor.move_remaining_ft})", "muted": True},
                     {
                         "text": (
-                            f"Агрессивный: {actor.name} рывком приближается к {target.name} "
-                            f"на {rush_ft} фт (осталось {actor.move_remaining_ft} фт)."
-                        )
+                            f"Временные хиты: +{next_temp - prev_temp} (всего {next_temp})."
+                            if next_temp > prev_temp
+                            else f"Временные хиты остаются {prev_temp}."
+                        ),
+                        "muted": True,
                     },
-                    {"text": "Вы рывком приближаетесь к врагу.", "muted": True},
                 ],
             },
             None,

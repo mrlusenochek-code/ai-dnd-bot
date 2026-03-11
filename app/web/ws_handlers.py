@@ -3201,6 +3201,9 @@ def _reset_racial_rest_uses(ch: Character, *, long_rest: bool = True) -> bool:
     if long_rest and "relentless_endurance_used" in runtime:
         runtime.pop("relentless_endurance_used", None)
         changed = True
+    if long_rest and "adrenaline_rush_uses_used" in runtime:
+        runtime["adrenaline_rush_uses_used"] = 0
+        changed = True
     if "built_for_success_used" in runtime:
         runtime.pop("built_for_success_used", None)
         changed = True
@@ -3443,6 +3446,9 @@ def _reset_combatant_racial_rest_uses(session_id: str, actor_key: str, *, long_r
     if long_rest and "relentless_endurance_used" in runtime:
         runtime.pop("relentless_endurance_used", None)
         changed = True
+    if long_rest and "adrenaline_rush_uses_used" in runtime:
+        runtime["adrenaline_rush_uses_used"] = 0
+        changed = True
     if "built_for_success_used" in runtime:
         runtime.pop("built_for_success_used", None)
         changed = True
@@ -3662,6 +3668,7 @@ async def _persist_relentless_endurance_used_from_combat_state(db, sess, session
     if state is None or not state.active:
         return False
     relentless_used_uids: set[int] = set()
+    adrenaline_rush_runtime_by_uid: dict[int, dict[str, Any]] = {}
     built_for_success_runtime_by_uid: dict[int, dict[str, Any]] = {}
     fury_of_small_runtime_by_uid: dict[int, dict[str, Any]] = {}
     vampiric_bite_runtime_by_uid: dict[int, dict[str, Any]] = {}
@@ -3688,6 +3695,10 @@ async def _persist_relentless_endurance_used_from_combat_state(db, sess, session
         runtime = race_features.get("runtime") if isinstance(race_features.get("runtime"), dict) else {}
         if bool(runtime.get("relentless_endurance_used", False)):
             relentless_used_uids.add(int(uid_raw))
+        if "adrenaline_rush_uses_used" in runtime:
+            adrenaline_rush_runtime_by_uid[int(uid_raw)] = {
+                "adrenaline_rush_uses_used": max(0, as_int(runtime.get("adrenaline_rush_uses_used"), 0))
+            }
         if "built_for_success_used" in runtime or "built_for_success_armed" in runtime:
             built_runtime: dict[str, Any] = {}
             if "built_for_success_used" in runtime:
@@ -3792,6 +3803,7 @@ async def _persist_relentless_endurance_used_from_combat_state(db, sess, session
                 minotaur_runtime_by_uid[int(uid_raw)] = minotaur_runtime
     if (
         not relentless_used_uids
+        and not adrenaline_rush_runtime_by_uid
         and not built_for_success_runtime_by_uid
         and not fury_of_small_runtime_by_uid
         and not vampiric_bite_runtime_by_uid
@@ -3815,6 +3827,7 @@ async def _persist_relentless_endurance_used_from_combat_state(db, sess, session
     for uid, ch in chars_by_uid.items():
         if (
             uid not in relentless_used_uids
+            and uid not in adrenaline_rush_runtime_by_uid
             and uid not in built_for_success_runtime_by_uid
             and uid not in fury_of_small_runtime_by_uid
             and uid not in vampiric_bite_runtime_by_uid
@@ -3843,6 +3856,12 @@ async def _persist_relentless_endurance_used_from_combat_state(db, sess, session
         if uid in relentless_used_uids and not bool(runtime.get("relentless_endurance_used", False)):
             runtime["relentless_endurance_used"] = True
             local_changed = True
+        adrenaline_runtime = adrenaline_rush_runtime_by_uid.get(uid)
+        if isinstance(adrenaline_runtime, dict):
+            value = max(0, as_int(adrenaline_runtime.get("adrenaline_rush_uses_used"), 0))
+            if max(0, as_int(runtime.get("adrenaline_rush_uses_used"), 0)) != value:
+                runtime["adrenaline_rush_uses_used"] = value
+                local_changed = True
         built_runtime = built_for_success_runtime_by_uid.get(uid)
         if isinstance(built_runtime, dict):
             if "built_for_success_used" in built_runtime:
@@ -5073,7 +5092,7 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                 if combat_action in {"combat_fury_of_small", "combat_fury_of_the_small"} and not combat_active:
                     await ws_error("Разъярённая мелкота доступна только в бою.", request_id=msg_request_id)
                     continue
-                if combat_action in {"combat_hungry_jaws", "combat_rabbit_hop", "combat_lucky_footwork", "combat_saving_face", "combat_taunt", "combat_fearless", "combat_daunting_roar", "combat_grovel_cower_beg", "combat_goring_rush", "combat_hammering_horns", "combat_aggressive", "combat_shift", "combat_shift_end", "combat_longtooth_bite", "combat_swiftstride_step", "combat_mark_target", "combat_feline_agility", "combat_cat_claws", "combat_shell_defense", "combat_shell_defense_exit", "combat_tortle_claws", "combat_acid_spit", "combat_grapple_appendages", "combat_appendages_grapple_bonus"} and not combat_active:
+                if combat_action in {"combat_hungry_jaws", "combat_rabbit_hop", "combat_lucky_footwork", "combat_saving_face", "combat_taunt", "combat_fearless", "combat_daunting_roar", "combat_grovel_cower_beg", "combat_goring_rush", "combat_hammering_horns", "combat_adrenaline_rush", "combat_aggressive", "combat_shift", "combat_shift_end", "combat_longtooth_bite", "combat_swiftstride_step", "combat_mark_target", "combat_feline_agility", "combat_cat_claws", "combat_shell_defense", "combat_shell_defense_exit", "combat_tortle_claws", "combat_acid_spit", "combat_grapple_appendages", "combat_appendages_grapple_bonus"} and not combat_active:
                     await ws_error("Эта особенность доступна только в бою.", request_id=msg_request_id)
                     continue
                 if combat_action in {"combat_eerie_token_create", "combat_eerie_token_message", "combat_eerie_token_view"} and not combat_active:
@@ -5456,8 +5475,8 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                 if combat_action == "combat_hidden_step":
                     await ws_error("Незримую поступь можно применить только в бою.", request_id=msg_request_id)
                     continue
-                if combat_action == "combat_aggressive":
-                    await ws_error("Агрессивный можно применить только в бою.", request_id=msg_request_id)
+                if combat_action in {"combat_adrenaline_rush", "combat_aggressive"}:
+                    await ws_error("Прилив адреналина можно применить только в бою.", request_id=msg_request_id)
                     continue
                 if combat_action in {"combat_feline_agility", "combat_cat_claws"}:
                     await ws_error("Особенности табакси доступны только в бою.", request_id=msg_request_id)
@@ -6769,7 +6788,7 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                 if combat_action in {"combat_fury_of_small", "combat_fury_of_the_small"} and not combat_active:
                     await ws_error("Разъярённая мелкота доступна только в бою.", request_id=msg_request_id)
                     continue
-                if combat_action in {"combat_hungry_jaws", "combat_rabbit_hop", "combat_lucky_footwork", "combat_saving_face", "combat_taunt", "combat_fearless", "combat_daunting_roar", "combat_grovel_cower_beg", "combat_goring_rush", "combat_hammering_horns", "combat_aggressive", "combat_shift", "combat_shift_end", "combat_longtooth_bite", "combat_swiftstride_step", "combat_mark_target", "combat_feline_agility", "combat_cat_claws", "combat_shell_defense", "combat_shell_defense_exit", "combat_tortle_claws", "combat_acid_spit", "combat_grapple_appendages", "combat_appendages_grapple_bonus"} and not combat_active:
+                if combat_action in {"combat_hungry_jaws", "combat_rabbit_hop", "combat_lucky_footwork", "combat_saving_face", "combat_taunt", "combat_fearless", "combat_daunting_roar", "combat_grovel_cower_beg", "combat_goring_rush", "combat_hammering_horns", "combat_adrenaline_rush", "combat_aggressive", "combat_shift", "combat_shift_end", "combat_longtooth_bite", "combat_swiftstride_step", "combat_mark_target", "combat_feline_agility", "combat_cat_claws", "combat_shell_defense", "combat_shell_defense_exit", "combat_tortle_claws", "combat_acid_spit", "combat_grapple_appendages", "combat_appendages_grapple_bonus"} and not combat_active:
                     await ws_error("Эта особенность доступна только в бою.", request_id=msg_request_id)
                     continue
                 if combat_action in {"combat_eerie_token_create", "combat_eerie_token_message", "combat_eerie_token_view"} and not combat_active:
@@ -7199,8 +7218,8 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                 if combat_action == "combat_hidden_step":
                     await ws_error("Незримую поступь можно применить только в бою.")
                     continue
-                if combat_action == "combat_aggressive":
-                    await ws_error("Агрессивный можно применить только в бою.")
+                if combat_action in {"combat_adrenaline_rush", "combat_aggressive"}:
+                    await ws_error("Прилив адреналина можно применить только в бою.")
                     continue
                 if combat_action in {"combat_feline_agility", "combat_cat_claws"}:
                     await ws_error("Особенности табакси доступны только в бою.")

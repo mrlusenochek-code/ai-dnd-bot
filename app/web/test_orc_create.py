@@ -106,7 +106,7 @@ def test_orc_create_applies_asi_languages_and_features(monkeypatch) -> None:
 
     assert int(stats.get("str") or 0) == 60
     assert int(stats.get("con") or 0) == 55
-    assert int(stats.get("int") or 0) == 0
+    assert int(stats.get("int") or 0) == 5
 
     senses = race_features.get("senses") or {}
     assert int(senses.get("darkvision_ft") or 0) == 60
@@ -118,17 +118,19 @@ def test_orc_create_applies_asi_languages_and_features(monkeypatch) -> None:
     assert "intimidation" in set(prof.get("skills") or [])
 
     features = race_features.get("features") or {}
-    assert isinstance(features.get("aggressive"), dict)
+    runtime = race_features.get("runtime") or {}
+    assert isinstance(features.get("adrenaline_rush"), dict)
     assert isinstance(features.get("powerful_build"), dict)
+    assert int(runtime.get("adrenaline_rush_uses_used") or 0) == 0
 
 
 def test_orc_combat_action_detection_and_ui_texts() -> None:
-    assert _detect_chat_combat_action("агрессивный") == "combat_aggressive"
-    assert _detect_chat_combat_action("агрессия") == "combat_aggressive"
-    assert _detect_chat_combat_action("aggressive") == "combat_aggressive"
-    assert _detect_chat_combat_action("рывок к врагу") == "combat_aggressive"
+    assert _detect_chat_combat_action("прилив адреналина") == "combat_adrenaline_rush"
+    assert _detect_chat_combat_action("adrenaline rush") == "combat_adrenaline_rush"
+    assert _detect_chat_combat_action("агрессивный") == "combat_adrenaline_rush"
+    assert _detect_chat_combat_action("агрессия") == "combat_adrenaline_rush"
 
     template = (Path(__file__).resolve().parents[0] / "templates" / "session.html").read_text(encoding="utf-8")
     assert "Угрожающий: владение Запугивание" in template
-    assert "Агрессивный: бонусным действием перемещаетесь к видимому врагу" in template
+    assert "Прилив адреналина: бонусным действием совершаете Рывок и получаете temp HP = PB" in template
     assert "Мощное телосложение: считается на 1 размер больше для переноски/толкания/тяги/подъёма" in template

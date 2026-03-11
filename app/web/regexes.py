@@ -128,8 +128,8 @@ CHAT_COMBAT_ACTION_PATTERNS: list[tuple[str, re.Pattern[str]]] = [
         re.compile(r"(сокрушител\w+\s+рог\w*|толкаю\s+рог\w*|hammering\s+horns)", re.IGNORECASE),
     ),
     (
-        "combat_aggressive",
-        re.compile(r"(агрессивн\w*|агресси\w*|aggressive\b|рыв\w+\s+к\s+враг\w*)", re.IGNORECASE),
+        "combat_adrenaline_rush",
+        re.compile(r"(прилив\s+адреналин\w*|adrenaline\s+rush|ороч\w+\s+рыв\w*|агрессивн\w*|агресси\w*)", re.IGNORECASE),
     ),
     (
         "combat_shift",

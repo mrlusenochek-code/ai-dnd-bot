@@ -2162,11 +2162,16 @@ function openCharacterModal(){
   const orcMenacingText = (raceKey === "orc" && profSkills.includes("intimidation"))
     ? "Угрожающий: владение Запугивание"
     : "";
-  const orcAggressive = (raceFeaturesMeta.aggressive && typeof raceFeaturesMeta.aggressive === "object")
-    ? raceFeaturesMeta.aggressive
+  const orcAdrenalineRush = (raceFeaturesMeta.adrenaline_rush && typeof raceFeaturesMeta.adrenaline_rush === "object")
+    ? raceFeaturesMeta.adrenaline_rush
     : null;
-  const orcAggressiveText = (raceKey === "orc" && orcAggressive)
-    ? "Агрессивный: бонусным действием перемещаетесь к видимому врагу"
+  const orcPb = Number.isFinite(Number(ch.level))
+    ? Math.max(2, Math.ceil(Number(ch.level) / 4) + 1)
+    : 2;
+  const orcAdrenalineUsed = Math.max(0, Number(runtime.adrenaline_rush_uses_used || 0));
+  const orcAdrenalineRemaining = Math.max(0, orcPb - orcAdrenalineUsed);
+  const orcAdrenalineRushText = (raceKey === "orc" && orcAdrenalineRush)
+    ? `Прилив адреналина: бонусным действием совершаете Рывок и получаете temp HP = PB. Статус: ${orcAdrenalineRemaining > 0 ? "готово" : "потрачено, восстановится после долгого отдыха"}; использований: ${orcAdrenalineRemaining}/${orcPb}`
     : "";
   const combatState = (lastState && typeof lastState.combat === "object" && lastState.combat) ? lastState.combat : null;
   const combatants = (combatState && typeof combatState.combatants === "object" && combatState.combatants) ? combatState.combatants : {};
@@ -2583,8 +2588,8 @@ function openCharacterModal(){
   if(orcMenacingText){
     details.push(`<div class="char-line"><strong>Угрожающий:</strong> ${escapeHtml(orcMenacingText.replace(/^Угрожающий:\s*/, ""))}</div>`);
   }
-  if(orcAggressiveText){
-    details.push(`<div class="char-line"><strong>Агрессивный:</strong> ${escapeHtml(orcAggressiveText.replace(/^Агрессивный:\s*/, ""))}</div>`);
+  if(orcAdrenalineRushText){
+    details.push(`<div class="char-line"><strong>Прилив адреналина:</strong> ${escapeHtml(orcAdrenalineRushText.replace(/^Прилив адреналина:\s*/, ""))}</div>`);
   }
   if(carry.powerful_build === true){
     details.push("<div class=\"char-line\"><strong>Мощное телосложение:</strong> считается на 1 размер больше для переноски/толкания/тяги/подъёма</div>");
@@ -2894,7 +2899,7 @@ function openCharacterModal(){
   if(rebornDeathlessNatureText) copyLines.push(rebornDeathlessNatureText);
   if(rebornPastLifeText) copyLines.push(rebornPastLifeText);
   if(orcMenacingText) copyLines.push(orcMenacingText);
-  if(orcAggressiveText) copyLines.push(orcAggressiveText);
+  if(orcAdrenalineRushText) copyLines.push(orcAdrenalineRushText);
   if(saveAdvantageConditionsRu.length) copyLines.push(`Преим. против: ${saveAdvantageConditionsRu.join(", ")} (спасброски)`);
   if(dwarvenResilienceText) copyLines.push(dwarvenResilienceText);
   if(feyAncestryText) copyLines.push(feyAncestryText);
