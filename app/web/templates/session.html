@@ -1177,6 +1177,7 @@ function openCharacterModal(){
     "hellish_rebuke": "Адское возмездие",
     "darkness": "Тьма",
     "druidcraft": "Искусство друидов",
+    "faerie_fire": "Огонь фей",
     "enlarge": "Увеличение",
     "invisibility": "Невидимость",
     "enlarge_reduce": "Увеличение/уменьшение",
@@ -1998,6 +1999,24 @@ function openCharacterModal(){
   const tieflingInfernalLegacyText = raceKey === "tiefling"
     ? `Адское наследие: Тауматургия — доступно всегда; Адская кара — ${tieflingSpellStatus("hellish_rebuke", 3, !!runtime.tiefling_hellish_rebuke_used)}; Тьма — ${tieflingSpellStatus("darkness", 5, !!runtime.tiefling_darkness_used)}. Базовая характеристика — Харизма`
     : "";
+  const fairyMagic = (raceFeaturesMeta.fairy_magic && typeof raceFeaturesMeta.fairy_magic === "object")
+    ? raceFeaturesMeta.fairy_magic
+    : null;
+  const fairyAbilityKey = String(
+    ((choices && choices.innate_spellcasting_ability) || (fairyMagic && fairyMagic.ability) || "")
+  ).trim().toLowerCase();
+  const fairyAbilityRu = _ABILITY_RU[fairyAbilityKey] || fairyAbilityKey.toUpperCase();
+  const fairySpellStatus = (spellKey, minLevel) => {
+    const requiredLevel = Number.isFinite(Number(minLevel)) ? Number(minLevel) : 1;
+    if(Number(ch.level || 1) < requiredLevel){
+      return `откроется на ${requiredLevel} уровне`;
+    }
+    const innateUsed = !!(((innateUsesRaw[spellKey] || {}).used) >= 1);
+    return innateUsed ? "восстановится после долгого отдыха" : "готово";
+  };
+  const fairyMagicText = (raceKey === "fairy" && fairyMagic)
+    ? `Магия фей: Искусство друидов — доступно всегда; Огонь фей — ${fairySpellStatus("faerie_fire", 3)}; Увеличение/уменьшение — ${fairySpellStatus("enlarge_reduce", 5)}. Базовая характеристика — ${fairyAbilityRu || "—"}`
+    : "";
   const drowSubraceActive = raceKey === "elf" && String((subrace.key || "")).trim().toLowerCase() === "drow";
   const drowSpellStatus = (spellKey, minLevel, usedFlag) => {
     const requiredLevel = Number.isFinite(Number(minLevel)) ? Number(minLevel) : 1;
@@ -2358,6 +2377,9 @@ function openCharacterModal(){
   }
   if(tieflingInfernalLegacyText){
     details.push(`<div class="char-line"><strong>Адское наследие:</strong> ${escapeHtml(tieflingInfernalLegacyText.replace(/^Адское наследие:\s*/, ""))}</div>`);
+  }
+  if(fairyMagicText){
+    details.push(`<div class="char-line"><strong>Магия фей:</strong> ${escapeHtml(fairyMagicText.replace(/^Магия фей:\s*/, ""))}</div>`);
   }
   if(saveAdvantageConditionsRu.length){
     details.push(`<div class="char-line"><strong>Преим. против:</strong> ${escapeHtml(saveAdvantageConditionsRu.join(", "))} (спасброски)</div>`);
@@ -2844,6 +2866,7 @@ function openCharacterModal(){
   if(hellishResistanceText) copyLines.push(hellishResistanceText);
   if(infernalLegacyText) copyLines.push(infernalLegacyText);
   if(tieflingInfernalLegacyText) copyLines.push(tieflingInfernalLegacyText);
+  if(fairyMagicText) copyLines.push(fairyMagicText);
   if(githMentalDisciplineText) copyLines.push(githMentalDisciplineText);
   if(githMartialProdigyText) copyLines.push(githMartialProdigyText);
   if(decadentMasteryText) copyLines.push(decadentMasteryText);

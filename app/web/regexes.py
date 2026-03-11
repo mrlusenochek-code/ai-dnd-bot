@@ -23,7 +23,7 @@ INNATE_SPELL_KEY_PATTERNS: dict[str, re.Pattern[str]] = {
     "light": re.compile(r"\bсвет\b|\blight\b", re.IGNORECASE),
     "minor_illusion": re.compile(r"мал(?:ая|ую|ой|ые|ых)?\s+иллюз\w*|minor\s+illusion", re.IGNORECASE),
     "dancing_lights": re.compile(r"танцующ[а-яё]*\s+огн[а-яё]*|dancing\s+lights", re.IGNORECASE),
-    "faerie_fire": re.compile(r"волшебн[а-яё]*\s+ог(?:н|он)[а-яё]*|faerie\s+fire", re.IGNORECASE),
+    "faerie_fire": re.compile(r"волшебн[а-яё]*\s+ог(?:н|он)[а-яё]*|огонь\s+фе[йи]|faerie\s+fire", re.IGNORECASE),
     "detect_magic": re.compile(r"обнаружени[ея]\s+магии|detect\s+magic", re.IGNORECASE),
     "disguise_self": re.compile(r"маскировк\w*|disguise\s+self", re.IGNORECASE),
     "hex": re.compile(r"сглаз\w*|\bhex\b", re.IGNORECASE),
@@ -312,7 +312,7 @@ CHAT_COMBAT_ACTION_PATTERNS: list[tuple[str, re.Pattern[str]]] = [
             r"огненн\w+\s+снаряд\w*|fire\s+bolt|луч\s+холод\w*|ray\s+of\s+frost|электрошок\w*|shocking\s+grasp|"
             r"волшебн\w+\s+рук\w*|mage\s+hand|фокус\w*|prestidigitation|\bсвет\b|\blight\b|"
             r"мала[яй]\s+иллюз\w*|minor\s+illusion|"
-            r"танцующ[а-яё]*\s+огн[а-яё]*|dancing\s+lights|волшебн[а-яё]*\s+ог(?:н|он)[а-яё]*|faerie\s+fire|"
+            r"танцующ[а-яё]*\s+огн[а-яё]*|dancing\s+lights|волшебн[а-яё]*\s+ог(?:н|он)[а-яё]*|огонь\s+фе[йи]|faerie\s+fire|"
             r"обнаружени[ея]\s+магии|detect\s+magic|маскировк\w*|disguise\s+self|"
             r"сглаз\w*|\bhex\b|"
             r"искусств(?:о|а)\s+друид\w*|druidcraft|"

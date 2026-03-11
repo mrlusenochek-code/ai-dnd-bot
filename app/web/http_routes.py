@@ -1191,6 +1191,12 @@ def _build_race_features(selected_race: dict | None) -> dict[str, Any]:
                     "ability": ability,
                     "spells": normalized_spells,
                 }
+                if tkey == "fairy_magic":
+                    features["fairy_magic"] = {
+                        "type": "innate_spellcasting",
+                        "ability": ability,
+                        "spells": normalized_spells,
+                    }
                 if tkey == "duergar_magic":
                     features["duergar_magic"] = {
                         "type": "innate_spellcasting",
@@ -2574,7 +2580,7 @@ async def api_character_create(payload: dict):
                 raise HTTPException(status_code=400, detail="Warforged extra language must be distinct from base languages")
         if race_choice_animal_enhancement_lvl1 and effective_race_key != "simic_hybrid":
             raise HTTPException(status_code=400, detail="Animal enhancement choice is not available for selected race")
-        elif race_choice_innate_ability and effective_race_key not in {"hexblood", "kender"}:
+        elif race_choice_innate_ability and effective_race_key not in {"fairy", "hexblood", "kender"}:
             raise HTTPException(
                 status_code=400,
                 detail="Race innate spellcasting ability choice is not available for selected race",
@@ -3172,6 +3178,44 @@ async def api_character_create(payload: dict):
                 if ability_key == "choose_int_wis_cha":
                     spell_item["ability"] = race_choice_innate_ability
             race_features["innate_spells"] = innate_spells
+            rf_features = race_features.get("features")
+            features_dict: dict[str, Any] = rf_features if isinstance(rf_features, dict) else {}
+            innate_cfg_raw = features_dict.get("innate_spellcasting")
+            innate_cfg = dict(innate_cfg_raw) if isinstance(innate_cfg_raw, dict) else {}
+            if innate_cfg and str(innate_cfg.get("ability") or "").strip().lower() == "choose_int_wis_cha":
+                innate_cfg["ability"] = race_choice_innate_ability
+                spells_raw = innate_cfg.get("spells")
+                spells_cfg = list(spells_raw) if isinstance(spells_raw, list) else []
+                normalized_cfg_spells: list[dict[str, Any]] = []
+                for spell_item in spells_cfg:
+                    if not isinstance(spell_item, dict):
+                        continue
+                    spell_cfg = dict(spell_item)
+                    if str(spell_cfg.get("ability") or "").strip().lower() == "choose_int_wis_cha":
+                        spell_cfg["ability"] = race_choice_innate_ability
+                    normalized_cfg_spells.append(spell_cfg)
+                if normalized_cfg_spells:
+                    innate_cfg["spells"] = normalized_cfg_spells
+                features_dict["innate_spellcasting"] = innate_cfg
+            fairy_magic_raw = features_dict.get("fairy_magic")
+            fairy_magic = dict(fairy_magic_raw) if isinstance(fairy_magic_raw, dict) else {}
+            if fairy_magic and str(fairy_magic.get("ability") or "").strip().lower() == "choose_int_wis_cha":
+                fairy_magic["ability"] = race_choice_innate_ability
+                fairy_spells_raw = fairy_magic.get("spells")
+                fairy_spells = list(fairy_spells_raw) if isinstance(fairy_spells_raw, list) else []
+                normalized_fairy_spells: list[dict[str, Any]] = []
+                for spell_item in fairy_spells:
+                    if not isinstance(spell_item, dict):
+                        continue
+                    spell_cfg = dict(spell_item)
+                    if str(spell_cfg.get("ability") or "").strip().lower() == "choose_int_wis_cha":
+                        spell_cfg["ability"] = race_choice_innate_ability
+                    normalized_fairy_spells.append(spell_cfg)
+                if normalized_fairy_spells:
+                    fairy_magic["spells"] = normalized_fairy_spells
+                features_dict["fairy_magic"] = fairy_magic
+            if features_dict:
+                race_features["features"] = features_dict
         if isinstance(race_features, dict) and choices_dict:
             race_features["choices"] = choices_dict
         walk_speed = as_int(((race_features.get("speeds") or {}) if isinstance(race_features, dict) else {}).get("walk_ft"), 30)
