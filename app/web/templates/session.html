@@ -1827,7 +1827,13 @@ function openCharacterModal(){
   const locathahLimitedAmphibiousText = (raceKey === "locathah" && locathahLimitedAmph)
     ? `Частичная земноводность: нужно погружаться в воду раз в 4 часа, иначе начинаете задыхаться. Последнее погружение: ${locathahLastImmersionText}; прошло часов: ${locathahHoursSinceImmersion.toFixed(1)}; задыхаетесь: ${locathahSuffocating ? "да" : "нет"}`
     : "";
-  const loxodonSerenityText = (raceKey === "loxodon")
+  const loxodonSerenity = (raceFeaturesMeta.serenity && typeof raceFeaturesMeta.serenity === "object")
+    ? raceFeaturesMeta.serenity
+    : null;
+  const loxodonSerenityConditions = loxodonSerenity && Array.isArray(loxodonSerenity.conditions)
+    ? loxodonSerenity.conditions.map((x) => String(x || "").trim().toLowerCase()).filter(Boolean)
+    : [];
+  const loxodonSerenityText = loxodonSerenityConditions.includes("charmed") && loxodonSerenityConditions.includes("frightened")
     ? "Спокойствие локсодонов: преимущество на спасброски от очарования/испуга"
     : "";
   const loxodonNaturalArmorText = (raceKey === "loxodon")

@@ -1509,7 +1509,13 @@ def _build_race_features(selected_race: dict | None) -> dict[str, Any]:
                 }
 
         if mtype == "save_advantage_conditions":
-            save_advantage_conditions.extend(_uniq_lower_str_list(mech.get("conditions")))
+            conditions = _uniq_lower_str_list(mech.get("conditions"))
+            save_advantage_conditions.extend(conditions)
+            if tkey == "loxodon_serenity":
+                features["serenity"] = {
+                    "type": "save_advantage_vs_condition",
+                    "conditions": list(conditions),
+                }
 
         if mtype == "deathless_nature":
             save_advantage_conditions.extend(_uniq_lower_str_list(mech.get("advantage_on_saves")))

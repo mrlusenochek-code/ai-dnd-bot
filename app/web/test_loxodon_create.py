@@ -120,6 +120,9 @@ def test_loxodon_create_persists_expected_race_features(monkeypatch) -> None:
     assert bool(carry.get("powerful_build")) is True
 
     features = race_features.get("features") or {}
+    serenity = features.get("serenity") or {}
+    assert serenity.get("type") == "save_advantage_vs_condition"
+    assert serenity.get("conditions") == ["charmed", "frightened"]
     assert isinstance(features.get("trunk"), dict)
     assert isinstance(features.get("keen_smell"), dict)
 
