@@ -122,6 +122,11 @@ def test_hexblood_create_requires_choices_and_persists_features(monkeypatch) -> 
 
     features = race_features.get("features") or {}
     assert isinstance(features.get("eerie_token"), dict)
+    innate_spellcasting = features.get("innate_spellcasting") or {}
+    hex_magic = features.get("hex_magic") or {}
+    assert innate_spellcasting.get("type") == "innate_spellcasting"
+    assert str(innate_spellcasting.get("ability") or "").strip().lower() == "wis"
+    assert str(hex_magic.get("ability") or "").strip().lower() == "wis"
 
     innate = race_features.get("innate_spells") or []
     by_name = {str(x.get("name") or "").strip().lower(): x for x in innate if isinstance(x, dict)}

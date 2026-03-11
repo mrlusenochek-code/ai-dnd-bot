@@ -1435,10 +1435,10 @@ function openCharacterModal(){
     ? runtime.innate_shared_uses
     : {};
   const hexbloodSharedUsed = Number.isFinite(Number(sharedUses.hex_magic)) ? Number(sharedUses.hex_magic) : 0;
-  const hexbloodCooldownText = hexbloodSharedUsed >= 1 ? "израсходовано до дл. отдыха" : "доступно";
+  const hexbloodSpellStatus = () => hexbloodSharedUsed >= 1 ? "восстановится после долгого отдыха" : "готово";
   const hexbloodAllowSlots = !!(hexbloodMagic && hexbloodMagic.allow_spell_slots === true);
   const hexbloodMagicText = (raceKey === "hexblood" && hexbloodSpellNamesRu.length > 0)
-    ? `Ведьмовская магия: ${hexbloodSpellNamesRu.join(" и ")}; общий откат: длительный отдых (${hexbloodCooldownText}); заклинательная характеристика: ${hexbloodAbilityRu || "—"}${hexbloodAllowSlots ? "; можно кастовать ячейками, если есть" : ""}`
+    ? `Ведьмовская магия: Маскировка — ${hexbloodSpellStatus()}; Сглаз — ${hexbloodSpellStatus()}. Базовая характеристика — ${hexbloodAbilityRu || "—"}${hexbloodAllowSlots ? "; можно кастовать ячейками, если есть" : ""}`
     : "";
   const eerieToken = (raceFeaturesMeta.eerie_token && typeof raceFeaturesMeta.eerie_token === "object")
     ? raceFeaturesMeta.eerie_token

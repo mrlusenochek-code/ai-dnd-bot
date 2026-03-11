@@ -3214,6 +3214,11 @@ async def api_character_create(payload: dict):
                 if normalized_fairy_spells:
                     fairy_magic["spells"] = normalized_fairy_spells
                 features_dict["fairy_magic"] = fairy_magic
+            hex_magic_raw = features_dict.get("hex_magic")
+            hex_magic = dict(hex_magic_raw) if isinstance(hex_magic_raw, dict) else {}
+            if hex_magic and str(hex_magic.get("ability") or "").strip().lower() == "choose_int_wis_cha":
+                hex_magic["ability"] = race_choice_innate_ability
+                features_dict["hex_magic"] = hex_magic
             if features_dict:
                 race_features["features"] = features_dict
         if isinstance(race_features, dict) and choices_dict:
