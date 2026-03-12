@@ -1602,6 +1602,45 @@ async def _handle_simple_narrative_feature_action(
     return True, None, render_message(action_key, text)
 
 
+async def _dispatch_narrow_narrative_utility_action(
+    db,
+    sess,
+    *,
+    player: Player,
+    session_id: str,
+    request_id: Optional[str],
+    action: str | None,
+    message_text: str,
+    handler,
+    ws_error_cb,
+) -> bool:
+    if not action:
+        return False
+
+    handled, err, msg = await handler(
+        db,
+        sess,
+        player=player,
+        action=action,
+        message_text=message_text or "",
+    )
+    if not handled:
+        return False
+
+    if err:
+        await ws_error_cb(err, request_id=request_id)
+        return True
+
+    if msg:
+        actor_name = str(
+            getattr((await get_character(db, sess.id, player.id)) or None, "name", "") or player.display_name
+        ).strip() or player.display_name
+        await add_system_event(db, sess, f"{actor_name}: {msg}")
+
+    await broadcast_state(session_id)
+    return True
+
+
 async def _handle_firbolg_speech_action(
     db,
     sess,
@@ -5901,80 +5940,60 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                         continue
 
                 firbolg_speech_action, firbolg_speech_message = _parse_firbolg_speech_command(cmdline)
-                if firbolg_speech_action:
-                    handled_speech, speech_err, speech_msg = await _handle_firbolg_speech_action(
-                        db,
-                        sess,
-                        player=player,
-                        action=firbolg_speech_action,
-                        message_text=firbolg_speech_message or "",
-                    )
-                    if handled_speech:
-                        if speech_err:
-                            await ws_error(speech_err, request_id=msg_request_id)
-                            continue
-                        if speech_msg:
-                            actor_name = str(getattr((await get_character(db, sess.id, player.id)) or None, "name", "") or player.display_name).strip() or player.display_name
-                            await add_system_event(db, sess, f"{actor_name}: {speech_msg}")
-                        await broadcast_state(session_id)
-                        continue
+                if await _dispatch_narrow_narrative_utility_action(
+                    db,
+                    sess,
+                    player=player,
+                    session_id=session_id,
+                    request_id=msg_request_id,
+                    action=firbolg_speech_action,
+                    message_text=firbolg_speech_message or "",
+                    handler=_handle_firbolg_speech_action,
+                    ws_error_cb=ws_error,
+                ):
+                    continue
 
                 kenku_mimicry_action, kenku_mimicry_message = _parse_kenku_mimicry_command(cmdline)
-                if kenku_mimicry_action:
-                    handled_mimicry, mimicry_err, mimicry_msg = await _handle_kenku_mimicry_action(
-                        db,
-                        sess,
-                        player=player,
-                        action=kenku_mimicry_action,
-                        message_text=kenku_mimicry_message or "",
-                    )
-                    if handled_mimicry:
-                        if mimicry_err:
-                            await ws_error(mimicry_err, request_id=msg_request_id)
-                            continue
-                        if mimicry_msg:
-                            actor_name = str(getattr((await get_character(db, sess.id, player.id)) or None, "name", "") or player.display_name).strip() or player.display_name
-                            await add_system_event(db, sess, f"{actor_name}: {mimicry_msg}")
-                        await broadcast_state(session_id)
-                        continue
+                if await _dispatch_narrow_narrative_utility_action(
+                    db,
+                    sess,
+                    player=player,
+                    session_id=session_id,
+                    request_id=msg_request_id,
+                    action=kenku_mimicry_action,
+                    message_text=kenku_mimicry_message or "",
+                    handler=_handle_kenku_mimicry_action,
+                    ws_error_cb=ws_error,
+                ):
+                    continue
 
                 kenku_forgery_action, kenku_forgery_message = _parse_kenku_expert_forgery_command(cmdline)
-                if kenku_forgery_action:
-                    handled_forgery, forgery_err, forgery_msg = await _handle_kenku_expert_forgery_action(
-                        db,
-                        sess,
-                        player=player,
-                        action=kenku_forgery_action,
-                        message_text=kenku_forgery_message or "",
-                    )
-                    if handled_forgery:
-                        if forgery_err:
-                            await ws_error(forgery_err, request_id=msg_request_id)
-                            continue
-                        if forgery_msg:
-                            actor_name = str(getattr((await get_character(db, sess.id, player.id)) or None, "name", "") or player.display_name).strip() or player.display_name
-                            await add_system_event(db, sess, f"{actor_name}: {forgery_msg}")
-                        await broadcast_state(session_id)
-                        continue
+                if await _dispatch_narrow_narrative_utility_action(
+                    db,
+                    sess,
+                    player=player,
+                    session_id=session_id,
+                    request_id=msg_request_id,
+                    action=kenku_forgery_action,
+                    message_text=kenku_forgery_message or "",
+                    handler=_handle_kenku_expert_forgery_action,
+                    ws_error_cb=ws_error,
+                ):
+                    continue
 
                 loxodon_trunk_action, loxodon_trunk_message = _parse_loxodon_trunk_command(cmdline)
-                if loxodon_trunk_action:
-                    handled_trunk, trunk_err, trunk_msg = await _handle_loxodon_trunk_action(
-                        db,
-                        sess,
-                        player=player,
-                        action=loxodon_trunk_action,
-                        message_text=loxodon_trunk_message or "",
-                    )
-                    if handled_trunk:
-                        if trunk_err:
-                            await ws_error(trunk_err, request_id=msg_request_id)
-                            continue
-                        if trunk_msg:
-                            actor_name = str(getattr((await get_character(db, sess.id, player.id)) or None, "name", "") or player.display_name).strip() or player.display_name
-                            await add_system_event(db, sess, f"{actor_name}: {trunk_msg}")
-                        await broadcast_state(session_id)
-                        continue
+                if await _dispatch_narrow_narrative_utility_action(
+                    db,
+                    sess,
+                    player=player,
+                    session_id=session_id,
+                    request_id=msg_request_id,
+                    action=loxodon_trunk_action,
+                    message_text=loxodon_trunk_message or "",
+                    handler=_handle_loxodon_trunk_action,
+                    ws_error_cb=ws_error,
+                ):
+                    continue
 
                 mind_link_action, mind_link_arg = _parse_mind_link_command(cmdline)
                 if mind_link_action:
@@ -7843,80 +7862,60 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                         continue
 
                 firbolg_speech_action, firbolg_speech_message = _parse_firbolg_speech_command(cmdline)
-                if firbolg_speech_action:
-                    handled_speech, speech_err, speech_msg = await _handle_firbolg_speech_action(
-                        db,
-                        sess,
-                        player=player,
-                        action=firbolg_speech_action,
-                        message_text=firbolg_speech_message or "",
-                    )
-                    if handled_speech:
-                        if speech_err:
-                            await ws_error(speech_err, request_id=msg_request_id)
-                            continue
-                        if speech_msg:
-                            actor_name = str(getattr((await get_character(db, sess.id, player.id)) or None, "name", "") or player.display_name).strip() or player.display_name
-                            await add_system_event(db, sess, f"{actor_name}: {speech_msg}")
-                        await broadcast_state(session_id)
-                        continue
+                if await _dispatch_narrow_narrative_utility_action(
+                    db,
+                    sess,
+                    player=player,
+                    session_id=session_id,
+                    request_id=msg_request_id,
+                    action=firbolg_speech_action,
+                    message_text=firbolg_speech_message or "",
+                    handler=_handle_firbolg_speech_action,
+                    ws_error_cb=ws_error,
+                ):
+                    continue
 
                 kenku_mimicry_action, kenku_mimicry_message = _parse_kenku_mimicry_command(cmdline)
-                if kenku_mimicry_action:
-                    handled_mimicry, mimicry_err, mimicry_msg = await _handle_kenku_mimicry_action(
-                        db,
-                        sess,
-                        player=player,
-                        action=kenku_mimicry_action,
-                        message_text=kenku_mimicry_message or "",
-                    )
-                    if handled_mimicry:
-                        if mimicry_err:
-                            await ws_error(mimicry_err, request_id=msg_request_id)
-                            continue
-                        if mimicry_msg:
-                            actor_name = str(getattr((await get_character(db, sess.id, player.id)) or None, "name", "") or player.display_name).strip() or player.display_name
-                            await add_system_event(db, sess, f"{actor_name}: {mimicry_msg}")
-                        await broadcast_state(session_id)
-                        continue
+                if await _dispatch_narrow_narrative_utility_action(
+                    db,
+                    sess,
+                    player=player,
+                    session_id=session_id,
+                    request_id=msg_request_id,
+                    action=kenku_mimicry_action,
+                    message_text=kenku_mimicry_message or "",
+                    handler=_handle_kenku_mimicry_action,
+                    ws_error_cb=ws_error,
+                ):
+                    continue
 
                 kenku_forgery_action, kenku_forgery_message = _parse_kenku_expert_forgery_command(cmdline)
-                if kenku_forgery_action:
-                    handled_forgery, forgery_err, forgery_msg = await _handle_kenku_expert_forgery_action(
-                        db,
-                        sess,
-                        player=player,
-                        action=kenku_forgery_action,
-                        message_text=kenku_forgery_message or "",
-                    )
-                    if handled_forgery:
-                        if forgery_err:
-                            await ws_error(forgery_err, request_id=msg_request_id)
-                            continue
-                        if forgery_msg:
-                            actor_name = str(getattr((await get_character(db, sess.id, player.id)) or None, "name", "") or player.display_name).strip() or player.display_name
-                            await add_system_event(db, sess, f"{actor_name}: {forgery_msg}")
-                        await broadcast_state(session_id)
-                        continue
+                if await _dispatch_narrow_narrative_utility_action(
+                    db,
+                    sess,
+                    player=player,
+                    session_id=session_id,
+                    request_id=msg_request_id,
+                    action=kenku_forgery_action,
+                    message_text=kenku_forgery_message or "",
+                    handler=_handle_kenku_expert_forgery_action,
+                    ws_error_cb=ws_error,
+                ):
+                    continue
 
                 loxodon_trunk_action, loxodon_trunk_message = _parse_loxodon_trunk_command(cmdline)
-                if loxodon_trunk_action:
-                    handled_trunk, trunk_err, trunk_msg = await _handle_loxodon_trunk_action(
-                        db,
-                        sess,
-                        player=player,
-                        action=loxodon_trunk_action,
-                        message_text=loxodon_trunk_message or "",
-                    )
-                    if handled_trunk:
-                        if trunk_err:
-                            await ws_error(trunk_err, request_id=msg_request_id)
-                            continue
-                        if trunk_msg:
-                            actor_name = str(getattr((await get_character(db, sess.id, player.id)) or None, "name", "") or player.display_name).strip() or player.display_name
-                            await add_system_event(db, sess, f"{actor_name}: {trunk_msg}")
-                        await broadcast_state(session_id)
-                        continue
+                if await _dispatch_narrow_narrative_utility_action(
+                    db,
+                    sess,
+                    player=player,
+                    session_id=session_id,
+                    request_id=msg_request_id,
+                    action=loxodon_trunk_action,
+                    message_text=loxodon_trunk_message or "",
+                    handler=_handle_loxodon_trunk_action,
+                    ws_error_cb=ws_error,
+                ):
+                    continue
 
                 mind_link_action, mind_link_arg = _parse_mind_link_command(cmdline)
                 if mind_link_action:
