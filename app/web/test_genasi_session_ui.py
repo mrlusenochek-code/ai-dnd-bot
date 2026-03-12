@@ -8,3 +8,5 @@ def test_genasi_session_ui_text_present() -> None:
 
     assert "Наследие стихий:" in template
     assert "Ходьба по земле: сложная местность из земли и камня не требует дополнительного перемещения" in template
+    assert "Плавание: ${Number(speeds.swim_ft)} фт" in template
+    assert "Амфибия: можете дышать и воздухом, и водой" in template

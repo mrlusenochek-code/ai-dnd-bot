@@ -1581,6 +1581,12 @@ function openCharacterModal(){
   const earthWalkText = (raceKey === "genasi" && subraceKey === "earth_genasi" && ignoreDifficultTerrain.length > 0)
     ? "Ходьба по земле: сложная местность из земли и камня не требует дополнительного перемещения"
     : "";
+  const waterGenasiSwimText = (raceKey === "genasi" && subraceKey === "water_genasi" && Number.isFinite(Number(speeds.swim_ft)))
+    ? `Плавание: ${Number(speeds.swim_ft)} фт`
+    : "";
+  const waterGenasiAmphibiousText = (raceKey === "genasi" && subraceKey === "water_genasi" && (raceFeaturesMeta.amphibious === true || breath.amphibious === true))
+    ? "Амфибия: можете дышать и воздухом, и водой"
+    : "";
   const decadentChoice = (choices.decadent_mastery && typeof choices.decadent_mastery === "object")
     ? choices.decadent_mastery
     : {};
@@ -2837,6 +2843,12 @@ function openCharacterModal(){
   if(earthWalkText){
     details.push(`<div class="char-line"><strong>Ходьба по земле:</strong> ${escapeHtml(earthWalkText.replace(/^Ходьба по земле:\s*/, ""))}</div>`);
   }
+  if(waterGenasiSwimText){
+    details.push(`<div class="char-line"><strong>Плавание:</strong> ${escapeHtml(waterGenasiSwimText.replace(/^Плавание:\s*/, ""))}</div>`);
+  }
+  if(waterGenasiAmphibiousText){
+    details.push(`<div class="char-line"><strong>Амфибия:</strong> ${escapeHtml(waterGenasiAmphibiousText.replace(/^Амфибия:\s*/, ""))}</div>`);
+  }
   if(telepathicInsightText){
     details.push(`<div class="char-line"><strong>Телепатическая проницательность:</strong> ${escapeHtml(telepathicInsightText.replace(/^Телепатическая проницательность:\s*/, ""))}</div>`);
   }
@@ -3097,6 +3109,8 @@ function openCharacterModal(){
   if(vampiricBiteText) copyLines.push(vampiricBiteText);
   if(growthSpurtText) copyLines.push(growthSpurtText);
   if(earthWalkText) copyLines.push(earthWalkText);
+  if(waterGenasiSwimText) copyLines.push(waterGenasiSwimText);
+  if(waterGenasiAmphibiousText) copyLines.push(waterGenasiAmphibiousText);
   if(breatheUnderwaterText) copyLines.push(breatheUnderwaterText);
   if(healingHandsText) copyLines.push(healingHandsText);
   if(aasimarLightBearerText) copyLines.push(aasimarLightBearerText);
