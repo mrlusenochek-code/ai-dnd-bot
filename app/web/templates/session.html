@@ -1587,6 +1587,21 @@ function openCharacterModal(){
   const waterGenasiAmphibiousText = (raceKey === "genasi" && subraceKey === "water_genasi" && (raceFeaturesMeta.amphibious === true || breath.amphibious === true))
     ? "Амфибия: можете дышать и воздухом, и водой"
     : "";
+  const airGenasiHasLevitate = innateSpells.some((spell) => String(spell.name || "").trim().toLowerCase() === "levitate");
+  const airGenasiSpellStatus = (spellKey, minLevel) => {
+    const requiredLevel = Number.isFinite(Number(minLevel)) ? Number(minLevel) : 1;
+    if(Number(ch.level || 1) < requiredLevel){
+      return `откроется на ${requiredLevel} уровне`;
+    }
+    const innateUsed = !!(((innateUsesRaw[spellKey] || {}).used) >= 1);
+    return innateUsed ? "восстановится после долгого отдыха" : "готово";
+  };
+  const airGenasiMagicText = (raceKey === "genasi" && subraceKey === "air_genasi" && airGenasiHasLevitate)
+    ? "Смешаться с ветром: Левитация — " + airGenasiSpellStatus("levitate", 3) + ". Базовая характеристика — Телосложение"
+    : "";
+  const airGenasiBreathText = (raceKey === "genasi" && subraceKey === "air_genasi" && String(breath.hold || "").trim().toLowerCase() === "unlimited")
+    ? "Бесконечное дыхание: можете задерживать дыхание без ограничений"
+    : "";
   const decadentChoice = (choices.decadent_mastery && typeof choices.decadent_mastery === "object")
     ? choices.decadent_mastery
     : {};
@@ -2862,6 +2877,12 @@ function openCharacterModal(){
   if(waterGenasiAmphibiousText){
     details.push(`<div class="char-line"><strong>Амфибия:</strong> ${escapeHtml(waterGenasiAmphibiousText.replace(/^Амфибия:\s*/, ""))}</div>`);
   }
+  if(airGenasiBreathText){
+    details.push(`<div class="char-line"><strong>Бесконечное дыхание:</strong> ${escapeHtml(airGenasiBreathText.replace(/^Бесконечное дыхание:\s*/, ""))}</div>`);
+  }
+  if(airGenasiMagicText){
+    details.push(`<div class="char-line"><strong>Смешаться с ветром:</strong> ${escapeHtml(airGenasiMagicText.replace(/^Смешаться с ветром:\s*/, ""))}</div>`);
+  }
   if(fireGenasiMagicText){
     details.push(`<div class="char-line"><strong>Огненная магия:</strong> ${escapeHtml(fireGenasiMagicText.replace(/^Огненная магия:\s*/, ""))}</div>`);
   }
@@ -3127,6 +3148,8 @@ function openCharacterModal(){
   if(earthWalkText) copyLines.push(earthWalkText);
   if(waterGenasiSwimText) copyLines.push(waterGenasiSwimText);
   if(waterGenasiAmphibiousText) copyLines.push(waterGenasiAmphibiousText);
+  if(airGenasiBreathText) copyLines.push(airGenasiBreathText);
+  if(airGenasiMagicText) copyLines.push(airGenasiMagicText);
   if(fireGenasiMagicText) copyLines.push(fireGenasiMagicText);
   if(breatheUnderwaterText) copyLines.push(breatheUnderwaterText);
   if(healingHandsText) copyLines.push(healingHandsText);
