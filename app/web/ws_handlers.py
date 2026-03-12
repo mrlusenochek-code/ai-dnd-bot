@@ -3883,6 +3883,15 @@ def _reset_innate_runtime_for_rest(runtime: dict[str, Any], race_features: dict[
     return changed
 
 
+def _runtime_set_if_changed(runtime: dict[str, Any], key: str, value: Any) -> bool:
+    if key not in runtime:
+        return False
+    if runtime.get(key) == value:
+        return False
+    runtime[key] = value
+    return True
+
+
 def _reset_racial_rest_uses(ch: Character, *, long_rest: bool = True) -> bool:
     race_features = getattr(ch, "race_features", None)
     rf = dict(race_features) if isinstance(race_features, dict) else {}
@@ -3921,8 +3930,7 @@ def _reset_racial_rest_uses(ch: Character, *, long_rest: bool = True) -> bool:
     if long_rest and "relentless_endurance_used" in runtime:
         runtime.pop("relentless_endurance_used", None)
         changed = True
-    if long_rest and "adrenaline_rush_uses_used" in runtime:
-        runtime["adrenaline_rush_uses_used"] = 0
+    if long_rest and _runtime_set_if_changed(runtime, "adrenaline_rush_uses_used", 0):
         changed = True
     if "built_for_success_used" in runtime:
         runtime.pop("built_for_success_used", None)
@@ -3951,8 +3959,7 @@ def _reset_racial_rest_uses(ch: Character, *, long_rest: bool = True) -> bool:
     if "grung_weapon_poison_armed" in runtime:
         runtime.pop("grung_weapon_poison_armed", None)
         changed = True
-    if "triton_active_water_wall" in runtime:
-        runtime["triton_active_water_wall"] = None
+    if _runtime_set_if_changed(runtime, "triton_active_water_wall", None):
         changed = True
     if "last_failed_dex_save" in runtime:
         runtime.pop("last_failed_dex_save", None)
@@ -3996,8 +4003,7 @@ def _reset_racial_rest_uses(ch: Character, *, long_rest: bool = True) -> bool:
         ("shell_defense_active", False),
         ("shell_defense_entered_turn", ""),
     ):
-        if key in runtime:
-            runtime[key] = value
+        if _runtime_set_if_changed(runtime, key, value):
             changed = True
     for key in ("ac_bonus", "speed_override_ft"):
         if key in runtime:
@@ -4016,69 +4022,31 @@ def _reset_racial_rest_uses(ch: Character, *, long_rest: bool = True) -> bool:
         runtime.pop("simic_appendages_last_target_id", None)
         changed = True
     if long_rest:
-        if "shifting_uses_used" in runtime:
-            runtime["shifting_uses_used"] = 0
-            changed = True
-        if "marked_uses_used" in runtime:
-            runtime["marked_uses_used"] = 0
-            changed = True
-        if "wildhunt_marked_target_id" in runtime:
-            runtime["wildhunt_marked_target_id"] = ""
-            changed = True
-        if "wildhunt_marked_until" in runtime:
-            runtime["wildhunt_marked_until"] = ""
-            changed = True
-        if "knowledge_past_life_uses_used" in runtime:
-            runtime["knowledge_past_life_uses_used"] = 0
-            changed = True
-        if "acid_spit_uses_used" in runtime:
-            runtime["acid_spit_uses_used"] = 0
-            changed = True
-        if "triton_gust_of_wind_used" in runtime:
-            runtime["triton_gust_of_wind_used"] = False
-            changed = True
-        if "triton_wall_of_water_used" in runtime:
-            runtime["triton_wall_of_water_used"] = False
-            changed = True
-        if "triton_active_water_wall" in runtime:
-            runtime["triton_active_water_wall"] = None
-            changed = True
-        if "tiefling_hellish_rebuke_used" in runtime:
-            runtime["tiefling_hellish_rebuke_used"] = False
-            changed = True
-        if "tiefling_darkness_used" in runtime:
-            runtime["tiefling_darkness_used"] = False
-            changed = True
-        if "drow_faerie_fire_used" in runtime:
-            runtime["drow_faerie_fire_used"] = False
-            changed = True
-        if "drow_darkness_used" in runtime:
-            runtime["drow_darkness_used"] = False
-            changed = True
-        if "duergar_enlarge_used" in runtime:
-            runtime["duergar_enlarge_used"] = False
-            changed = True
-        if "duergar_invisibility_used" in runtime:
-            runtime["duergar_invisibility_used"] = False
-            changed = True
-        if "githyanki_jump_used" in runtime:
-            runtime["githyanki_jump_used"] = False
-            changed = True
-        if "githyanki_misty_step_used" in runtime:
-            runtime["githyanki_misty_step_used"] = False
-            changed = True
-        if "githzerai_shield_used" in runtime:
-            runtime["githzerai_shield_used"] = False
-            changed = True
-        if "githzerai_detect_thoughts_used" in runtime:
-            runtime["githzerai_detect_thoughts_used"] = False
-            changed = True
-        if "yuanti_suggestion_used" in runtime:
-            runtime["yuanti_suggestion_used"] = False
-            changed = True
-        if "yuanti_last_innate_spell" in runtime:
-            runtime["yuanti_last_innate_spell"] = None
-            changed = True
+        for key, value in (
+            ("shifting_uses_used", 0),
+            ("marked_uses_used", 0),
+            ("wildhunt_marked_target_id", ""),
+            ("wildhunt_marked_until", ""),
+            ("knowledge_past_life_uses_used", 0),
+            ("acid_spit_uses_used", 0),
+            ("triton_gust_of_wind_used", False),
+            ("triton_wall_of_water_used", False),
+            ("triton_active_water_wall", None),
+            ("tiefling_hellish_rebuke_used", False),
+            ("tiefling_darkness_used", False),
+            ("drow_faerie_fire_used", False),
+            ("drow_darkness_used", False),
+            ("duergar_enlarge_used", False),
+            ("duergar_invisibility_used", False),
+            ("githyanki_jump_used", False),
+            ("githyanki_misty_step_used", False),
+            ("githzerai_shield_used", False),
+            ("githzerai_detect_thoughts_used", False),
+            ("yuanti_suggestion_used", False),
+            ("yuanti_last_innate_spell", None),
+        ):
+            if _runtime_set_if_changed(runtime, key, value):
+                changed = True
         if "fearless_auto_success_used" in runtime:
             runtime.pop("fearless_auto_success_used", None)
             changed = True
@@ -4116,12 +4084,9 @@ def _reset_racial_rest_uses(ch: Character, *, long_rest: bool = True) -> bool:
             runtime.pop("eerie_token_remote_view_rounds_left", None)
             changed = True
     else:
-        if "shifting_uses_used" in runtime:
-            runtime["shifting_uses_used"] = 0
-            changed = True
-        if "marked_uses_used" in runtime:
-            runtime["marked_uses_used"] = 0
-            changed = True
+        for key, value in (("shifting_uses_used", 0), ("marked_uses_used", 0)):
+            if _runtime_set_if_changed(runtime, key, value):
+                changed = True
     if not changed:
         return False
     if runtime:
@@ -4175,8 +4140,7 @@ def _reset_combatant_racial_rest_uses(session_id: str, actor_key: str, *, long_r
     if long_rest and "relentless_endurance_used" in runtime:
         runtime.pop("relentless_endurance_used", None)
         changed = True
-    if long_rest and "adrenaline_rush_uses_used" in runtime:
-        runtime["adrenaline_rush_uses_used"] = 0
+    if long_rest and _runtime_set_if_changed(runtime, "adrenaline_rush_uses_used", 0):
         changed = True
     if "built_for_success_used" in runtime:
         runtime.pop("built_for_success_used", None)
@@ -4205,8 +4169,7 @@ def _reset_combatant_racial_rest_uses(session_id: str, actor_key: str, *, long_r
     if "grung_weapon_poison_armed" in runtime:
         runtime.pop("grung_weapon_poison_armed", None)
         changed = True
-    if "triton_active_water_wall" in runtime:
-        runtime["triton_active_water_wall"] = None
+    if _runtime_set_if_changed(runtime, "triton_active_water_wall", None):
         changed = True
     if "last_failed_dex_save" in runtime:
         runtime.pop("last_failed_dex_save", None)
@@ -4250,8 +4213,7 @@ def _reset_combatant_racial_rest_uses(session_id: str, actor_key: str, *, long_r
         ("shell_defense_active", False),
         ("shell_defense_entered_turn", ""),
     ):
-        if key in runtime:
-            runtime[key] = value
+        if _runtime_set_if_changed(runtime, key, value):
             changed = True
     for key in ("ac_bonus", "speed_override_ft"):
         if key in runtime:
@@ -4270,69 +4232,31 @@ def _reset_combatant_racial_rest_uses(session_id: str, actor_key: str, *, long_r
         runtime.pop("simic_appendages_last_target_id", None)
         changed = True
     if long_rest:
-        if "shifting_uses_used" in runtime:
-            runtime["shifting_uses_used"] = 0
-            changed = True
-        if "marked_uses_used" in runtime:
-            runtime["marked_uses_used"] = 0
-            changed = True
-        if "wildhunt_marked_target_id" in runtime:
-            runtime["wildhunt_marked_target_id"] = ""
-            changed = True
-        if "wildhunt_marked_until" in runtime:
-            runtime["wildhunt_marked_until"] = ""
-            changed = True
-        if "knowledge_past_life_uses_used" in runtime:
-            runtime["knowledge_past_life_uses_used"] = 0
-            changed = True
-        if "acid_spit_uses_used" in runtime:
-            runtime["acid_spit_uses_used"] = 0
-            changed = True
-        if "triton_gust_of_wind_used" in runtime:
-            runtime["triton_gust_of_wind_used"] = False
-            changed = True
-        if "triton_wall_of_water_used" in runtime:
-            runtime["triton_wall_of_water_used"] = False
-            changed = True
-        if "triton_active_water_wall" in runtime:
-            runtime["triton_active_water_wall"] = None
-            changed = True
-        if "tiefling_hellish_rebuke_used" in runtime:
-            runtime["tiefling_hellish_rebuke_used"] = False
-            changed = True
-        if "tiefling_darkness_used" in runtime:
-            runtime["tiefling_darkness_used"] = False
-            changed = True
-        if "drow_faerie_fire_used" in runtime:
-            runtime["drow_faerie_fire_used"] = False
-            changed = True
-        if "drow_darkness_used" in runtime:
-            runtime["drow_darkness_used"] = False
-            changed = True
-        if "duergar_enlarge_used" in runtime:
-            runtime["duergar_enlarge_used"] = False
-            changed = True
-        if "duergar_invisibility_used" in runtime:
-            runtime["duergar_invisibility_used"] = False
-            changed = True
-        if "githyanki_jump_used" in runtime:
-            runtime["githyanki_jump_used"] = False
-            changed = True
-        if "githyanki_misty_step_used" in runtime:
-            runtime["githyanki_misty_step_used"] = False
-            changed = True
-        if "githzerai_shield_used" in runtime:
-            runtime["githzerai_shield_used"] = False
-            changed = True
-        if "githzerai_detect_thoughts_used" in runtime:
-            runtime["githzerai_detect_thoughts_used"] = False
-            changed = True
-        if "yuanti_suggestion_used" in runtime:
-            runtime["yuanti_suggestion_used"] = False
-            changed = True
-        if "yuanti_last_innate_spell" in runtime:
-            runtime["yuanti_last_innate_spell"] = None
-            changed = True
+        for key, value in (
+            ("shifting_uses_used", 0),
+            ("marked_uses_used", 0),
+            ("wildhunt_marked_target_id", ""),
+            ("wildhunt_marked_until", ""),
+            ("knowledge_past_life_uses_used", 0),
+            ("acid_spit_uses_used", 0),
+            ("triton_gust_of_wind_used", False),
+            ("triton_wall_of_water_used", False),
+            ("triton_active_water_wall", None),
+            ("tiefling_hellish_rebuke_used", False),
+            ("tiefling_darkness_used", False),
+            ("drow_faerie_fire_used", False),
+            ("drow_darkness_used", False),
+            ("duergar_enlarge_used", False),
+            ("duergar_invisibility_used", False),
+            ("githyanki_jump_used", False),
+            ("githyanki_misty_step_used", False),
+            ("githzerai_shield_used", False),
+            ("githzerai_detect_thoughts_used", False),
+            ("yuanti_suggestion_used", False),
+            ("yuanti_last_innate_spell", None),
+        ):
+            if _runtime_set_if_changed(runtime, key, value):
+                changed = True
         if "fearless_auto_success_used" in runtime:
             runtime.pop("fearless_auto_success_used", None)
             changed = True
@@ -4370,12 +4294,9 @@ def _reset_combatant_racial_rest_uses(session_id: str, actor_key: str, *, long_r
             runtime.pop("eerie_token_remote_view_rounds_left", None)
             changed = True
     else:
-        if "shifting_uses_used" in runtime:
-            runtime["shifting_uses_used"] = 0
-            changed = True
-        if "marked_uses_used" in runtime:
-            runtime["marked_uses_used"] = 0
-            changed = True
+        for key, value in (("shifting_uses_used", 0), ("marked_uses_used", 0)):
+            if _runtime_set_if_changed(runtime, key, value):
+                changed = True
     for combatant in state.combatants.values():
         target_rf = combatant.race_features if isinstance(getattr(combatant, "race_features", None), dict) else {}
         target_runtime_raw = target_rf.get("runtime")
