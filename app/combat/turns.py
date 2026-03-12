@@ -95,6 +95,34 @@ def _advance_poisoned_condition_for_ending_combatant(combatant: Combatant) -> bo
     return True
 
 
+def _advance_leonin_frightened_condition_for_source_turn(combatant: Combatant, source_actor_key: str) -> bool:
+    race_features, runtime = _copy_combatant_runtime(combatant)
+    conditions_raw = runtime.get("conditions")
+    conditions = dict(conditions_raw) if isinstance(conditions_raw, dict) else {}
+    frightened_raw = conditions.get("frightened")
+    frightened = dict(frightened_raw) if isinstance(frightened_raw, dict) else {}
+    if not bool(frightened.get("active")):
+        return False
+    if str(frightened.get("source") or "").strip().lower() != "leonin_daunting_roar":
+        return False
+    expires_on = str(frightened.get("expires_on_end_of_source_next_turn") or "").strip()
+    if expires_on != source_actor_key:
+        return False
+    turns_remaining = max(0, int(frightened.get("source_turns_remaining") or 0))
+    turns_remaining -= 1
+    if turns_remaining <= 0:
+        conditions.pop("frightened", None)
+    else:
+        frightened["source_turns_remaining"] = turns_remaining
+        conditions["frightened"] = frightened
+    if conditions:
+        runtime["conditions"] = conditions
+    else:
+        runtime.pop("conditions", None)
+    _commit_combatant_runtime(combatant, race_features, runtime)
+    return True
+
+
 def _clear_shifter_shift_runtime(combatant: Combatant) -> bool:
     race_features = combatant.race_features if isinstance(combatant.race_features, dict) else {}
     runtime_raw = race_features.get("runtime")
@@ -228,36 +256,7 @@ def advance_turn_in_state(state: CombatState) -> CombatState:
         source_actor_key = str(getattr(ending_combatant, "key", "") or "")
         if source_actor_key:
             for combatant in state.combatants.values():
-                race_features = combatant.race_features if isinstance(combatant.race_features, dict) else {}
-                runtime_raw = race_features.get("runtime")
-                runtime = dict(runtime_raw) if isinstance(runtime_raw, dict) else {}
-                conditions_raw = runtime.get("conditions")
-                conditions = dict(conditions_raw) if isinstance(conditions_raw, dict) else {}
-                frightened_raw = conditions.get("frightened")
-                frightened = dict(frightened_raw) if isinstance(frightened_raw, dict) else {}
-                if not bool(frightened.get("active")):
-                    continue
-                if str(frightened.get("source") or "").strip().lower() != "leonin_daunting_roar":
-                    continue
-                expires_on = str(frightened.get("expires_on_end_of_source_next_turn") or "").strip()
-                if expires_on != source_actor_key:
-                    continue
-                turns_remaining = max(0, int(frightened.get("source_turns_remaining") or 0))
-                turns_remaining -= 1
-                if turns_remaining <= 0:
-                    conditions.pop("frightened", None)
-                else:
-                    frightened["source_turns_remaining"] = turns_remaining
-                    conditions["frightened"] = frightened
-                if conditions:
-                    runtime["conditions"] = conditions
-                else:
-                    runtime.pop("conditions", None)
-                if runtime:
-                    race_features["runtime"] = runtime
-                else:
-                    race_features.pop("runtime", None)
-                combatant.race_features = race_features
+                _advance_leonin_frightened_condition_for_source_turn(combatant, source_actor_key)
 
     previous_key = state.order[state.turn_index]
     previous_combatant = state.combatants.get(previous_key)
