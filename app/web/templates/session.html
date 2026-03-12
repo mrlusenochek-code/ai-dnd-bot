@@ -1060,6 +1060,10 @@ function openCharacterModal(){
   const _DURATION_RU = {
     "1_minute": "1 мин",
   };
+  const readyStatusText = () => "готово";
+  const unlockAtLevelText = (level) => `откроется на ${level} уровне`;
+  const restRecoveryText = (restText) => `восстановится после ${restText}`;
+  const spentUntilRestText = (restText) => `потрачено, восстановится после ${restText}`;
   const formatUsesText = (uses, usesMax) => {
     const usesKey = String(uses || "").trim().toLowerCase();
     const usesNum = Number.isFinite(Number(usesMax)) ? Number(usesMax) : null;
@@ -1075,8 +1079,8 @@ function openCharacterModal(){
   const healingHandsAmountText = healingHandsAmountKey === "level" ? "уровень" : String((healingHands && healingHands.amount) || "").trim();
   const healingHandsUsed = !!runtime.healing_hands_used;
   const healingHandsStatusText = healingHandsUsed
-    ? "потрачено, восстановится после долгого отдыха"
-    : "готово";
+    ? spentUntilRestText("долгого отдыха")
+    : readyStatusText();
   const healingHandsText = healingHands
     ? `Исцеляющие руки: статус ${healingHandsStatusText}; ${healingHandsUsesText || "—"}, лечение = ${healingHandsAmountText || "—"}`
     : "";
@@ -1099,13 +1103,13 @@ function openCharacterModal(){
     ? Number(aasimarTransformRuntime.rounds_left)
     : 0;
   const aasimarTransformUsed = !!runtime.aasimar_transform_used;
-  let aasimarTransformationStatus = "готово";
+  let aasimarTransformationStatus = readyStatusText();
   if(aasimarMinLevel !== null && chLevel < aasimarMinLevel){
-    aasimarTransformationStatus = `откроется на ${aasimarMinLevel} уровне`;
+    aasimarTransformationStatus = unlockAtLevelText(aasimarMinLevel);
   }else if(aasimarTransformActive){
     aasimarTransformationStatus = `активно${aasimarTransformRoundsLeft > 0 ? `, осталось ходов: ${aasimarTransformRoundsLeft}` : ""}`;
   }else if(aasimarTransformUsed){
-    aasimarTransformationStatus = "потрачено, восстановится после долгого отдыха";
+    aasimarTransformationStatus = spentUntilRestText("долгого отдыха");
   }
   const aasimarTransformationEffectParts = [];
   if(aasimarFlySpeedFt !== null) aasimarTransformationEffectParts.push(`полёт ${aasimarFlySpeedFt} фт`);
@@ -2078,10 +2082,10 @@ function openCharacterModal(){
   const tritonSpellStatus = (spellKey, minLevel, usedFlag) => {
     const requiredLevel = Number.isFinite(Number(minLevel)) ? Number(minLevel) : 1;
     if(Number(ch.level || 1) < requiredLevel){
-      return `откроется на ${requiredLevel} уровне`;
+      return unlockAtLevelText(requiredLevel);
     }
     const innateUsed = !!(((innateUsesRaw[spellKey] || {}).used) >= 1);
-    return (usedFlag || innateUsed) ? "восстановится после долгого отдыха" : "готово";
+    return (usedFlag || innateUsed) ? restRecoveryText("долгого отдыха") : readyStatusText();
   };
   const tritonWaterMagicText = raceKey === "triton"
     ? `Управление воздухом и водой: Создание/уничтожение воды — доступно всегда; Порыв ветра — ${tritonSpellStatus("gust_of_wind", 3, !!runtime.triton_gust_of_wind_used)}; Стена воды — ${tritonSpellStatus("wall_of_water", 5, !!runtime.triton_wall_of_water_used)}${runtime.triton_active_water_wall ? "; стена воды активна" : ""}`
@@ -2089,10 +2093,10 @@ function openCharacterModal(){
   const tieflingSpellStatus = (spellKey, minLevel, usedFlag) => {
     const requiredLevel = Number.isFinite(Number(minLevel)) ? Number(minLevel) : 1;
     if(Number(ch.level || 1) < requiredLevel){
-      return `откроется на ${requiredLevel} уровне`;
+      return unlockAtLevelText(requiredLevel);
     }
     const innateUsed = !!(((innateUsesRaw[spellKey] || {}).used) >= 1);
-    return (usedFlag || innateUsed) ? "восстановится после долгого отдыха" : "готово";
+    return (usedFlag || innateUsed) ? restRecoveryText("долгого отдыха") : readyStatusText();
   };
   const tieflingInfernalLegacyText = raceKey === "tiefling"
     ? `Адское наследие: Тауматургия — доступно всегда; Адская кара — ${tieflingSpellStatus("hellish_rebuke", 3, !!runtime.tiefling_hellish_rebuke_used)}; Тьма — ${tieflingSpellStatus("darkness", 5, !!runtime.tiefling_darkness_used)}. Базовая характеристика — Харизма`
@@ -2107,10 +2111,10 @@ function openCharacterModal(){
   const fairySpellStatus = (spellKey, minLevel) => {
     const requiredLevel = Number.isFinite(Number(minLevel)) ? Number(minLevel) : 1;
     if(Number(ch.level || 1) < requiredLevel){
-      return `откроется на ${requiredLevel} уровне`;
+      return unlockAtLevelText(requiredLevel);
     }
     const innateUsed = !!(((innateUsesRaw[spellKey] || {}).used) >= 1);
-    return innateUsed ? "восстановится после долгого отдыха" : "готово";
+    return innateUsed ? restRecoveryText("долгого отдыха") : readyStatusText();
   };
   const fairyMagicText = (raceKey === "fairy" && fairyMagic)
     ? `Магия фей: Искусство друидов — доступно всегда; Огонь фей — ${fairySpellStatus("faerie_fire", 3)}; Увеличение/уменьшение — ${fairySpellStatus("enlarge_reduce", 5)}. Базовая характеристика — ${fairyAbilityRu || "—"}`
@@ -2120,10 +2124,10 @@ function openCharacterModal(){
   const fireGenasiSpellStatus = (spellKey, minLevel) => {
     const requiredLevel = Number.isFinite(Number(minLevel)) ? Number(minLevel) : 1;
     if(Number(ch.level || 1) < requiredLevel){
-      return `откроется на ${requiredLevel} уровне`;
+      return unlockAtLevelText(requiredLevel);
     }
     const innateUsed = !!(((innateUsesRaw[spellKey] || {}).used) >= 1);
-    return innateUsed ? "восстановится после долгого отдыха" : "готово";
+    return innateUsed ? restRecoveryText("долгого отдыха") : readyStatusText();
   };
   const fireGenasiMagicText = (raceKey === "genasi" && subraceKey === "fire_genasi" && fireGenasiHasProduceFlame && fireGenasiHasBurningHands)
     ? "Огненная магия: Создание огня — доступно всегда; Горящие руки — " + fireGenasiSpellStatus("burning_hands", 3) + ". Базовая характеристика — Телосложение"
@@ -2138,10 +2142,10 @@ function openCharacterModal(){
   const drowSpellStatus = (spellKey, minLevel, usedFlag) => {
     const requiredLevel = Number.isFinite(Number(minLevel)) ? Number(minLevel) : 1;
     if(Number(ch.level || 1) < requiredLevel){
-      return `откроется на ${requiredLevel} уровне`;
+      return unlockAtLevelText(requiredLevel);
     }
     const innateUsed = !!(((innateUsesRaw[spellKey] || {}).used) >= 1);
-    return (usedFlag || innateUsed) ? "восстановится после долгого отдыха" : "готово";
+    return (usedFlag || innateUsed) ? restRecoveryText("долгого отдыха") : readyStatusText();
   };
   const drowMagicText = drowSubraceActive
     ? `Врождённая магия дроу: Пляшущие огоньки — доступно всегда; Волшебный огонь — ${drowSpellStatus("faerie_fire", 3, !!runtime.drow_faerie_fire_used)}; Тьма — ${drowSpellStatus("darkness", 5, !!runtime.drow_darkness_used)}. Базовая характеристика — Харизма`
@@ -2150,10 +2154,10 @@ function openCharacterModal(){
   const duergarSpellStatus = (spellKey, minLevel, usedFlag) => {
     const requiredLevel = Number.isFinite(Number(minLevel)) ? Number(minLevel) : 1;
     if(Number(ch.level || 1) < requiredLevel){
-      return `откроется на ${requiredLevel} уровне`;
+      return unlockAtLevelText(requiredLevel);
     }
     const innateUsed = !!(((innateUsesRaw[spellKey] || {}).used) >= 1);
-    return (usedFlag || innateUsed) ? "восстановится после долгого отдыха" : "готово";
+    return (usedFlag || innateUsed) ? restRecoveryText("долгого отдыха") : readyStatusText();
   };
   const duergarMagicText = duergarSubraceActive
     ? `Магия дуэргара: Увеличение — ${duergarSpellStatus("enlarge", 3, !!runtime.duergar_enlarge_used)}; Невидимость — ${duergarSpellStatus("invisibility", 5, !!runtime.duergar_invisibility_used)}. Базовая характеристика — Интеллект`
@@ -2178,7 +2182,7 @@ function openCharacterModal(){
       return "откроется на 3 уровне";
     }
     const innateUsed = !!(((innateUsesRaw.suggestion || {}).used) >= 1);
-    return (runtime.yuanti_suggestion_used || innateUsed) ? "восстановится после долгого отдыха" : "готово";
+    return (runtime.yuanti_suggestion_used || innateUsed) ? restRecoveryText("долгого отдыха") : readyStatusText();
   };
   const yuantiPoisonImmunityText = (raceKey === "yuan_ti_pureblood" && yuantiPoisonImmunity)
     ? "Иммунитет к яду: иммунитет к урону ядом и состоянию «отравленный»"
