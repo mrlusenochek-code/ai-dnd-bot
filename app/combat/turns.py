@@ -34,6 +34,32 @@ def _clear_turn_end_runtime_keys(combatant: Combatant, *keys: str) -> bool:
     return True
 
 
+def _normalize_turn_start_runtime(combatant: Combatant, current_actor_key: str) -> bool:
+    race_features, runtime = _copy_combatant_runtime(combatant)
+    runtime_changed = False
+    if "aggressive_used_turn_id" in runtime:
+        runtime.pop("aggressive_used_turn_id", None)
+        runtime_changed = True
+    if bool(runtime.get("shifted_active")) and str((race_features.get("subrace") or {}).get("key") or "").strip().lower() == "swiftstride":
+        if not bool(runtime.get("shifting_swiftstride_reaction_available")):
+            runtime["shifting_swiftstride_reaction_available"] = True
+            runtime_changed = True
+    if "grovel_active_until_turn_start_of_actor_id" in runtime:
+        source_key = str(runtime.get("grovel_active_until_turn_start_of_actor_id") or "").strip()
+        if source_key == current_actor_key:
+            runtime.pop("grovel_active_until_turn_start_of_actor_id", None)
+            runtime_changed = True
+    hidden_raw = runtime.get("hidden_step")
+    hidden_step = dict(hidden_raw) if isinstance(hidden_raw, dict) else {}
+    if bool(hidden_step.get("active")) and bool(hidden_step.get("expires_on_owner_turn_start", True)):
+        hidden_step["active"] = False
+        runtime["hidden_step"] = hidden_step
+        runtime_changed = True
+    if runtime_changed:
+        _commit_combatant_runtime(combatant, race_features, runtime)
+    return runtime_changed
+
+
 def _clear_shifter_shift_runtime(combatant: Combatant) -> bool:
     race_features = combatant.race_features if isinstance(combatant.race_features, dict) else {}
     runtime_raw = race_features.get("runtime")
@@ -275,28 +301,7 @@ def advance_turn_in_state(state: CombatState) -> CombatState:
                     race_features.pop("runtime", None)
                 combatant.race_features = race_features
     if current_combatant is not None:
-        race_features, runtime = _copy_combatant_runtime(current_combatant)
-        runtime_changed = False
-        if "aggressive_used_turn_id" in runtime:
-            runtime.pop("aggressive_used_turn_id", None)
-            runtime_changed = True
-        if bool(runtime.get("shifted_active")) and str((race_features.get("subrace") or {}).get("key") or "").strip().lower() == "swiftstride":
-            if not bool(runtime.get("shifting_swiftstride_reaction_available")):
-                runtime["shifting_swiftstride_reaction_available"] = True
-                runtime_changed = True
-        if "grovel_active_until_turn_start_of_actor_id" in runtime:
-            source_key = str(runtime.get("grovel_active_until_turn_start_of_actor_id") or "").strip()
-            if source_key == str(getattr(current_combatant, "key", "") or ""):
-                runtime.pop("grovel_active_until_turn_start_of_actor_id", None)
-                runtime_changed = True
-        hidden_raw = runtime.get("hidden_step")
-        hidden_step = dict(hidden_raw) if isinstance(hidden_raw, dict) else {}
-        if bool(hidden_step.get("active")) and bool(hidden_step.get("expires_on_owner_turn_start", True)):
-            hidden_step["active"] = False
-            runtime["hidden_step"] = hidden_step
-            runtime_changed = True
-        if runtime_changed:
-            _commit_combatant_runtime(current_combatant, race_features, runtime)
+        _normalize_turn_start_runtime(current_combatant, str(getattr(current_combatant, "key", "") or ""))
         current_combatant.dodge_active = False
         current_combatant.dash_active = False
         current_combatant.disengage_active = False
@@ -315,6 +320,7 @@ def advance_turn_in_state(state: CombatState) -> CombatState:
             if isinstance(mode_speed_raw, int) and not isinstance(mode_speed_raw, bool)
             else max(0, int(current_combatant.speed_ft))
         )
+        race_features = current_combatant.race_features if isinstance(current_combatant.race_features, dict) else {}
         current_runtime_raw = race_features.get("runtime")
         current_runtime = dict(current_runtime_raw) if isinstance(current_runtime_raw, dict) else {}
         override_speed_raw = current_runtime.get("speed_override_ft")
