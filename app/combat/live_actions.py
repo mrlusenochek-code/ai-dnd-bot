@@ -560,6 +560,12 @@ def _commit_combatant_runtime(actor: Any, race_features: dict[str, Any], runtime
     actor.race_features = race_features
 
 
+def _apply_runtime_marker(actor: Any, marker_key: str, marker_payload: dict[str, Any]) -> None:
+    race_features, runtime = _copy_combatant_runtime(actor)
+    runtime[marker_key] = marker_payload
+    _commit_combatant_runtime(actor, race_features, runtime)
+
+
 def _maybe_apply_fury_of_small(*, actor: Any, target: Any, lines: list[dict[str, Any]]) -> int:
     if str(getattr(actor, "side", "")).lower() != "pc":
         return 0
@@ -1874,16 +1880,15 @@ def handle_live_combat_action(
                 continue
             if int(getattr(combatant, "hp_current", 0) or 0) <= 0 or bool(getattr(combatant, "is_dead", False)):
                 continue
-            target_rf = combatant.race_features if isinstance(getattr(combatant, "race_features", None), dict) else {}
-            target_runtime_raw = target_rf.get("runtime")
-            target_runtime = dict(target_runtime_raw) if isinstance(target_runtime_raw, dict) else {}
-            target_runtime["groveled"] = {
-                "active": True,
-                "source_actor_id": actor_id,
-                "expires_on_turn_start_of_source": actor_id,
-            }
-            target_rf["runtime"] = target_runtime
-            combatant.race_features = target_rf
+            _apply_runtime_marker(
+                combatant,
+                "groveled",
+                {
+                    "active": True,
+                    "source_actor_id": actor_id,
+                    "expires_on_turn_start_of_source": actor_id,
+                },
+            )
             affected += 1
 
         lines = [
@@ -2261,17 +2266,17 @@ def handle_live_combat_action(
         if save_success:
             lines.append({"text": "Насмешка: цель устояла (успех спасброска)."})
         else:
-            target_rf = target.race_features if isinstance(target.race_features, dict) else {}
-            target_runtime_raw = target_rf.get("runtime")
-            target_runtime = dict(target_runtime_raw) if isinstance(target_runtime_raw, dict) else {}
-            target_runtime["taunted"] = {
-                "active": True,
-                "by_actor_id": str(getattr(actor, "key", "") or ""),
-                "expires_on_turn_start_of_actor_id": str(getattr(actor, "key", "") or ""),
-                "source": "kender_taunt",
-            }
-            target_rf["runtime"] = target_runtime
-            target.race_features = target_rf
+            actor_key = str(getattr(actor, "key", "") or "")
+            _apply_runtime_marker(
+                target,
+                "taunted",
+                {
+                    "active": True,
+                    "by_actor_id": actor_key,
+                    "expires_on_turn_start_of_actor_id": actor_key,
+                    "source": "kender_taunt",
+                },
+            )
             lines.append(
                 {
                     "text": (
