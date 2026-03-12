@@ -6,7 +6,7 @@ import random
 import re
 import uuid
 from datetime import datetime, timedelta, timezone
-from typing import Any, Optional
+from typing import Any, Callable, Optional
 
 from fastapi import WebSocket, WebSocketDisconnect
 from sqlalchemy import select
@@ -1547,6 +1547,23 @@ def _verdan_telepathy_status_message(ch: Character) -> tuple[Optional[str], Opti
     return None, f"[RACE] Ограниченная телепатия: последняя цель — {target_name}.", False
 
 
+async def _load_feature_gated_character(
+    db,
+    sess,
+    *,
+    player: Player,
+    feature_getter: Callable[[Any], Any],
+    unavailable_message: str,
+) -> tuple[bool, Optional[str], Optional[Character], Any]:
+    ch = await get_character(db, sess.id, player.id)
+    if not ch:
+        return True, "Персонаж не найден.", None, None
+    feature_cfg = feature_getter(getattr(ch, "race_features", None))
+    if not feature_cfg:
+        return True, unavailable_message, None, None
+    return False, None, ch, feature_cfg
+
+
 async def _handle_firbolg_speech_action(
     db,
     sess,
@@ -1559,13 +1576,15 @@ async def _handle_firbolg_speech_action(
     if action_key not in {"firbolg_speech_status", "firbolg_speech_beast", "firbolg_speech_plant"}:
         return False, None, None
 
-    ch = await get_character(db, sess.id, player.id)
-    if not ch:
-        return True, "Персонаж не найден.", None
-
-    speech_cfg = _firbolg_speech_feature(getattr(ch, "race_features", None))
-    if not speech_cfg:
-        return True, "Речь зверя и листа недоступна вашей расе.", None
+    handled, error, _ch, _speech_cfg = await _load_feature_gated_character(
+        db,
+        sess,
+        player=player,
+        feature_getter=_firbolg_speech_feature,
+        unavailable_message="Речь зверя и листа недоступна вашей расе.",
+    )
+    if handled:
+        return True, error, None
 
     if action_key == "firbolg_speech_status":
         return True, None, "[RACE] Речь зверя и листа готова: можно передавать простые идеи зверям и растениям."
@@ -1590,13 +1609,15 @@ async def _handle_kenku_mimicry_action(
     if action_key not in {"kenku_mimicry_status", "kenku_mimicry_voice", "kenku_mimicry_sound"}:
         return False, None, None
 
-    ch = await get_character(db, sess.id, player.id)
-    if not ch:
-        return True, "Персонаж не найден.", None
-
-    mimicry_cfg = _kenku_mimicry_feature(getattr(ch, "race_features", None))
-    if not mimicry_cfg:
-        return True, "Подражание недоступно вашей расе.", None
+    handled, error, _ch, _mimicry_cfg = await _load_feature_gated_character(
+        db,
+        sess,
+        player=player,
+        feature_getter=_kenku_mimicry_feature,
+        unavailable_message="Подражание недоступно вашей расе.",
+    )
+    if handled:
+        return True, error, None
 
     if action_key == "kenku_mimicry_status":
         return True, None, "[RACE] Подражание готово: можно имитировать звуки и голоса."
@@ -1621,13 +1642,15 @@ async def _handle_kenku_expert_forgery_action(
     if action_key not in {"kenku_forgery_status", "kenku_forgery_copy"}:
         return False, None, None
 
-    ch = await get_character(db, sess.id, player.id)
-    if not ch:
-        return True, "Персонаж не найден.", None
-
-    forgery_cfg = _kenku_expert_forgery_feature(getattr(ch, "race_features", None))
-    if not forgery_cfg:
-        return True, "Искусный подлог недоступен вашей расе.", None
+    handled, error, _ch, _forgery_cfg = await _load_feature_gated_character(
+        db,
+        sess,
+        player=player,
+        feature_getter=_kenku_expert_forgery_feature,
+        unavailable_message="Искусный подлог недоступен вашей расе.",
+    )
+    if handled:
+        return True, error, None
 
     if action_key == "kenku_forgery_status":
         return True, None, "[RACE] Искусный подлог готов: можно тщательно воспроизводить почерк и рисунки по образцу."
@@ -1651,13 +1674,15 @@ async def _handle_loxodon_trunk_action(
     if action_key not in {"loxodon_trunk_status", "loxodon_trunk_use"}:
         return False, None, None
 
-    ch = await get_character(db, sess.id, player.id)
-    if not ch:
-        return True, "Персонаж не найден.", None
-
-    trunk_cfg = _loxodon_trunk_feature(getattr(ch, "race_features", None))
-    if not trunk_cfg:
-        return True, "Хобот недоступен вашей расе.", None
+    handled, error, _ch, _trunk_cfg = await _load_feature_gated_character(
+        db,
+        sess,
+        player=player,
+        feature_getter=_loxodon_trunk_feature,
+        unavailable_message="Хобот недоступен вашей расе.",
+    )
+    if handled:
+        return True, error, None
 
     if action_key == "loxodon_trunk_status":
         return True, None, "[RACE] Хобот готов: можно переносить, толкать, тянуть и выполнять простые бытовые действия; нельзя держать оружие, щит и делать соматические компоненты."
