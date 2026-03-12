@@ -1345,6 +1345,17 @@ def _kenku_mimicry_feature(race_features: Any) -> dict[str, Any]:
     return {}
 
 
+def _kenku_expert_forgery_feature(race_features: Any) -> dict[str, Any]:
+    rf = race_features if isinstance(race_features, dict) else {}
+    features_raw = rf.get("features")
+    features = features_raw if isinstance(features_raw, dict) else {}
+    forgery_raw = features.get("expert_forgery")
+    forgery = forgery_raw if isinstance(forgery_raw, dict) else {}
+    if forgery:
+        return dict(forgery)
+    return {}
+
+
 def _loxodon_trunk_feature(race_features: Any) -> dict[str, Any]:
     rf = race_features if isinstance(race_features, dict) else {}
     features_raw = rf.get("features")
@@ -1488,6 +1499,23 @@ def _parse_kenku_mimicry_command(cmdline: str) -> tuple[str | None, str | None]:
     return None, None
 
 
+def _parse_kenku_expert_forgery_command(cmdline: str) -> tuple[str | None, str | None]:
+    txt = str(cmdline or "").strip()
+    if not txt:
+        return None, None
+    lowered = txt.lower()
+    if lowered in {"forgery status", "подлог статус"}:
+        return "kenku_forgery_status", None
+    prefixes = (
+        "forgery copy:",
+        "подлог:",
+    )
+    for prefix in prefixes:
+        if lowered.startswith(prefix):
+            return "kenku_forgery_copy", txt[len(prefix):].strip()
+    return None, None
+
+
 def _parse_loxodon_trunk_command(cmdline: str) -> tuple[str | None, str | None]:
     txt = str(cmdline or "").strip()
     if not txt:
@@ -1579,6 +1607,36 @@ async def _handle_kenku_mimicry_action(
 
     kind_label = "голос" if action_key.endswith("voice") else "звук"
     return True, None, f"[RACE] Подражание: вы имитируете {kind_label}: {text}"
+
+
+async def _handle_kenku_expert_forgery_action(
+    db,
+    sess,
+    *,
+    player: Player,
+    action: str,
+    message_text: str = "",
+) -> tuple[bool, Optional[str], Optional[str]]:
+    action_key = str(action or "").strip().lower()
+    if action_key not in {"kenku_forgery_status", "kenku_forgery_copy"}:
+        return False, None, None
+
+    ch = await get_character(db, sess.id, player.id)
+    if not ch:
+        return True, "Персонаж не найден.", None
+
+    forgery_cfg = _kenku_expert_forgery_feature(getattr(ch, "race_features", None))
+    if not forgery_cfg:
+        return True, "Искусный подлог недоступен вашей расе.", None
+
+    if action_key == "kenku_forgery_status":
+        return True, None, "[RACE] Искусный подлог готов: можно тщательно воспроизводить почерк и рисунки по образцу."
+
+    text = str(message_text or "").strip()
+    if not text:
+        return True, "Укажите, что именно вы хотите воспроизвести после двоеточия.", None
+
+    return True, None, f"[RACE] Искусный подлог: вы тщательно воспроизводите {text}."
 
 
 async def _handle_loxodon_trunk_action(
@@ -5921,6 +5979,25 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                         await broadcast_state(session_id)
                         continue
 
+                kenku_forgery_action, kenku_forgery_message = _parse_kenku_expert_forgery_command(cmdline)
+                if kenku_forgery_action:
+                    handled_forgery, forgery_err, forgery_msg = await _handle_kenku_expert_forgery_action(
+                        db,
+                        sess,
+                        player=player,
+                        action=kenku_forgery_action,
+                        message_text=kenku_forgery_message or "",
+                    )
+                    if handled_forgery:
+                        if forgery_err:
+                            await ws_error(forgery_err, request_id=msg_request_id)
+                            continue
+                        if forgery_msg:
+                            actor_name = str(getattr((await get_character(db, sess.id, player.id)) or None, "name", "") or player.display_name).strip() or player.display_name
+                            await add_system_event(db, sess, f"{actor_name}: {forgery_msg}")
+                        await broadcast_state(session_id)
+                        continue
+
                 loxodon_trunk_action, loxodon_trunk_message = _parse_loxodon_trunk_command(cmdline)
                 if loxodon_trunk_action:
                     handled_trunk, trunk_err, trunk_msg = await _handle_loxodon_trunk_action(
@@ -6529,6 +6606,7 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                         "tinker create <clockwork_toy|fire_starter|music_box>, tinker list, tinker remove <id>, "
                         "speech status|speech beast: <идея>|speech plant: <идея>, "
                         "mimicry status|mimicry voice: <фраза>|mimicry sound: <звук>, "
+                        "forgery status|forgery copy: <что копируете>, "
                         "trunk status|trunk use: <простое действие>, "
                         "eerie token create|status|remove|send <message>|sense, "
                         "shapechange assume <description>|status|revert."
@@ -7840,6 +7918,25 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                         if mimicry_msg:
                             actor_name = str(getattr((await get_character(db, sess.id, player.id)) or None, "name", "") or player.display_name).strip() or player.display_name
                             await add_system_event(db, sess, f"{actor_name}: {mimicry_msg}")
+                        await broadcast_state(session_id)
+                        continue
+
+                kenku_forgery_action, kenku_forgery_message = _parse_kenku_expert_forgery_command(cmdline)
+                if kenku_forgery_action:
+                    handled_forgery, forgery_err, forgery_msg = await _handle_kenku_expert_forgery_action(
+                        db,
+                        sess,
+                        player=player,
+                        action=kenku_forgery_action,
+                        message_text=kenku_forgery_message or "",
+                    )
+                    if handled_forgery:
+                        if forgery_err:
+                            await ws_error(forgery_err, request_id=msg_request_id)
+                            continue
+                        if forgery_msg:
+                            actor_name = str(getattr((await get_character(db, sess.id, player.id)) or None, "name", "") or player.display_name).strip() or player.display_name
+                            await add_system_event(db, sess, f"{actor_name}: {forgery_msg}")
                         await broadcast_state(session_id)
                         continue
 
