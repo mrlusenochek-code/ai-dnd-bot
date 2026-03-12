@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from app.combat.live_actions import handle_live_combat_action
-from app.combat.state import Combatant, advance_turn, end_combat, get_combat, start_combat
+from app.combat.state import Combatant, _cleanup_battle_runtime, advance_turn, end_combat, get_combat, start_combat
 
 
 def _line_texts(patch) -> list[str]:
@@ -131,5 +131,72 @@ def test_shared_nested_grappled_boundary_no_drift_after_repeated_turn_progressio
         assert state_after_more is not None
         enemy_runtime_after_more = ((state_after_more.combatants["enemy_1"].race_features or {}).get("runtime") or {})
         assert enemy_runtime_after_more == enemy_runtime_after_first
+    finally:
+        end_combat(session_id)
+
+
+def test_shared_nested_grappled_boundary_battle_cleanup_clears_only_matching_simic_markers() -> None:
+    session_id = "test_shared_nested_grappled_boundary_battle_cleanup_clears_only_matching_simic_markers"
+    state = start_combat(session_id)
+    state.combatants["pc_1"] = _simic_actor()
+    state.combatants["enemy_match"] = Combatant(
+        key="enemy_match",
+        name="Match",
+        side="enemy",
+        hp_current=18,
+        hp_max=18,
+        ac=12,
+        initiative=11,
+        race_features={
+            "runtime": {
+                "sentinel_top": "keep-top",
+                "conditions": {
+                    "grappled": {"by_actor_id": "pc_1", "source": "simic_appendages"},
+                    "custom_marker": {"active": True, "tag": "keep-condition"},
+                },
+            }
+        },
+    )
+    state.combatants["enemy_other"] = Combatant(
+        key="enemy_other",
+        name="Other",
+        side="enemy",
+        hp_current=18,
+        hp_max=18,
+        ac=12,
+        initiative=9,
+        race_features={
+            "runtime": {
+                "sentinel_top": "keep-other-top",
+                "conditions": {
+                    "grappled": {"by_actor_id": "pc_x", "source": "other_source"},
+                    "custom_marker": {"active": True, "tag": "keep-other-condition"},
+                },
+            }
+        },
+    )
+
+    try:
+        changed_first = _cleanup_battle_runtime(state)
+        assert changed_first is True
+
+        match_runtime = ((state.combatants["enemy_match"].race_features or {}).get("runtime") or {})
+        match_conditions = match_runtime.get("conditions") or {}
+        assert match_runtime.get("sentinel_top") == "keep-top"
+        assert "grappled" not in match_conditions
+        assert (match_conditions.get("custom_marker") or {}).get("tag") == "keep-condition"
+
+        other_runtime = ((state.combatants["enemy_other"].race_features or {}).get("runtime") or {})
+        other_conditions = other_runtime.get("conditions") or {}
+        other_grappled = other_conditions.get("grappled") or {}
+        assert other_runtime.get("sentinel_top") == "keep-other-top"
+        assert str(other_grappled.get("by_actor_id") or "") == "pc_x"
+        assert str(other_grappled.get("source") or "") == "other_source"
+        assert (other_conditions.get("custom_marker") or {}).get("tag") == "keep-other-condition"
+
+        changed_second = _cleanup_battle_runtime(state)
+        assert changed_second is False
+        assert ((state.combatants["enemy_match"].race_features or {}).get("runtime") or {}) == match_runtime
+        assert ((state.combatants["enemy_other"].race_features or {}).get("runtime") or {}) == other_runtime
     finally:
         end_combat(session_id)

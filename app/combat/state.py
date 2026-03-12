@@ -140,6 +140,33 @@ def _reset_eerie_token_battle_runtime(combatant: Combatant) -> bool:
     return True
 
 
+def _cleanup_simic_grappled_battle_runtime(state: CombatState | None) -> bool:
+    if state is None:
+        return False
+    grappler_keys = {str(key).strip() for key in state.combatants.keys() if str(key).strip()}
+    if not grappler_keys:
+        return False
+    changed = False
+    for combatant in state.combatants.values():
+        race_features, runtime = _copy_combatant_runtime(combatant)
+        conditions_raw = runtime.get("conditions")
+        conditions = dict(conditions_raw) if isinstance(conditions_raw, dict) else {}
+        grappled_raw = conditions.get("grappled")
+        grappled = dict(grappled_raw) if isinstance(grappled_raw, dict) else {}
+        if (
+            str(grappled.get("source") or "").strip().lower() == "simic_appendages"
+            and str(grappled.get("by_actor_id") or "").strip() in grappler_keys
+        ):
+            conditions.pop("grappled", None)
+            changed = True
+            if conditions:
+                runtime["conditions"] = conditions
+            else:
+                runtime.pop("conditions", None)
+            _commit_combatant_runtime(combatant, race_features, runtime)
+    return changed
+
+
 def _cleanup_battle_runtime(state: CombatState | None) -> bool:
     if state is None:
         return False
@@ -155,6 +182,8 @@ def _cleanup_battle_runtime(state: CombatState | None) -> bool:
             changed = True
         if _reset_eerie_token_battle_runtime(combatant):
             changed = True
+    if _cleanup_simic_grappled_battle_runtime(state):
+        changed = True
     return changed
 
 
