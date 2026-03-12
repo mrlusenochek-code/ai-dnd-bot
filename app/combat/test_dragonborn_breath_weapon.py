@@ -80,6 +80,7 @@ def test_dragonborn_breath_weapon_full_half_and_recharge(monkeypatch) -> None:
         assert any("Оружие дыхания: lightning (линия 30x5 фт)" in t for t in texts_1)
         assert any("FAIL" in t for t in texts_1)
         assert any("full = 9" in t for t in texts_1)
+        assert any("Фактически получено урона: 9" in t for t in texts_1)
 
         state_now = get_combat(session_id)
         assert state_now is not None
@@ -108,9 +109,78 @@ def test_dragonborn_breath_weapon_full_half_and_recharge(monkeypatch) -> None:
         texts_3 = _line_texts(patch_3)
         assert any("SUCCESS" in t for t in texts_3)
         assert any("half = 4" in t for t in texts_3)
+        assert any("Фактически получено урона: 4" in t for t in texts_3)
 
         state_after = get_combat(session_id)
         assert state_after is not None
         assert state_after.combatants["enemy_1"].hp_current == 17
+    finally:
+        end_combat(session_id)
+
+
+def test_dragonborn_breath_weapon_uses_ancestry_damage_type_in_damage_pipeline(monkeypatch) -> None:
+    session_id = "test_dragonborn_breath_weapon_uses_ancestry_damage_type_in_damage_pipeline"
+    state = start_combat(session_id)
+    state.combatants["pc_1"] = Combatant(
+        key="pc_1",
+        name="Dragonborn Green",
+        side="pc",
+        hp_current=20,
+        hp_max=20,
+        ac=12,
+        initiative=20,
+        level=1,
+        stats={"con": 50},
+        race_features={
+            "choices": {
+                "draconic_ancestry": {
+                    "key": "green",
+                    "damage_type": "poison",
+                    "breath": {"shape": "cone", "cone_ft": 15, "save": "con"},
+                }
+            },
+            "features": {
+                "breath_weapon": {
+                    "dc_formula": "8 + con_mod + proficiency_bonus",
+                    "damage_progression": [{"level_from": 1, "dice": "2d6"}],
+                    "recharge": "short_or_long_rest",
+                    "damage_type": "poison",
+                    "area": {"shape": "cone", "cone_ft": 15},
+                    "save_ability": "con",
+                }
+            },
+            "runtime": {},
+        },
+    )
+    state.combatants["enemy_1"] = Combatant(
+        key="enemy_1",
+        name="Resistant Bandit",
+        side="enemy",
+        hp_current=30,
+        hp_max=30,
+        ac=12,
+        initiative=10,
+        stats={"con": 50},
+        race_features={"resistances": ["poison"]},
+    )
+    state.order = ["pc_1", "enemy_1"]
+    state.turn_index = 0
+
+    rolls = iter([4, 5, 3])  # damage 9, save fail
+    monkeypatch.setattr("app.combat.live_actions.random.randint", lambda _a, _b: next(rolls))
+
+    try:
+        patch, err = handle_live_combat_action("combat_breath_weapon", session_id)
+        assert err is None
+        assert patch is not None
+        texts = _line_texts(patch)
+        assert any("Оружие дыхания: poison (конус 15 фт)" in t for t in texts)
+        assert any("FAIL" in t for t in texts)
+        assert any("full = 9" in t for t in texts)
+        assert any("Фактически получено урона: 4" in t for t in texts)
+
+        state_now = get_combat(session_id)
+        assert state_now is not None
+        assert state_now.combatants["enemy_1"].hp_current == 26
     finally:
         end_combat(session_id)

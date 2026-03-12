@@ -4813,22 +4813,24 @@ def handle_live_combat_action(
         save_success = save_total >= dc
 
         final_damage = base_damage // 2 if save_success else base_damage
+        damage_type = str(breath_weapon.get("damage_type") or "").strip().lower() or "energy"
+        target_hp_before = max(0, int(getattr(target, "hp_current", 0) or 0))
         extra_outcome_lines: list[dict[str, Any]] = []
         if final_damage > 0:
             fury_bonus = _maybe_apply_fury_of_small(actor=attacker, target=target, lines=extra_outcome_lines)
             if fury_bonus > 0:
                 final_damage += fury_bonus
-        state = apply_damage(session_id, target.key, final_damage, source=attacker.key)
+        state = apply_damage(session_id, target.key, final_damage, damage_type=damage_type, source=attacker.key)
         if state is None:
             return None, "Combat is not active"
         target = state.combatants.get(target.key, target)
+        actual_damage = max(0, target_hp_before - max(0, int(getattr(target, "hp_current", 0) or 0)))
 
         runtime["breath_weapon_used"] = True
         race_features["runtime"] = runtime
         attacker.race_features = race_features
         hidden_step_broken = _break_hidden_step(attacker)
 
-        damage_type = str(breath_weapon.get("damage_type") or "").strip().lower() or "energy"
         area_raw = breath_weapon.get("area")
         area = area_raw if isinstance(area_raw, dict) else {}
         area_text = _breath_area_text(area)
@@ -4847,6 +4849,7 @@ def handle_live_combat_action(
                     f"{'half' if save_success else 'full'} = {final_damage}"
                 )
             },
+            {"text": f"Фактически получено урона: {actual_damage}"},
             {"text": f"HP врага: {target.hp_current}/{target.hp_max}"},
         ]
         lines.extend(extra_outcome_lines)

@@ -1505,8 +1505,12 @@ function openCharacterModal(){
   const breathDiceRu = breathDice ? breathDice.replace(/d/gi, "к") : "";
   const breathRecharge = breathWeapon ? String(breathWeapon.recharge || "").trim().toLowerCase() : "";
   const breathRechargeRu = (breathRecharge === "short_or_long_rest") ? "короткий/длительный отдых" : (breathRecharge || "—");
+  const breathWeaponUsed = !!runtime.breath_weapon_used;
+  const breathWeaponStatus = breathWeaponUsed
+    ? (breathRecharge === "short_or_long_rest" ? "восстановится после короткого/длительного отдыха" : "недоступно")
+    : "готово";
   const breathWeaponText = breathWeapon
-    ? `Оружие дыхания: урон ${breathDiceRu || "—"}, перезарядка: ${breathRechargeRu}`
+    ? `Оружие дыхания: ${draconicDamageRu || "—"}, ${draconicAreaText || "зона не указана"}, спасбросок ${draconicSaveRu || "—"}, урон ${breathDiceRu || "—"}, статус: ${breathWeaponStatus}, перезарядка: ${breathRechargeRu}`
     : "";
   const featChoices = Array.isArray(choices.feats) ? choices.feats.map(x => String(x).trim().toLowerCase()).filter(Boolean) : [];
   const featChoiceRu = featChoices.length
