@@ -1138,6 +1138,12 @@ def _hidden_step_state(actor: Any) -> tuple[dict[str, Any], dict[str, Any], dict
     return race_features, runtime, hidden_step
 
 
+def _commit_hidden_step_state(actor: Any, race_features: dict[str, Any], runtime: dict[str, Any], hidden_step: dict[str, Any]) -> None:
+    runtime["hidden_step"] = hidden_step
+    race_features["runtime"] = runtime
+    actor.race_features = race_features
+
+
 def _is_hidden_step_active(actor: Any) -> bool:
     _rf, _runtime, hidden_step = _hidden_step_state(actor)
     return bool(hidden_step.get("active"))
@@ -1148,9 +1154,7 @@ def _break_hidden_step(actor: Any) -> bool:
     if not bool(hidden_step.get("active")):
         return False
     hidden_step["active"] = False
-    runtime["hidden_step"] = hidden_step
-    race_features["runtime"] = runtime
-    actor.race_features = race_features
+    _commit_hidden_step_state(actor, race_features, runtime, hidden_step)
     return True
 
 
