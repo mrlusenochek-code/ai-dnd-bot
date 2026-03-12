@@ -3518,7 +3518,7 @@ def _reset_racial_rest_uses(ch: Character, *, long_rest: bool = True) -> bool:
     if long_rest and "healing_hands_used" in runtime:
         runtime.pop("healing_hands_used", None)
         changed = True
-    if "aasimar_transform_used" in runtime:
+    if long_rest and "aasimar_transform_used" in runtime:
         runtime.pop("aasimar_transform_used", None)
         changed = True
     if "aasimar_transformation" in runtime:
@@ -3772,7 +3772,7 @@ def _reset_combatant_racial_rest_uses(session_id: str, actor_key: str, *, long_r
     if long_rest and "healing_hands_used" in runtime:
         runtime.pop("healing_hands_used", None)
         changed = True
-    if "aasimar_transform_used" in runtime:
+    if long_rest and "aasimar_transform_used" in runtime:
         runtime.pop("aasimar_transform_used", None)
         changed = True
     if "aasimar_transformation" in runtime:

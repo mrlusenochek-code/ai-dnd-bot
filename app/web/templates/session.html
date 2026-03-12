@@ -1077,13 +1077,53 @@ function openCharacterModal(){
   const aasimarFlySpeedFt = aasimarTransformation && Number.isFinite(Number(aasimarTransformation.fly_speed_ft))
     ? Number(aasimarTransformation.fly_speed_ft)
     : null;
+  const aasimarTransformRuntime = (runtime.aasimar_transformation && typeof runtime.aasimar_transformation === "object")
+    ? runtime.aasimar_transformation
+    : null;
+  const aasimarTransformActive = !!(aasimarTransformRuntime && aasimarTransformRuntime.active);
+  const aasimarTransformRoundsLeft = aasimarTransformRuntime && Number.isFinite(Number(aasimarTransformRuntime.rounds_left))
+    ? Number(aasimarTransformRuntime.rounds_left)
+    : 0;
+  const aasimarTransformUsed = !!runtime.aasimar_transform_used;
+  let aasimarTransformationStatus = "готово";
+  if(aasimarMinLevel !== null && chLevel < aasimarMinLevel){
+    aasimarTransformationStatus = `откроется на ${aasimarMinLevel} уровне`;
+  }else if(aasimarTransformActive){
+    aasimarTransformationStatus = `активно${aasimarTransformRoundsLeft > 0 ? `, осталось ходов: ${aasimarTransformRoundsLeft}` : ""}`;
+  }else if(aasimarTransformUsed){
+    aasimarTransformationStatus = "потрачено, восстановится после долгого отдыха";
+  }
+  const aasimarTransformationEffectParts = [];
+  if(aasimarFlySpeedFt !== null) aasimarTransformationEffectParts.push(`полёт ${aasimarFlySpeedFt} фт`);
+  if(aasimarTransformation && aasimarTransformation.bonus_damage && typeof aasimarTransformation.bonus_damage === "object"){
+    const bonusDamageType = String(aasimarTransformation.bonus_damage.type || "").trim().toLowerCase();
+    const bonusDamageTypeRu = _DMG_RU[bonusDamageType] || bonusDamageType || "урон";
+    aasimarTransformationEffectParts.push(`доп. урон ${bonusDamageTypeRu} = уровень, 1/ход`);
+  }
+  if(aasimarTransformation && aasimarTransformation.fear_on_transform && typeof aasimarTransformation.fear_on_transform === "object"){
+    aasimarTransformationEffectParts.push("при активации враги рядом совершают спасбросок Харизмы или пугаются");
+  }
+  if(aasimarTransformation && aasimarTransformation.end_of_turn_aura_damage && typeof aasimarTransformation.end_of_turn_aura_damage === "object"){
+    const aura = aasimarTransformation.end_of_turn_aura_damage;
+    const auraType = String(aura.type || "").trim().toLowerCase();
+    const auraTypeRu = _DMG_RU[auraType] || auraType || "урон";
+    const auraRadius = Number.isFinite(Number(aura.radius_ft)) ? Number(aura.radius_ft) : 10;
+    const auraAmount = String(aura.amount || "").trim() || "ceil(level/2)";
+    aasimarTransformationEffectParts.push(`в конце хода аура ${auraRadius} фт наносит ${auraTypeRu} (${auraAmount})`);
+  }
+  if(aasimarTransformation && aasimarTransformation.self_damage && typeof aasimarTransformation.self_damage === "object"){
+    const selfDamageType = String(aasimarTransformation.self_damage.type || "").trim().toLowerCase();
+    const selfDamageTypeRu = _DMG_RU[selfDamageType] || selfDamageType || "урон";
+    aasimarTransformationEffectParts.push(`вы тоже получаете ${selfDamageTypeRu} урон`);
+  }
   const aasimarTransformationParts = [];
   if(aasimarTransformation){
     aasimarTransformationParts.push(`(${aasimarKindText})`);
     if(aasimarMinLevel !== null) aasimarTransformationParts.push(`с ${aasimarMinLevel} уровня`);
     if(aasimarUsesText) aasimarTransformationParts.push(aasimarUsesText);
     if(aasimarDurationText) aasimarTransformationParts.push(`длительность ${aasimarDurationText}`);
-    if(aasimarFlySpeedFt !== null) aasimarTransformationParts.push(`полёт ${aasimarFlySpeedFt} фт`);
+    aasimarTransformationParts.push(`статус: ${aasimarTransformationStatus}`);
+    if(aasimarTransformationEffectParts.length > 0) aasimarTransformationParts.push(`эффект: ${aasimarTransformationEffectParts.join("; ")}`);
   }
   const aasimarTransformationText = aasimarTransformation
     ? `Небесное преобразование: ${aasimarTransformationParts.join(", ")}`
