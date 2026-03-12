@@ -1574,6 +1574,13 @@ function openCharacterModal(){
   }[subraceKey] || subraceKey);
   const githSubraceText = (raceKey === "gith" && subraceNameRu) ? `Подраса: ${subraceNameRu}` : "";
   const shifterSubraceText = (raceKey === "shifter" && subraceNameRu) ? `Подраса: ${subraceNameRu}` : "";
+  const genasiSubraceText = (raceKey === "genasi" && subraceNameRu) ? `Наследие стихий: ${subraceNameRu}` : "";
+  const ignoreDifficultTerrain = Array.isArray(movementMeta.ignore_difficult_terrain)
+    ? movementMeta.ignore_difficult_terrain.map((x) => String(x || "").trim().toLowerCase()).filter(Boolean)
+    : [];
+  const earthWalkText = (raceKey === "genasi" && subraceKey === "earth_genasi" && ignoreDifficultTerrain.length > 0)
+    ? "Ходьба по земле: сложная местность из земли и камня не требует дополнительного перемещения"
+    : "";
   const decadentChoice = (choices.decadent_mastery && typeof choices.decadent_mastery === "object")
     ? choices.decadent_mastery
     : {};
@@ -2824,6 +2831,12 @@ function openCharacterModal(){
   if(blackBloodText){
     details.push(`<div class="char-line"><strong>Чёрная исцеляющая кровь:</strong> ${escapeHtml(blackBloodText.replace(/^Чёрная исцеляющая кровь:\s*/, ""))}</div>`);
   }
+  if(genasiSubraceText){
+    details.push(`<div class="char-line"><strong>Наследие стихий:</strong> ${escapeHtml(genasiSubraceText.replace(/^Наследие стихий:\s*/, ""))}</div>`);
+  }
+  if(earthWalkText){
+    details.push(`<div class="char-line"><strong>Ходьба по земле:</strong> ${escapeHtml(earthWalkText.replace(/^Ходьба по земле:\s*/, ""))}</div>`);
+  }
   if(telepathicInsightText){
     details.push(`<div class="char-line"><strong>Телепатическая проницательность:</strong> ${escapeHtml(telepathicInsightText.replace(/^Телепатическая проницательность:\s*/, ""))}</div>`);
   }
@@ -2929,6 +2942,7 @@ function openCharacterModal(){
   }
   if(sizeRu) copyLines.push(`Размер: ${sizeRu}`);
   if(githSubraceText) copyLines.push(githSubraceText);
+  if(genasiSubraceText) copyLines.push(genasiSubraceText);
   copyLines.push(`Зона: ${zone}`);
   if(speedText) copyLines.push(`Скорость: ${speedText}`);
   if(hasActiveCombatant && combatModeRu) copyLines.push(`Режим движения: ${combatModeRu}`);
@@ -3082,6 +3096,7 @@ function openCharacterModal(){
   if(breathWeaponText) copyLines.push(breathWeaponText);
   if(vampiricBiteText) copyLines.push(vampiricBiteText);
   if(growthSpurtText) copyLines.push(growthSpurtText);
+  if(earthWalkText) copyLines.push(earthWalkText);
   if(breatheUnderwaterText) copyLines.push(breatheUnderwaterText);
   if(healingHandsText) copyLines.push(healingHandsText);
   if(aasimarLightBearerText) copyLines.push(aasimarLightBearerText);
