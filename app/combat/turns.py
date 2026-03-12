@@ -21,6 +21,19 @@ def _commit_combatant_runtime(combatant: Combatant, race_features: dict, runtime
     combatant.race_features = race_features
 
 
+def _clear_turn_end_runtime_keys(combatant: Combatant, *keys: str) -> bool:
+    race_features, runtime = _copy_combatant_runtime(combatant)
+    changed = False
+    for key in keys:
+        if key in runtime:
+            runtime.pop(key, None)
+            changed = True
+    if not changed:
+        return False
+    _commit_combatant_runtime(combatant, race_features, runtime)
+    return True
+
+
 def _clear_shifter_shift_runtime(combatant: Combatant) -> bool:
     race_features = combatant.race_features if isinstance(combatant.race_features, dict) else {}
     runtime_raw = race_features.get("runtime")
@@ -112,11 +125,7 @@ def advance_turn_in_state(state: CombatState) -> CombatState:
     ending_key = state.order[state.turn_index]
     ending_combatant = state.combatants.get(ending_key)
     if ending_combatant is not None:
-        race_features, runtime = _copy_combatant_runtime(ending_combatant)
-        if "rabbit_hop_no_oa" in runtime:
-            runtime.pop("rabbit_hop_no_oa", None)
-            runtime.pop("rabbit_hop_no_oa_round", None)
-            _commit_combatant_runtime(ending_combatant, race_features, runtime)
+        _clear_turn_end_runtime_keys(ending_combatant, "rabbit_hop_no_oa", "rabbit_hop_no_oa_round")
     if ending_combatant is not None:
         race_features = ending_combatant.race_features if isinstance(ending_combatant.race_features, dict) else {}
         runtime_raw = race_features.get("runtime")
@@ -227,25 +236,12 @@ def advance_turn_in_state(state: CombatState) -> CombatState:
     previous_key = state.order[state.turn_index]
     previous_combatant = state.combatants.get(previous_key)
     if previous_combatant is not None:
-        previous_race_features = previous_combatant.race_features if isinstance(previous_combatant.race_features, dict) else {}
-        previous_runtime_raw = previous_race_features.get("runtime")
-        previous_runtime = dict(previous_runtime_raw) if isinstance(previous_runtime_raw, dict) else {}
-        previous_runtime_changed = False
-        if "goring_rush_available" in previous_runtime:
-            previous_runtime.pop("goring_rush_available", None)
-            previous_runtime_changed = True
-        if "hammering_horns_available" in previous_runtime:
-            previous_runtime.pop("hammering_horns_available", None)
-            previous_runtime_changed = True
-        if "hammering_horns_target_id" in previous_runtime:
-            previous_runtime.pop("hammering_horns_target_id", None)
-            previous_runtime_changed = True
-        if previous_runtime_changed:
-            if previous_runtime:
-                previous_race_features["runtime"] = previous_runtime
-            else:
-                previous_race_features.pop("runtime", None)
-            previous_combatant.race_features = previous_race_features
+        _clear_turn_end_runtime_keys(
+            previous_combatant,
+            "goring_rush_available",
+            "hammering_horns_available",
+            "hammering_horns_target_id",
+        )
 
     state.turn_index = (state.turn_index + 1) % len(state.order)
     if state.turn_index == 0:
