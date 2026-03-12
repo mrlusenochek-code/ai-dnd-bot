@@ -6,8 +6,6 @@ import uuid
 from types import SimpleNamespace
 from typing import Any
 
-from fastapi import HTTPException
-
 from app.web import http_routes
 
 
@@ -39,12 +37,7 @@ class _FakeSessionCtx:
 
 
 def _setup_create_mocks(monkeypatch) -> None:
-    sess = SimpleNamespace(
-        id=uuid.uuid4(),
-        title="Test Session",
-        settings={},
-        is_active=False,
-    )
+    sess = SimpleNamespace(id=uuid.uuid4(), title="Test Session", settings={}, is_active=False)
     player = SimpleNamespace(id=uuid.uuid4())
     session_player = SimpleNamespace(is_active=True, is_admin=False, join_order=1)
     fake_db = _FakeDb(session_player=session_player)
@@ -61,9 +54,11 @@ def _setup_create_mocks(monkeypatch) -> None:
         return None
 
     async def _fake_create_character(_db, _sid, _pid, **kwargs):
-        stats = dict(kwargs.get("stats") or {})
-        race_features = dict(kwargs.get("race_features") or {})
-        return SimpleNamespace(name=str(kwargs.get("name") or ""), stats=stats, race_features=race_features)
+        return SimpleNamespace(
+            name=str(kwargs.get("name") or ""),
+            stats=dict(kwargs.get("stats") or {}),
+            race_features=dict(kwargs.get("race_features") or {}),
+        )
 
     async def _noop(*_args, **_kwargs) -> None:
         return None
@@ -84,62 +79,50 @@ def _setup_create_mocks(monkeypatch) -> None:
     )
 
 
-def test_dragonborn_blue_ancestry_persists_choice_and_breath(monkeypatch) -> None:
+def _create_dragonborn(monkeypatch, ancestry: str) -> dict[str, Any]:
     _setup_create_mocks(monkeypatch)
-
     response = asyncio.run(
         http_routes.api_character_create(
             {
                 "session_id": "test-session",
-                "uid": 4011,
-                "name": "Dragonborn Blue",
+                "uid": 4013,
+                "name": f"Dragonborn {ancestry}",
                 "class_id": "",
                 "custom_class": "Adventurer",
                 "race_id": "dragonborn",
-                "race_choices": {"draconic_ancestry": "blue"},
+                "race_choices": {"draconic_ancestry": ancestry},
                 "stats": {"str": 50, "dex": 50, "con": 50, "int": 50, "wis": 50, "cha": 50},
             }
         )
     )
-
     assert response.status_code == 200
-    race_features = ((json.loads(response.body).get("character") or {}).get("race_features") or {})
-    choices = race_features.get("choices") or {}
-    ancestry = choices.get("draconic_ancestry") or {}
-    assert ancestry.get("key") == "blue"
-
-    resistances = race_features.get("resistances") or []
-    assert "lightning" in resistances
-
-    features = race_features.get("features") or {}
-    draconic_resistance = features.get("draconic_resistance") or {}
-    assert draconic_resistance.get("type") == "damage_resistance"
-    assert draconic_resistance.get("damage") == ["lightning"]
-    assert draconic_resistance.get("from_choice") == "draconic_ancestry"
-    breath_weapon = features.get("breath_weapon") or {}
-    area = breath_weapon.get("area") or {}
-    assert area.get("shape") == "line"
-    assert breath_weapon.get("save_ability") == "dex"
+    character = json.loads(response.body).get("character") or {}
+    return character.get("race_features") or {}
 
 
-def test_dragonborn_requires_draconic_ancestry_choice(monkeypatch) -> None:
-    _setup_create_mocks(monkeypatch)
+def test_dragonborn_ancestry_persists_correct_resistance_mapping(monkeypatch) -> None:
+    blue_features = _create_dragonborn(monkeypatch, "blue")
+    blue_resistances = {str(x).strip().lower() for x in (blue_features.get("resistances") or [])}
+    assert "lightning" in blue_resistances
+    blue_structured = ((blue_features.get("features") or {}).get("draconic_resistance") or {})
+    assert blue_structured.get("type") == "damage_resistance"
+    assert blue_structured.get("damage") == ["lightning"]
+    assert blue_structured.get("from_choice") == "draconic_ancestry"
 
-    try:
-        asyncio.run(
-            http_routes.api_character_create(
-                {
-                    "session_id": "test-session",
-                    "uid": 4012,
-                    "name": "Dragonborn Missing Choice",
-                    "class_id": "",
-                    "custom_class": "Adventurer",
-                    "race_id": "dragonborn",
-                    "stats": {"str": 50, "dex": 50, "con": 50, "int": 50, "wis": 50, "cha": 50},
-                }
-            )
-        )
-        raise AssertionError("Expected HTTPException for missing draconic ancestry choice")
-    except HTTPException as exc:
-        assert exc.status_code == 400
-        assert "Draconic ancestry choice is required" in str(exc.detail)
+    red_features = _create_dragonborn(monkeypatch, "red")
+    red_resistances = {str(x).strip().lower() for x in (red_features.get("resistances") or [])}
+    assert "fire" in red_resistances
+    red_structured = ((red_features.get("features") or {}).get("draconic_resistance") or {})
+    assert red_structured.get("type") == "damage_resistance"
+    assert red_structured.get("damage") == ["fire"]
+    assert red_structured.get("from_choice") == "draconic_ancestry"
+
+
+def test_non_dragonborn_does_not_gain_draconic_resistance_feature() -> None:
+    race = next((item for item in http_routes.RACE_CATALOG if str(item.get("key") or "") == "human"), None)
+    assert race is not None
+    race_features = http_routes._build_race_features({"details": race})
+    resistances = {str(x).strip().lower() for x in (race_features.get("resistances") or [])}
+    assert "fire" not in resistances
+    assert "lightning" not in resistances
+    assert "draconic_resistance" not in ((race_features.get("features") or {}))

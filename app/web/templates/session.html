@@ -1487,6 +1487,9 @@ function openCharacterModal(){
   const draconicAncestryText = (draconicColorRu && draconicDamageRu && draconicAreaText && draconicSaveRu)
     ? `Драконье наследие: ${draconicColorRu} — ${draconicDamageRu}, дыхание ${draconicAreaText}, спасбросок ${draconicSaveRu}`
     : "";
+  const draconicResistanceText = (raceKey === "dragonborn" && draconicDamageRu)
+    ? `Драконья стойкость: сопротивление урону (${draconicDamageRu})`
+    : "";
   const breathProgression = breathWeapon && Array.isArray(breathWeapon.damage_progression) ? breathWeapon.damage_progression : [];
   const chLevel = Number.isFinite(Number(ch.level)) ? Number(ch.level) : 1;
   let breathDice = "";
@@ -2774,6 +2777,9 @@ function openCharacterModal(){
   if(draconicAncestryText){
     details.push(`<div class="char-line"><strong>Драконье наследие:</strong> ${escapeHtml(draconicAncestryText.replace(/^Драконье наследие:\s*/, ""))}</div>`);
   }
+  if(draconicResistanceText){
+    details.push(`<div class="char-line"><strong>Драконья стойкость:</strong> ${escapeHtml(draconicResistanceText.replace(/^Драконья стойкость:\s*/, ""))}</div>`);
+  }
   if(breathWeaponText){
     details.push(`<div class="char-line"><strong>Оружие дыхания:</strong> ${escapeHtml(breathWeaponText.replace(/^Оружие дыхания:\s*/, ""))}</div>`);
   }
@@ -3018,6 +3024,7 @@ function openCharacterModal(){
   if(blackBloodText) copyLines.push(blackBloodText);
   if(telepathicInsightText) copyLines.push(telepathicInsightText);
   if(draconicAncestryText) copyLines.push(draconicAncestryText);
+  if(draconicResistanceText) copyLines.push(draconicResistanceText);
   if(breathWeaponText) copyLines.push(breathWeaponText);
   if(vampiricBiteText) copyLines.push(vampiricBiteText);
   if(growthSpurtText) copyLines.push(growthSpurtText);

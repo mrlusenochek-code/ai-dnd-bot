@@ -3169,6 +3169,12 @@ async def api_character_create(payload: dict):
             }
             features_raw = race_features.get("features")
             features_dict: dict[str, Any] = features_raw if isinstance(features_raw, dict) else {}
+            if damage_type:
+                features_dict["draconic_resistance"] = {
+                    "type": "damage_resistance",
+                    "damage": [damage_type],
+                    "from_choice": "draconic_ancestry",
+                }
             features_dict["breath_weapon"] = breath_weapon
             race_features["features"] = features_dict
         if isinstance(race_features, dict) and race_choice_innate_ability:
