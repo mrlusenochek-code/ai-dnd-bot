@@ -1345,6 +1345,17 @@ def _kenku_mimicry_feature(race_features: Any) -> dict[str, Any]:
     return {}
 
 
+def _loxodon_trunk_feature(race_features: Any) -> dict[str, Any]:
+    rf = race_features if isinstance(race_features, dict) else {}
+    features_raw = rf.get("features")
+    features = features_raw if isinstance(features_raw, dict) else {}
+    trunk_raw = features.get("trunk")
+    trunk = trunk_raw if isinstance(trunk_raw, dict) else {}
+    if trunk:
+        return dict(trunk)
+    return {}
+
+
 def _clear_kalashtar_reply_grant(target_ch: Character, *, owner_player_id: str = "") -> bool:
     race_features = getattr(target_ch, "race_features", None)
     rf = dict(race_features) if isinstance(race_features, dict) else {}
@@ -1477,6 +1488,23 @@ def _parse_kenku_mimicry_command(cmdline: str) -> tuple[str | None, str | None]:
     return None, None
 
 
+def _parse_loxodon_trunk_command(cmdline: str) -> tuple[str | None, str | None]:
+    txt = str(cmdline or "").strip()
+    if not txt:
+        return None, None
+    lowered = txt.lower()
+    if lowered in {"trunk status", "хобот статус"}:
+        return "loxodon_trunk_status", None
+    prefixes = (
+        "trunk use:",
+        "хобот:",
+    )
+    for prefix in prefixes:
+        if lowered.startswith(prefix):
+            return "loxodon_trunk_use", txt[len(prefix):].strip()
+    return None, None
+
+
 def _verdan_telepathy_status_message(ch: Character) -> tuple[Optional[str], Optional[str], bool]:
     race_features = getattr(ch, "race_features", None)
     rf = dict(race_features) if isinstance(race_features, dict) else {}
@@ -1551,6 +1579,36 @@ async def _handle_kenku_mimicry_action(
 
     kind_label = "голос" if action_key.endswith("voice") else "звук"
     return True, None, f"[RACE] Подражание: вы имитируете {kind_label}: {text}"
+
+
+async def _handle_loxodon_trunk_action(
+    db,
+    sess,
+    *,
+    player: Player,
+    action: str,
+    message_text: str = "",
+) -> tuple[bool, Optional[str], Optional[str]]:
+    action_key = str(action or "").strip().lower()
+    if action_key not in {"loxodon_trunk_status", "loxodon_trunk_use"}:
+        return False, None, None
+
+    ch = await get_character(db, sess.id, player.id)
+    if not ch:
+        return True, "Персонаж не найден.", None
+
+    trunk_cfg = _loxodon_trunk_feature(getattr(ch, "race_features", None))
+    if not trunk_cfg:
+        return True, "Хобот недоступен вашей расе.", None
+
+    if action_key == "loxodon_trunk_status":
+        return True, None, "[RACE] Хобот готов: можно переносить, толкать, тянуть и выполнять простые бытовые действия; нельзя держать оружие, щит и делать соматические компоненты."
+
+    text = str(message_text or "").strip()
+    if not text:
+        return True, "Опишите простое действие после двоеточия.", None
+
+    return True, None, f"[RACE] Хобот: вы используете хобот, чтобы {text}"
 
 
 async def _handle_verdan_limited_telepathy_action(
@@ -5863,6 +5921,25 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                         await broadcast_state(session_id)
                         continue
 
+                loxodon_trunk_action, loxodon_trunk_message = _parse_loxodon_trunk_command(cmdline)
+                if loxodon_trunk_action:
+                    handled_trunk, trunk_err, trunk_msg = await _handle_loxodon_trunk_action(
+                        db,
+                        sess,
+                        player=player,
+                        action=loxodon_trunk_action,
+                        message_text=loxodon_trunk_message or "",
+                    )
+                    if handled_trunk:
+                        if trunk_err:
+                            await ws_error(trunk_err, request_id=msg_request_id)
+                            continue
+                        if trunk_msg:
+                            actor_name = str(getattr((await get_character(db, sess.id, player.id)) or None, "name", "") or player.display_name).strip() or player.display_name
+                            await add_system_event(db, sess, f"{actor_name}: {trunk_msg}")
+                        await broadcast_state(session_id)
+                        continue
+
                 mind_link_action, mind_link_arg = _parse_mind_link_command(cmdline)
                 if mind_link_action:
                     synthetic_text = text
@@ -6452,6 +6529,7 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                         "tinker create <clockwork_toy|fire_starter|music_box>, tinker list, tinker remove <id>, "
                         "speech status|speech beast: <идея>|speech plant: <идея>, "
                         "mimicry status|mimicry voice: <фраза>|mimicry sound: <звук>, "
+                        "trunk status|trunk use: <простое действие>, "
                         "eerie token create|status|remove|send <message>|sense, "
                         "shapechange assume <description>|status|revert."
                     )
@@ -7762,6 +7840,25 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                         if mimicry_msg:
                             actor_name = str(getattr((await get_character(db, sess.id, player.id)) or None, "name", "") or player.display_name).strip() or player.display_name
                             await add_system_event(db, sess, f"{actor_name}: {mimicry_msg}")
+                        await broadcast_state(session_id)
+                        continue
+
+                loxodon_trunk_action, loxodon_trunk_message = _parse_loxodon_trunk_command(cmdline)
+                if loxodon_trunk_action:
+                    handled_trunk, trunk_err, trunk_msg = await _handle_loxodon_trunk_action(
+                        db,
+                        sess,
+                        player=player,
+                        action=loxodon_trunk_action,
+                        message_text=loxodon_trunk_message or "",
+                    )
+                    if handled_trunk:
+                        if trunk_err:
+                            await ws_error(trunk_err, request_id=msg_request_id)
+                            continue
+                        if trunk_msg:
+                            actor_name = str(getattr((await get_character(db, sess.id, player.id)) or None, "name", "") or player.display_name).strip() or player.display_name
+                            await add_system_event(db, sess, f"{actor_name}: {trunk_msg}")
                         await broadcast_state(session_id)
                         continue
 
