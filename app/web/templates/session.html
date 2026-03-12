@@ -2092,6 +2092,19 @@ function openCharacterModal(){
   const fairyMagicText = (raceKey === "fairy" && fairyMagic)
     ? `Магия фей: Искусство друидов — доступно всегда; Огонь фей — ${fairySpellStatus("faerie_fire", 3)}; Увеличение/уменьшение — ${fairySpellStatus("enlarge_reduce", 5)}. Базовая характеристика — ${fairyAbilityRu || "—"}`
     : "";
+  const fireGenasiHasProduceFlame = innateSpells.some((spell) => String(spell.name || "").trim().toLowerCase() === "produce_flame");
+  const fireGenasiHasBurningHands = innateSpells.some((spell) => String(spell.name || "").trim().toLowerCase() === "burning_hands");
+  const fireGenasiSpellStatus = (spellKey, minLevel) => {
+    const requiredLevel = Number.isFinite(Number(minLevel)) ? Number(minLevel) : 1;
+    if(Number(ch.level || 1) < requiredLevel){
+      return `откроется на ${requiredLevel} уровне`;
+    }
+    const innateUsed = !!(((innateUsesRaw[spellKey] || {}).used) >= 1);
+    return innateUsed ? "восстановится после долгого отдыха" : "готово";
+  };
+  const fireGenasiMagicText = (raceKey === "genasi" && subraceKey === "fire_genasi" && fireGenasiHasProduceFlame && fireGenasiHasBurningHands)
+    ? "Огненная магия: Создание огня — доступно всегда; Горящие руки — " + fireGenasiSpellStatus("burning_hands", 3) + ". Базовая характеристика — Телосложение"
+    : "";
   const fairyFlightText = (raceKey === "fairy" && Number.isFinite(Number(speeds.fly_ft)) && Number(speeds.fly_ft) > 0)
     ? `Полёт: скорость полёта ${Number(speeds.fly_ft)} фт${flySpeedEqualsWalk ? " (равна ходьбе)" : ""}; средние и тяжёлые доспехи мешают полёту${flyBlockedByArmor ? ". Полёт недоступен в текущих доспехах." : ""}`
     : "";
@@ -2849,6 +2862,9 @@ function openCharacterModal(){
   if(waterGenasiAmphibiousText){
     details.push(`<div class="char-line"><strong>Амфибия:</strong> ${escapeHtml(waterGenasiAmphibiousText.replace(/^Амфибия:\s*/, ""))}</div>`);
   }
+  if(fireGenasiMagicText){
+    details.push(`<div class="char-line"><strong>Огненная магия:</strong> ${escapeHtml(fireGenasiMagicText.replace(/^Огненная магия:\s*/, ""))}</div>`);
+  }
   if(telepathicInsightText){
     details.push(`<div class="char-line"><strong>Телепатическая проницательность:</strong> ${escapeHtml(telepathicInsightText.replace(/^Телепатическая проницательность:\s*/, ""))}</div>`);
   }
@@ -3111,6 +3127,7 @@ function openCharacterModal(){
   if(earthWalkText) copyLines.push(earthWalkText);
   if(waterGenasiSwimText) copyLines.push(waterGenasiSwimText);
   if(waterGenasiAmphibiousText) copyLines.push(waterGenasiAmphibiousText);
+  if(fireGenasiMagicText) copyLines.push(fireGenasiMagicText);
   if(breatheUnderwaterText) copyLines.push(breatheUnderwaterText);
   if(healingHandsText) copyLines.push(healingHandsText);
   if(aasimarLightBearerText) copyLines.push(aasimarLightBearerText);
