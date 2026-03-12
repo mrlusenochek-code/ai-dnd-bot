@@ -1334,6 +1334,17 @@ def _firbolg_speech_feature(race_features: Any) -> dict[str, Any]:
     return {}
 
 
+def _kenku_mimicry_feature(race_features: Any) -> dict[str, Any]:
+    rf = race_features if isinstance(race_features, dict) else {}
+    features_raw = rf.get("features")
+    features = features_raw if isinstance(features_raw, dict) else {}
+    mimicry_raw = features.get("mimicry")
+    mimicry = mimicry_raw if isinstance(mimicry_raw, dict) else {}
+    if mimicry:
+        return dict(mimicry)
+    return {}
+
+
 def _clear_kalashtar_reply_grant(target_ch: Character, *, owner_player_id: str = "") -> bool:
     race_features = getattr(target_ch, "race_features", None)
     rf = dict(race_features) if isinstance(race_features, dict) else {}
@@ -1447,6 +1458,25 @@ def _parse_firbolg_speech_command(cmdline: str) -> tuple[str | None, str | None]
     return None, None
 
 
+def _parse_kenku_mimicry_command(cmdline: str) -> tuple[str | None, str | None]:
+    txt = str(cmdline or "").strip()
+    if not txt:
+        return None, None
+    lowered = txt.lower()
+    if lowered in {"mimicry status", "подражание статус"}:
+        return "kenku_mimicry_status", None
+    prefixes = (
+        ("mimicry voice:", "voice"),
+        ("mimicry sound:", "sound"),
+        ("подражание голос:", "voice"),
+        ("подражание звук:", "sound"),
+    )
+    for prefix, target_kind in prefixes:
+        if lowered.startswith(prefix):
+            return f"kenku_mimicry_{target_kind}", txt[len(prefix):].strip()
+    return None, None
+
+
 def _verdan_telepathy_status_message(ch: Character) -> tuple[Optional[str], Optional[str], bool]:
     race_features = getattr(ch, "race_features", None)
     rf = dict(race_features) if isinstance(race_features, dict) else {}
@@ -1490,6 +1520,37 @@ async def _handle_firbolg_speech_action(
 
     target_label = "зверю" if action_key.endswith("beast") else "растению"
     return True, None, f"[RACE] Речь зверя и листа: вы передаёте простую идею {target_label}: {text}"
+
+
+async def _handle_kenku_mimicry_action(
+    db,
+    sess,
+    *,
+    player: Player,
+    action: str,
+    message_text: str = "",
+) -> tuple[bool, Optional[str], Optional[str]]:
+    action_key = str(action or "").strip().lower()
+    if action_key not in {"kenku_mimicry_status", "kenku_mimicry_voice", "kenku_mimicry_sound"}:
+        return False, None, None
+
+    ch = await get_character(db, sess.id, player.id)
+    if not ch:
+        return True, "Персонаж не найден.", None
+
+    mimicry_cfg = _kenku_mimicry_feature(getattr(ch, "race_features", None))
+    if not mimicry_cfg:
+        return True, "Подражание недоступно вашей расе.", None
+
+    if action_key == "kenku_mimicry_status":
+        return True, None, "[RACE] Подражание готово: можно имитировать звуки и голоса."
+
+    text = str(message_text or "").strip()
+    if not text:
+        return True, "Укажите звук или фразу после двоеточия.", None
+
+    kind_label = "голос" if action_key.endswith("voice") else "звук"
+    return True, None, f"[RACE] Подражание: вы имитируете {kind_label}: {text}"
 
 
 async def _handle_verdan_limited_telepathy_action(
@@ -5783,6 +5844,25 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                         await broadcast_state(session_id)
                         continue
 
+                kenku_mimicry_action, kenku_mimicry_message = _parse_kenku_mimicry_command(cmdline)
+                if kenku_mimicry_action:
+                    handled_mimicry, mimicry_err, mimicry_msg = await _handle_kenku_mimicry_action(
+                        db,
+                        sess,
+                        player=player,
+                        action=kenku_mimicry_action,
+                        message_text=kenku_mimicry_message or "",
+                    )
+                    if handled_mimicry:
+                        if mimicry_err:
+                            await ws_error(mimicry_err, request_id=msg_request_id)
+                            continue
+                        if mimicry_msg:
+                            actor_name = str(getattr((await get_character(db, sess.id, player.id)) or None, "name", "") or player.display_name).strip() or player.display_name
+                            await add_system_event(db, sess, f"{actor_name}: {mimicry_msg}")
+                        await broadcast_state(session_id)
+                        continue
+
                 mind_link_action, mind_link_arg = _parse_mind_link_command(cmdline)
                 if mind_link_action:
                     synthetic_text = text
@@ -6371,6 +6451,7 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                         "init / init roll / init set <#> <val> / init start / init clear (админ), "
                         "tinker create <clockwork_toy|fire_starter|music_box>, tinker list, tinker remove <id>, "
                         "speech status|speech beast: <идея>|speech plant: <идея>, "
+                        "mimicry status|mimicry voice: <фраза>|mimicry sound: <звук>, "
                         "eerie token create|status|remove|send <message>|sense, "
                         "shapechange assume <description>|status|revert."
                     )
@@ -7662,6 +7743,25 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                         if speech_msg:
                             actor_name = str(getattr((await get_character(db, sess.id, player.id)) or None, "name", "") or player.display_name).strip() or player.display_name
                             await add_system_event(db, sess, f"{actor_name}: {speech_msg}")
+                        await broadcast_state(session_id)
+                        continue
+
+                kenku_mimicry_action, kenku_mimicry_message = _parse_kenku_mimicry_command(cmdline)
+                if kenku_mimicry_action:
+                    handled_mimicry, mimicry_err, mimicry_msg = await _handle_kenku_mimicry_action(
+                        db,
+                        sess,
+                        player=player,
+                        action=kenku_mimicry_action,
+                        message_text=kenku_mimicry_message or "",
+                    )
+                    if handled_mimicry:
+                        if mimicry_err:
+                            await ws_error(mimicry_err, request_id=msg_request_id)
+                            continue
+                        if mimicry_msg:
+                            actor_name = str(getattr((await get_character(db, sess.id, player.id)) or None, "name", "") or player.display_name).strip() or player.display_name
+                            await add_system_event(db, sess, f"{actor_name}: {mimicry_msg}")
                         await broadcast_state(session_id)
                         continue
 
