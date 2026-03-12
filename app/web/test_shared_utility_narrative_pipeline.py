@@ -16,6 +16,19 @@ class _CountingDb:
         self.commits += 1
 
 
+def _assert_race_message_ok(
+    handled: bool,
+    err: str | None,
+    msg: str | None,
+    *,
+    prefix: str = "[RACE] ",
+) -> None:
+    assert handled is True
+    assert err is None
+    assert msg is not None and msg.count("[RACE]") == 1
+    assert msg.startswith(prefix)
+
+
 def _verdan_character(player_id: uuid.UUID, name: str) -> SimpleNamespace:
     return SimpleNamespace(
         name=name,
@@ -153,9 +166,7 @@ def test_shared_utility_pipeline_status_commands_are_read_only(monkeypatch) -> N
             action="verdan_telepathy_status",
         )
     )
-    assert handled is True
-    assert err is None
-    assert msg is not None and msg.count("[RACE]") == 1
+    _assert_race_message_ok(handled, err, msg)
     assert verdan.race_features == before_verdan
     assert db.commits == 0
 
@@ -171,9 +182,7 @@ def test_shared_utility_pipeline_status_commands_are_read_only(monkeypatch) -> N
         monkeypatch.setattr(ws_handlers, "get_character", _fake_get_character)
         before = copy.deepcopy(character.race_features)
         handled, err, msg = asyncio.run(handler(db, sess, player=player, action=action, message_text=message_text))
-        assert handled is True
-        assert err is None
-        assert msg is not None and msg.count("[RACE]") == 1
+        _assert_race_message_ok(handled, err, msg)
         assert character.race_features == before
         assert db.commits == 0
 
@@ -247,10 +256,7 @@ def test_shared_utility_pipeline_feature_gated_commands_emit_consistent_narrativ
         _fake_get_character.mode = mode
         before_commits = db.commits
         handled, err, msg = asyncio.run(handler(db, sess, player=player, action=action, message_text=text))
-        assert handled is True
-        assert err is None
-        assert msg is not None and msg.startswith("[RACE] ")
-        assert msg.count("[RACE]") == 1
+        _assert_race_message_ok(handled, err, msg)
         assert expected in msg.lower()
         assert db.commits == before_commits
 
