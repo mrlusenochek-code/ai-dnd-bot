@@ -1323,6 +1323,17 @@ def _verdan_limited_telepathy_feature(race_features: Any) -> dict[str, Any]:
     return {}
 
 
+def _firbolg_speech_feature(race_features: Any) -> dict[str, Any]:
+    rf = race_features if isinstance(race_features, dict) else {}
+    features_raw = rf.get("features")
+    features = features_raw if isinstance(features_raw, dict) else {}
+    speech_raw = features.get("speech_of_beast_and_leaf")
+    speech = speech_raw if isinstance(speech_raw, dict) else {}
+    if speech:
+        return dict(speech)
+    return {}
+
+
 def _clear_kalashtar_reply_grant(target_ch: Character, *, owner_player_id: str = "") -> bool:
     race_features = getattr(target_ch, "race_features", None)
     rf = dict(race_features) if isinstance(race_features, dict) else {}
@@ -1417,6 +1428,25 @@ def _parse_verdan_telepathy_command(cmdline: str) -> tuple[str | None, str | Non
     return "verdan_telepathy_send", target_name, message_text
 
 
+def _parse_firbolg_speech_command(cmdline: str) -> tuple[str | None, str | None]:
+    txt = str(cmdline or "").strip()
+    if not txt:
+        return None, None
+    lowered = txt.lower()
+    if lowered in {"speech status", "речь статус"}:
+        return "firbolg_speech_status", None
+    prefixes = (
+        ("speech beast:", "beast"),
+        ("speech plant:", "plant"),
+        ("речь зверю:", "beast"),
+        ("речь растению:", "plant"),
+    )
+    for prefix, target_kind in prefixes:
+        if lowered.startswith(prefix):
+            return f"firbolg_speech_{target_kind}", txt[len(prefix):].strip()
+    return None, None
+
+
 def _verdan_telepathy_status_message(ch: Character) -> tuple[Optional[str], Optional[str], bool]:
     race_features = getattr(ch, "race_features", None)
     rf = dict(race_features) if isinstance(race_features, dict) else {}
@@ -1429,6 +1459,37 @@ def _verdan_telepathy_status_message(ch: Character) -> tuple[Optional[str], Opti
     if not target_name:
         return None, "[RACE] Ограниченная телепатия готова: 30 фт, простые идеи, цель должна знать язык.", False
     return None, f"[RACE] Ограниченная телепатия: последняя цель — {target_name}.", False
+
+
+async def _handle_firbolg_speech_action(
+    db,
+    sess,
+    *,
+    player: Player,
+    action: str,
+    message_text: str = "",
+) -> tuple[bool, Optional[str], Optional[str]]:
+    action_key = str(action or "").strip().lower()
+    if action_key not in {"firbolg_speech_status", "firbolg_speech_beast", "firbolg_speech_plant"}:
+        return False, None, None
+
+    ch = await get_character(db, sess.id, player.id)
+    if not ch:
+        return True, "Персонаж не найден.", None
+
+    speech_cfg = _firbolg_speech_feature(getattr(ch, "race_features", None))
+    if not speech_cfg:
+        return True, "Речь зверя и листа недоступна вашей расе.", None
+
+    if action_key == "firbolg_speech_status":
+        return True, None, "[RACE] Речь зверя и листа готова: можно передавать простые идеи зверям и растениям."
+
+    text = str(message_text or "").strip()
+    if not text:
+        return True, "Укажите простую идею после двоеточия.", None
+
+    target_label = "зверю" if action_key.endswith("beast") else "растению"
+    return True, None, f"[RACE] Речь зверя и листа: вы передаёте простую идею {target_label}: {text}"
 
 
 async def _handle_verdan_limited_telepathy_action(
@@ -5703,6 +5764,25 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                         await broadcast_state(session_id)
                         continue
 
+                firbolg_speech_action, firbolg_speech_message = _parse_firbolg_speech_command(cmdline)
+                if firbolg_speech_action:
+                    handled_speech, speech_err, speech_msg = await _handle_firbolg_speech_action(
+                        db,
+                        sess,
+                        player=player,
+                        action=firbolg_speech_action,
+                        message_text=firbolg_speech_message or "",
+                    )
+                    if handled_speech:
+                        if speech_err:
+                            await ws_error(speech_err, request_id=msg_request_id)
+                            continue
+                        if speech_msg:
+                            actor_name = str(getattr((await get_character(db, sess.id, player.id)) or None, "name", "") or player.display_name).strip() or player.display_name
+                            await add_system_event(db, sess, f"{actor_name}: {speech_msg}")
+                        await broadcast_state(session_id)
+                        continue
+
                 mind_link_action, mind_link_arg = _parse_mind_link_command(cmdline)
                 if mind_link_action:
                     synthetic_text = text
@@ -6290,6 +6370,7 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                         "leave (выйти), kick <#> (админ), turn <#> (админ), "
                         "init / init roll / init set <#> <val> / init start / init clear (админ), "
                         "tinker create <clockwork_toy|fire_starter|music_box>, tinker list, tinker remove <id>, "
+                        "speech status|speech beast: <идея>|speech plant: <идея>, "
                         "eerie token create|status|remove|send <message>|sense, "
                         "shapechange assume <description>|status|revert."
                     )
@@ -7562,6 +7643,25 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                         if tel_msg:
                             actor_name = str(getattr((await get_character(db, sess.id, player.id)) or None, "name", "") or player.display_name).strip() or player.display_name
                             await add_system_event(db, sess, f"{actor_name}: {tel_msg}")
+                        await broadcast_state(session_id)
+                        continue
+
+                firbolg_speech_action, firbolg_speech_message = _parse_firbolg_speech_command(cmdline)
+                if firbolg_speech_action:
+                    handled_speech, speech_err, speech_msg = await _handle_firbolg_speech_action(
+                        db,
+                        sess,
+                        player=player,
+                        action=firbolg_speech_action,
+                        message_text=firbolg_speech_message or "",
+                    )
+                    if handled_speech:
+                        if speech_err:
+                            await ws_error(speech_err, request_id=msg_request_id)
+                            continue
+                        if speech_msg:
+                            actor_name = str(getattr((await get_character(db, sess.id, player.id)) or None, "name", "") or player.display_name).strip() or player.display_name
+                            await add_system_event(db, sess, f"{actor_name}: {speech_msg}")
                         await broadcast_state(session_id)
                         continue
 
