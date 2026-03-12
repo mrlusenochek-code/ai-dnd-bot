@@ -1223,8 +1223,7 @@ def handle_live_combat_reaction(
     if stone_endurance is None:
         return None, "Каменная выносливость недоступна."
 
-    runtime_raw = race_features.get("runtime")
-    runtime = dict(runtime_raw) if isinstance(runtime_raw, dict) else {}
+    race_features, runtime = _copy_combatant_runtime(actor)
     if bool(runtime.get("stone_endurance_used", False)):
         return None, "Каменная выносливость уже использована до короткого/долгого отдыха."
 
@@ -1244,8 +1243,7 @@ def handle_live_combat_reaction(
     actor.hp_current = min(max(0, int(actor.hp_max)), max(0, int(actor.hp_current)) + actual_reduction)
     actor.reaction_available = False
     runtime["stone_endurance_used"] = True
-    race_features["runtime"] = runtime
-    actor.race_features = race_features
+    _commit_combatant_runtime(actor, race_features, runtime)
 
     return (
         {
@@ -4649,8 +4647,7 @@ def handle_live_combat_action(
         full_damage = sum(damage_rolls)
         final_damage = full_damage // 2 if success else full_damage
         runtime["acid_spit_uses_used"] = uses_used + 1
-        race_features["runtime"] = runtime
-        actor.race_features = race_features
+        _commit_combatant_runtime(actor, race_features, runtime)
         state = apply_damage(session_id, target.key, final_damage, source=actor.key)
         if state is None:
             return None, "Combat is not active"
