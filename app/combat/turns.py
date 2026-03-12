@@ -60,6 +60,41 @@ def _normalize_turn_start_runtime(combatant: Combatant, current_actor_key: str) 
     return runtime_changed
 
 
+def _advance_poisoned_condition_for_ending_combatant(combatant: Combatant) -> bool:
+    race_features, runtime = _copy_combatant_runtime(combatant)
+    conditions_raw = runtime.get("conditions")
+    conditions = dict(conditions_raw) if isinstance(conditions_raw, dict) else {}
+    poisoned_raw = conditions.get("poisoned")
+    poisoned = dict(poisoned_raw) if isinstance(poisoned_raw, dict) else {}
+    if not bool(poisoned.get("active")):
+        return False
+    save_dc = max(1, int(poisoned.get("save_dc") or 12))
+    stats = combatant.stats if isinstance(combatant.stats, dict) else {}
+    con_stat = int(stats.get("con", 50)) if isinstance(stats.get("con"), int) else 50
+    con_mod = ability_mod_from_stat100(con_stat)
+    save_roll = random.randint(1, 20)
+    save_total = save_roll + con_mod
+    save_success = save_total >= save_dc
+    remaining_rounds = max(0, int(poisoned.get("remaining_rounds") or 0))
+    if save_success:
+        conditions.pop("poisoned", None)
+    else:
+        if remaining_rounds > 0:
+            remaining_rounds -= 1
+        if remaining_rounds <= 0:
+            conditions.pop("poisoned", None)
+        else:
+            poisoned["remaining_rounds"] = remaining_rounds
+            poisoned["active"] = True
+            conditions["poisoned"] = poisoned
+    if conditions:
+        runtime["conditions"] = conditions
+    else:
+        runtime.pop("conditions", None)
+    _commit_combatant_runtime(combatant, race_features, runtime)
+    return True
+
+
 def _clear_shifter_shift_runtime(combatant: Combatant) -> bool:
     race_features = combatant.race_features if isinstance(combatant.race_features, dict) else {}
     runtime_raw = race_features.get("runtime")
@@ -153,42 +188,7 @@ def advance_turn_in_state(state: CombatState) -> CombatState:
     if ending_combatant is not None:
         _clear_turn_end_runtime_keys(ending_combatant, "rabbit_hop_no_oa", "rabbit_hop_no_oa_round")
     if ending_combatant is not None:
-        race_features = ending_combatant.race_features if isinstance(ending_combatant.race_features, dict) else {}
-        runtime_raw = race_features.get("runtime")
-        runtime = dict(runtime_raw) if isinstance(runtime_raw, dict) else {}
-        conditions_raw = runtime.get("conditions")
-        conditions = dict(conditions_raw) if isinstance(conditions_raw, dict) else {}
-        poisoned_raw = conditions.get("poisoned")
-        poisoned = dict(poisoned_raw) if isinstance(poisoned_raw, dict) else {}
-        if bool(poisoned.get("active")):
-            save_dc = max(1, int(poisoned.get("save_dc") or 12))
-            stats = ending_combatant.stats if isinstance(ending_combatant.stats, dict) else {}
-            con_stat = int(stats.get("con", 50)) if isinstance(stats.get("con"), int) else 50
-            con_mod = ability_mod_from_stat100(con_stat)
-            save_roll = random.randint(1, 20)
-            save_total = save_roll + con_mod
-            save_success = save_total >= save_dc
-            remaining_rounds = max(0, int(poisoned.get("remaining_rounds") or 0))
-            if save_success:
-                conditions.pop("poisoned", None)
-            else:
-                if remaining_rounds > 0:
-                    remaining_rounds -= 1
-                if remaining_rounds <= 0:
-                    conditions.pop("poisoned", None)
-                else:
-                    poisoned["remaining_rounds"] = remaining_rounds
-                    poisoned["active"] = True
-                    conditions["poisoned"] = poisoned
-            if conditions:
-                runtime["conditions"] = conditions
-            else:
-                runtime.pop("conditions", None)
-            if runtime:
-                race_features["runtime"] = runtime
-            else:
-                race_features.pop("runtime", None)
-            ending_combatant.race_features = race_features
+        _advance_poisoned_condition_for_ending_combatant(ending_combatant)
     if ending_combatant is not None:
         ending_combatant.turns_taken = max(0, int(getattr(ending_combatant, "turns_taken", 0))) + 1
     if ending_combatant is not None and str(getattr(ending_combatant, "side", "")).lower() == "pc":
