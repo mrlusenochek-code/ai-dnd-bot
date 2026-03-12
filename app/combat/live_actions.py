@@ -545,6 +545,21 @@ def _tortle_runtime(actor: Any) -> tuple[dict[str, Any], dict[str, Any]]:
     return race_features, runtime
 
 
+def _copy_combatant_runtime(actor: Any) -> tuple[dict[str, Any], dict[str, Any]]:
+    race_features = actor.race_features if isinstance(getattr(actor, "race_features", None), dict) else {}
+    runtime_raw = race_features.get("runtime")
+    runtime = dict(runtime_raw) if isinstance(runtime_raw, dict) else {}
+    return race_features, runtime
+
+
+def _commit_combatant_runtime(actor: Any, race_features: dict[str, Any], runtime: dict[str, Any]) -> None:
+    if runtime:
+        race_features["runtime"] = runtime
+    else:
+        race_features.pop("runtime", None)
+    actor.race_features = race_features
+
+
 def _maybe_apply_fury_of_small(*, actor: Any, target: Any, lines: list[dict[str, Any]]) -> int:
     if str(getattr(actor, "side", "")).lower() != "pc":
         return 0
@@ -1838,9 +1853,7 @@ def handle_live_combat_action(
         grovel_cfg = _race_feature(actor, "grovel_cower_beg")
         if grovel_cfg is None:
             return None, "Пресмыкайся, трусь и умоляй недоступно."
-        race_features = actor.race_features if isinstance(actor.race_features, dict) else {}
-        runtime_raw = race_features.get("runtime")
-        runtime = dict(runtime_raw) if isinstance(runtime_raw, dict) else {}
+        race_features, runtime = _copy_combatant_runtime(actor)
         used = max(0, int(runtime.get("grovel_uses_used") or 0))
         uses_max = max(1, int(grovel_cfg.get("uses_max") or 1))
         if used >= uses_max:
@@ -3691,13 +3704,10 @@ def handle_live_combat_action(
                 and bool(profile.is_melee_weapon)
                 and bool(getattr(attacker, "bonus_action_available", False))
             ):
-                attacker_rf = attacker.race_features if isinstance(getattr(attacker, "race_features", None), dict) else {}
-                attacker_runtime_raw = attacker_rf.get("runtime")
-                attacker_runtime = dict(attacker_runtime_raw) if isinstance(attacker_runtime_raw, dict) else {}
+                attacker_rf, attacker_runtime = _copy_combatant_runtime(attacker)
                 attacker_runtime["hammering_horns_available"] = True
                 attacker_runtime["hammering_horns_target_id"] = str(getattr(target, "key", "") or "")
-                attacker_rf["runtime"] = attacker_runtime
-                attacker.race_features = attacker_rf
+                _commit_combatant_runtime(attacker, attacker_rf, attacker_runtime)
                 extra_outcome_lines.append(
                     {
                         "text": "Сокрушительные рога: можно бонусным действием толкнуть цель на 10 фт (напишите «сокрушительные рога»).",
@@ -4058,9 +4068,7 @@ def handle_live_combat_action(
         if not _has_adrenaline_rush_feature(actor):
             return None, "Прилив адреналина недоступен."
 
-        race_features = actor.race_features if isinstance(getattr(actor, "race_features", None), dict) else {}
-        runtime_raw = race_features.get("runtime")
-        runtime = dict(runtime_raw) if isinstance(runtime_raw, dict) else {}
+        race_features, runtime = _copy_combatant_runtime(actor)
         adrenaline_cfg = _race_feature(actor, "adrenaline_rush") or {}
         uses_formula = str(adrenaline_cfg.get("uses_formula") or "").strip().lower()
         if uses_formula == "proficiency_bonus":
@@ -4087,8 +4095,7 @@ def handle_live_combat_action(
         actor.temp_hp = next_temp
 
         runtime["adrenaline_rush_uses_used"] = uses_used + 1
-        race_features["runtime"] = runtime
-        actor.race_features = race_features
+        _commit_combatant_runtime(actor, race_features, runtime)
 
         return (
             {
@@ -4705,8 +4712,7 @@ def handle_live_combat_action(
 
         runtime["hammering_horns_available"] = False
         runtime.pop("hammering_horns_target_id", None)
-        race_features["runtime"] = runtime
-        actor.race_features = race_features
+        _commit_combatant_runtime(actor, race_features, runtime)
 
         lines: list[dict[str, Any]] = [
             {"text": f"Сокрушительные рога: {actor.name} пытается оттолкнуть {target.name}.", "muted": True},
@@ -4827,8 +4833,7 @@ def handle_live_combat_action(
         actual_damage = max(0, target_hp_before - max(0, int(getattr(target, "hp_current", 0) or 0)))
 
         runtime["breath_weapon_used"] = True
-        race_features["runtime"] = runtime
-        attacker.race_features = race_features
+        _commit_combatant_runtime(attacker, race_features, runtime)
         hidden_step_broken = _break_hidden_step(attacker)
 
         area_raw = breath_weapon.get("area")
