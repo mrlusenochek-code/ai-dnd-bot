@@ -750,8 +750,16 @@ function openCharacterModal(){
     ? (Number.isFinite(Number(sizeChange.level_from)) ? Number(sizeChange.level_from) : (Number.isFinite(Number(sizeChange.at_level)) ? Number(sizeChange.at_level) : null))
     : null;
   const growthToSize = sizeChange ? String(sizeChange.to || sizeChange.size || "").trim().toLowerCase() : "";
+  const currentSizeKey = String(rf.size || "").trim().toLowerCase();
+  const _SIZE_RU = {
+    "small": "Маленький",
+    "medium": "Средний",
+    "large": "Большой",
+  };
+  const currentSizeRu = _SIZE_RU[currentSizeKey] || currentSizeKey;
+  const growthToSizeRu = _SIZE_RU[growthToSize] || growthToSize;
   const growthSpurtText = sizeChange
-    ? `Скачок роста: на ${growthAtLevel !== null ? growthAtLevel : 5} ур. размер становится Средним`
+    ? `Скачок роста: сейчас размер ${currentSizeRu || "—"}${growthToSizeRu ? `. На ${growthAtLevel !== null ? growthAtLevel : 5} уровне станет ${growthToSizeRu}.` : ""}`
     : "";
   const spiderClimb = (raceFeaturesMeta.spider_climb && typeof raceFeaturesMeta.spider_climb === "object")
     ? raceFeaturesMeta.spider_climb

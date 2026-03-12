@@ -1181,6 +1181,8 @@ def _build_race_features(selected_race: dict | None) -> dict[str, Any]:
 
         if mtype == "size_change":
             features["size_change"] = dict(mech)
+            if tkey == "growth_spurt":
+                features["growth_spurt"] = dict(mech)
 
         if mtype == "shapechanger":
             features["shapechanger"] = dict(mech)
