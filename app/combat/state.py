@@ -68,6 +68,18 @@ def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+def _copy_combatant_runtime(combatant: Combatant) -> tuple[dict[str, Any], dict[str, Any]]:
+    race_features = combatant.race_features if isinstance(getattr(combatant, "race_features", None), dict) else {}
+    runtime_raw = race_features.get("runtime")
+    runtime = dict(runtime_raw) if isinstance(runtime_raw, dict) else {}
+    return race_features, runtime
+
+
+def _commit_combatant_runtime(combatant: Combatant, race_features: dict[str, Any], runtime: dict[str, Any]) -> None:
+    race_features["runtime"] = runtime
+    combatant.race_features = race_features
+
+
 def _reset_bugbear_surprise_attack_runtime(combatant: Combatant) -> bool:
     changed = False
     if max(0, int(getattr(combatant, "turns_taken", 0) or 0)) != 0:
@@ -80,21 +92,16 @@ def _reset_bugbear_surprise_attack_runtime(combatant: Combatant) -> bool:
 
 
 def _reset_goblin_fury_runtime(combatant: Combatant) -> bool:
-    race_features = combatant.race_features if isinstance(getattr(combatant, "race_features", None), dict) else {}
-    runtime_raw = race_features.get("runtime")
-    runtime = dict(runtime_raw) if isinstance(runtime_raw, dict) else {}
+    race_features, runtime = _copy_combatant_runtime(combatant)
     if not bool(runtime.get("fury_of_small_armed")):
         return False
     runtime["fury_of_small_armed"] = False
-    race_features["runtime"] = runtime
-    combatant.race_features = race_features
+    _commit_combatant_runtime(combatant, race_features, runtime)
     return True
 
 
 def _reset_minotaur_charge_runtime(combatant: Combatant) -> bool:
-    race_features = combatant.race_features if isinstance(getattr(combatant, "race_features", None), dict) else {}
-    runtime_raw = race_features.get("runtime")
-    runtime = dict(runtime_raw) if isinstance(runtime_raw, dict) else {}
+    race_features, runtime = _copy_combatant_runtime(combatant)
     changed = False
     if bool(runtime.get("goring_rush_available")):
         runtime["goring_rush_available"] = False
@@ -107,8 +114,7 @@ def _reset_minotaur_charge_runtime(combatant: Combatant) -> bool:
         changed = True
     if not changed:
         return False
-    race_features["runtime"] = runtime
-    combatant.race_features = race_features
+    _commit_combatant_runtime(combatant, race_features, runtime)
     return True
 
 
@@ -120,9 +126,7 @@ def _reset_centaur_charge_runtime(combatant: Combatant) -> bool:
 
 
 def _reset_eerie_token_battle_runtime(combatant: Combatant) -> bool:
-    race_features = combatant.race_features if isinstance(getattr(combatant, "race_features", None), dict) else {}
-    runtime_raw = race_features.get("runtime")
-    runtime = dict(runtime_raw) if isinstance(runtime_raw, dict) else {}
+    race_features, runtime = _copy_combatant_runtime(combatant)
     changed = False
     if bool(runtime.get("eerie_token_sense_active")):
         runtime["eerie_token_sense_active"] = False
@@ -132,8 +136,7 @@ def _reset_eerie_token_battle_runtime(combatant: Combatant) -> bool:
         changed = True
     if not changed:
         return False
-    race_features["runtime"] = runtime
-    combatant.race_features = race_features
+    _commit_combatant_runtime(combatant, race_features, runtime)
     return True
 
 
