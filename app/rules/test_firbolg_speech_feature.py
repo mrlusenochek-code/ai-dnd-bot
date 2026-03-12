@@ -3,23 +3,19 @@ from __future__ import annotations
 import asyncio
 import json
 
+from app.test_helpers.race_create_helpers import firbolg_base_payload
+from app.test_helpers.race_create_helpers import setup_basic_create_mocks
 from app.web import http_routes
-from app.web.test_firbolg_create import _setup_create_mocks
+
+
+def _setup_create_mocks(monkeypatch) -> None:
+    setup_basic_create_mocks(monkeypatch, session_title="Firbolg Session")
 
 
 def test_firbolg_speech_feature_persists_on_create(monkeypatch) -> None:
     _setup_create_mocks(monkeypatch)
 
-    payload = {
-        "session_id": "firbolg-speech-session",
-        "uid": 88001,
-        "name": "Firbolg Speaker",
-        "class_id": "",
-        "custom_class": "Adventurer",
-        "race_id": "firbolg",
-        "subrace_id": "",
-        "stats": {"str": 50, "dex": 50, "con": 50, "int": 50, "wis": 50, "cha": 50},
-    }
+    payload = firbolg_base_payload(session_id="firbolg-speech-session", uid=88001, name="Firbolg Speaker")
 
     response = asyncio.run(http_routes.api_character_create(payload))
     assert response.status_code == 200

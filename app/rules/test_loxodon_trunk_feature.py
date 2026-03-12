@@ -3,8 +3,13 @@ from __future__ import annotations
 import asyncio
 import json
 
+from app.test_helpers.race_create_helpers import loxodon_base_payload as _base_payload
+from app.test_helpers.race_create_helpers import setup_basic_create_mocks
 from app.web import http_routes
-from app.web.test_loxodon_create import _base_payload, _setup_create_mocks
+
+
+def _setup_create_mocks(monkeypatch) -> None:
+    setup_basic_create_mocks(monkeypatch, session_title="Test Session")
 
 
 def test_loxodon_trunk_feature_persists_on_create(monkeypatch) -> None:

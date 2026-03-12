@@ -3,8 +3,13 @@ from __future__ import annotations
 import asyncio
 import json
 
+from app.test_helpers.race_create_helpers import kenku_base_payload as _base_payload
+from app.test_helpers.race_create_helpers import setup_basic_create_mocks
 from app.web import http_routes
-from app.web.test_kenku_create import _base_payload, _setup_create_mocks
+
+
+def _setup_create_mocks(monkeypatch) -> None:
+    setup_basic_create_mocks(monkeypatch, session_title="Test Session")
 
 
 def test_kenku_expert_forgery_feature_persists_on_create(monkeypatch) -> None:
@@ -45,4 +50,3 @@ def test_non_kenku_does_not_gain_expert_forgery(monkeypatch) -> None:
     features = race_features.get("features") or {}
 
     assert "expert_forgery" not in features
-
