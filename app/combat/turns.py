@@ -6,6 +6,21 @@ from app.combat.state import CombatState, Combatant
 from app.rules.phb_math import ability_mod_from_stat100
 
 
+def _copy_combatant_runtime(combatant: Combatant) -> tuple[dict, dict]:
+    race_features = combatant.race_features if isinstance(combatant.race_features, dict) else {}
+    runtime_raw = race_features.get("runtime")
+    runtime = dict(runtime_raw) if isinstance(runtime_raw, dict) else {}
+    return race_features, runtime
+
+
+def _commit_combatant_runtime(combatant: Combatant, race_features: dict, runtime: dict) -> None:
+    if runtime:
+        race_features["runtime"] = runtime
+    else:
+        race_features.pop("runtime", None)
+    combatant.race_features = race_features
+
+
 def _clear_shifter_shift_runtime(combatant: Combatant) -> bool:
     race_features = combatant.race_features if isinstance(combatant.race_features, dict) else {}
     runtime_raw = race_features.get("runtime")
@@ -97,17 +112,11 @@ def advance_turn_in_state(state: CombatState) -> CombatState:
     ending_key = state.order[state.turn_index]
     ending_combatant = state.combatants.get(ending_key)
     if ending_combatant is not None:
-        race_features = ending_combatant.race_features if isinstance(ending_combatant.race_features, dict) else {}
-        runtime_raw = race_features.get("runtime")
-        runtime = dict(runtime_raw) if isinstance(runtime_raw, dict) else {}
+        race_features, runtime = _copy_combatant_runtime(ending_combatant)
         if "rabbit_hop_no_oa" in runtime:
             runtime.pop("rabbit_hop_no_oa", None)
             runtime.pop("rabbit_hop_no_oa_round", None)
-            if runtime:
-                race_features["runtime"] = runtime
-            else:
-                race_features.pop("runtime", None)
-            ending_combatant.race_features = race_features
+            _commit_combatant_runtime(ending_combatant, race_features, runtime)
     if ending_combatant is not None:
         race_features = ending_combatant.race_features if isinstance(ending_combatant.race_features, dict) else {}
         runtime_raw = race_features.get("runtime")
@@ -148,9 +157,7 @@ def advance_turn_in_state(state: CombatState) -> CombatState:
     if ending_combatant is not None:
         ending_combatant.turns_taken = max(0, int(getattr(ending_combatant, "turns_taken", 0))) + 1
     if ending_combatant is not None and str(getattr(ending_combatant, "side", "")).lower() == "pc":
-        race_features = ending_combatant.race_features if isinstance(ending_combatant.race_features, dict) else {}
-        runtime_raw = race_features.get("runtime")
-        runtime = dict(runtime_raw) if isinstance(runtime_raw, dict) else {}
+        race_features, runtime = _copy_combatant_runtime(ending_combatant)
         transform_raw = runtime.get("aasimar_transformation")
         transform = dict(transform_raw) if isinstance(transform_raw, dict) else {}
         if bool(transform.get("active")):
@@ -162,11 +169,7 @@ def advance_turn_in_state(state: CombatState) -> CombatState:
                 transform["active"] = False
                 runtime.pop("fly_speed_ft", None)
             runtime["aasimar_transformation"] = transform
-            if runtime:
-                race_features["runtime"] = runtime
-            else:
-                race_features.pop("runtime", None)
-            ending_combatant.race_features = race_features
+            _commit_combatant_runtime(ending_combatant, race_features, runtime)
         if bool(runtime.get("shifted_active")):
             rounds_left = max(0, int(runtime.get("shifted_rounds_left") or 0))
             if rounds_left > 0:
@@ -276,9 +279,7 @@ def advance_turn_in_state(state: CombatState) -> CombatState:
                     race_features.pop("runtime", None)
                 combatant.race_features = race_features
     if current_combatant is not None:
-        race_features = current_combatant.race_features if isinstance(current_combatant.race_features, dict) else {}
-        runtime_raw = race_features.get("runtime")
-        runtime = dict(runtime_raw) if isinstance(runtime_raw, dict) else {}
+        race_features, runtime = _copy_combatant_runtime(current_combatant)
         runtime_changed = False
         if "aggressive_used_turn_id" in runtime:
             runtime.pop("aggressive_used_turn_id", None)
@@ -299,11 +300,7 @@ def advance_turn_in_state(state: CombatState) -> CombatState:
             runtime["hidden_step"] = hidden_step
             runtime_changed = True
         if runtime_changed:
-            if runtime:
-                race_features["runtime"] = runtime
-            else:
-                race_features.pop("runtime", None)
-            current_combatant.race_features = race_features
+            _commit_combatant_runtime(current_combatant, race_features, runtime)
         current_combatant.dodge_active = False
         current_combatant.dash_active = False
         current_combatant.disengage_active = False
