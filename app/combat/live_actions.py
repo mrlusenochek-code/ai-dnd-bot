@@ -531,6 +531,29 @@ def _has_simic_feature(actor: Any, feature_key: str) -> bool:
     return _race_feature(actor, feature_key) is not None
 
 
+def _apply_simic_appendages_grappled(
+    actor: Any,
+    target: Any,
+    race_features: dict[str, Any],
+    runtime: dict[str, Any],
+    *,
+    success: bool,
+) -> None:
+    runtime["simic_appendages_last_target_id"] = str(getattr(target, "key", "") or "")
+    race_features["runtime"] = runtime
+    actor.race_features = race_features
+    if not success:
+        return
+    target_rf = target.race_features if isinstance(getattr(target, "race_features", None), dict) else {}
+    target_runtime_raw = target_rf.get("runtime")
+    target_runtime = dict(target_runtime_raw) if isinstance(target_runtime_raw, dict) else {}
+    conditions = dict(target_runtime.get("conditions")) if isinstance(target_runtime.get("conditions"), dict) else {}
+    conditions["grappled"] = {"by_actor_id": str(getattr(actor, "key", "") or ""), "source": "simic_appendages"}
+    target_runtime["conditions"] = conditions
+    target_rf["runtime"] = target_runtime
+    target.race_features = target_rf
+
+
 def _tabaxi_runtime(actor: Any) -> tuple[dict[str, Any], dict[str, Any]]:
     race_features = actor.race_features if isinstance(getattr(actor, "race_features", None), dict) else {}
     runtime_raw = race_features.get("runtime")
@@ -4589,18 +4612,7 @@ def handle_live_combat_action(
         defense_mod = max(_actor_ability_mod(target, "str"), _actor_ability_mod(target, "dex"))
         defense_total = random.randint(1, 20) + defense_mod
         success = attack_total >= defense_total
-        runtime["simic_appendages_last_target_id"] = str(getattr(target, "key", "") or "")
-        race_features["runtime"] = runtime
-        actor.race_features = race_features
-        if success:
-            target_rf = target.race_features if isinstance(getattr(target, "race_features", None), dict) else {}
-            target_runtime_raw = target_rf.get("runtime")
-            target_runtime = dict(target_runtime_raw) if isinstance(target_runtime_raw, dict) else {}
-            conditions = dict(target_runtime.get("conditions")) if isinstance(target_runtime.get("conditions"), dict) else {}
-            conditions["grappled"] = {"by_actor_id": str(getattr(actor, "key", "") or ""), "source": "simic_appendages"}
-            target_runtime["conditions"] = conditions
-            target_rf["runtime"] = target_runtime
-            target.race_features = target_rf
+        _apply_simic_appendages_grappled(actor, target, race_features, runtime, success=success)
         action_ru = "Бонусный захват придатками" if action == "combat_appendages_grapple_bonus" else "Хватательные придатки"
         return (
             {
