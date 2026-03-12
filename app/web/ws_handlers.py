@@ -1564,6 +1564,44 @@ async def _load_feature_gated_character(
     return False, None, ch, feature_cfg
 
 
+async def _handle_simple_narrative_feature_action(
+    db,
+    sess,
+    *,
+    player: Player,
+    action_key: str,
+    allowed_actions: set[str],
+    feature_getter: Callable[[Any], Any],
+    unavailable_message: str,
+    status_action: str,
+    status_message: str,
+    message_text: str,
+    missing_text_error: str,
+    render_message: Callable[[str, str], str],
+) -> tuple[bool, Optional[str], Optional[str]]:
+    if action_key not in allowed_actions:
+        return False, None, None
+
+    handled, error, _ch, _feature_cfg = await _load_feature_gated_character(
+        db,
+        sess,
+        player=player,
+        feature_getter=feature_getter,
+        unavailable_message=unavailable_message,
+    )
+    if handled:
+        return True, error, None
+
+    if action_key == status_action:
+        return True, None, status_message
+
+    text = str(message_text or "").strip()
+    if not text:
+        return True, missing_text_error, None
+
+    return True, None, render_message(action_key, text)
+
+
 async def _handle_firbolg_speech_action(
     db,
     sess,
@@ -1573,28 +1611,23 @@ async def _handle_firbolg_speech_action(
     message_text: str = "",
 ) -> tuple[bool, Optional[str], Optional[str]]:
     action_key = str(action or "").strip().lower()
-    if action_key not in {"firbolg_speech_status", "firbolg_speech_beast", "firbolg_speech_plant"}:
-        return False, None, None
-
-    handled, error, _ch, _speech_cfg = await _load_feature_gated_character(
+    return await _handle_simple_narrative_feature_action(
         db,
         sess,
         player=player,
+        action_key=action_key,
+        allowed_actions={"firbolg_speech_status", "firbolg_speech_beast", "firbolg_speech_plant"},
         feature_getter=_firbolg_speech_feature,
         unavailable_message="Речь зверя и листа недоступна вашей расе.",
+        status_action="firbolg_speech_status",
+        status_message="[RACE] Речь зверя и листа готова: можно передавать простые идеи зверям и растениям.",
+        message_text=message_text,
+        missing_text_error="Укажите простую идею после двоеточия.",
+        render_message=lambda key, text: (
+            f"[RACE] Речь зверя и листа: вы передаёте простую идею "
+            f"{'зверю' if key.endswith('beast') else 'растению'}: {text}"
+        ),
     )
-    if handled:
-        return True, error, None
-
-    if action_key == "firbolg_speech_status":
-        return True, None, "[RACE] Речь зверя и листа готова: можно передавать простые идеи зверям и растениям."
-
-    text = str(message_text or "").strip()
-    if not text:
-        return True, "Укажите простую идею после двоеточия.", None
-
-    target_label = "зверю" if action_key.endswith("beast") else "растению"
-    return True, None, f"[RACE] Речь зверя и листа: вы передаёте простую идею {target_label}: {text}"
 
 
 async def _handle_kenku_mimicry_action(
@@ -1606,28 +1639,22 @@ async def _handle_kenku_mimicry_action(
     message_text: str = "",
 ) -> tuple[bool, Optional[str], Optional[str]]:
     action_key = str(action or "").strip().lower()
-    if action_key not in {"kenku_mimicry_status", "kenku_mimicry_voice", "kenku_mimicry_sound"}:
-        return False, None, None
-
-    handled, error, _ch, _mimicry_cfg = await _load_feature_gated_character(
+    return await _handle_simple_narrative_feature_action(
         db,
         sess,
         player=player,
+        action_key=action_key,
+        allowed_actions={"kenku_mimicry_status", "kenku_mimicry_voice", "kenku_mimicry_sound"},
         feature_getter=_kenku_mimicry_feature,
         unavailable_message="Подражание недоступно вашей расе.",
+        status_action="kenku_mimicry_status",
+        status_message="[RACE] Подражание готово: можно имитировать звуки и голоса.",
+        message_text=message_text,
+        missing_text_error="Укажите звук или фразу после двоеточия.",
+        render_message=lambda key, text: (
+            f"[RACE] Подражание: вы имитируете {'голос' if key.endswith('voice') else 'звук'}: {text}"
+        ),
     )
-    if handled:
-        return True, error, None
-
-    if action_key == "kenku_mimicry_status":
-        return True, None, "[RACE] Подражание готово: можно имитировать звуки и голоса."
-
-    text = str(message_text or "").strip()
-    if not text:
-        return True, "Укажите звук или фразу после двоеточия.", None
-
-    kind_label = "голос" if action_key.endswith("voice") else "звук"
-    return True, None, f"[RACE] Подражание: вы имитируете {kind_label}: {text}"
 
 
 async def _handle_kenku_expert_forgery_action(
@@ -1639,27 +1666,20 @@ async def _handle_kenku_expert_forgery_action(
     message_text: str = "",
 ) -> tuple[bool, Optional[str], Optional[str]]:
     action_key = str(action or "").strip().lower()
-    if action_key not in {"kenku_forgery_status", "kenku_forgery_copy"}:
-        return False, None, None
-
-    handled, error, _ch, _forgery_cfg = await _load_feature_gated_character(
+    return await _handle_simple_narrative_feature_action(
         db,
         sess,
         player=player,
+        action_key=action_key,
+        allowed_actions={"kenku_forgery_status", "kenku_forgery_copy"},
         feature_getter=_kenku_expert_forgery_feature,
         unavailable_message="Искусный подлог недоступен вашей расе.",
+        status_action="kenku_forgery_status",
+        status_message="[RACE] Искусный подлог готов: можно тщательно воспроизводить почерк и рисунки по образцу.",
+        message_text=message_text,
+        missing_text_error="Укажите, что именно вы хотите воспроизвести после двоеточия.",
+        render_message=lambda _key, text: f"[RACE] Искусный подлог: вы тщательно воспроизводите {text}.",
     )
-    if handled:
-        return True, error, None
-
-    if action_key == "kenku_forgery_status":
-        return True, None, "[RACE] Искусный подлог готов: можно тщательно воспроизводить почерк и рисунки по образцу."
-
-    text = str(message_text or "").strip()
-    if not text:
-        return True, "Укажите, что именно вы хотите воспроизвести после двоеточия.", None
-
-    return True, None, f"[RACE] Искусный подлог: вы тщательно воспроизводите {text}."
 
 
 async def _handle_loxodon_trunk_action(
@@ -1671,27 +1691,20 @@ async def _handle_loxodon_trunk_action(
     message_text: str = "",
 ) -> tuple[bool, Optional[str], Optional[str]]:
     action_key = str(action or "").strip().lower()
-    if action_key not in {"loxodon_trunk_status", "loxodon_trunk_use"}:
-        return False, None, None
-
-    handled, error, _ch, _trunk_cfg = await _load_feature_gated_character(
+    return await _handle_simple_narrative_feature_action(
         db,
         sess,
         player=player,
+        action_key=action_key,
+        allowed_actions={"loxodon_trunk_status", "loxodon_trunk_use"},
         feature_getter=_loxodon_trunk_feature,
         unavailable_message="Хобот недоступен вашей расе.",
+        status_action="loxodon_trunk_status",
+        status_message="[RACE] Хобот готов: можно переносить, толкать, тянуть и выполнять простые бытовые действия; нельзя держать оружие, щит и делать соматические компоненты.",
+        message_text=message_text,
+        missing_text_error="Опишите простое действие после двоеточия.",
+        render_message=lambda _key, text: f"[RACE] Хобот: вы используете хобот, чтобы {text}",
     )
-    if handled:
-        return True, error, None
-
-    if action_key == "loxodon_trunk_status":
-        return True, None, "[RACE] Хобот готов: можно переносить, толкать, тянуть и выполнять простые бытовые действия; нельзя держать оружие, щит и делать соматические компоненты."
-
-    text = str(message_text or "").strip()
-    if not text:
-        return True, "Опишите простое действие после двоеточия.", None
-
-    return True, None, f"[RACE] Хобот: вы используете хобот, чтобы {text}"
 
 
 async def _handle_verdan_limited_telepathy_action(
