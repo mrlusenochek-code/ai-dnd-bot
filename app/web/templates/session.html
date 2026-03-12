@@ -736,10 +736,16 @@ function openCharacterModal(){
   const hitDiceReroll = (raceFeaturesMeta.hit_dice_reroll && typeof raceFeaturesMeta.hit_dice_reroll === "object")
     ? raceFeaturesMeta.hit_dice_reroll
     : null;
+  const limitedTelepathy = (raceFeaturesMeta.limited_telepathy && typeof raceFeaturesMeta.limited_telepathy === "object")
+    ? raceFeaturesMeta.limited_telepathy
+    : ((raceKey === "verdan" && telepathy && String(telepathy.bandwidth || "").trim().toLowerCase() === "simple_ideas") ? telepathy : null);
   const sizeChange = (raceFeaturesMeta.size_change && typeof raceFeaturesMeta.size_change === "object")
     ? raceFeaturesMeta.size_change
     : null;
   const blackBloodText = hitDiceReroll ? "Чёрная исцеляющая кровь: переброс 1–2 на Костях Хитов при коротком отдыхе" : "";
+  const verdanLimitedTelepathyText = limitedTelepathy
+    ? `Ограниченная телепатия: ${Number.isFinite(Number(limitedTelepathy.range_ft)) ? `${Number(limitedTelepathy.range_ft)} фт` : "дистанция по расе"}; простые идеи${limitedTelepathy.requires_target_language === true ? "; цель должна знать язык" : ""}`
+    : "";
   const growthAtLevel = sizeChange
     ? (Number.isFinite(Number(sizeChange.level_from)) ? Number(sizeChange.level_from) : (Number.isFinite(Number(sizeChange.at_level)) ? Number(sizeChange.at_level) : null))
     : null;
@@ -2809,8 +2815,11 @@ function openCharacterModal(){
   if(tinkerHintText){
     details.push(`<div class="char-line"><strong>Гномий механик:</strong> ${escapeHtml(tinkerHintText.replace(/^Гномий механик:\s*/, ""))}</div>`);
   }
-  if(telepathyText){
+  if(telepathyText && !verdanLimitedTelepathyText){
     details.push(`<div class="char-line"><strong>Телепатия:</strong> ${escapeHtml(telepathyText.replace(/^Телепатия:\s*/, ""))}</div>`);
+  }
+  if(verdanLimitedTelepathyText){
+    details.push(`<div class="char-line"><strong>Ограниченная телепатия:</strong> ${escapeHtml(verdanLimitedTelepathyText.replace(/^Ограниченная телепатия:\s*/, ""))}</div>`);
   }
   if(blackBloodText){
     details.push(`<div class="char-line"><strong>Чёрная исцеляющая кровь:</strong> ${escapeHtml(blackBloodText.replace(/^Чёрная исцеляющая кровь:\s*/, ""))}</div>`);
@@ -3064,8 +3073,9 @@ function openCharacterModal(){
   if(tinkerText) copyLines.push(tinkerText);
   if(tinkerDevicesText) copyLines.push(tinkerDevicesText);
   if(tinkerHintText) copyLines.push(tinkerHintText);
-  if(telepathyText) copyLines.push(telepathyText);
+  if(telepathyText && !verdanLimitedTelepathyText) copyLines.push(telepathyText);
   if(blackBloodText) copyLines.push(blackBloodText);
+  if(verdanLimitedTelepathyText) copyLines.push(verdanLimitedTelepathyText);
   if(telepathicInsightText) copyLines.push(telepathicInsightText);
   if(draconicAncestryText) copyLines.push(draconicAncestryText);
   if(draconicResistanceText) copyLines.push(draconicResistanceText);

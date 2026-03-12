@@ -754,6 +754,8 @@ def _build_race_features(selected_race: dict | None) -> dict[str, Any]:
                 senses["telepathy"] = telepathy
                 if tkey == "mind_link":
                     features["mind_link"] = dict(telepathy)
+                elif tkey == "limited_telepathy":
+                    features["limited_telepathy"] = dict(telepathy)
 
         if mtype == "tool_proficiency_choice":
             tool_profs.append("choose_any_tools")

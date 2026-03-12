@@ -1306,6 +1306,23 @@ def _kalashtar_mind_link_feature(race_features: Any) -> dict[str, Any]:
     return {}
 
 
+def _verdan_limited_telepathy_feature(race_features: Any) -> dict[str, Any]:
+    rf = race_features if isinstance(race_features, dict) else {}
+    features_raw = rf.get("features")
+    features = features_raw if isinstance(features_raw, dict) else {}
+    limited_raw = features.get("limited_telepathy")
+    limited = limited_raw if isinstance(limited_raw, dict) else {}
+    if limited:
+        return dict(limited)
+    senses_raw = rf.get("senses")
+    senses = senses_raw if isinstance(senses_raw, dict) else {}
+    telepathy_raw = senses.get("telepathy")
+    telepathy = telepathy_raw if isinstance(telepathy_raw, dict) else {}
+    if int(as_int(telepathy.get("range_ft"), 0)) > 0 and str(telepathy.get("bandwidth") or "").strip().lower() == "simple_ideas":
+        return dict(telepathy)
+    return {}
+
+
 def _clear_kalashtar_reply_grant(target_ch: Character, *, owner_player_id: str = "") -> bool:
     race_features = getattr(target_ch, "race_features", None)
     rf = dict(race_features) if isinstance(race_features, dict) else {}
@@ -1378,6 +1395,133 @@ def _parse_mind_link_command(cmdline: str) -> tuple[str | None, str | None]:
     if lowered.startswith("мысленная связь отправить "):
         return "mind_link_say", txt[len("мысленная связь отправить "):].strip()
     return None, None
+
+
+def _parse_verdan_telepathy_command(cmdline: str) -> tuple[str | None, str | None, str | None]:
+    txt = str(cmdline or "").strip()
+    if not txt:
+        return None, None, None
+    lowered = txt.lower()
+    if lowered == "telepathy status" or lowered == "телепатия статус":
+        return "verdan_telepathy_status", None, None
+    payload = ""
+    if lowered.startswith("telepathy send "):
+        payload = txt[len("telepathy send "):].strip()
+    elif lowered.startswith("телепатия отправить "):
+        payload = txt[len("телепатия отправить "):].strip()
+    if not payload:
+        return None, None, None
+    target, sep, message = payload.partition(":")
+    target_name = str(target or "").strip().strip(".,!?")
+    message_text = str(message or "").strip()
+    return "verdan_telepathy_send", target_name, message_text
+
+
+def _verdan_telepathy_status_message(ch: Character) -> tuple[Optional[str], Optional[str], bool]:
+    race_features = getattr(ch, "race_features", None)
+    rf = dict(race_features) if isinstance(race_features, dict) else {}
+    telepathy_cfg = _verdan_limited_telepathy_feature(rf)
+    if not telepathy_cfg:
+        return "Ограниченная телепатия недоступна вашей расе.", None, False
+    runtime_raw = rf.get("runtime")
+    runtime = dict(runtime_raw) if isinstance(runtime_raw, dict) else {}
+    target_name = str(runtime.get("verdan_telepathy_last_target") or "").strip()
+    if not target_name:
+        return None, "[RACE] Ограниченная телепатия готова: 30 фт, простые идеи, цель должна знать язык.", False
+    return None, f"[RACE] Ограниченная телепатия: последняя цель — {target_name}.", False
+
+
+async def _handle_verdan_limited_telepathy_action(
+    db,
+    sess,
+    *,
+    player: Player,
+    session_id: str,
+    action: str,
+    target_name: str = "",
+    message_text: str = "",
+) -> tuple[bool, Optional[str], Optional[str]]:
+    action_key = str(action or "").strip().lower()
+    if action_key not in {"verdan_telepathy_status", "verdan_telepathy_send"}:
+        return False, None, None
+
+    ch = await get_character(db, sess.id, player.id)
+    if not ch:
+        return True, "Персонаж не найден.", None
+    race_features = getattr(ch, "race_features", None)
+    rf = dict(race_features) if isinstance(race_features, dict) else {}
+    telepathy_cfg = _verdan_limited_telepathy_feature(rf)
+    if not telepathy_cfg:
+        return True, "Ограниченная телепатия недоступна вашей расе.", None
+
+    if action_key == "verdan_telepathy_status":
+        return True, *_verdan_telepathy_status_message(ch)[:2]
+
+    target_query = str(target_name or "").strip()
+    if not target_query:
+        return True, "Укажите цель в формате: telepathy send <имя>: <текст>.", None
+    text = str(message_text or "").strip()
+    if not text:
+        return True, "Укажите простую мысль после двоеточия.", None
+
+    uid_map, chars_by_uid, _ = await _load_actor_context(db, sess)
+    q_norm = target_query.lower()
+    best_uid: Optional[int] = None
+    best_score = 999
+    best_name = ""
+    best_player_id = ""
+    for uid, (_sp, pl) in uid_map.items():
+        if pl.id == player.id:
+            continue
+        target_ch = chars_by_uid.get(uid)
+        name_variants = []
+        if target_ch is not None and str(getattr(target_ch, "name", "")).strip():
+            name_variants.append(str(target_ch.name).strip())
+        if str(getattr(pl, "display_name", "")).strip():
+            name_variants.append(str(pl.display_name).strip())
+        for variant in name_variants:
+            v = variant.lower()
+            if v == q_norm:
+                score = 0
+            elif v.startswith(q_norm):
+                score = 1
+            elif q_norm in v:
+                score = 2
+            else:
+                continue
+            if score < best_score:
+                best_score = score
+                best_uid = uid
+                best_name = variant
+                best_player_id = str(pl.id)
+            break
+    if best_uid is None:
+        state = get_combat(session_id)
+        if state is not None and state.active:
+            for ckey, combatant in (state.combatants or {}).items():
+                cname = str(getattr(combatant, "name", "") or "").strip()
+                if not cname:
+                    continue
+                v = cname.lower()
+                if v == q_norm or v.startswith(q_norm) or q_norm in v:
+                    best_name = cname
+                    break
+    if not best_name:
+        return True, f"Не нашёл цель «{target_query}» в текущей сессии.", None
+    if best_player_id and best_player_id == str(player.id):
+        return True, "Нельзя направить ограниченную телепатию на себя.", None
+
+    runtime_raw = rf.get("runtime")
+    runtime = dict(runtime_raw) if isinstance(runtime_raw, dict) else {}
+    runtime["verdan_telepathy_last_target"] = best_name
+    runtime["verdan_telepathy_last_message"] = text
+    runtime["verdan_telepathy_last_used_at"] = utcnow().isoformat()
+    rf["runtime"] = runtime
+    ch.race_features = rf
+    if hasattr(ch, "_sa_instance_state"):
+        flag_modified(ch, "race_features")
+    await db.commit()
+    return True, None, f"[RACE] Ограниченная телепатия → {best_name}: {text}"
 
 
 def _mind_link_status_message(ch: Character) -> tuple[Optional[str], Optional[str], bool]:
@@ -5538,6 +5682,27 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                     await broadcast_state(session_id)
                     continue
 
+                verdan_tel_action, verdan_tel_target, verdan_tel_message = _parse_verdan_telepathy_command(cmdline)
+                if verdan_tel_action:
+                    handled_tel, tel_err, tel_msg = await _handle_verdan_limited_telepathy_action(
+                        db,
+                        sess,
+                        player=player,
+                        session_id=session_id,
+                        action=verdan_tel_action,
+                        target_name=verdan_tel_target or "",
+                        message_text=verdan_tel_message or "",
+                    )
+                    if handled_tel:
+                        if tel_err:
+                            await ws_error(tel_err, request_id=msg_request_id)
+                            continue
+                        if tel_msg:
+                            actor_name = str(getattr((await get_character(db, sess.id, player.id)) or None, "name", "") or player.display_name).strip() or player.display_name
+                            await add_system_event(db, sess, f"{actor_name}: {tel_msg}")
+                        await broadcast_state(session_id)
+                        continue
+
                 mind_link_action, mind_link_arg = _parse_mind_link_command(cmdline)
                 if mind_link_action:
                     synthetic_text = text
@@ -7378,6 +7543,27 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                         await add_system_event(db, sess, mind_link_msg)
                     await broadcast_state(session_id)
                     continue
+
+                verdan_tel_action, verdan_tel_target, verdan_tel_message = _parse_verdan_telepathy_command(cmdline)
+                if verdan_tel_action:
+                    handled_tel, tel_err, tel_msg = await _handle_verdan_limited_telepathy_action(
+                        db,
+                        sess,
+                        player=player,
+                        session_id=session_id,
+                        action=verdan_tel_action,
+                        target_name=verdan_tel_target or "",
+                        message_text=verdan_tel_message or "",
+                    )
+                    if handled_tel:
+                        if tel_err:
+                            await ws_error(tel_err, request_id=msg_request_id)
+                            continue
+                        if tel_msg:
+                            actor_name = str(getattr((await get_character(db, sess.id, player.id)) or None, "name", "") or player.display_name).strip() or player.display_name
+                            await add_system_event(db, sess, f"{actor_name}: {tel_msg}")
+                        await broadcast_state(session_id)
+                        continue
 
                 mind_link_action, mind_link_arg = _parse_mind_link_command(cmdline)
                 if mind_link_action:
