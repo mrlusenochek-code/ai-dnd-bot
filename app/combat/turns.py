@@ -49,15 +49,21 @@ def _normalize_turn_start_runtime(combatant: Combatant, current_actor_key: str) 
         if source_key == current_actor_key:
             runtime.pop("grovel_active_until_turn_start_of_actor_id", None)
             runtime_changed = True
-    hidden_raw = runtime.get("hidden_step")
-    hidden_step = dict(hidden_raw) if isinstance(hidden_raw, dict) else {}
-    if bool(hidden_step.get("active")) and bool(hidden_step.get("expires_on_owner_turn_start", True)):
-        hidden_step["active"] = False
-        runtime["hidden_step"] = hidden_step
+    if _advance_hidden_step_turn_start(runtime):
         runtime_changed = True
     if runtime_changed:
         _commit_combatant_runtime(combatant, race_features, runtime)
     return runtime_changed
+
+
+def _advance_hidden_step_turn_start(runtime: dict) -> bool:
+    hidden_raw = runtime.get("hidden_step")
+    hidden_step = dict(hidden_raw) if isinstance(hidden_raw, dict) else {}
+    if not (bool(hidden_step.get("active")) and bool(hidden_step.get("expires_on_owner_turn_start", True))):
+        return False
+    hidden_step["active"] = False
+    runtime["hidden_step"] = hidden_step
+    return True
 
 
 def _advance_poisoned_condition_for_ending_combatant(combatant: Combatant) -> bool:
