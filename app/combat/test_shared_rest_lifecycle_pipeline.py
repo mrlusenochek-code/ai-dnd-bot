@@ -26,6 +26,15 @@ def _combatant_with_runtime(
     )
 
 
+def _assert_short_rest_active_runtime_cleanup(runtime: dict[str, object], *, adrenaline_uses_used: int) -> None:
+    assert "aasimar_transformation" not in runtime
+    assert "breath_weapon_used" not in runtime
+    assert bool(runtime.get("shifted_active")) is False
+    assert int(runtime.get("shifted_rounds_left") or 0) == 0
+    assert int(runtime.get("shifting_uses_used") or 0) == 0
+    assert int(runtime.get("adrenaline_rush_uses_used") or 0) == adrenaline_uses_used
+
+
 def test_shared_rest_lifecycle_short_rest_distinguishes_resources_and_keeps_unrelated_actor() -> None:
     session_id = "test_shared_rest_lifecycle_short_rest_distinguishes_resources_and_keeps_unrelated_actor"
     state = start_combat(session_id)
@@ -66,13 +75,8 @@ def test_shared_rest_lifecycle_short_rest_distinguishes_resources_and_keeps_unre
         assert state_now is not None
         owner_runtime = (state_now.combatants["pc_owner"].race_features or {}).get("runtime") or {}
         assert owner_runtime.get("aasimar_transform_used") is True
-        assert "aasimar_transformation" not in owner_runtime
+        _assert_short_rest_active_runtime_cleanup(owner_runtime, adrenaline_uses_used=2)
         assert "fly_speed_ft" not in owner_runtime
-        assert "breath_weapon_used" not in owner_runtime
-        assert bool(owner_runtime.get("shifted_active")) is False
-        assert int(owner_runtime.get("shifted_rounds_left") or 0) == 0
-        assert int(owner_runtime.get("shifting_uses_used") or 0) == 0
-        assert int(owner_runtime.get("adrenaline_rush_uses_used") or 0) == 2
 
         other_runtime = (state_now.combatants["pc_other"].race_features or {}).get("runtime") or {}
         assert other_runtime.get("breath_weapon_used") is True
@@ -152,12 +156,7 @@ def test_shared_rest_lifecycle_character_reset_matches_combat_reset_behavior() -
     assert changed_short is True
     runtime_after_short = (ch.race_features or {}).get("runtime") or {}
     assert runtime_after_short.get("aasimar_transform_used") is True
-    assert "aasimar_transformation" not in runtime_after_short
-    assert "breath_weapon_used" not in runtime_after_short
-    assert bool(runtime_after_short.get("shifted_active")) is False
-    assert int(runtime_after_short.get("shifted_rounds_left") or 0) == 0
-    assert int(runtime_after_short.get("shifting_uses_used") or 0) == 0
-    assert int(runtime_after_short.get("adrenaline_rush_uses_used") or 0) == 2
+    _assert_short_rest_active_runtime_cleanup(runtime_after_short, adrenaline_uses_used=2)
 
     changed_long = ws_handlers._reset_racial_rest_uses(ch, long_rest=True)
     assert changed_long is True
