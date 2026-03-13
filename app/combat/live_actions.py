@@ -568,6 +568,49 @@ def _tortle_runtime(actor: Any) -> tuple[dict[str, Any], dict[str, Any]]:
     return race_features, runtime
 
 
+def _enter_shell_defense(
+    actor: Any,
+    race_features: dict[str, Any],
+    runtime: dict[str, Any],
+    *,
+    ac_bonus: int,
+    speed_override_ft: int,
+    entered_turn: str,
+) -> None:
+    runtime["shell_defense_active"] = True
+    runtime["shell_defense_entered_turn"] = entered_turn
+    runtime["ac_bonus"] = ac_bonus
+    runtime["speed_override_ft"] = speed_override_ft
+    race_features["runtime"] = runtime
+    actor.race_features = race_features
+    actor.ac = max(0, int(getattr(actor, "ac", 0) or 0) + ac_bonus)
+    actor.speed_ft = speed_override_ft
+    actor.move_speed_ft = speed_override_ft
+    actor.move_remaining_ft = speed_override_ft
+    actor.move_remaining = speed_override_ft
+
+
+def _exit_shell_defense(
+    actor: Any,
+    race_features: dict[str, Any],
+    runtime: dict[str, Any],
+    *,
+    ac_bonus: int,
+) -> None:
+    runtime["shell_defense_active"] = False
+    runtime["shell_defense_entered_turn"] = ""
+    runtime.pop("ac_bonus", None)
+    runtime.pop("speed_override_ft", None)
+    race_features["runtime"] = runtime
+    actor.race_features = race_features
+    actor.ac = max(0, int(getattr(actor, "ac", 0) or 0) - ac_bonus)
+    restored_speed = _resolve_actor_mode_speed(actor, str(getattr(actor, "movement_mode", "") or "walk"))
+    actor.speed_ft = restored_speed
+    actor.move_speed_ft = restored_speed
+    actor.move_remaining_ft = restored_speed
+    actor.move_remaining = restored_speed
+
+
 def _copy_combatant_runtime(actor: Any) -> tuple[dict[str, Any], dict[str, Any]]:
     race_features = actor.race_features if isinstance(getattr(actor, "race_features", None), dict) else {}
     runtime_raw = race_features.get("runtime")
@@ -4491,17 +4534,14 @@ def handle_live_combat_action(
         if action == "combat_shell_defense":
             if shell_active:
                 return None, "Защита панцирем уже активна."
-            runtime["shell_defense_active"] = True
-            runtime["shell_defense_entered_turn"] = f"{int(getattr(state, 'round_no', 1) or 1)}:{getattr(actor, 'key', '')}"
-            runtime["ac_bonus"] = ac_bonus
-            runtime["speed_override_ft"] = speed_override
-            race_features["runtime"] = runtime
-            actor.race_features = race_features
-            actor.ac = max(0, int(getattr(actor, "ac", 0) or 0) + ac_bonus)
-            actor.speed_ft = speed_override
-            actor.move_speed_ft = speed_override
-            actor.move_remaining_ft = speed_override
-            actor.move_remaining = speed_override
+            _enter_shell_defense(
+                actor,
+                race_features,
+                runtime,
+                ac_bonus=ac_bonus,
+                speed_override_ft=speed_override,
+                entered_turn=f"{int(getattr(state, 'round_no', 1) or 1)}:{getattr(actor, 'key', '')}",
+            )
             return (
                 {
                     "status": _combat_status(state),
@@ -4515,18 +4555,7 @@ def handle_live_combat_action(
             )
         if not shell_active:
             return None, "Защита панцирем сейчас не активна."
-        runtime["shell_defense_active"] = False
-        runtime["shell_defense_entered_turn"] = ""
-        runtime.pop("ac_bonus", None)
-        runtime.pop("speed_override_ft", None)
-        race_features["runtime"] = runtime
-        actor.race_features = race_features
-        actor.ac = max(0, int(getattr(actor, "ac", 0) or 0) - ac_bonus)
-        restored_speed = _resolve_actor_mode_speed(actor, str(getattr(actor, "movement_mode", "") or "walk"))
-        actor.speed_ft = restored_speed
-        actor.move_speed_ft = restored_speed
-        actor.move_remaining_ft = restored_speed
-        actor.move_remaining = restored_speed
+        _exit_shell_defense(actor, race_features, runtime, ac_bonus=ac_bonus)
         return (
             {
                 "status": _combat_status(state),
