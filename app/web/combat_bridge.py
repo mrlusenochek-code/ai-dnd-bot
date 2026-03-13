@@ -234,6 +234,23 @@ def _maybe_apply_opening_combat_action(
         state.turn_index = state.order.index(player_key)
         state.round_no = max(1, int(state.round_no or 0))
 
+    return _collect_and_merge_combat_patches(
+        session_id=session_id,
+        combat_action=combat_action,
+        combat_patch=combat_patch,
+        round_no=state.round_no,
+        turn_label=current_turn_label(state),
+    )
+
+
+def _collect_and_merge_combat_patches(
+    *,
+    session_id: str,
+    combat_action: str,
+    combat_patch: Optional[dict[str, Any]],
+    round_no: int,
+    turn_label: str,
+) -> Optional[dict[str, Any]]:
     merge_items: list[dict[str, Any]] = []
     if isinstance(combat_patch, dict):
         merge_items.append(combat_patch)
@@ -242,7 +259,7 @@ def _maybe_apply_opening_combat_action(
             "open": True,
             "lines": [
                 {
-                    "text": f"⚔ Бой • Раунд {state.round_no} • Ход: {current_turn_label(state)}",
+                    "text": f"⚔ Бой • Раунд {round_no} • Ход: {turn_label}",
                     "muted": True,
                     "kind": "status",
                 }
