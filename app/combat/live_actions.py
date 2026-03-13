@@ -874,6 +874,16 @@ def _eerie_token_runtime(actor: Any) -> tuple[dict[str, Any], dict[str, Any]]:
     return race_features, runtime
 
 
+def _activate_eerie_token_sense_runtime(actor: Any) -> None:
+    race_features, runtime = _eerie_token_runtime(actor)
+    runtime["eerie_token_active"] = False
+    runtime["eerie_token_consumed"] = True
+    runtime["eerie_token_sense_active"] = True
+    runtime["eerie_token_remote_view_rounds_left"] = 10
+    race_features["runtime"] = runtime
+    actor.race_features = race_features
+
+
 def _saving_face_allies_within_30ft(state: Any, actor: Any) -> int:
     side = str(getattr(actor, "side", "")).strip().lower()
     if not side:
@@ -2840,12 +2850,7 @@ def handle_live_combat_action(
         blocked = _spend_action_or_block(state, actor)
         if blocked is not None:
             return blocked, None
-        runtime["eerie_token_active"] = False
-        runtime["eerie_token_consumed"] = True
-        runtime["eerie_token_sense_active"] = True
-        runtime["eerie_token_remote_view_rounds_left"] = 10
-        race_features["runtime"] = runtime
-        actor.race_features = race_features
+        _activate_eerie_token_sense_runtime(actor)
         return (
             {
                 "status": _combat_status(state),
