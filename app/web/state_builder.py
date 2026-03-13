@@ -403,6 +403,10 @@ async def _apply_combat_outcome_side_effects(
     return changed
 
 
+def _apply_combat_state_persistence(sess: Session, session_id: str, changed: bool) -> bool:
+    return _persist_combat_state(sess, session_id) or changed
+
+
 async def _broadcast_state_unlocked(
     session_id: str,
     combat_log_ui_patch: Optional[dict[str, Any]] = None,
@@ -422,7 +426,7 @@ async def _broadcast_state_unlocked(
         changed = patch_changed or changed
         changed = await _apply_combat_outcome_side_effects(db, sess, combat_log_ui_patch) or changed
 
-        changed = _persist_combat_state(sess, session_id) or changed
+        changed = _apply_combat_state_persistence(sess, session_id, changed)
         if changed:
             t_commit0 = time.monotonic()
             await db.commit()
