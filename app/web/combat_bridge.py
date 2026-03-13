@@ -12,11 +12,14 @@ from app.web.gameplay_helpers import (
     CHAR_DEFAULT_STATS,
     GM_FINAL_NUM_PREDICT,
     GM_OLLAMA_TIMEOUT_SECONDS,
+    _character_meta_from_stats,
     _normalized_stats,
     _player_uid,
 )
 from app.web.inventory_helpers import _character_equip_from_stats, _character_inventory_from_stats
+from app.web.session_state import settings_get
 from app.web.utils import _clamp, as_int
+from app.web.ws_combat_prompting import _gender_to_pronouns
 
 
 logger = logging.getLogger("app.web.server")
@@ -349,3 +352,37 @@ async def _generate_combat_narration(
         timeout_seconds=GM_OLLAMA_TIMEOUT_SECONDS,
         num_predict=max(240, GM_FINAL_NUM_PREDICT // 3),
     )
+
+
+def _build_combat_narration_inputs(
+    *,
+    sess: Any,
+    combat_state: Any,
+    combat_patch: Optional[dict[str, Any]],
+    combat_action: str,
+    character: Any,
+    actor_label: str,
+) -> dict[str, Any]:
+    story = settings_get(sess, "story", {}) or {}
+    if not isinstance(story, dict):
+        story = {}
+    campaign_title = str(story.get("story_title") or "").strip() or str(getattr(sess, "title", "") or "Campaign").strip() or "Campaign"
+    outcome_summary = _combat_outcome_summary_from_patch(combat_action, combat_patch)
+    current_turn = current_turn_label(combat_state) if combat_state else "-"
+    participants_block = _combat_participants_block(combat_state)
+    meta = _character_meta_from_stats(character.stats) if character else {"gender": "", "race": "", "description": ""}
+    actor_gender = meta["gender"]
+    actor_pronouns = _gender_to_pronouns(actor_gender) or "unknown"
+    actor_name = str(getattr(character, "name", "") or "").strip() if character else ""
+    if not actor_name:
+        actor_name = actor_label
+    return {
+        "campaign_title": campaign_title,
+        "outcome_summary": outcome_summary,
+        "player_action": combat_action,
+        "current_turn": current_turn,
+        "participants_block": participants_block,
+        "actor_name": actor_name,
+        "actor_gender": actor_gender,
+        "actor_pronouns": actor_pronouns,
+    }

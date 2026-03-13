@@ -63,8 +63,8 @@ from app.web.state_builder import broadcast_state, _broadcast_state_unlocked, se
 from app.web.combat_bridge import (
     _append_combat_patch_lines,
     _build_combat_start_preamble_lines,
+    _build_combat_narration_inputs,
     _combat_outcome_summary_from_patch,
-    _combat_participants_block,
     _generate_combat_narration,
     _merge_combat_patches,
 )
@@ -77,7 +77,6 @@ from app.web.ws_combat_prompting import (
     _COMBAT_LOCK_PROMPT,
     _build_combat_scene_facts_for_llm,
     _combat_text_mentions_forbidden_gear,
-    _gender_to_pronouns,
     _has_start_intent_sanitary_markers,
     _looks_like_combat_drift,
     _sanitize_gm_output,
@@ -8298,26 +8297,24 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                             sync_pcs_from_chars(session_id, chars_by_uid)
                         await broadcast_state(session_id, combat_log_ui_patch=merged_patch)
                         state_for_prompt = state_after_actions
-                        story = settings_get(sess, "story", {}) or {}
-                        if not isinstance(story, dict):
-                            story = {}
-                        campaign_title = str(story.get("story_title") or "").strip() or str(sess.title or "Campaign").strip() or "Campaign"
-                        turn_label = current_turn_label(state_for_prompt) if state_for_prompt else "-"
-                        participants_block = _combat_participants_block(state_for_prompt)
                         ch = await get_character(db, sess.id, player.id)
-                        meta = _character_meta_from_stats(ch.stats) if ch else {"gender": "", "race": "", "description": ""}
-                        actor_gender = meta["gender"]
-                        actor_pronouns = _gender_to_pronouns(actor_gender) or "unknown"
-                        actor_name = str(ch.name).strip() if ch and str(ch.name or "").strip() else actor_label
+                        narration_inputs = _build_combat_narration_inputs(
+                            sess=sess,
+                            combat_state=state_for_prompt,
+                            combat_patch=merged_patch,
+                            combat_action=combat_action,
+                            character=ch,
+                            actor_label=actor_label,
+                        )
                         gm_text = await _generate_combat_narration(
-                            campaign_title=campaign_title,
-                            outcome_summary=outcome_summary,
-                            player_action=combat_action,
-                            current_turn=turn_label,
-                            participants_block=participants_block,
-                            actor_name=actor_name,
-                            actor_gender=actor_gender,
-                            actor_pronouns=actor_pronouns,
+                            campaign_title=narration_inputs["campaign_title"],
+                            outcome_summary=narration_inputs["outcome_summary"],
+                            player_action=narration_inputs["player_action"],
+                            current_turn=narration_inputs["current_turn"],
+                            participants_block=narration_inputs["participants_block"],
+                            actor_name=narration_inputs["actor_name"],
+                            actor_gender=narration_inputs["actor_gender"],
+                            actor_pronouns=narration_inputs["actor_pronouns"],
                         )
                         await add_system_event(
                             db,
@@ -8326,7 +8323,7 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                             result_json={
                                 "type": "combat_chat_gm_reply",
                                 "combat_action": combat_action,
-                                "combat_summary": outcome_summary,
+                                "combat_summary": narration_inputs["outcome_summary"],
                             },
                         )
                         await broadcast_state(session_id)
