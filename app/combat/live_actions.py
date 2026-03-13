@@ -8,7 +8,7 @@ from datetime import datetime, timezone
 from typing import Any, Optional
 
 from app.combat.resolution import resolve_attack_roll
-from app.combat.shifter_runtime import clear_shifter_shift_runtime
+from app.combat.shifter_runtime import apply_shifter_shift_start_runtime, clear_shifter_shift_runtime
 from app.combat.state import (
     advance_turn,
     apply_damage,
@@ -4208,14 +4208,14 @@ def handle_live_combat_action(
                     actor.move_remaining_ft = max(0, int(getattr(actor, "move_remaining_ft", 0) or 0) + speed_bonus)
                     actor.move_remaining = actor.move_remaining_ft
                 runtime["shifting_speed_bonus_active_ft"] = speed_bonus
-        runtime["shifted_active"] = True
-        runtime["shifted_rounds_left"] = 10
-        runtime["shifting_uses_used"] = uses_used + 1
-        runtime["shifting_temp_hp_granted"] = temp_hp_gain
-        runtime["shifting_longtooth_bite_available"] = subrace_key == "longtooth"
-        runtime["shifting_swiftstride_reaction_available"] = subrace_key == "swiftstride"
         race_features["runtime"] = runtime
         actor.race_features = race_features
+        apply_shifter_shift_start_runtime(
+            actor,
+            uses_used=uses_used,
+            temp_hp_gain=temp_hp_gain,
+            subrace_key=subrace_key,
+        )
         actor.temp_hp = max(max(0, int(getattr(actor, "temp_hp", 0) or 0)), temp_hp_gain)
         lines = [
             {"text": f"Смена формы: {actor.name} входит в звериную форму на 10 ходов."},

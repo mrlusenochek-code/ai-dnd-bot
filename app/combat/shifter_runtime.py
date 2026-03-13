@@ -3,6 +3,26 @@ from __future__ import annotations
 from typing import Any
 
 
+def apply_shifter_shift_start_runtime(
+    actor: Any,
+    *,
+    uses_used: int,
+    temp_hp_gain: int,
+    subrace_key: str,
+) -> None:
+    race_features = actor.race_features if isinstance(getattr(actor, "race_features", None), dict) else {}
+    runtime_raw = race_features.get("runtime")
+    runtime = dict(runtime_raw) if isinstance(runtime_raw, dict) else {}
+    runtime["shifted_active"] = True
+    runtime["shifted_rounds_left"] = 10
+    runtime["shifting_uses_used"] = max(0, uses_used) + 1
+    runtime["shifting_temp_hp_granted"] = max(0, temp_hp_gain)
+    runtime["shifting_longtooth_bite_available"] = subrace_key == "longtooth"
+    runtime["shifting_swiftstride_reaction_available"] = subrace_key == "swiftstride"
+    race_features["runtime"] = runtime
+    actor.race_features = race_features
+
+
 def clear_shifter_shift_runtime(actor: Any, *, sync_active_walk_movement: bool) -> bool:
     if str(getattr(actor, "side", "")).lower() != "pc":
         return False
