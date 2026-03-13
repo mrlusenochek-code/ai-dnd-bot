@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import random
 
+from app.combat.shifter_runtime import clear_shifter_shift_runtime
 from app.combat.state import CombatState, Combatant
 from app.rules.phb_math import ability_mod_from_stat100
 
@@ -144,39 +145,7 @@ def _advance_eerie_token_turn_runtime(combatant: Combatant) -> bool:
 
 
 def _clear_shifter_shift_runtime(combatant: Combatant) -> bool:
-    race_features = combatant.race_features if isinstance(combatant.race_features, dict) else {}
-    runtime_raw = race_features.get("runtime")
-    runtime = dict(runtime_raw) if isinstance(runtime_raw, dict) else {}
-    changed = False
-    if bool(runtime.get("shifted_active")):
-        runtime["shifted_active"] = False
-        changed = True
-    if max(0, int(runtime.get("shifted_rounds_left") or 0)) != 0:
-        runtime["shifted_rounds_left"] = 0
-        changed = True
-    ac_bonus = max(0, int(runtime.get("shifting_ac_bonus_active") or 0))
-    if ac_bonus > 0:
-        combatant.ac = max(0, int(getattr(combatant, "ac", 0) or 0) - ac_bonus)
-        runtime["shifting_ac_bonus_active"] = 0
-        changed = True
-    speed_bonus = max(0, int(runtime.get("shifting_speed_bonus_active_ft") or 0))
-    if speed_bonus > 0:
-        speeds = combatant.movement_speeds if isinstance(getattr(combatant, "movement_speeds", None), dict) else {}
-        walk_speed = max(0, int(speeds.get("walk", getattr(combatant, "speed_ft", 30)) or 0))
-        speeds["walk"] = max(0, walk_speed - speed_bonus)
-        combatant.movement_speeds = speeds
-        runtime["shifting_speed_bonus_active_ft"] = 0
-        changed = True
-    if bool(runtime.get("shifting_longtooth_bite_available")):
-        runtime["shifting_longtooth_bite_available"] = False
-        changed = True
-    if bool(runtime.get("shifting_swiftstride_reaction_available")):
-        runtime["shifting_swiftstride_reaction_available"] = False
-        changed = True
-    if changed:
-        race_features["runtime"] = runtime
-        combatant.race_features = race_features
-    return changed
+    return clear_shifter_shift_runtime(combatant, sync_active_walk_movement=False)
 
 
 def _normalize_tabaxi_feline_agility_runtime(combatant: Combatant) -> bool:

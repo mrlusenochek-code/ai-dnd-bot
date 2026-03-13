@@ -8,6 +8,7 @@ from datetime import datetime, timezone
 from typing import Any, Optional
 
 from app.combat.resolution import resolve_attack_roll
+from app.combat.shifter_runtime import clear_shifter_shift_runtime
 from app.combat.state import (
     advance_turn,
     apply_damage,
@@ -157,45 +158,7 @@ def _is_shifter_shifted(actor: Any) -> bool:
 
 
 def _clear_shifter_shift(actor: Any) -> bool:
-    if str(getattr(actor, "side", "")).lower() != "pc":
-        return False
-    race_features, runtime = _shifter_runtime(actor)
-    if not runtime:
-        return False
-    changed = False
-    if bool(runtime.get("shifted_active")):
-        runtime["shifted_active"] = False
-        changed = True
-    if max(0, int(runtime.get("shifted_rounds_left") or 0)) != 0:
-        runtime["shifted_rounds_left"] = 0
-        changed = True
-    ac_bonus = max(0, int(runtime.get("shifting_ac_bonus_active") or 0))
-    if ac_bonus > 0:
-        actor.ac = max(0, int(getattr(actor, "ac", 0) or 0) - ac_bonus)
-        runtime["shifting_ac_bonus_active"] = 0
-        changed = True
-    speed_bonus = max(0, int(runtime.get("shifting_speed_bonus_active_ft") or 0))
-    if speed_bonus > 0:
-        speeds = actor.movement_speeds if isinstance(getattr(actor, "movement_speeds", None), dict) else {}
-        walk_speed = max(0, int(speeds.get("walk", getattr(actor, "speed_ft", 30)) or 0))
-        speeds["walk"] = max(0, walk_speed - speed_bonus)
-        actor.movement_speeds = speeds
-        if str(getattr(actor, "movement_mode", "") or "walk").strip().lower() == "walk":
-            actor.move_speed_ft = max(0, int(getattr(actor, "move_speed_ft", speeds["walk"]) or 0) - speed_bonus)
-            actor.move_remaining_ft = min(max(0, int(getattr(actor, "move_remaining_ft", 0) or 0)), actor.move_speed_ft)
-            actor.move_remaining = actor.move_remaining_ft
-        runtime["shifting_speed_bonus_active_ft"] = 0
-        changed = True
-    if bool(runtime.get("shifting_longtooth_bite_available")):
-        runtime["shifting_longtooth_bite_available"] = False
-        changed = True
-    if bool(runtime.get("shifting_swiftstride_reaction_available")):
-        runtime["shifting_swiftstride_reaction_available"] = False
-        changed = True
-    if changed:
-        race_features["runtime"] = runtime
-        actor.race_features = race_features
-    return changed
+    return clear_shifter_shift_runtime(actor, sync_active_walk_movement=True)
 
 
 def _select_named_or_first_opponent(state: Any, actor: Any, raw_text: str | None) -> Any | None:
