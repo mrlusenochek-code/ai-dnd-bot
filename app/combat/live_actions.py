@@ -884,6 +884,23 @@ def _activate_eerie_token_sense_runtime(actor: Any) -> None:
     actor.race_features = race_features
 
 
+def _initialize_eerie_token_runtime(actor: Any, *, replacing: bool, used: int) -> dict[str, Any]:
+    race_features, runtime = _eerie_token_runtime(actor)
+    if not replacing:
+        runtime["eerie_token_uses_used"] = used + 1
+    runtime["eerie_token_active"] = True
+    runtime["eerie_token_consumed"] = False
+    runtime["eerie_token_id"] = f"et_{uuid.uuid4().hex[:8]}"
+    runtime["eerie_token_created_at"] = datetime.now(timezone.utc).isoformat()
+    runtime["eerie_token_last_message"] = ""
+    runtime["eerie_token_sense_active"] = False
+    runtime["eerie_token_remote_view_rounds_left"] = 0
+    runtime["eerie_token_expires_on_next_long_rest"] = True
+    race_features["runtime"] = runtime
+    actor.race_features = race_features
+    return runtime
+
+
 def _saving_face_allies_within_30ft(state: Any, actor: Any) -> int:
     side = str(getattr(actor, "side", "")).strip().lower()
     if not side:
@@ -2738,18 +2755,7 @@ def handle_live_combat_action(
         blocked = _spend_bonus_action_or_block(state, actor)
         if blocked is not None:
             return blocked, None
-        if not replacing:
-            runtime["eerie_token_uses_used"] = used + 1
-        runtime["eerie_token_active"] = True
-        runtime["eerie_token_consumed"] = False
-        runtime["eerie_token_id"] = f"et_{uuid.uuid4().hex[:8]}"
-        runtime["eerie_token_created_at"] = datetime.now(timezone.utc).isoformat()
-        runtime["eerie_token_last_message"] = ""
-        runtime["eerie_token_sense_active"] = False
-        runtime["eerie_token_remote_view_rounds_left"] = 0
-        runtime["eerie_token_expires_on_next_long_rest"] = True
-        race_features["runtime"] = runtime
-        actor.race_features = race_features
+        runtime = _initialize_eerie_token_runtime(actor, replacing=replacing, used=used)
         token_action = "заменяет" if replacing else "создаёт"
         return (
             {
