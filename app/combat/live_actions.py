@@ -8,7 +8,11 @@ from datetime import datetime, timezone
 from typing import Any, Optional
 
 from app.combat.resolution import resolve_attack_roll
-from app.combat.shifter_runtime import apply_shifter_shift_start_runtime, clear_shifter_shift_runtime
+from app.combat.shifter_runtime import (
+    apply_shifter_beasthide_shift_effects,
+    apply_shifter_shift_start_runtime,
+    clear_shifter_shift_runtime,
+)
 from app.combat.state import (
     advance_turn,
     apply_damage,
@@ -4190,12 +4194,14 @@ def handle_live_combat_action(
         bonus_cfg = _race_feature(actor, "shifting_bonus")
         if isinstance(bonus_cfg, dict) and str(subrace_key) == "beasthide":
             extra_roll = random.randint(1, 6)
-            temp_hp_gain += extra_roll
+            temp_hp_gain = apply_shifter_beasthide_shift_effects(
+                actor,
+                runtime=runtime,
+                ac_bonus=max(0, int(bonus_cfg.get("ac_bonus") or 0)),
+                extra_temp_hp_roll=extra_roll,
+                temp_hp_gain=temp_hp_gain,
+            )
             bonus_lines.append(f"Зверошкура: +1d6 временных хитов ({extra_roll}).")
-            ac_bonus = max(0, int(bonus_cfg.get("ac_bonus") or 0))
-            if ac_bonus > 0:
-                actor.ac += ac_bonus
-                runtime["shifting_ac_bonus_active"] = ac_bonus
         mobility_cfg = _race_feature(actor, "shifting_mobility")
         if isinstance(mobility_cfg, dict) and str(subrace_key) == "swiftstride":
             speed_bonus = max(0, int(mobility_cfg.get("walk_speed_bonus_ft") or 0))

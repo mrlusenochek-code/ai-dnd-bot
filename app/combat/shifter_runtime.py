@@ -23,6 +23,21 @@ def apply_shifter_shift_start_runtime(
     actor.race_features = race_features
 
 
+def apply_shifter_beasthide_shift_effects(
+    actor: Any,
+    *,
+    runtime: dict[str, object],
+    ac_bonus: int,
+    extra_temp_hp_roll: int,
+    temp_hp_gain: int,
+) -> int:
+    next_temp_hp_gain = max(0, temp_hp_gain) + max(0, extra_temp_hp_roll)
+    if ac_bonus > 0:
+        actor.ac += ac_bonus
+        runtime["shifting_ac_bonus_active"] = ac_bonus
+    return next_temp_hp_gain
+
+
 def clear_shifter_shift_runtime(actor: Any, *, sync_active_walk_movement: bool) -> bool:
     if str(getattr(actor, "side", "")).lower() != "pc":
         return False
