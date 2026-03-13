@@ -373,18 +373,20 @@ def _apply_relentless_endurance_if_needed(*, target: Any, incoming_damage: int) 
     return max(0, pre_hp - 1), extra_lines
 
 
-def _revert_shapechanger_on_death(target: Any, lines: list[dict[str, Any]]) -> None:
+def _revert_shapechanger_on_death(target: Any, lines: list[dict[str, Any]]) -> bool:
+    reverted = False
     if _clear_shifter_shift(target):
+        reverted = True
         lines.append({"text": "Смена формы шифтера завершается из-за смерти.", "muted": True})
     if str(getattr(target, "side", "")).lower() != "pc":
-        return
+        return reverted
     race_features = target.race_features if isinstance(getattr(target, "race_features", None), dict) else {}
     runtime_raw = race_features.get("runtime")
     runtime = dict(runtime_raw) if isinstance(runtime_raw, dict) else {}
     shape_raw = runtime.get("shapechanger")
     shape = dict(shape_raw) if isinstance(shape_raw, dict) else {}
     if not bool(shape.get("active")):
-        return
+        return reverted
     shape["active"] = False
     shape["persona"] = ""
     shape["voice"] = ""
@@ -393,6 +395,7 @@ def _revert_shapechanger_on_death(target: Any, lines: list[dict[str, Any]]) -> N
     race_features["runtime"] = runtime
     target.race_features = race_features
     lines.append({"text": "Перевёртыш: смерть — возвращение в истинную форму.", "muted": True})
+    return True
 
 
 def _maybe_apply_built_for_success(actor: Any, d20_roll: int, lines: list[dict[str, Any]]) -> int:
