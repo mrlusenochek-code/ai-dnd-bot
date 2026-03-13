@@ -382,6 +382,27 @@ async def _apply_combat_patch_handoff(
     return combat_log_ui_patch, True
 
 
+async def _apply_combat_outcome_side_effects(
+    db: AsyncSession,
+    sess: Session,
+    combat_log_ui_patch: Optional[dict[str, Any]],
+) -> bool:
+    if combat_log_ui_patch is None:
+        return False
+
+    changed = False
+    rewards_granted = await _grant_combat_rewards_once(db, sess, combat_log_ui_patch)
+    if rewards_granted:
+        changed = True
+    defeat_outcome_granted = await _grant_defeat_outcome_once(db, sess, combat_log_ui_patch)
+    if defeat_outcome_granted:
+        changed = True
+    defeat_effects_applied = await _apply_defeat_effects_once(db, sess)
+    if defeat_effects_applied:
+        changed = True
+    return changed
+
+
 async def _broadcast_state_unlocked(
     session_id: str,
     combat_log_ui_patch: Optional[dict[str, Any]] = None,
@@ -399,16 +420,7 @@ async def _broadcast_state_unlocked(
             db, sess, session_id, combat_log_ui_patch
         )
         changed = patch_changed or changed
-        if combat_log_ui_patch is not None:
-            rewards_granted = await _grant_combat_rewards_once(db, sess, combat_log_ui_patch)
-            if rewards_granted:
-                changed = True
-            defeat_outcome_granted = await _grant_defeat_outcome_once(db, sess, combat_log_ui_patch)
-            if defeat_outcome_granted:
-                changed = True
-            defeat_effects_applied = await _apply_defeat_effects_once(db, sess)
-            if defeat_effects_applied:
-                changed = True
+        changed = await _apply_combat_outcome_side_effects(db, sess, combat_log_ui_patch) or changed
 
         changed = _persist_combat_state(sess, session_id) or changed
         if changed:
