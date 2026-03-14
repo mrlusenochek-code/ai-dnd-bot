@@ -47,6 +47,7 @@ from app.web.gameplay_helpers import (
 from app.web.session_state import (
     settings_get,
     settings_set,
+    _default_map_position,
     _get_ready_map,
     _set_ready,
     _get_init_map,
@@ -56,7 +57,7 @@ from app.web.session_state import (
     _get_phase,
     _set_phase,
     _set_init_value,
-    _set_pc_zone,
+    _set_player_map_position,
     _initiative_fixed,
 )
 from app.web.session_lock import get_session_lock
@@ -167,6 +168,40 @@ def _build_player_action_position_payload(
         "zone_after": str(zone_after or zone_before),
         "map_position_before": dict(position_before) if isinstance(position_before, dict) else None,
         "map_position_after": dict(map_position_after) if isinstance(map_position_after, dict) else None,
+    }
+
+
+def _infer_action_position_update(
+    current_map_position: dict[str, Any] | None,
+    current_zone_label: str,
+    text: str,
+) -> tuple[str, dict[str, Any]]:
+    zone_before = str(current_zone_label or "стартовая локация").strip() or "стартовая локация"
+    next_zone_label = infer_zone_from_action(text, zone_before)
+    # Until a real map movement layer exists, movement writes land on a canonical zone wrapper.
+    next_map_position = _default_map_position(next_zone_label)
+    return next_zone_label, next_map_position
+
+
+def _apply_player_action_position_update(
+    sess: Any,
+    player_id: uuid.UUID,
+    text: str,
+) -> dict[str, Any]:
+    position_context = _get_player_position_context(sess, player_id)
+    current_zone_label = str(position_context.get("zone_label") or "стартовая локация")
+    current_map_position = position_context.get("map_position")
+    next_zone_label, next_map_position = _infer_action_position_update(
+        current_map_position if isinstance(current_map_position, dict) else None,
+        current_zone_label,
+        text,
+    )
+    _set_player_map_position(sess, player_id, next_map_position)
+    return {
+        "zone_before": current_zone_label,
+        "zone_after": next_zone_label,
+        "map_position_before": dict(current_map_position) if isinstance(current_map_position, dict) else None,
+        "map_position_after": _get_player_map_position(sess, player_id),
     }
 VALID_TOOL_KEYS = set(TOOL_LABELS_RU)
 TINKER_DEVICE_LABELS_RU: dict[str, str] = {
@@ -8588,16 +8623,7 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                     )
                     round_actions[pid] = gm_action_text
                     settings_set(sess, "round_actions", round_actions)
-                    current_position = _get_player_position_context(sess, pid)
-                    current_zone = str(current_position.get("zone_label") or "стартовая локация")
-                    new_zone = infer_zone_from_action(text, current_zone)
-                    _set_pc_zone(sess, player.id, new_zone)
-                    position_payload = _build_player_action_position_payload(
-                        sess,
-                        player.id,
-                        zone_after=new_zone,
-                        map_position_after=_get_player_map_position(sess, player.id),
-                    )
+                    position_payload = _apply_player_action_position_update(sess, player.id, text)
                     actor_label = await _event_actor_label(db, sess, player)
                     payload = {
                         "type": "player_action",
@@ -8646,16 +8672,7 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                 actor_label = await _event_actor_label(db, sess, player)
                 pid = str(player.id)
                 phase = _get_phase(sess)
-                current_position = _get_player_position_context(sess, pid)
-                current_zone = str(current_position.get("zone_label") or "стартовая локация")
-                new_zone = infer_zone_from_action(text, current_zone)
-                _set_pc_zone(sess, player.id, new_zone)
-                position_payload = _build_player_action_position_payload(
-                    sess,
-                    player.id,
-                    zone_after=new_zone,
-                    map_position_after=_get_player_map_position(sess, player.id),
-                )
+                position_payload = _apply_player_action_position_update(sess, player.id, text)
                 build_player_gm_action_text = _resolve_build_player_gm_action_text()
                 gm_action_text, _moved, encounter_patch = await build_player_gm_action_text(
                     db,
