@@ -858,6 +858,39 @@ def test_player_map_knowledge_grant_get_has_and_upgrade_cleanly() -> None:
     assert session_state.has_player_map_knowledge(sess, player_id, "eastern_bank", minimum_kind="visited") is True
 
 
+def test_player_map_reveal_storage_is_separate_and_seeded_from_current_static_position() -> None:
+    player_id = uuid.uuid4()
+    sess = SimpleNamespace(settings={})
+    session_state._initialize_default_group(
+        sess,
+        [player_id],
+        {
+            "map_level": "region",
+            "node_type": "zone",
+            "node_id": "start_trakt",
+            "label": "Стартовый тракт",
+        },
+    )
+
+    revealed_node_ids = session_state.get_player_revealed_node_ids(sess, player_id)
+
+    assert "start_trakt" in revealed_node_ids
+    assert "fortress_gate" in revealed_node_ids
+    assert "eastern_bank" not in revealed_node_ids
+    assert len(revealed_node_ids) == len(set(revealed_node_ids))
+    assert session_state.is_player_node_revealed(sess, player_id, "start_trakt") is True
+    assert session_state.is_player_node_revealed(sess, player_id, "eastern_bank") is False
+
+    session_state.reveal_player_map_node(sess, player_id, "eastern_bank", source="test")
+    session_state.reveal_player_map_node(sess, player_id, "eastern_bank", source="test")
+
+    updated_revealed = session_state.get_player_revealed_node_ids(sess, player_id)
+
+    assert "eastern_bank" in updated_revealed
+    assert len(updated_revealed) == len(set(updated_revealed))
+    assert session_state.has_player_map_knowledge(sess, player_id, "eastern_bank") is True
+
+
 def test_pause_resume_and_evaluate_group_travel_preserve_mode_and_activity() -> None:
     player_id = uuid.uuid4()
     sess = SimpleNamespace(settings={})
@@ -1132,6 +1165,7 @@ def test_complete_inspect_and_confirm_enter_update_player_map_knowledge() -> Non
 
     assert completed is not None
     assert session_state.get_player_map_knowledge(sess, player_id)["fortress_gate"]["knowledge_kind"] == "visited"
+    assert session_state.is_player_node_revealed(sess, player_id, "fortress_gate") is True
 
     session_state.start_group_travel(
         sess,
@@ -1166,6 +1200,7 @@ def test_complete_inspect_and_confirm_enter_update_player_map_knowledge() -> Non
 
     assert inspected is not None
     assert session_state.get_player_map_knowledge(sess, player_id)["watchtower"]["knowledge_kind"] == "discovered"
+    assert session_state.is_player_node_revealed(sess, player_id, "watchtower") is True
 
     session_state.start_group_travel(
         sess,
@@ -1199,6 +1234,7 @@ def test_complete_inspect_and_confirm_enter_update_player_map_knowledge() -> Non
 
     assert confirmed is not None
     assert session_state.get_player_map_knowledge(sess, player_id)["mine_entrance"]["knowledge_kind"] == "visited"
+    assert session_state.is_player_node_revealed(sess, player_id, "mine_entrance") is True
 
     session_state.start_group_travel(
         sess,

@@ -1,6 +1,13 @@
 from __future__ import annotations
 
-from app.web.map_registry import find_static_link, get_static_map_links, get_static_map_nodes, get_static_node, resolve_static_map_node
+from app.web.map_registry import (
+    find_static_link,
+    get_obvious_linked_static_node_ids,
+    get_static_map_links,
+    get_static_map_nodes,
+    get_static_node,
+    resolve_static_map_node,
+)
 from app.web.map_targeting import resolve_action_target_node, resolve_group_target_route, validate_group_target_transition
 
 
@@ -33,6 +40,7 @@ def test_static_map_registry_loads_known_nodes_and_links() -> None:
         "link_kind": "approach",
     }
     assert any(link["action_kind"] == "enter" for link in links)
+    assert get_obvious_linked_static_node_ids("start_trakt") == ["fortress_gate"]
 
 
 def test_resolve_static_map_node_supports_labels_and_aliases() -> None:

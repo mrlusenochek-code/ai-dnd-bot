@@ -47,6 +47,7 @@ from app.web.session_state import (
     _get_pc_positions,
     _get_player_group_id,
     get_player_known_node_ids,
+    get_player_revealed_node_ids,
     _get_phase,
     _initiative_fixed,
 )
@@ -304,6 +305,7 @@ async def build_state(db: AsyncSession, sess: Session) -> dict:
                 "zone": positions.get(str(sp.player_id), "стартовая локация"),
                 "map_position": structured_positions.get(str(sp.player_id)),
                 "known_node_ids": get_player_known_node_ids(sess, sp.player_id),
+                "revealed_node_ids": get_player_revealed_node_ids(sess, sp.player_id),
             }
         )
 

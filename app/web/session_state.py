@@ -5,7 +5,7 @@ from typing import Any
 from sqlalchemy.orm.attributes import flag_modified
 
 from app.db.models import Session
-from app.web.map_registry import STATIC_MAP_NODES, get_static_node
+from app.web.map_registry import STATIC_MAP_NODES, get_obvious_linked_static_node_ids, get_static_node
 from app.web.utils import as_int
 
 
@@ -686,6 +686,63 @@ def _persist_player_map_knowledge(sess: Session, knowledge_map: dict[str, dict[s
     settings_set(sess, "player_map_knowledge", payload)
 
 
+def _normalize_player_map_reveal_record(node_id: str, raw: Any) -> dict[str, Any] | None:
+    normalized_node_id = str(node_id or "").strip()
+    if not normalized_node_id:
+        return None
+    if isinstance(raw, str):
+        raw = {"source": raw}
+    if not isinstance(raw, dict):
+        return None
+    source = str(raw.get("source") or "manual").strip() or "manual"
+    revealed_order = max(0, as_int(raw.get("revealed_order"), 0))
+    revealed_at = str(raw.get("revealed_at") or "").strip()
+    record: dict[str, Any] = {
+        "node_id": normalized_node_id[:120],
+        "source": source[:40],
+    }
+    if revealed_order > 0:
+        record["revealed_order"] = revealed_order
+    if revealed_at:
+        record["revealed_at"] = revealed_at[:80]
+    return record
+
+
+def _raw_player_map_reveals(sess: Session) -> dict[str, dict[str, Any]]:
+    raw = settings_get(sess, "player_map_reveals", {}) or {}
+    out: dict[str, dict[str, Any]] = {}
+    if not isinstance(raw, dict):
+        return out
+    for player_id, records in raw.items():
+        pid = str(player_id or "").strip()
+        if not pid or not isinstance(records, dict):
+            continue
+        player_records: dict[str, Any] = {}
+        for node_id, value in records.items():
+            normalized = _normalize_player_map_reveal_record(str(node_id), value)
+            if normalized:
+                player_records[normalized["node_id"]] = normalized
+        if player_records:
+            out[pid] = player_records
+    return out
+
+
+def _persist_player_map_reveals(sess: Session, reveal_map: dict[str, dict[str, Any]]) -> None:
+    payload: dict[str, dict[str, Any]] = {}
+    for player_id, records in reveal_map.items():
+        pid = str(player_id or "").strip()
+        if not pid or not isinstance(records, dict):
+            continue
+        normalized_records: dict[str, Any] = {}
+        for node_id, value in records.items():
+            normalized = _normalize_player_map_reveal_record(str(node_id), value)
+            if normalized:
+                normalized_records[normalized["node_id"]] = normalized
+        if normalized_records:
+            payload[pid] = normalized_records
+    settings_set(sess, "player_map_reveals", payload)
+
+
 def _default_known_static_node_ids_for_position(position: dict[str, Any] | None) -> list[str]:
     pos = _normalize_map_position(position)
     if not pos:
@@ -706,6 +763,21 @@ def _default_known_static_node_ids_for_position(position: dict[str, Any] | None)
                     known_node_ids.append(landmark_node_id)
                     break
     return [node_id for node_id in known_node_ids if node_id]
+
+
+def _default_revealed_static_node_ids_for_position(position: dict[str, Any] | None) -> list[str]:
+    pos = _normalize_map_position(position)
+    if not pos:
+        return []
+    current_node_id = str(pos.get("node_id") or "").strip()
+    current_static = get_static_node(current_node_id)
+    if not current_static:
+        return []
+    revealed_node_ids = [str(current_static.get("node_id") or "").strip()]
+    for node_id in get_obvious_linked_static_node_ids(current_node_id, limit=1):
+        if node_id and node_id not in revealed_node_ids:
+            revealed_node_ids.append(node_id)
+    return [node_id for node_id in revealed_node_ids if node_id]
 
 
 def grant_player_map_knowledge(
@@ -800,6 +872,82 @@ def maybe_mark_player_node_visited(
     source: str = "travel",
 ) -> dict[str, Any] | None:
     return grant_player_map_knowledge(sess, player_id, node_id, knowledge_kind="visited", source=source)
+
+
+def reveal_player_map_node(
+    sess: Session,
+    player_id: uuid.UUID | str,
+    node_id: str,
+    *,
+    source: str = "manual",
+) -> dict[str, Any] | None:
+    pid = str(player_id or "").strip()
+    normalized_node_id = str(node_id or "").strip()
+    if not pid or not normalized_node_id:
+        return None
+    if get_static_node(normalized_node_id) is None:
+        return None
+    reveal_map = _raw_player_map_reveals(sess)
+    player_records = dict(reveal_map.get(pid) or {})
+    existing = _normalize_player_map_reveal_record(normalized_node_id, player_records.get(normalized_node_id))
+    next_order = max([as_int(record.get("revealed_order"), 0) for record in player_records.values()] or [0]) + 1
+    if existing:
+        existing["source"] = str(source or existing.get("source") or "manual")[:40] or "manual"
+        if "revealed_order" not in existing:
+            existing["revealed_order"] = next_order
+        if "revealed_at" not in existing:
+            existing["revealed_at"] = datetime.now(timezone.utc).isoformat()
+        player_records[normalized_node_id] = existing
+    else:
+        player_records[normalized_node_id] = {
+            "node_id": normalized_node_id[:120],
+            "source": str(source or "manual")[:40] or "manual",
+            "revealed_order": next_order,
+            "revealed_at": datetime.now(timezone.utc).isoformat(),
+        }
+    reveal_map[pid] = player_records
+    _persist_player_map_reveals(sess, reveal_map)
+    grant_player_map_knowledge(sess, pid, normalized_node_id, knowledge_kind="known", source=source)
+    return dict(player_records[normalized_node_id])
+
+
+def maybe_reveal_nearby_static_nodes(
+    sess: Session,
+    player_id: uuid.UUID | str,
+    position: dict[str, Any] | None,
+    *,
+    source: str = "visibility",
+) -> list[str]:
+    revealed_node_ids: list[str] = []
+    for node_id in _default_revealed_static_node_ids_for_position(position):
+        if reveal_player_map_node(sess, player_id, node_id, source=source):
+            revealed_node_ids.append(node_id)
+    return revealed_node_ids
+
+
+def get_player_revealed_node_ids(sess: Session, player_id: uuid.UUID | str) -> list[str]:
+    pid = str(player_id or "").strip()
+    if not pid:
+        return []
+    reveal_map = _raw_player_map_reveals(sess)
+    player_records = dict(reveal_map.get(pid) or {})
+    if not player_records:
+        current_position = _get_player_map_position(sess, pid)
+        maybe_reveal_nearby_static_nodes(sess, pid, current_position if isinstance(current_position, dict) else None, source="seed")
+        reveal_map = _raw_player_map_reveals(sess)
+        player_records = dict(reveal_map.get(pid) or {})
+    return sorted(
+        node_id
+        for node_id, record in player_records.items()
+        if _normalize_player_map_reveal_record(node_id, record)
+    )
+
+
+def is_player_node_revealed(sess: Session, player_id: uuid.UUID | str, node_id: str) -> bool:
+    normalized_node_id = str(node_id or "").strip()
+    if not normalized_node_id:
+        return False
+    return normalized_node_id in set(get_player_revealed_node_ids(sess, player_id))
 
 
 def create_group_wait_state(
@@ -1635,6 +1783,7 @@ def confirm_group_enter(
     _sync_group_position_mirrors(sess, group)
     if player_id and target_node_id and get_static_node(target_node_id):
         maybe_mark_player_node_visited(sess, player_id, target_node_id, source=source)
+        maybe_reveal_nearby_static_nodes(sess, player_id, next_map_position, source=source)
     return dict(group)
 
 
@@ -1672,6 +1821,7 @@ def inspect_group_travel_target(
     _sync_group_position_mirrors(sess, group)
     if player_id and target_node_id and get_static_node(target_node_id):
         grant_player_map_knowledge(sess, player_id, target_node_id, knowledge_kind="discovered", source=source)
+        reveal_player_map_node(sess, player_id, target_node_id, source=source)
     return dict(group)
 
 
@@ -1858,6 +2008,7 @@ def complete_group_travel(
     _sync_group_position_mirrors(sess, group)
     if player_id and target_node_id and get_static_node(target_node_id):
         maybe_mark_player_node_visited(sess, player_id, target_node_id, source=source)
+        maybe_reveal_nearby_static_nodes(sess, player_id, next_map_position, source=source)
     return dict(group)
 
 

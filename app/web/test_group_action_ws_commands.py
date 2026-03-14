@@ -441,10 +441,14 @@ def test_handle_group_move_respects_player_known_static_nodes() -> None:
     )
 
     known_node_ids = session_state.get_player_known_node_ids(sess, player_id)
+    revealed_node_ids = session_state.get_player_revealed_node_ids(sess, player_id)
 
     assert "start_trakt" in known_node_ids
     assert "fortress_gate" in known_node_ids
     assert "eastern_bank" not in known_node_ids
+    assert "start_trakt" in revealed_node_ids
+    assert "fortress_gate" in revealed_node_ids
+    assert "eastern_bank" not in revealed_node_ids
 
     handled_known, err_known, msg_known = ws_handlers._handle_group_action_request(
         sess,

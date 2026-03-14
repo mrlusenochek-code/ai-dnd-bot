@@ -202,3 +202,37 @@ def find_static_link(from_node_id: str | None, to_node_id: str | None, action_ki
         ):
             return dict(link)
     return None
+
+
+def get_obvious_linked_static_node_ids(node_id: str | None, *, limit: int = 1) -> list[str]:
+    normalized_id = _normalized_text(node_id)
+    if not normalized_id or limit <= 0:
+        return []
+
+    def _link_priority(link: dict[str, str]) -> tuple[int, int, str]:
+        target_node = get_static_node(link.get("to_node_id"))
+        target_type = _normalized_text((target_node or {}).get("node_type"))
+        type_priority = {
+            "landmark": 0,
+            "interior_entry": 1,
+            "building": 1,
+            "zone": 2,
+        }.get(target_type, 3)
+        action_priority = 0 if _normalized_text(link.get("action_kind")) == "move" else 1
+        return (type_priority, action_priority, _normalized_text(link.get("to_node_id")))
+
+    obvious_ids: list[str] = []
+    candidate_links = sorted(
+        [link for link in STATIC_MAP_LINKS if _normalized_text(link.get("from_node_id")) == normalized_id],
+        key=_link_priority,
+    )
+    for link in candidate_links:
+        target_node_id = str(link.get("to_node_id") or "").strip()
+        if not target_node_id or target_node_id in obvious_ids:
+            continue
+        if get_static_node(target_node_id) is None:
+            continue
+        obvious_ids.append(target_node_id)
+        if len(obvious_ids) >= limit:
+            break
+    return obvious_ids
