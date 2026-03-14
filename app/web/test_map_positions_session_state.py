@@ -408,10 +408,11 @@ def test_split_group_creates_second_group_with_shared_position() -> None:
             "label": "Таверна",
         },
         "area_label": "Таверна",
-        "status": "split-ready",
+        "status": "idle",
     }
     groups = session_state._get_group_states(sess)
     assert groups["main"]["player_ids"] == [str(left_id), str(right_id)]
+    assert groups["main"]["status"] == "idle"
     assert session_state._get_player_group_id(sess, third_id) == "scout"
 
 
@@ -441,3 +442,100 @@ def test_merge_groups_rejoins_colocated_groups_and_keeps_positions_consistent() 
         }
     }
     assert session_state._get_map_positions(sess)[str(left_id)] == session_state._get_map_positions(sess)[str(right_id)]
+
+
+def test_set_group_wait_creates_group_wait_state() -> None:
+    player_id = uuid.uuid4()
+    sess = SimpleNamespace(settings={})
+    session_state._initialize_default_group(sess, [player_id], "Таверна")
+
+    updated = session_state.set_group_wait(
+        sess,
+        "main",
+        reason="ждём разведчика",
+        source="test",
+        requested_by=player_id,
+    )
+
+    assert updated is not None
+    assert updated["status"] == "waiting"
+    assert updated["wait_state"] == {
+        "reason": "ждём разведчика",
+        "source": "test",
+        "requested_by": str(player_id),
+    }
+    assert session_state._get_group_states(sess)["main"]["status"] == "waiting"
+
+
+def test_set_group_camp_creates_group_camp_state() -> None:
+    player_id = uuid.uuid4()
+    sess = SimpleNamespace(settings={})
+    session_state._initialize_default_group(sess, [player_id], "Таверна")
+
+    updated = session_state.set_group_camp(
+        sess,
+        "main",
+        reason="ночёвка у ворот",
+        source="test",
+        requested_by=player_id,
+    )
+
+    assert updated is not None
+    assert updated["status"] == "camping"
+    assert updated["camp_state"] == {
+        "reason": "ночёвка у ворот",
+        "source": "test",
+        "requested_by": str(player_id),
+    }
+    assert session_state._get_group_states(sess)["main"]["status"] == "camping"
+
+
+def test_request_and_apply_group_split_creates_two_valid_groups() -> None:
+    left_id = uuid.uuid4()
+    right_id = uuid.uuid4()
+    third_id = uuid.uuid4()
+    sess = SimpleNamespace(settings={})
+    session_state._initialize_default_group(sess, [left_id, right_id, third_id], "Таверна")
+    request = session_state.request_group_split(
+        "main",
+        [third_id],
+        new_group_id="scout",
+        source="test",
+        requested_by=left_id,
+    )
+
+    created = session_state.apply_group_split(sess, request)
+
+    assert created is not None
+    assert created["group_id"] == "scout"
+    groups = session_state._get_group_states(sess)
+    assert set(groups.keys()) == {"main", "scout"}
+    assert groups["main"]["player_ids"] == [str(left_id), str(right_id)]
+    assert groups["scout"]["player_ids"] == [str(third_id)]
+    assert groups["main"]["current_map_position"] == groups["scout"]["current_map_position"]
+
+
+def test_request_and_apply_group_merge_rejoins_colocated_groups() -> None:
+    left_id = uuid.uuid4()
+    right_id = uuid.uuid4()
+    sess = SimpleNamespace(settings={})
+    session_state._initialize_default_group(sess, [left_id, right_id], "Таверна")
+    session_state._split_group(sess, "main", [right_id], new_group_id="scout")
+    session_state.set_group_wait(sess, "scout", reason="держим точку", source="test", requested_by=right_id)
+    request = session_state.request_group_merge(
+        "main",
+        "scout",
+        source="test",
+        requested_by=left_id,
+    )
+
+    merged = session_state.apply_group_merge(sess, request)
+
+    assert merged is not None
+    assert merged["status"] == "waiting"
+    assert merged["wait_state"] == {
+        "reason": "держим точку",
+        "source": "test",
+        "requested_by": str(right_id),
+    }
+    assert session_state._get_group_states(sess)["main"]["player_ids"] == [str(left_id), str(right_id)]

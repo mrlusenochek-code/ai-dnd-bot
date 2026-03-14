@@ -112,10 +112,14 @@ def test_build_state_includes_legacy_and_structured_positions(monkeypatch) -> No
         "main": {
             "group_id": "main",
             "player_ids": [str(player_id)],
+            "member_ids": [str(player_id)],
             "member_uids": [42],
             "current_map_position": structured_position,
             "area_label": "Старый подвал",
             "status": "idle",
+            "wait_summary": None,
+            "camp_summary": None,
+            "movement_intent_summary": None,
         }
     }
     assert payload["session"]["current_group_id"] is None
@@ -199,3 +203,107 @@ def test_build_state_exports_current_player_group_id(monkeypatch) -> None:
     payload = asyncio.run(state_builder.build_state(db, sess))
 
     assert payload["session"]["current_group_id"] == "main"
+
+
+def test_build_state_exports_group_activity_summaries(monkeypatch) -> None:
+    player_id = uuid.uuid4()
+    session_id = uuid.uuid4()
+    group_position = {
+        "v": 1,
+        "map_level": "region",
+        "node_type": "zone",
+        "node_id": "camp",
+        "label": "camp",
+    }
+    sess = SimpleNamespace(
+        id=session_id,
+        title="Campaign",
+        is_active=False,
+        is_paused=False,
+        turn_index=0,
+        current_player_id=None,
+        turn_started_at=None,
+        settings={},
+    )
+    sp = SimpleNamespace(player_id=player_id, join_order=1, is_admin=False, is_active=True)
+    player = SimpleNamespace(id=player_id, display_name="Alice", web_user_id=42, telegram_user_id=None)
+    group_state = {
+        "main": {
+            "group_id": "main",
+            "player_ids": [str(player_id)],
+            "current_map_position": group_position,
+            "area_label": "camp",
+            "status": "moving_intent",
+            "wait_state": {
+                "reason": "ждём остальных",
+                "source": "test",
+            },
+            "camp_state": {
+                "reason": "ночлег",
+                "source": "test",
+            },
+            "movement_intent": {
+                "target_label": "Северные ворота",
+                "target_node": {
+                    "v": 1,
+                    "map_level": "landmark",
+                    "node_type": "landmark",
+                    "node_id": "north-gate",
+                    "label": "Северные ворота",
+                    "zone_label": "camp",
+                    "area_label": "camp",
+                },
+                "movement_mode": "travel",
+                "source": "test",
+            },
+        }
+    }
+
+    async def fake_list_session_players(_db, _sess, active_only=False):
+        assert active_only is False
+        return [sp]
+
+    monkeypatch.setattr(state_builder, "list_session_players", fake_list_session_players)
+    monkeypatch.setattr(state_builder, "_get_kicked", lambda _sess: set())
+    monkeypatch.setattr(state_builder, "_char_to_payload", lambda _char: None)
+    monkeypatch.setattr(state_builder, "_player_uid", lambda _player: _player.web_user_id if _player else None)
+    monkeypatch.setattr(state_builder, "_get_ready_map", lambda _sess: {str(player_id): True})
+    monkeypatch.setattr(state_builder, "_get_init_map", lambda _sess: {})
+    monkeypatch.setattr(state_builder, "_get_last_seen_map", lambda _sess: {})
+    monkeypatch.setattr(state_builder, "_initiative_fixed", lambda _sess: False)
+    monkeypatch.setattr(state_builder, "_is_free_turns", lambda _sess: False)
+    monkeypatch.setattr(state_builder, "_get_phase", lambda _sess: "turns")
+    monkeypatch.setattr(state_builder, "_get_round_actions", lambda _sess: {})
+    monkeypatch.setattr(state_builder, "_ready_active_players", lambda _sess, active_sps: active_sps)
+    monkeypatch.setattr(state_builder, "_get_group_states", lambda _sess, _player_ids=None: group_state)
+    monkeypatch.setattr(state_builder, "_get_pc_positions", lambda _sess: {str(player_id): "camp"})
+    monkeypatch.setattr(state_builder, "_get_map_positions", lambda _sess: {str(player_id): group_position})
+    monkeypatch.setattr(state_builder, "_get_player_group_id", lambda _sess, _player_id, _player_ids=None: "main")
+    monkeypatch.setattr(state_builder, "snapshot_combat_state", lambda _session_id: None)
+
+    db = _FakeDb([[player], [], [], []])
+    payload = asyncio.run(state_builder.build_state(db, sess))
+
+    assert payload["game"]["groups"]["main"]["status"] == "moving_intent"
+    assert payload["game"]["groups"]["main"]["wait_summary"] == {
+        "reason": "ждём остальных",
+        "source": "test",
+    }
+    assert payload["game"]["groups"]["main"]["camp_summary"] == {
+        "reason": "ночлег",
+        "source": "test",
+    }
+    assert payload["game"]["groups"]["main"]["movement_intent_summary"] == {
+        "target_label": "Северные ворота",
+        "target_node": {
+            "v": 1,
+            "map_level": "landmark",
+            "node_type": "landmark",
+            "node_id": "north-gate",
+            "label": "Северные ворота",
+            "zone_label": "camp",
+            "area_label": "camp",
+        },
+        "movement_mode": "travel",
+        "source": "test",
+    }

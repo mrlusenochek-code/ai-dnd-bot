@@ -380,9 +380,177 @@ def _raw_pc_positions(sess: Session) -> dict[str, str]:
 
 def _normalize_group_status(raw: Any) -> str:
     status = str(raw or "idle").strip().lower()
-    if status not in {"idle", "split-ready", "moving"}:
+    if status == "moving":
+        return "moving_intent"
+    if status == "split-ready":
+        return "idle"
+    if status not in {"idle", "waiting", "camping", "moving_intent"}:
         return "idle"
     return status
+
+
+def _normalize_group_wait_state(raw: Any) -> dict[str, Any] | None:
+    if not isinstance(raw, dict):
+        return None
+    reason = str(raw.get("reason") or "").strip()
+    source = str(raw.get("source") or "manual").strip() or "manual"
+    requested_by = str(raw.get("requested_by") or "").strip()
+    started_at = str(raw.get("started_at") or "").strip()
+    state: dict[str, Any] = {"source": source[:40]}
+    if reason:
+        state["reason"] = reason[:240]
+    if requested_by:
+        state["requested_by"] = requested_by[:80]
+    if started_at:
+        state["started_at"] = started_at[:80]
+    return state
+
+
+def _normalize_group_camp_state(raw: Any) -> dict[str, Any] | None:
+    if not isinstance(raw, dict):
+        return None
+    reason = str(raw.get("reason") or "").strip()
+    source = str(raw.get("source") or "manual").strip() or "manual"
+    requested_by = str(raw.get("requested_by") or "").strip()
+    started_at = str(raw.get("started_at") or "").strip()
+    state: dict[str, Any] = {"source": source[:40]}
+    if reason:
+        state["reason"] = reason[:240]
+    if requested_by:
+        state["requested_by"] = requested_by[:80]
+    if started_at:
+        state["started_at"] = started_at[:80]
+    return state
+
+
+def _normalize_group_movement_intent(raw: Any) -> dict[str, Any] | None:
+    if not isinstance(raw, dict):
+        return None
+    target_node = _normalize_map_target_node(raw.get("target_node") or raw.get("target"))
+    target_label = str(raw.get("target_label") or "").strip()
+    if not target_label and target_node:
+        target_label = str(target_node.get("label") or target_node.get("node_id") or "").strip()
+    if not target_label and isinstance(raw.get("target"), str):
+        target_label = str(raw.get("target") or "").strip()
+    movement_mode = str(raw.get("movement_mode") or raw.get("mode") or "travel").strip().lower() or "travel"
+    source = str(raw.get("source") or "manual").strip() or "manual"
+    if not target_label and not target_node:
+        return None
+    state: dict[str, Any] = {
+        "target_label": target_label[:80],
+        "movement_mode": movement_mode[:40],
+        "source": source[:40],
+    }
+    if target_node:
+        state["target_node"] = target_node
+    return state
+
+
+def create_group_wait_state(
+    *,
+    reason: str | None = None,
+    source: str = "manual",
+    requested_by: uuid.UUID | str | None = None,
+    started_at: str | None = None,
+) -> dict[str, Any]:
+    return _normalize_group_wait_state(
+        {
+            "reason": reason,
+            "source": source,
+            "requested_by": requested_by,
+            "started_at": started_at,
+        }
+    ) or {"source": "manual"}
+
+
+def create_group_camp_state(
+    *,
+    reason: str | None = None,
+    source: str = "manual",
+    requested_by: uuid.UUID | str | None = None,
+    started_at: str | None = None,
+) -> dict[str, Any]:
+    return _normalize_group_camp_state(
+        {
+            "reason": reason,
+            "source": source,
+            "requested_by": requested_by,
+            "started_at": started_at,
+        }
+    ) or {"source": "manual"}
+
+
+def create_group_movement_intent(
+    *,
+    target_node: dict[str, Any] | str | None = None,
+    target_label: str | None = None,
+    movement_mode: str | None = None,
+    source: str = "manual",
+) -> dict[str, Any] | None:
+    return _normalize_group_movement_intent(
+        {
+            "target_node": target_node,
+            "target_label": target_label,
+            "movement_mode": movement_mode,
+            "source": source,
+        }
+    )
+
+
+def _resolve_group_status(
+    raw_status: Any,
+    *,
+    wait_state: dict[str, Any] | None,
+    camp_state: dict[str, Any] | None,
+    movement_intent: dict[str, Any] | None,
+) -> str:
+    if camp_state:
+        return "camping"
+    if wait_state:
+        return "waiting"
+    if movement_intent:
+        return "moving_intent"
+    return _normalize_group_status(raw_status)
+
+
+def _clear_group_activity_state(group: dict[str, Any], *, status: str = "idle") -> dict[str, Any]:
+    group.pop("wait_state", None)
+    group.pop("camp_state", None)
+    group.pop("movement_intent", None)
+    group["status"] = _normalize_group_status(status)
+    return group
+
+
+def _apply_group_activity_state(
+    group: dict[str, Any],
+    *,
+    status: str,
+    wait_state: dict[str, Any] | None = None,
+    camp_state: dict[str, Any] | None = None,
+    movement_intent: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    _clear_group_activity_state(group)
+    normalized_status = _normalize_group_status(status)
+    if normalized_status == "waiting" and wait_state:
+        group["wait_state"] = wait_state
+    elif normalized_status == "camping" and camp_state:
+        group["camp_state"] = camp_state
+    elif normalized_status == "moving_intent" and movement_intent:
+        group["movement_intent"] = movement_intent
+    group["status"] = normalized_status
+    return group
+
+
+def _group_wait_summary(group: dict[str, Any]) -> dict[str, Any] | None:
+    return _normalize_group_wait_state(group.get("wait_state"))
+
+
+def _group_camp_summary(group: dict[str, Any]) -> dict[str, Any] | None:
+    return _normalize_group_camp_state(group.get("camp_state"))
+
+
+def _group_movement_intent_summary(group: dict[str, Any]) -> dict[str, Any] | None:
+    return _normalize_group_movement_intent(group.get("movement_intent"))
 
 
 def _group_default_position(
@@ -432,14 +600,30 @@ def _normalize_group_state(
     if not pos:
         pos = _group_default_position(sess, player_ids)
     area_label = str(raw.get("area_label") or "").strip() or _map_position_area_label(pos)
+    wait_state = _normalize_group_wait_state(raw.get("wait_state"))
+    camp_state = _normalize_group_camp_state(raw.get("camp_state"))
+    movement_intent = _normalize_group_movement_intent(raw.get("movement_intent"))
+    status = _resolve_group_status(
+        raw.get("status"),
+        wait_state=wait_state,
+        camp_state=camp_state,
+        movement_intent=movement_intent,
+    )
 
-    return {
+    normalized = {
         "group_id": group_key,
         "player_ids": player_ids,
         "current_map_position": pos,
         "area_label": area_label[:80],
-        "status": _normalize_group_status(raw.get("status")),
+        "status": status,
     }
+    if wait_state:
+        normalized["wait_state"] = wait_state
+    if camp_state:
+        normalized["camp_state"] = camp_state
+    if movement_intent:
+        normalized["movement_intent"] = movement_intent
+    return normalized
 
 
 def _persist_group_states(sess: Session, groups: dict[str, dict[str, Any]]) -> None:
@@ -600,6 +784,196 @@ def _get_player_group_id(
     return None
 
 
+def set_group_wait(
+    sess: Session,
+    group_id: str,
+    *,
+    reason: str | None = None,
+    source: str = "manual",
+    requested_by: uuid.UUID | str | None = None,
+) -> dict[str, Any] | None:
+    groups = _get_group_states(sess)
+    group_key = str(group_id or "").strip()
+    group = groups.get(group_key)
+    if not group:
+        return None
+    _apply_group_activity_state(
+        group,
+        status="waiting",
+        wait_state=create_group_wait_state(reason=reason, source=source, requested_by=requested_by),
+    )
+    _persist_group_states(sess, groups)
+    _sync_group_position_mirrors(sess, group)
+    return dict(group)
+
+
+def set_group_camp(
+    sess: Session,
+    group_id: str,
+    *,
+    reason: str | None = None,
+    source: str = "manual",
+    requested_by: uuid.UUID | str | None = None,
+) -> dict[str, Any] | None:
+    groups = _get_group_states(sess)
+    group_key = str(group_id or "").strip()
+    group = groups.get(group_key)
+    if not group:
+        return None
+    _apply_group_activity_state(
+        group,
+        status="camping",
+        camp_state=create_group_camp_state(reason=reason, source=source, requested_by=requested_by),
+    )
+    _persist_group_states(sess, groups)
+    _sync_group_position_mirrors(sess, group)
+    return dict(group)
+
+
+def request_group_split(
+    group_id: str,
+    member_player_ids: list[uuid.UUID | str],
+    *,
+    new_group_id: str | None = None,
+    source: str = "manual",
+    requested_by: uuid.UUID | str | None = None,
+) -> dict[str, Any] | None:
+    group_key = str(group_id or "").strip()[:80]
+    if not group_key:
+        return None
+    member_ids: list[str] = []
+    for item in member_player_ids:
+        pid = str(item or "").strip()
+        if pid and pid not in member_ids:
+            member_ids.append(pid)
+    if not member_ids:
+        return None
+    new_key = str(new_group_id or "").strip()[:80]
+    payload: dict[str, Any] = {
+        "group_id": group_key,
+        "member_player_ids": member_ids,
+        "source": str(source or "manual").strip()[:40] or "manual",
+    }
+    if new_key:
+        payload["new_group_id"] = new_key
+    requested_by_value = str(requested_by or "").strip()
+    if requested_by_value:
+        payload["requested_by"] = requested_by_value[:80]
+    return payload
+
+
+def apply_group_split(sess: Session, request: dict[str, Any] | None) -> dict[str, Any] | None:
+    if not isinstance(request, dict):
+        return None
+    groups = _get_group_states(sess)
+    source_key = str(request.get("group_id") or "").strip()
+    source_group = groups.get(source_key)
+    if not source_group:
+        return None
+
+    split_members: list[str] = []
+    for item in request.get("member_player_ids") or []:
+        pid = str(item or "").strip()
+        if pid and pid in source_group["player_ids"] and pid not in split_members:
+            split_members.append(pid)
+    if not split_members or len(split_members) >= len(source_group["player_ids"]):
+        return None
+
+    new_key = str(request.get("new_group_id") or f"{source_group['group_id']}_split_{len(groups) + 1}").strip()[:80]
+    if not new_key or new_key in groups:
+        return None
+
+    source_group["player_ids"] = [pid for pid in source_group["player_ids"] if pid not in split_members]
+    _clear_group_activity_state(source_group)
+    new_group = {
+        "group_id": new_key,
+        "player_ids": split_members,
+        "current_map_position": dict(source_group["current_map_position"]),
+        "area_label": str(source_group["area_label"]),
+        "status": "idle",
+    }
+    groups[new_key] = new_group
+    _persist_group_states(sess, groups)
+    _sync_group_position_mirrors(sess, source_group)
+    _sync_group_position_mirrors(sess, new_group)
+    return dict(new_group)
+
+
+def request_group_merge(
+    target_group_id: str,
+    source_group_id: str,
+    *,
+    source: str = "manual",
+    requested_by: uuid.UUID | str | None = None,
+) -> dict[str, Any] | None:
+    target_key = str(target_group_id or "").strip()[:80]
+    source_key = str(source_group_id or "").strip()[:80]
+    if not target_key or not source_key or target_key == source_key:
+        return None
+    payload: dict[str, Any] = {
+        "target_group_id": target_key,
+        "source_group_id": source_key,
+        "source": str(source or "manual").strip()[:40] or "manual",
+    }
+    requested_by_value = str(requested_by or "").strip()
+    if requested_by_value:
+        payload["requested_by"] = requested_by_value[:80]
+    return payload
+
+
+def apply_group_merge(sess: Session, request: dict[str, Any] | None) -> dict[str, Any] | None:
+    if not isinstance(request, dict):
+        return None
+    groups = _get_group_states(sess)
+    target_key = str(request.get("target_group_id") or "").strip()
+    source_key = str(request.get("source_group_id") or "").strip()
+    target_group = groups.get(target_key)
+    source_group = groups.get(source_key)
+    if not target_group or not source_group or target_key == source_key:
+        return None
+
+    target_pos = target_group.get("current_map_position")
+    source_pos = source_group.get("current_map_position")
+    if target_pos and source_pos and not _map_position_identity_equals(target_pos, source_pos):
+        return None
+
+    for pid in source_group.get("player_ids", []):
+        if pid not in target_group["player_ids"]:
+            target_group["player_ids"].append(pid)
+
+    target_wait = _group_wait_summary(target_group)
+    source_wait = _group_wait_summary(source_group)
+    target_camp = _group_camp_summary(target_group)
+    source_camp = _group_camp_summary(source_group)
+    target_movement = _group_movement_intent_summary(target_group)
+    source_movement = _group_movement_intent_summary(source_group)
+    if target_camp or source_camp:
+        _apply_group_activity_state(
+            target_group,
+            status="camping",
+            camp_state=target_camp or source_camp,
+        )
+    elif target_wait or source_wait:
+        _apply_group_activity_state(
+            target_group,
+            status="waiting",
+            wait_state=target_wait or source_wait,
+        )
+    elif target_movement or source_movement:
+        _apply_group_activity_state(
+            target_group,
+            status="moving_intent",
+            movement_intent=target_movement or source_movement,
+        )
+    else:
+        _clear_group_activity_state(target_group)
+
+    groups.pop(source_key, None)
+    _persist_group_states(sess, groups)
+    _sync_group_position_mirrors(sess, target_group)
+    return dict(target_group)
+
+
 def _set_group_map_position(
     sess: Session,
     group_id: str,
@@ -629,37 +1003,8 @@ def _split_group(
     *,
     new_group_id: str | None = None,
 ) -> dict[str, Any] | None:
-    groups = _get_group_states(sess)
-    source_group = groups.get(str(group_id or "").strip())
-    if not source_group:
-        return None
-
-    split_members: list[str] = []
-    for item in member_player_ids:
-        pid = str(item or "").strip()
-        if pid and pid in source_group["player_ids"] and pid not in split_members:
-            split_members.append(pid)
-    if not split_members or len(split_members) >= len(source_group["player_ids"]):
-        return None
-
-    new_key = str(new_group_id or f"{source_group['group_id']}_split_{len(groups) + 1}").strip()[:80]
-    if not new_key or new_key in groups:
-        return None
-
-    source_group["player_ids"] = [pid for pid in source_group["player_ids"] if pid not in split_members]
-    source_group["status"] = "split-ready"
-    new_group = {
-        "group_id": new_key,
-        "player_ids": split_members,
-        "current_map_position": dict(source_group["current_map_position"]),
-        "area_label": str(source_group["area_label"]),
-        "status": "split-ready",
-    }
-    groups[new_key] = new_group
-    _persist_group_states(sess, groups)
-    _sync_group_position_mirrors(sess, source_group)
-    _sync_group_position_mirrors(sess, new_group)
-    return dict(new_group)
+    request = request_group_split(group_id, member_player_ids, new_group_id=new_group_id)
+    return apply_group_split(sess, request)
 
 
 def _merge_groups(
@@ -667,27 +1012,8 @@ def _merge_groups(
     target_group_id: str,
     source_group_id: str,
 ) -> dict[str, Any] | None:
-    groups = _get_group_states(sess)
-    target_key = str(target_group_id or "").strip()
-    source_key = str(source_group_id or "").strip()
-    target_group = groups.get(target_key)
-    source_group = groups.get(source_key)
-    if not target_group or not source_group or target_key == source_key:
-        return None
-
-    target_pos = target_group.get("current_map_position")
-    source_pos = source_group.get("current_map_position")
-    if target_pos and source_pos and not _map_position_identity_equals(target_pos, source_pos):
-        return None
-
-    for pid in source_group.get("player_ids", []):
-        if pid not in target_group["player_ids"]:
-            target_group["player_ids"].append(pid)
-    target_group["status"] = "idle"
-    groups.pop(source_key, None)
-    _persist_group_states(sess, groups)
-    _sync_group_position_mirrors(sess, target_group)
-    return dict(target_group)
+    request = request_group_merge(target_group_id, source_group_id)
+    return apply_group_merge(sess, request)
 
 
 def _same_player_map_position(

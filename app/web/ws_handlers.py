@@ -49,12 +49,19 @@ from app.web.session_state import (
     settings_set,
     _apply_map_position_transition,
     _default_map_position,
+    _get_player_group_id,
     _get_ready_map,
     _set_ready,
     _get_init_map,
     _get_player_map_position,
     _get_player_position_context,
     _map_position_area_label,
+    apply_group_merge,
+    apply_group_split,
+    request_group_merge,
+    request_group_split,
+    set_group_camp,
+    set_group_wait,
     _touch_last_seen,
     _get_phase,
     _set_phase,
@@ -1640,6 +1647,141 @@ def _parse_loxodon_trunk_command(cmdline: str) -> tuple[str | None, str | None]:
         if lowered.startswith(prefix):
             return "loxodon_trunk_use", txt[len(prefix):].strip()
     return None, None
+
+
+def _parse_group_command(cmdline: str) -> tuple[str | None, dict[str, Any]]:
+    txt = str(cmdline or "").strip()
+    if not txt:
+        return None, {}
+    lowered = txt.lower()
+
+    for prefix in ("group wait", "group_wait"):
+        if lowered == prefix:
+            return "group_wait", {}
+        if lowered.startswith(prefix + ":"):
+            return "group_wait", {"reason": txt[len(prefix) + 1:].strip()}
+        if lowered.startswith(prefix + " "):
+            return "group_wait", {"reason": txt[len(prefix):].strip()}
+
+    for prefix in ("group camp", "group_camp"):
+        if lowered == prefix:
+            return "group_camp", {}
+        if lowered.startswith(prefix + ":"):
+            return "group_camp", {"reason": txt[len(prefix) + 1:].strip()}
+        if lowered.startswith(prefix + " "):
+            return "group_camp", {"reason": txt[len(prefix):].strip()}
+
+    for prefix in ("group split ", "group_split "):
+        if lowered.startswith(prefix):
+            payload = txt[len(prefix):].strip()
+            members_part = payload
+            new_group_id = ""
+            split_marker = " as "
+            marker_index = members_part.lower().find(split_marker)
+            if marker_index >= 0:
+                new_group_id = members_part[marker_index + len(split_marker):].strip()
+                members_part = members_part[:marker_index].strip()
+            member_ids = [item.strip() for item in re.split(r"[\s,]+", members_part) if item.strip()]
+            return "group_split", {
+                "member_player_ids": member_ids,
+                "new_group_id": new_group_id or None,
+            }
+
+    for prefix in ("group merge ", "group_merge "):
+        if lowered.startswith(prefix):
+            payload = txt[len(prefix):].strip()
+            source_group_id = payload
+            target_group_id = ""
+            merge_marker = " into "
+            marker_index = payload.lower().find(merge_marker)
+            if marker_index >= 0:
+                source_group_id = payload[:marker_index].strip()
+                target_group_id = payload[marker_index + len(merge_marker):].strip()
+            result = {"source_group_id": source_group_id}
+            if target_group_id:
+                result["target_group_id"] = target_group_id
+            return "group_merge", result
+
+    return None, {}
+
+
+def _handle_group_action_request(
+    sess,
+    *,
+    action: str,
+    actor_player_id: uuid.UUID | str,
+    payload: dict[str, Any] | None = None,
+    source: str = "ws",
+) -> tuple[bool, Optional[str], Optional[str]]:
+    if action not in {"group_wait", "group_camp", "group_split", "group_merge"}:
+        return False, None, None
+
+    payload = payload if isinstance(payload, dict) else {}
+    actor_group_id = _get_player_group_id(sess, actor_player_id)
+    actor_group_key = str(actor_group_id or "").strip()
+    actor_id = str(actor_player_id)
+
+    if action in {"group_wait", "group_camp"}:
+        group_id = str(payload.get("group_id") or actor_group_key).strip()
+        if not group_id:
+            return True, "Группа игрока не найдена.", None
+        if actor_group_key != group_id:
+            return True, "Можно менять состояние только своей группы.", None
+        reason = str(payload.get("reason") or "").strip() or None
+        if action == "group_wait":
+            updated = set_group_wait(sess, group_id, reason=reason, source=source, requested_by=actor_id)
+            if not updated:
+                return True, "Не удалось перевести группу в ожидание.", None
+            summary = f"Группа {group_id} ждёт."
+            if reason:
+                summary = f"Группа {group_id} ждёт: {reason}."
+            return True, None, summary
+        updated = set_group_camp(sess, group_id, reason=reason, source=source, requested_by=actor_id)
+        if not updated:
+            return True, "Не удалось перевести группу в лагерь.", None
+        summary = f"Группа {group_id} разбила лагерь."
+        if reason:
+            summary = f"Группа {group_id} разбила лагерь: {reason}."
+        return True, None, summary
+
+    if action == "group_split":
+        source_group_id = str(payload.get("group_id") or actor_group_key).strip()
+        if not source_group_id:
+            return True, "Группа игрока не найдена.", None
+        if actor_group_key != source_group_id:
+            return True, "Можно разделить только свою группу.", None
+        request = request_group_split(
+            source_group_id,
+            payload.get("member_player_ids") or [],
+            new_group_id=payload.get("new_group_id"),
+            source=source,
+            requested_by=actor_id,
+        )
+        if not request:
+            return True, "Нужно указать участников для отделения.", None
+        created = apply_group_split(sess, request)
+        if not created:
+            return True, "Не удалось разделить группу.", None
+        return True, None, f"Группа {source_group_id} разделена. Новая группа: {created['group_id']}."
+
+    source_group_id = str(payload.get("source_group_id") or "").strip()
+    target_group_id = str(payload.get("target_group_id") or actor_group_key).strip()
+    if not source_group_id or not target_group_id:
+        return True, "Нужно указать группы для объединения.", None
+    if actor_group_key not in {source_group_id, target_group_id}:
+        return True, "Можно объединять только группы, в одной из которых вы состоите.", None
+    request = request_group_merge(
+        target_group_id,
+        source_group_id,
+        source=source,
+        requested_by=actor_id,
+    )
+    if not request:
+        return True, "Некорректный запрос на объединение групп.", None
+    merged = apply_group_merge(sess, request)
+    if not merged:
+        return True, "Не удалось объединить группы. Они должны быть в одной точке.", None
+    return True, None, f"Группы {source_group_id} и {target_group_id} объединены."
 
 
 def _verdan_telepathy_status_message(ch: Character) -> tuple[Optional[str], Optional[str], bool]:
@@ -5464,6 +5606,24 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                             await _broadcast_state_unlocked(session_id, combat_log_ui_patch=combat_patch)
                             continue
 
+                if action in {"group_wait", "group_camp", "group_split", "group_merge"}:
+                    handled_group_action, group_err, group_msg = _handle_group_action_request(
+                        sess,
+                        action=action,
+                        actor_player_id=player.id,
+                        payload=data if isinstance(data, dict) else {},
+                        source="ws_action",
+                    )
+                    if handled_group_action:
+                        if group_err:
+                            await ws_error(group_err, request_id=msg_request_id)
+                            continue
+                        await db.commit()
+                        if group_msg:
+                            await add_system_event(db, sess, group_msg)
+                        await broadcast_state(session_id)
+                        continue
+
                 # chat / command parsing
                 if action != "say":
                     await ws_error("Unknown action", request_id=msg_request_id)
@@ -5483,6 +5643,25 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                     await add_system_event(db, sess, _format_state_text_for_player(sess, player, ch))
                     await broadcast_state(session_id)
                     continue
+
+                group_action, group_payload = _parse_group_command(cmdline)
+                if group_action:
+                    handled_group_action, group_err, group_msg = _handle_group_action_request(
+                        sess,
+                        action=group_action,
+                        actor_player_id=player.id,
+                        payload=group_payload,
+                        source="ws_command",
+                    )
+                    if group_err:
+                        await ws_error(group_err, request_id=msg_request_id)
+                        continue
+                    if handled_group_action:
+                        await db.commit()
+                        if group_msg:
+                            await add_system_event(db, sess, group_msg)
+                        await broadcast_state(session_id)
+                        continue
 
                 m_simic_upgrade = re.match(
                     r"^(?:simic\s+upgrade|выбираю\s+усиление)\s+(?P<option>[^\n\r]{1,80})$",

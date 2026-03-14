@@ -30,6 +30,9 @@ from app.web.ws_turns import (
 from app.web.session_state import (
     _ensure_settings,
     settings_get,
+    _group_camp_summary,
+    _group_movement_intent_summary,
+    _group_wait_summary,
     _get_group_states,
     _get_ready_map,
     _get_init_map,
@@ -320,10 +323,14 @@ async def build_state(db: AsyncSession, sess: Session) -> dict:
         groups_payload[group_id] = {
             "group_id": group_id,
             "player_ids": list(group.get("player_ids", [])),
+            "member_ids": list(group.get("player_ids", [])),
             "member_uids": member_uids,
             "current_map_position": dict(group["current_map_position"]),
             "area_label": group.get("area_label"),
             "status": group.get("status"),
+            "wait_summary": _group_wait_summary(group),
+            "camp_summary": _group_camp_summary(group),
+            "movement_intent_summary": _group_movement_intent_summary(group),
         }
 
     return {
