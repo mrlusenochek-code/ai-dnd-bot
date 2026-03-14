@@ -996,6 +996,7 @@ def test_get_current_group_node_context_returns_node_summary_and_contextual_acti
             "settlement_kind": "town",
             "environment_hint": "lakeshore",
             "safe_rest_hint": True,
+            "detail_summary": "Здесь легко пополнить припасы, переждать дорогу и собрать слухи о ближних тропах.",
         },
         "contextual_actions": [
             {"action_key": "navigate", "label": "Продолжить путь", "action_type": "action"},
@@ -1004,6 +1005,38 @@ def test_get_current_group_node_context_returns_node_summary_and_contextual_acti
             {"action_key": "rest_hint", "label": "Есть место для передышки", "action_type": "hint"},
         ],
     }
+
+
+def test_inspect_current_group_node_stores_canonical_inspect_result_and_updates_knowledge() -> None:
+    player_id = uuid.uuid4()
+    sess = SimpleNamespace(settings={})
+    session_state._initialize_default_group(
+        sess,
+        [player_id],
+        {
+            "map_level": "region",
+            "node_type": "zone",
+            "node_id": "craft_town",
+            "label": "Озёрный городок",
+        },
+    )
+
+    inspected = session_state.inspect_current_group_node(sess, player_id=player_id, source="test")
+
+    assert inspected is not None
+    assert session_state.get_current_group_last_inspect_result(sess, player_id=player_id) == {
+        "node_id": "craft_town",
+        "label": "Озёрный городок",
+        "node_type": "zone",
+        "inspect_summary": "Здесь легко пополнить припасы, переждать дорогу и собрать слухи о ближних тропах.",
+        "short_description": "Небольшой ремесленный городок у воды с пристанью, мастерскими и постоялым двором.",
+        "travel_note": "Самая надёжная безопасная точка региона перед выходом в пограничные земли.",
+        "service_hints": ["припасы", "постоялый двор", "ремесленные мастерские"],
+        "source": "test",
+        "inspected_at": inspected["last_inspect_result"]["inspected_at"],
+    }
+    assert session_state.get_player_map_knowledge(sess, player_id)["craft_town"]["knowledge_kind"] == "discovered"
+    assert session_state.is_player_node_revealed(sess, player_id, "craft_town") is True
 
 
 def test_get_current_group_node_context_adds_enter_for_paused_target_requires_enter() -> None:
@@ -1095,6 +1128,8 @@ def test_execute_current_group_context_action_supports_wait_camp_inspect_enter_a
     assert inspect_error is None
     assert inspected is not None
     assert session_state.get_player_map_knowledge(sess, player_id)["start_trakt"]["knowledge_kind"] == "discovered"
+    assert inspected["last_inspect_result"]["node_id"] == "start_trakt"
+    assert inspected["last_inspect_result"]["inspect_summary"] == "По тракту удобно держать путь к воротам крепости и к озёрному городку."
 
     navigated, navigate_error = session_state.execute_current_group_context_action(
         sess,
@@ -1363,6 +1398,8 @@ def test_confirm_inspect_bypass_and_resolve_group_travel_pause() -> None:
         "source": "test",
         "details": {"inspected": True},
     }
+    assert inspected["last_inspect_result"]["node_id"] == "ворота"
+    assert inspected["last_inspect_result"]["inspect_summary"] == "ворота"
 
     session_state.start_group_travel(
         sess,
@@ -1488,6 +1525,7 @@ def test_complete_inspect_and_confirm_enter_update_player_map_knowledge() -> Non
     assert inspected is not None
     assert session_state.get_player_map_knowledge(sess, player_id)["watchtower"]["knowledge_kind"] == "discovered"
     assert session_state.is_player_node_revealed(sess, player_id, "watchtower") is True
+    assert inspected["last_inspect_result"]["node_id"] == "watchtower"
 
     session_state.start_group_travel(
         sess,

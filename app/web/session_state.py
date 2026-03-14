@@ -10,8 +10,10 @@ from app.web.map_registry import (
     get_current_node_context_actions,
     get_obvious_linked_static_node_ids,
     get_static_navigation_options,
+    get_static_node_detail,
     get_static_node,
     get_static_node_context,
+    get_static_node_inspect_result,
 )
 from app.web.utils import as_int
 
@@ -1138,6 +1140,125 @@ def get_current_group_node_context(
     }
 
 
+def _normalize_group_last_inspect_result(raw: Any) -> dict[str, Any] | None:
+    if not isinstance(raw, dict):
+        return None
+    node_id = str(raw.get("node_id") or "").strip()
+    label = str(raw.get("label") or node_id).strip()
+    inspect_summary = str(raw.get("inspect_summary") or raw.get("short_description") or "").strip()
+    if not node_id or not label or not inspect_summary:
+        return None
+    result: dict[str, Any] = {
+        "node_id": node_id[:120],
+        "label": label[:120],
+        "node_type": str(raw.get("node_type") or "zone")[:40] or "zone",
+        "inspect_summary": inspect_summary[:400],
+        "short_description": str(raw.get("short_description") or inspect_summary)[:400] or inspect_summary[:400],
+        "source": str(raw.get("source") or "inspect")[:40] or "inspect",
+    }
+    travel_note = str(raw.get("travel_note") or "").strip()
+    if travel_note:
+        result["travel_note"] = travel_note[:240]
+    danger_note = str(raw.get("danger_note") or "").strip()
+    if danger_note:
+        result["danger_note"] = danger_note[:240]
+    service_hints = raw.get("service_hints")
+    if isinstance(service_hints, list):
+        normalized_hints = [str(item).strip()[:120] for item in service_hints if str(item or "").strip()]
+        if normalized_hints:
+            result["service_hints"] = normalized_hints
+    inspected_at = str(raw.get("inspected_at") or "").strip()
+    if inspected_at:
+        result["inspected_at"] = inspected_at
+    return result
+
+
+def _set_group_last_inspect_result(group: dict[str, Any], inspect_result: dict[str, Any] | None) -> dict[str, Any] | None:
+    normalized = _normalize_group_last_inspect_result(inspect_result)
+    if not normalized:
+        group.pop("last_inspect_result", None)
+        return None
+    group["last_inspect_result"] = normalized
+    return normalized
+
+
+def get_current_group_node_detail(
+    sess: Session,
+    *,
+    player_id: uuid.UUID | str | None = None,
+    group_id: str | None = None,
+) -> dict[str, Any] | None:
+    resolved_group_id = str(group_id or "").strip()
+    resolved_player_id = str(player_id or "").strip()
+    if not resolved_group_id and resolved_player_id:
+        resolved_group_id = str(_get_player_group_id(sess, resolved_player_id) or "").strip()
+    if not resolved_group_id:
+        return None
+    group = _get_group_states(sess).get(resolved_group_id)
+    if not isinstance(group, dict):
+        return None
+    current_map_position = _normalize_map_position(group.get("current_map_position"))
+    if not current_map_position:
+        return None
+    return get_static_node_detail(current_map_position=current_map_position)
+
+
+def get_current_group_last_inspect_result(
+    sess: Session,
+    *,
+    player_id: uuid.UUID | str | None = None,
+    group_id: str | None = None,
+) -> dict[str, Any] | None:
+    resolved_group_id = str(group_id or "").strip()
+    resolved_player_id = str(player_id or "").strip()
+    if not resolved_group_id and resolved_player_id:
+        resolved_group_id = str(_get_player_group_id(sess, resolved_player_id) or "").strip()
+    if not resolved_group_id:
+        return None
+    group = _get_group_states(sess).get(resolved_group_id)
+    if not isinstance(group, dict):
+        return None
+    return _normalize_group_last_inspect_result(group.get("last_inspect_result"))
+
+
+def inspect_current_group_node(
+    sess: Session,
+    *,
+    player_id: uuid.UUID | str | None = None,
+    group_id: str | None = None,
+    source: str = "manual",
+) -> dict[str, Any] | None:
+    resolved_group_id = str(group_id or "").strip()
+    resolved_player_id = str(player_id or "").strip()
+    if not resolved_group_id and resolved_player_id:
+        resolved_group_id = str(_get_player_group_id(sess, resolved_player_id) or "").strip()
+    if not resolved_group_id:
+        return None
+    groups = _get_group_states(sess)
+    group = groups.get(resolved_group_id)
+    if not isinstance(group, dict):
+        return None
+    current_map_position = _normalize_map_position(group.get("current_map_position"))
+    current_node_id = str((current_map_position or {}).get("node_id") or "").strip()
+    inspect_result = get_static_node_inspect_result(current_map_position=current_map_position, source=source)
+    if not current_map_position or not current_node_id or not inspect_result:
+        return None
+    _set_group_last_inspect_result(
+        group,
+        {
+            **inspect_result,
+            "inspected_at": datetime.now(timezone.utc).isoformat(),
+        },
+    )
+    _persist_group_states(sess, groups)
+    _sync_group_position_mirrors(sess, group)
+    if resolved_player_id:
+        grant_player_map_knowledge(sess, resolved_player_id, current_node_id, knowledge_kind="discovered", source=source)
+        reveal_player_map_node(sess, resolved_player_id, current_node_id, source=source)
+        maybe_reveal_nearby_static_nodes(sess, resolved_player_id, current_map_position, source=source)
+    return dict(group)
+
+
 def execute_current_group_context_action(
     sess: Session,
     *,
@@ -1213,19 +1334,15 @@ def execute_current_group_context_action(
         updated = inspect_group_travel_target(sess, resolved_group_id, player_id=resolved_player_id or None, source=source)
         if updated:
             return updated, None
-        groups = _get_group_states(sess)
-        group = groups.get(resolved_group_id)
-        current_map_position = _normalize_map_position((group or {}).get("current_map_position"))
-        current_node_id = str((current_map_position or {}).get("node_id") or "").strip()
-        if not current_map_position or not current_node_id or get_static_node(current_node_id) is None:
-            return None, "Не удалось осмотреть текущее место группы."
-        if resolved_player_id:
-            grant_player_map_knowledge(sess, resolved_player_id, current_node_id, knowledge_kind="discovered", source=source)
-            reveal_player_map_node(sess, resolved_player_id, current_node_id, source=source)
-            maybe_reveal_nearby_static_nodes(sess, resolved_player_id, current_map_position, source=source)
-        _persist_group_states(sess, groups)
-        _sync_group_position_mirrors(sess, group)
-        return dict(group or {}), None
+        updated = inspect_current_group_node(
+            sess,
+            player_id=resolved_player_id or None,
+            group_id=resolved_group_id,
+            source=source,
+        )
+        if updated:
+            return updated, None
+        return None, "Не удалось осмотреть текущее место группы."
 
     return None, "Это contextual действие пока не поддерживается."
 
@@ -1429,6 +1546,10 @@ def _group_last_travel_resolution_summary(group: dict[str, Any]) -> dict[str, An
     return _normalize_group_travel_resolution(group.get("last_travel_resolution"))
 
 
+def _group_last_inspect_result_summary(group: dict[str, Any]) -> dict[str, Any] | None:
+    return _normalize_group_last_inspect_result(group.get("last_inspect_result"))
+
+
 def _travel_available_resolutions_for_reason(pause_reason: str | None) -> list[dict[str, str]]:
     reason = _normalize_group_pause_reason(pause_reason)
     if reason == "target_requires_enter":
@@ -1551,6 +1672,9 @@ def _normalize_group_state(
     last_resolution = _normalize_group_travel_resolution(raw.get("last_travel_resolution"))
     if last_resolution:
         normalized["last_travel_resolution"] = last_resolution
+    last_inspect_result = _normalize_group_last_inspect_result(raw.get("last_inspect_result"))
+    if last_inspect_result:
+        normalized["last_inspect_result"] = last_inspect_result
     return normalized
 
 
@@ -2103,6 +2227,22 @@ def inspect_group_travel_target(
         return None
     target_label = str(route_summary.get("target_label") or "")
     target_node_id = str(route_summary.get("target_node_id") or "").strip()
+    inspect_result = _normalize_group_last_inspect_result(
+        {
+            **(
+                get_static_node_inspect_result(node_id=target_node_id, source=source)
+                or {
+                    "node_id": target_node_id or target_label or "unknown_target",
+                    "label": target_label or target_node_id or "цель",
+                    "node_type": str(route_summary.get("target_node_type") or "landmark"),
+                    "inspect_summary": target_label or target_node_id or "Осмотр цели завершён.",
+                    "short_description": target_label or target_node_id or "Осмотр цели завершён.",
+                    "source": source,
+                }
+            ),
+            "inspected_at": datetime.now(timezone.utc).isoformat(),
+        }
+    )
     _set_group_last_travel_resolution(
         group,
         resolution_kind="inspect_target",
@@ -2111,6 +2251,8 @@ def inspect_group_travel_target(
         source=source,
         details={"inspected": True},
     )
+    if inspect_result:
+        group["last_inspect_result"] = inspect_result
     _clear_group_activity_state(group, status="idle")
     _persist_group_states(sess, groups)
     _sync_group_position_mirrors(sess, group)

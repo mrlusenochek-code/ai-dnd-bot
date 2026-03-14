@@ -105,6 +105,8 @@ def test_build_state_includes_legacy_and_structured_positions(monkeypatch) -> No
     monkeypatch.setattr(state_builder, "get_player_known_node_ids", lambda _sess, _player_id: [])
     monkeypatch.setattr(state_builder, "get_player_revealed_node_ids", lambda _sess, _player_id: [])
     monkeypatch.setattr(state_builder, "get_current_group_node_context", lambda _sess, player_id=None: None)
+    monkeypatch.setattr(state_builder, "get_current_group_node_detail", lambda _sess, player_id=None: None)
+    monkeypatch.setattr(state_builder, "get_current_group_last_inspect_result", lambda _sess, player_id=None: None)
     monkeypatch.setattr(state_builder, "get_current_group_navigation_options", lambda _sess, player_id=None: [])
     monkeypatch.setattr(state_builder, "snapshot_combat_state", lambda _session_id: None)
 
@@ -137,6 +139,8 @@ def test_build_state_includes_legacy_and_structured_positions(monkeypatch) -> No
         }
     }
     assert payload["game"]["current_group_node_context"] is None
+    assert payload["game"]["current_group_node_detail"] is None
+    assert payload["game"]["current_group_last_inspect_result"] is None
     assert payload["game"]["current_group_navigation_options"] == []
     assert payload["session"]["current_group_id"] is None
     assert payload["players"] == [
@@ -243,6 +247,35 @@ def test_build_state_exports_current_player_group_id(monkeypatch) -> None:
     )
     monkeypatch.setattr(
         state_builder,
+        "get_current_group_node_detail",
+        lambda _sess, player_id=None: {
+            "node_id": "start_trakt",
+            "label": "Стартовый тракт",
+            "node_type": "zone",
+            "area_label": "Стартовый тракт",
+            "short_description": "Широкий тракт у стартового лагеря, где сходятся безопасные дороги региона.",
+            "inspect_summary": "По тракту удобно держать путь к воротам крепости и к озёрному городку.",
+            "travel_note": "Хороший ориентир для сбора группы и спокойного перехода.",
+            "service_hints": ["можно переждать у дороги", "подходит для сбора перед выходом"],
+        },
+    )
+    monkeypatch.setattr(
+        state_builder,
+        "get_current_group_last_inspect_result",
+        lambda _sess, player_id=None: {
+            "node_id": "start_trakt",
+            "label": "Стартовый тракт",
+            "node_type": "zone",
+            "inspect_summary": "По тракту удобно держать путь к воротам крепости и к озёрному городку.",
+            "short_description": "Широкий тракт у стартового лагеря, где сходятся безопасные дороги региона.",
+            "travel_note": "Хороший ориентир для сбора группы и спокойного перехода.",
+            "service_hints": ["можно переждать у дороги", "подходит для сбора перед выходом"],
+            "source": "test",
+            "inspected_at": "2026-03-14T00:00:00+00:00",
+        },
+    )
+    monkeypatch.setattr(
+        state_builder,
         "get_current_group_navigation_options",
         lambda _sess, player_id=None: [
             {
@@ -286,6 +319,27 @@ def test_build_state_exports_current_player_group_id(monkeypatch) -> None:
             {"action_key": "camp", "label": "Разбить лагерь", "action_type": "action"},
             {"action_key": "rest_hint", "label": "Есть место для передышки", "action_type": "hint"},
         ],
+    }
+    assert payload["game"]["current_group_node_detail"] == {
+        "node_id": "start_trakt",
+        "label": "Стартовый тракт",
+        "node_type": "zone",
+        "area_label": "Стартовый тракт",
+        "short_description": "Широкий тракт у стартового лагеря, где сходятся безопасные дороги региона.",
+        "inspect_summary": "По тракту удобно держать путь к воротам крепости и к озёрному городку.",
+        "travel_note": "Хороший ориентир для сбора группы и спокойного перехода.",
+        "service_hints": ["можно переждать у дороги", "подходит для сбора перед выходом"],
+    }
+    assert payload["game"]["current_group_last_inspect_result"] == {
+        "node_id": "start_trakt",
+        "label": "Стартовый тракт",
+        "node_type": "zone",
+        "inspect_summary": "По тракту удобно держать путь к воротам крепости и к озёрному городку.",
+        "short_description": "Широкий тракт у стартового лагеря, где сходятся безопасные дороги региона.",
+        "travel_note": "Хороший ориентир для сбора группы и спокойного перехода.",
+        "service_hints": ["можно переждать у дороги", "подходит для сбора перед выходом"],
+        "source": "test",
+        "inspected_at": "2026-03-14T00:00:00+00:00",
     }
     assert payload["game"]["current_group_navigation_options"] == [
         {
@@ -461,6 +515,8 @@ def test_build_state_exports_group_activity_summaries(monkeypatch) -> None:
     monkeypatch.setattr(state_builder, "get_player_known_node_ids", lambda _sess, _player_id: ["camp", "north-gate"])
     monkeypatch.setattr(state_builder, "get_player_revealed_node_ids", lambda _sess, _player_id: ["camp"])
     monkeypatch.setattr(state_builder, "get_current_group_node_context", lambda _sess, player_id=None: None)
+    monkeypatch.setattr(state_builder, "get_current_group_node_detail", lambda _sess, player_id=None: None)
+    monkeypatch.setattr(state_builder, "get_current_group_last_inspect_result", lambda _sess, player_id=None: None)
     monkeypatch.setattr(state_builder, "get_current_group_navigation_options", lambda _sess, player_id=None: [])
     monkeypatch.setattr(state_builder, "snapshot_combat_state", lambda _session_id: None)
 
@@ -770,6 +826,8 @@ def test_build_state_exports_paused_travel_status_and_pause_reason(monkeypatch) 
     monkeypatch.setattr(state_builder, "_get_map_positions", lambda _sess: {str(player_id): group_position})
     monkeypatch.setattr(state_builder, "_get_player_group_id", lambda _sess, _player_id, _player_ids=None: "main")
     monkeypatch.setattr(state_builder, "get_current_group_node_context", lambda _sess, player_id=None: None)
+    monkeypatch.setattr(state_builder, "get_current_group_node_detail", lambda _sess, player_id=None: None)
+    monkeypatch.setattr(state_builder, "get_current_group_last_inspect_result", lambda _sess, player_id=None: None)
     monkeypatch.setattr(state_builder, "snapshot_combat_state", lambda _session_id: None)
 
     db = _FakeDb([[player], [], [], []])

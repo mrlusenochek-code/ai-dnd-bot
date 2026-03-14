@@ -11,6 +11,10 @@ STATIC_MAP_NODES: tuple[dict[str, Any], ...] = (
         "map_level": "region",
         "area_label": "Стартовый тракт",
         "zone_band": "safe",
+        "short_description": "Широкий тракт у стартового лагеря, где сходятся безопасные дороги региона.",
+        "inspect_summary": "По тракту удобно держать путь к воротам крепости и к озёрному городку.",
+        "travel_note": "Хороший ориентир для сбора группы и спокойного перехода.",
+        "service_hints": ["можно переждать у дороги", "подходит для сбора перед выходом"],
         "aliases": (
             "стартовый тракт",
             "тракт",
@@ -38,6 +42,10 @@ STATIC_MAP_NODES: tuple[dict[str, Any], ...] = (
         "map_level": "region",
         "area_label": "Озёрный городок",
         "zone_band": "safe",
+        "short_description": "Небольшой ремесленный городок у воды с пристанью, мастерскими и постоялым двором.",
+        "inspect_summary": "Здесь легко пополнить припасы, переждать дорогу и собрать слухи о ближних тропах.",
+        "travel_note": "Самая надёжная безопасная точка региона перед выходом в пограничные земли.",
+        "service_hints": ["припасы", "постоялый двор", "ремесленные мастерские"],
         "aliases": (
             "озёрный городок",
             "ремесленный городок",
@@ -78,6 +86,10 @@ STATIC_MAP_NODES: tuple[dict[str, Any], ...] = (
         "map_level": "region",
         "area_label": "Часовенное село",
         "zone_band": "border",
+        "short_description": "Малое село вокруг старой часовни, где путники ищут приют на границе обжитых мест.",
+        "inspect_summary": "Жители держатся настороженно, но могут подсказать безопасную дорогу и где не ночевать.",
+        "travel_note": "Удобная пограничная остановка между берегом и лесными дорогами.",
+        "service_hints": ["убежище при часовне", "местные слухи"],
         "aliases": (
             "часовенное село",
             "часовня",
@@ -91,6 +103,10 @@ STATIC_MAP_NODES: tuple[dict[str, Any], ...] = (
         "map_level": "region",
         "area_label": "Лесной посёлок",
         "zone_band": "border",
+        "short_description": "Лесной посёлок на краю чащи, где охотники и сборщики держат последние безопасные дворы.",
+        "inspect_summary": "Отсюда видно, где лес ещё под контролем людей, а где начинаются старые опасные руины.",
+        "travel_note": "Последняя относительно спокойная стоянка перед дорогой к старой крепости.",
+        "service_hints": ["охотничьи припасы", "ночлег под крышей"],
         "aliases": (
             "лесной посёлок",
             "посёлок в лесу",
@@ -104,6 +120,10 @@ STATIC_MAP_NODES: tuple[dict[str, Any], ...] = (
         "map_level": "region",
         "area_label": "Разрушенный посёлок",
         "zone_band": "danger",
+        "short_description": "Пустые улицы и обгоревшие дворы оставили от посёлка лишь редкие укрытия и плохие следы.",
+        "inspect_summary": "Руины ведут к шахтному входу, но вокруг много слепых углов и тревожной тишины.",
+        "travel_note": "Стоянка здесь рискованна; двигаться лучше короткими переходами и с дозором.",
+        "danger_note": "Высокий риск засады и скрытых проходов между руинами.",
         "aliases": (
             "разрушенный посёлок",
             "руины посёлка",
@@ -130,6 +150,10 @@ STATIC_MAP_NODES: tuple[dict[str, Any], ...] = (
         "map_level": "landmark",
         "area_label": "Стартовый тракт",
         "zone_band": "safe",
+        "short_description": "Каменные ворота крепости возвышаются над трактом и задают ритм всему безопасному ядру региона.",
+        "inspect_summary": "У ворот хорошо видно дорогу, подходы к городку и кто проходит в сторону границы.",
+        "travel_note": "Надёжный ориентир и точка встречи перед выходом в опасные земли.",
+        "service_hints": ["караул", "укрытие у стены"],
         "aliases": (
             "ворота крепости",
             "крепостные ворота",
@@ -143,6 +167,9 @@ STATIC_MAP_NODES: tuple[dict[str, Any], ...] = (
         "map_level": "landmark",
         "area_label": "Восточный берег",
         "zone_band": "border",
+        "short_description": "Старая сторожевая башня над берегом всё ещё даёт хороший обзор на тропы и воду.",
+        "inspect_summary": "Сверху можно быстро понять, куда уходит дорога и где граница безопасных мест.",
+        "travel_note": "Полезная точка обзора перед выходом в пограничные зоны.",
         "aliases": (
             "сторожевая башня",
             "башня",
@@ -182,6 +209,10 @@ STATIC_MAP_NODES: tuple[dict[str, Any], ...] = (
         "map_level": "interior",
         "area_label": "Разрушенный посёлок",
         "zone_band": "danger",
+        "short_description": "Чёрный провал шахтного входа уходит под холм и пахнет сыростью, ржавчиной и старой пылью.",
+        "inspect_summary": "Перед спуском можно заметить свежие следы, обваленные крепи и узкий безопасный проход.",
+        "travel_note": "Порог между открытыми руинами и тесным опасным подземельем.",
+        "danger_note": "Внутри легко потерять обзор и отход к поверхности.",
         "aliases": (
             "шахтный вход",
             "вход в шахту",
@@ -715,6 +746,9 @@ def get_static_node_context(
         for key in ("settlement_kind", "poi_kind", "environment_hint", "safe_rest_hint"):
             if key in resolved_node:
                 summary[key] = resolved_node.get(key)
+        detail = get_static_node_detail(node_id=summary["node_id"])
+        if detail and detail.get("inspect_summary"):
+            summary["detail_summary"] = detail.get("inspect_summary")
         return summary
     if not isinstance(current_map_position, dict):
         return None
@@ -766,3 +800,50 @@ def get_current_node_context_actions(
         _add("camp", "Разбить лагерь")
 
     return actions
+
+
+def get_static_node_detail(
+    *,
+    node_id: str | None = None,
+    current_map_position: dict[str, Any] | None = None,
+) -> dict[str, Any] | None:
+    resolved_node = get_static_node(node_id)
+    if not resolved_node and isinstance(current_map_position, dict):
+        resolved_node = get_static_node(current_map_position.get("node_id"))
+    if not resolved_node:
+        return None
+    detail: dict[str, Any] = {
+        "node_id": str(resolved_node.get("node_id") or ""),
+        "label": str(resolved_node.get("label") or resolved_node.get("node_id") or ""),
+        "node_type": str(resolved_node.get("node_type") or "zone"),
+        "area_label": str(resolved_node.get("area_label") or resolved_node.get("label") or ""),
+    }
+    for key in ("short_description", "inspect_summary", "travel_note", "service_hints", "danger_note"):
+        value = resolved_node.get(key)
+        if isinstance(value, list):
+            detail[key] = [str(item) for item in value if str(item or "").strip()]
+        elif value is not None and str(value).strip():
+            detail[key] = value
+    return detail
+
+
+def get_static_node_inspect_result(
+    *,
+    node_id: str | None = None,
+    current_map_position: dict[str, Any] | None = None,
+    source: str = "registry",
+) -> dict[str, Any] | None:
+    detail = get_static_node_detail(node_id=node_id, current_map_position=current_map_position)
+    if not detail:
+        return None
+    return {
+        "node_id": detail["node_id"],
+        "label": detail["label"],
+        "node_type": detail["node_type"],
+        "inspect_summary": str(detail.get("inspect_summary") or detail.get("short_description") or ""),
+        "short_description": str(detail.get("short_description") or detail.get("inspect_summary") or ""),
+        "travel_note": str(detail.get("travel_note") or "") or None,
+        "service_hints": list(detail.get("service_hints") or []) or None,
+        "danger_note": str(detail.get("danger_note") or "") or None,
+        "source": str(source or "registry"),
+    }

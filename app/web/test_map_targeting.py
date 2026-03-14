@@ -4,7 +4,9 @@ from app.web.map_registry import (
     find_static_link,
     get_current_node_context_actions,
     get_obvious_linked_static_node_ids,
+    get_static_node_detail,
     get_static_node_context,
+    get_static_node_inspect_result,
     get_static_navigation_options,
     get_static_link_metadata,
     get_static_map_links,
@@ -50,6 +52,10 @@ def test_static_map_registry_loads_known_nodes_and_links() -> None:
         "settlement_kind": "roadside",
         "environment_hint": "roadland",
         "safe_rest_hint": True,
+        "short_description": "Широкий тракт у стартового лагеря, где сходятся безопасные дороги региона.",
+        "inspect_summary": "По тракту удобно держать путь к воротам крепости и к озёрному городку.",
+        "travel_note": "Хороший ориентир для сбора группы и спокойного перехода.",
+        "service_hints": ["можно переждать у дороги", "подходит для сбора перед выходом"],
         "aliases": (
             "стартовый тракт",
             "тракт",
@@ -172,6 +178,7 @@ def test_get_static_node_context_builds_zone_landmark_and_interior_summaries() -
         "settlement_kind": "town",
         "environment_hint": "lakeshore",
         "safe_rest_hint": True,
+        "detail_summary": "Здесь легко пополнить припасы, переждать дорогу и собрать слухи о ближних тропах.",
     }
     assert get_static_node_context(node_id="fortress_gate") == {
         "node_id": "fortress_gate",
@@ -182,6 +189,7 @@ def test_get_static_node_context_builds_zone_landmark_and_interior_summaries() -
         "poi_kind": "fortified",
         "environment_hint": "fortified",
         "safe_rest_hint": False,
+        "detail_summary": "У ворот хорошо видно дорогу, подходы к городку и кто проходит в сторону границы.",
     }
     assert get_static_node_context(node_id="mine_entrance") == {
         "node_id": "mine_entrance",
@@ -192,6 +200,7 @@ def test_get_static_node_context_builds_zone_landmark_and_interior_summaries() -
         "poi_kind": "mine",
         "environment_hint": "ruined_frontier",
         "safe_rest_hint": False,
+        "detail_summary": "Перед спуском можно заметить свежие следы, обваленные крепи и узкий безопасный проход.",
     }
 
 
@@ -215,6 +224,40 @@ def test_get_current_node_context_actions_uses_metadata_honestly() -> None:
     ]
 
 
+def test_static_node_detail_and_inspect_result_expose_handcrafted_content() -> None:
+    assert get_static_node_detail(node_id="craft_town") == {
+        "node_id": "craft_town",
+        "label": "Озёрный городок",
+        "node_type": "zone",
+        "area_label": "Озёрный городок",
+        "short_description": "Небольшой ремесленный городок у воды с пристанью, мастерскими и постоялым двором.",
+        "inspect_summary": "Здесь легко пополнить припасы, переждать дорогу и собрать слухи о ближних тропах.",
+        "travel_note": "Самая надёжная безопасная точка региона перед выходом в пограничные земли.",
+        "service_hints": ["припасы", "постоялый двор", "ремесленные мастерские"],
+    }
+    assert get_static_node_detail(node_id="ruined_settlement") == {
+        "node_id": "ruined_settlement",
+        "label": "Разрушенный посёлок",
+        "node_type": "zone",
+        "area_label": "Разрушенный посёлок",
+        "short_description": "Пустые улицы и обгоревшие дворы оставили от посёлка лишь редкие укрытия и плохие следы.",
+        "inspect_summary": "Руины ведут к шахтному входу, но вокруг много слепых углов и тревожной тишины.",
+        "travel_note": "Стоянка здесь рискованна; двигаться лучше короткими переходами и с дозором.",
+        "danger_note": "Высокий риск засады и скрытых проходов между руинами.",
+    }
+    assert get_static_node_inspect_result(node_id="mine_entrance", source="test") == {
+        "node_id": "mine_entrance",
+        "label": "Шахтный вход",
+        "node_type": "interior_entry",
+        "inspect_summary": "Перед спуском можно заметить свежие следы, обваленные крепи и узкий безопасный проход.",
+        "short_description": "Чёрный провал шахтного входа уходит под холм и пахнет сыростью, ржавчиной и старой пылью.",
+        "travel_note": "Порог между открытыми руинами и тесным опасным подземельем.",
+        "service_hints": None,
+        "danger_note": "Внутри легко потерять обзор и отход к поверхности.",
+        "source": "test",
+    }
+
+
 def test_resolve_static_map_node_supports_labels_and_aliases() -> None:
     assert resolve_static_map_node("ворота крепости") == {
         "node_id": "fortress_gate",
@@ -226,6 +269,10 @@ def test_resolve_static_map_node_supports_labels_and_aliases() -> None:
         "poi_kind": "fortified",
         "environment_hint": "fortified",
         "safe_rest_hint": False,
+        "short_description": "Каменные ворота крепости возвышаются над трактом и задают ритм всему безопасному ядру региона.",
+        "inspect_summary": "У ворот хорошо видно дорогу, подходы к городку и кто проходит в сторону границы.",
+        "travel_note": "Надёжный ориентир и точка встречи перед выходом в опасные земли.",
+        "service_hints": ["караул", "укрытие у стены"],
         "aliases": (
             "ворота крепости",
             "крепостные ворота",
@@ -242,6 +289,10 @@ def test_resolve_static_map_node_supports_labels_and_aliases() -> None:
         "poi_kind": "mine",
         "environment_hint": "ruined_frontier",
         "safe_rest_hint": False,
+        "short_description": "Чёрный провал шахтного входа уходит под холм и пахнет сыростью, ржавчиной и старой пылью.",
+        "inspect_summary": "Перед спуском можно заметить свежие следы, обваленные крепи и узкий безопасный проход.",
+        "travel_note": "Порог между открытыми руинами и тесным опасным подземельем.",
+        "danger_note": "Внутри легко потерять обзор и отход к поверхности.",
         "aliases": (
             "шахтный вход",
             "вход в шахту",
@@ -260,6 +311,10 @@ def test_resolve_static_map_node_supports_labels_and_aliases() -> None:
         "settlement_kind": "town",
         "environment_hint": "lakeshore",
         "safe_rest_hint": True,
+        "short_description": "Небольшой ремесленный городок у воды с пристанью, мастерскими и постоялым двором.",
+        "inspect_summary": "Здесь легко пополнить припасы, переждать дорогу и собрать слухи о ближних тропах.",
+        "travel_note": "Самая надёжная безопасная точка региона перед выходом в пограничные земли.",
+        "service_hints": ["припасы", "постоялый двор", "ремесленные мастерские"],
         "aliases": (
             "озёрный городок",
             "ремесленный городок",
