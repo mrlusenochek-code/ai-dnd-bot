@@ -70,6 +70,7 @@ from app.web.session_state import (
     execute_current_group_service,
     execute_group_navigation_option,
     get_player_known_node_ids,
+    get_current_group_travel_event,
     get_group_movement_mode,
     get_group_travel_activity,
     inspect_group_travel_target,
@@ -79,6 +80,7 @@ from app.web.session_state import (
     pause_group_travel,
     request_group_merge,
     request_group_split,
+    resolve_group_travel_event,
     resolve_group_travel_pause,
     resume_group_travel,
     start_group_travel,
@@ -1710,6 +1712,12 @@ def _parse_group_command(cmdline: str) -> tuple[str | None, dict[str, Any]]:
     if lowered in {"group clear activity", "group_clear_activity"}:
         return "group_clear_activity", {}
 
+    if lowered in {"group event resolve", "group_event_resolve"}:
+        return "group_event_resolve", {}
+
+    if lowered in {"group event ignore", "group_event_ignore"}:
+        return "group_event_ignore", {}
+
     if lowered in {"group arrive", "group_arrive"}:
         return "group_arrive", {}
 
@@ -1816,6 +1824,8 @@ def _handle_group_action_request(
         "group_service",
         "group_enter",
         "group_stop",
+        "group_event_resolve",
+        "group_event_ignore",
         "group_arrive",
         "group_interrupt",
         "group_pause",
@@ -1868,6 +1878,8 @@ def _handle_group_action_request(
         "group_service",
         "group_enter",
         "group_stop",
+        "group_event_resolve",
+        "group_event_ignore",
         "group_arrive",
         "group_interrupt",
         "group_pause",
@@ -1928,6 +1940,21 @@ def _handle_group_action_request(
             if not updated:
                 return True, "Не удалось возобновить путешествие группы.", None
             return True, None, f"Группа {actor_group_key} продолжает путь."
+        if action in {"group_event_resolve", "group_event_ignore"}:
+            resolution = "resolve" if action == "group_event_resolve" else "ignore"
+            updated, error = resolve_group_travel_event(
+                sess,
+                actor_group_key,
+                resolution=resolution,
+                source=source,
+            )
+            if error:
+                return True, error, None
+            event_summary = get_current_group_travel_event(sess, group_id=actor_group_key) or {}
+            event_key = str(event_summary.get("event_key") or "travel_event")
+            if resolution == "resolve":
+                return True, None, f"Группа {actor_group_key} разбирается с дорожным событием: {event_key}."
+            return True, None, f"Группа {actor_group_key} игнорирует дорожное событие: {event_key}."
         if action == "group_arrive":
             if is_paused_travel:
                 pause_reason = str(current_travel.get("pause_reason") or "").strip().lower()
@@ -5955,6 +5982,8 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                     "group_service",
                     "group_enter",
                     "group_stop",
+                    "group_event_resolve",
+                    "group_event_ignore",
                     "group_arrive",
                     "group_interrupt",
                     "group_pause",

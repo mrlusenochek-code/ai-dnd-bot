@@ -1707,3 +1707,172 @@ def test_complete_inspect_and_confirm_enter_update_player_map_knowledge() -> Non
         "source": "test",
         "details": {"resolved": True},
     }
+
+
+def test_build_group_travel_event_candidates_use_route_metadata() -> None:
+    safe_candidates = session_state.build_group_travel_event_candidates(
+        {
+            "allowed": True,
+            "route_kind": "zone_move",
+            "action_kind": "move",
+            "target_label": "Восточный берег",
+            "target_node": {
+                "map_level": "region",
+                "node_type": "zone",
+                "node_id": "eastern_bank",
+                "label": "Восточный берег",
+            },
+            "traversal_kind": "road",
+            "risk_band": "low",
+            "terrain_hint": "open",
+        },
+        movement_mode="normal",
+        source="test",
+    )
+    danger_candidates = session_state.build_group_travel_event_candidates(
+        {
+            "allowed": True,
+            "route_kind": "zone_move",
+            "action_kind": "move",
+            "target_label": "Край болот",
+            "target_node": {
+                "map_level": "region",
+                "node_type": "zone",
+                "node_id": "marsh_edge",
+                "label": "Край болот",
+            },
+            "traversal_kind": "marsh_path",
+            "risk_band": "high",
+            "terrain_hint": "marsh",
+            "travel_tags": ["poor_visibility"],
+        },
+        movement_mode="cautious",
+        travel_activity={"activity": "observe", "source": "test"},
+        source="test",
+    )
+
+    assert [candidate["event_key"] for candidate in safe_candidates] == ["roadside_finding", "lost_traveler"]
+    assert "blocked_path" in [candidate["event_key"] for candidate in danger_candidates]
+    assert "ominous_quiet" in [candidate["event_key"] for candidate in danger_candidates]
+
+
+def test_trigger_and_resolve_group_travel_event_update_state_honestly() -> None:
+    player_id = uuid.uuid4()
+    sess = SimpleNamespace(settings={})
+    session_state._initialize_default_group(sess, [player_id], "Стартовый тракт")
+
+    started = session_state.start_group_travel(
+        sess,
+        "main",
+        {
+            "allowed": True,
+            "route_kind": "zone_move",
+            "action_kind": "move",
+            "target_label": "Край болот",
+            "target_node": {
+                "map_level": "region",
+                "node_type": "zone",
+                "node_id": "marsh_edge",
+                "label": "Край болот",
+                "zone_label": "Край болот",
+                "area_label": "Край болот",
+            },
+            "next_map_position": {
+                "v": 1,
+                "map_level": "region",
+                "node_type": "zone",
+                "node_id": "marsh_edge",
+                "label": "Край болот",
+            },
+            "next_zone_label": "Край болот",
+            "traversal_kind": "marsh_path",
+            "risk_band": "high",
+            "terrain_hint": "marsh",
+            "travel_tags": ["poor_visibility"],
+        },
+        movement_mode="cautious",
+        source="test",
+    )
+
+    assert started is not None
+    assert started["travel_event"]["event_key"] == "blocked_path"
+    assert started["travel_event"]["active"] is True
+    assert started["status"] == "paused_travel"
+    assert started["travel_state"]["pause_reason"] == "route_blocked"
+    assert started["travel_state"]["resume_allowed"] is False
+
+    resolved, resolve_error = session_state.resolve_group_travel_event(
+        sess,
+        "main",
+        resolution="resolve",
+        source="test",
+    )
+
+    assert resolve_error is None
+    assert resolved is not None
+    assert resolved["status"] == "moving"
+    assert resolved["travel_state"]["paused"] is False
+    assert resolved["travel_event"]["event_key"] == "blocked_path"
+    assert resolved["travel_event"]["active"] is False
+    assert resolved["travel_event"]["resolved"] is True
+    assert resolved["travel_event"]["resolution"] == "resolve"
+    assert resolved["travel_event"]["source"] == "test"
+    assert resolved["travel_event"]["route_snapshot"]["traversal_kind"] == "marsh_path"
+
+
+def test_trigger_non_blocking_event_and_ignore_event() -> None:
+    player_id = uuid.uuid4()
+    sess = SimpleNamespace(settings={})
+    session_state._initialize_default_group(sess, [player_id], "Стартовый тракт")
+
+    started = session_state.start_group_travel(
+        sess,
+        "main",
+        {
+            "allowed": True,
+            "route_kind": "landmark_move",
+            "action_kind": "move",
+            "target_label": "Ворота крепости",
+            "target_node": {
+                "map_level": "landmark",
+                "node_type": "landmark",
+                "node_id": "fortress_gate",
+                "label": "Ворота крепости",
+                "zone_label": "Стартовый тракт",
+                "area_label": "Стартовый тракт",
+            },
+            "next_map_position": {
+                "v": 1,
+                "map_level": "landmark",
+                "node_type": "landmark",
+                "node_id": "fortress_gate",
+                "label": "Ворота крепости",
+                "area_label": "Стартовый тракт",
+            },
+            "next_zone_label": "Стартовый тракт",
+            "source": "registry",
+            "traversal_kind": "road",
+            "risk_band": "low",
+            "terrain_hint": "open",
+        },
+        source="test",
+    )
+
+    assert started is not None
+    assert started["status"] == "moving"
+    assert started["travel_event"]["event_key"] == "roadside_finding"
+    assert started["travel_state"]["paused"] is False
+
+    ignored, ignore_error = session_state.resolve_group_travel_event(
+        sess,
+        "main",
+        resolution="ignore",
+        source="test",
+    )
+
+    assert ignore_error is None
+    assert ignored is not None
+    assert ignored["status"] == "moving"
+    assert ignored["travel_state"]["active"] is True
+    assert ignored["travel_event"]["active"] is False
+    assert ignored["travel_event"]["resolution"] == "ignore"

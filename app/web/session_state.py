@@ -663,6 +663,35 @@ def _normalize_group_travel_resolution(raw: Any) -> dict[str, Any] | None:
     return summary
 
 
+def _normalize_group_travel_event(raw: Any) -> dict[str, Any] | None:
+    if not isinstance(raw, dict):
+        return None
+    event_key = str(raw.get("event_key") or "").strip().lower()
+    if event_key not in {"roadside_finding", "tracks_or_signs", "lost_traveler", "blocked_path", "ominous_quiet"}:
+        return None
+    event_id = str(raw.get("event_id") or "").strip()
+    summary = str(raw.get("summary") or "").strip()
+    route_snapshot = _normalize_group_route_summary(raw.get("route_snapshot") or raw.get("route"))
+    if not event_id or not summary or not route_snapshot:
+        return None
+    resolution = str(raw.get("resolution") or "").strip().lower()
+    if resolution not in {"", "resolve", "ignore"}:
+        resolution = ""
+    event: dict[str, Any] = {
+        "event_id": event_id[:80],
+        "event_key": event_key,
+        "event_type": str(raw.get("event_type") or "roadside_hook")[:40] or "roadside_hook",
+        "summary": summary[:400],
+        "route_snapshot": route_snapshot,
+        "source": str(raw.get("source") or "travel")[:40] or "travel",
+        "active": bool(raw.get("active", True)),
+        "resolved": bool(raw.get("resolved", False)),
+    }
+    if resolution:
+        event["resolution"] = resolution
+    return event
+
+
 def _normalize_map_knowledge_kind(raw: Any) -> str:
     kind = str(raw or "known").strip().lower()
     if kind not in _MAP_KNOWLEDGE_KIND_ORDER:
@@ -1398,6 +1427,176 @@ def execute_current_group_service(
     return dict(group), None
 
 
+def build_group_travel_event_candidates(
+    route_summary: dict[str, Any] | None,
+    *,
+    movement_mode: str | None = None,
+    travel_activity: dict[str, Any] | None = None,
+    source: str = "travel",
+) -> list[dict[str, Any]]:
+    route = _normalize_group_route_summary(route_summary)
+    if not route or route.get("allowed") is not True:
+        return []
+    action_kind = str(route.get("action_kind") or "").strip().lower()
+    if action_kind == "enter":
+        return []
+    resolved_mode = _normalize_group_movement_mode(movement_mode)
+    resolved_activity = _normalize_group_travel_activity(travel_activity)
+    activity_key = str((resolved_activity or {}).get("activity") or "").strip().lower()
+    traversal_kind = str(route.get("traversal_kind") or "").strip().lower()
+    risk_band = str(route.get("risk_band") or "").strip().lower()
+    terrain_hint = str(route.get("terrain_hint") or "").strip().lower()
+    travel_tags = {str(item or "").strip().lower() for item in (route.get("travel_tags") or []) if str(item or "").strip()}
+
+    def _candidate(event_key: str, summary: str, *, event_type: str = "roadside_hook") -> dict[str, Any]:
+        return {
+            "event_key": event_key,
+            "event_type": event_type,
+            "summary": summary,
+            "route_snapshot": route,
+            "source": source,
+            "active": True,
+            "resolved": False,
+        }
+
+    candidates: list[dict[str, Any]] = []
+    if traversal_kind == "marsh_path" or terrain_hint == "marsh" or "poor_visibility" in travel_tags:
+        candidates.append(_candidate("blocked_path", "Путь впереди вязнет и требует осторожного решения перед продолжением."))
+    if activity_key in {"track", "observe", "navigate"} or traversal_kind in {"trail", "wild", "ruin_path"}:
+        candidates.append(_candidate("tracks_or_signs", "На пути заметны следы и знаки, которые могут подсказать, кто проходил здесь раньше."))
+    if risk_band == "low" and traversal_kind in {"road", "gate_approach"}:
+        candidates.append(_candidate("roadside_finding", "У дороги попалась мелкая находка или примета, которая делает путь чуть менее безликим."))
+    if risk_band in {"low", "medium"} and traversal_kind in {"road", "trail", "gate_approach"}:
+        candidates.append(_candidate("lost_traveler", "На дороге есть след недавнего путника или чужой короткий запрос о помощи."))
+    if risk_band == "high" or terrain_hint in {"marsh", "ruins", "ruined_frontier"} or "ruins" in travel_tags:
+        ominous_summary = "Окрестности подозрительно тихи и заставляют группу замедлиться."
+        if resolved_mode == "fast":
+            ominous_summary = "Быстрый ход по опасному пути делает тишину вокруг особенно тревожной."
+        candidates.append(_candidate("ominous_quiet", ominous_summary))
+
+    deduped: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for candidate in candidates:
+        key = str(candidate.get("event_key") or "").strip().lower()
+        if not key or key in seen:
+            continue
+        seen.add(key)
+        deduped.append(_normalize_group_travel_event({**candidate, "event_id": f"candidate-{key}"}) or candidate)
+    return deduped
+
+
+def trigger_group_travel_event(
+    sess: Session,
+    group_id: str,
+    *,
+    event_key: str | None = None,
+    event: dict[str, Any] | None = None,
+    source: str = "travel",
+) -> dict[str, Any] | None:
+    groups = _get_group_states(sess)
+    group_key = str(group_id or "").strip()
+    group = groups.get(group_key)
+    if not group:
+        return None
+    chosen_event = _normalize_group_travel_event(event)
+    if not chosen_event:
+        travel_state = _group_travel_state_summary(group)
+        candidates = build_group_travel_event_candidates(
+            (travel_state or {}).get("route_summary"),
+            movement_mode=(travel_state or {}).get("movement_mode") or group.get("movement_mode"),
+            travel_activity=(travel_state or {}).get("travel_activity") or group.get("travel_activity"),
+            source=source,
+        )
+        normalized_event_key = str(event_key or "").strip().lower()
+        if normalized_event_key:
+            for candidate in candidates:
+                if str(candidate.get("event_key") or "").strip().lower() == normalized_event_key:
+                    chosen_event = _normalize_group_travel_event({**candidate, "event_id": uuid.uuid4().hex[:12], "source": source})
+                    break
+        elif candidates:
+            chosen_event = _normalize_group_travel_event({**candidates[0], "event_id": uuid.uuid4().hex[:12], "source": source})
+    if not chosen_event:
+        return None
+    group["travel_event"] = chosen_event
+    if chosen_event.get("event_key") == "blocked_path":
+        travel_state = _group_travel_state_summary(group)
+        if travel_state and travel_state.get("active") is True and travel_state.get("paused") is not True:
+            travel_state["paused"] = True
+            travel_state["pause_reason"] = "route_blocked"
+            travel_state["pause_details"] = {"event_id": chosen_event["event_id"], "event_key": "blocked_path"}
+            travel_state["resume_allowed"] = False
+            travel_state["phase"] = "paused"
+            group["travel_state"] = travel_state
+            group["status"] = "paused_travel"
+    _persist_group_states(sess, groups)
+    _sync_group_position_mirrors(sess, group)
+    return dict(group)
+
+
+def get_current_group_travel_event(
+    sess: Session,
+    *,
+    player_id: uuid.UUID | str | None = None,
+    group_id: str | None = None,
+) -> dict[str, Any] | None:
+    resolved_group_id = str(group_id or "").strip()
+    resolved_player_id = str(player_id or "").strip()
+    if not resolved_group_id and resolved_player_id:
+        resolved_group_id = str(_get_player_group_id(sess, resolved_player_id) or "").strip()
+    if not resolved_group_id:
+        return None
+    group = _get_group_states(sess).get(resolved_group_id)
+    if not isinstance(group, dict):
+        return None
+    return _normalize_group_travel_event(group.get("travel_event"))
+
+
+def resolve_group_travel_event(
+    sess: Session,
+    group_id: str,
+    *,
+    resolution: str,
+    source: str = "manual",
+) -> tuple[dict[str, Any] | None, str | None]:
+    groups = _get_group_states(sess)
+    group_key = str(group_id or "").strip()
+    group = groups.get(group_key)
+    if not group:
+        return None, "Группа не найдена."
+    event = _group_travel_event_summary(group)
+    if not event or event.get("active") is not True:
+        return None, "У группы нет активного travel event."
+    normalized_resolution = str(resolution or "").strip().lower()
+    if normalized_resolution not in {"resolve", "ignore"}:
+        return None, "Неизвестный способ завершения travel event."
+    if normalized_resolution == "ignore" and str(event.get("event_key") or "") == "blocked_path":
+        interrupted = interrupt_group_travel(sess, group_key)
+        groups = _get_group_states(sess)
+        group = groups.get(group_key)
+        if not interrupted or not group:
+            return None, "Не удалось проигнорировать blocked path."
+        group["status"] = "idle"
+    elif normalized_resolution == "resolve" and str(event.get("event_key") or "") == "blocked_path":
+        travel_state = _group_travel_state_summary(group)
+        if travel_state and travel_state.get("active") is True:
+            travel_state["paused"] = False
+            travel_state.pop("pause_reason", None)
+            travel_state.pop("pause_details", None)
+            travel_state["resume_allowed"] = True
+            travel_state["phase"] = "in_transit"
+            group["travel_state"] = travel_state
+            group["status"] = "moving"
+    resolved_event = dict(event)
+    resolved_event["active"] = False
+    resolved_event["resolved"] = True
+    resolved_event["resolution"] = normalized_resolution
+    resolved_event["source"] = str(source or event.get("source") or "travel")[:40] or "travel"
+    group["travel_event"] = resolved_event
+    _persist_group_states(sess, groups)
+    _sync_group_position_mirrors(sess, group)
+    return dict(group), None
+
+
 def execute_current_group_context_action(
     sess: Session,
     *,
@@ -1693,6 +1892,10 @@ def _group_last_service_result_summary(group: dict[str, Any]) -> dict[str, Any] 
     return _normalize_group_last_service_result(group.get("last_service_result"))
 
 
+def _group_travel_event_summary(group: dict[str, Any]) -> dict[str, Any] | None:
+    return _normalize_group_travel_event(group.get("travel_event"))
+
+
 def _travel_available_resolutions_for_reason(pause_reason: str | None) -> list[dict[str, str]]:
     reason = _normalize_group_pause_reason(pause_reason)
     if reason == "target_requires_enter":
@@ -1821,6 +2024,9 @@ def _normalize_group_state(
     last_service_result = _normalize_group_last_service_result(raw.get("last_service_result"))
     if last_service_result:
         normalized["last_service_result"] = last_service_result
+    travel_event = _normalize_group_travel_event(raw.get("travel_event"))
+    if travel_event:
+        normalized["travel_event"] = travel_event
     return normalized
 
 
@@ -2225,6 +2431,7 @@ def start_group_travel(
     if not intent or not travel_state:
         return None
     _clear_group_activity_state(group, status="moving")
+    group.pop("travel_event", None)
     group["movement_intent"] = intent
     group["travel_state"] = travel_state
     group["status"] = "moving"
@@ -2250,6 +2457,11 @@ def start_group_travel(
             group["status"] = "paused_travel"
     _persist_group_states(sess, groups)
     _sync_group_position_mirrors(sess, group)
+    if auto_pause_reason:
+        return dict(_get_group_states(sess).get(group_key) or group)
+    triggered = trigger_group_travel_event(sess, group_key, source=source)
+    if triggered:
+        return triggered
     return dict(group)
 
 
@@ -2586,6 +2798,15 @@ def complete_group_travel(
         return None
     group["current_map_position"] = next_map_position
     group["area_label"] = next_zone_label[:80]
+    active_event = _group_travel_event_summary(group)
+    if active_event and active_event.get("active") is True:
+        group["travel_event"] = {
+            **active_event,
+            "active": False,
+            "resolved": True,
+            "resolution": "resolve",
+            "source": str(source or active_event.get("source") or "travel")[:40] or "travel",
+        }
     _clear_group_activity_state(group, status="idle")
     _persist_group_states(sess, groups)
     _sync_group_position_mirrors(sess, group)
@@ -2604,6 +2825,15 @@ def interrupt_group_travel(sess: Session, group_id: str) -> dict[str, Any] | Non
     travel_state = _group_travel_state_summary(group)
     if not travel_state or travel_state.get("active") is not True:
         return None
+    active_event = _group_travel_event_summary(group)
+    if active_event and active_event.get("active") is True:
+        group["travel_event"] = {
+            **active_event,
+            "active": False,
+            "resolved": True,
+            "resolution": "ignore",
+            "source": str(active_event.get("source") or "travel")[:40] or "travel",
+        }
     _clear_group_activity_state(group, status="idle")
     _persist_group_states(sess, groups)
     _sync_group_position_mirrors(sess, group)

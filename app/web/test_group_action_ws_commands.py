@@ -6,7 +6,7 @@ from types import SimpleNamespace
 from app.web import session_state, ws_handlers
 
 
-def test_parse_group_command_supports_wait_camp_move_navigate_context_actions_services_enter_stop_arrive_interrupt_pause_resume_resolution_split_and_merge() -> None:
+def test_parse_group_command_supports_wait_camp_move_navigate_context_actions_services_enter_stop_arrive_interrupt_pause_resume_event_resolution_split_and_merge() -> None:
     scout_id = str(uuid.uuid4())
     action_wait, payload_wait = ws_handlers._parse_group_command("group wait: держим позицию")
     action_camp, payload_camp = ws_handlers._parse_group_command("group camp ночлег у костра")
@@ -22,6 +22,8 @@ def test_parse_group_command_supports_wait_camp_move_navigate_context_actions_se
     action_mode, payload_mode = ws_handlers._parse_group_command("group mode cautious")
     action_activity, payload_activity = ws_handlers._parse_group_command("group activity navigate")
     action_clear_activity, payload_clear_activity = ws_handlers._parse_group_command("group clear activity")
+    action_event_resolve, payload_event_resolve = ws_handlers._parse_group_command("group event resolve")
+    action_event_ignore, payload_event_ignore = ws_handlers._parse_group_command("group event ignore")
     action_arrive, payload_arrive = ws_handlers._parse_group_command("group arrive")
     action_interrupt, payload_interrupt = ws_handlers._parse_group_command("group interrupt")
     action_pause, payload_pause = ws_handlers._parse_group_command("group pause")
@@ -51,6 +53,8 @@ def test_parse_group_command_supports_wait_camp_move_navigate_context_actions_se
     assert (action_mode, payload_mode) == ("group_set_mode", {"movement_mode": "cautious"})
     assert (action_activity, payload_activity) == ("group_set_activity", {"activity": "navigate"})
     assert (action_clear_activity, payload_clear_activity) == ("group_clear_activity", {})
+    assert (action_event_resolve, payload_event_resolve) == ("group_event_resolve", {})
+    assert (action_event_ignore, payload_event_ignore) == ("group_event_ignore", {})
     assert (action_arrive, payload_arrive) == ("group_arrive", {})
     assert (action_interrupt, payload_interrupt) == ("group_interrupt", {})
     assert (action_pause, payload_pause) == ("group_pause", {})
@@ -520,6 +524,123 @@ def test_handle_group_move_pause_resume_enter_arrive_interrupt_and_stop_requests
         "label": "замок",
         "area_label": "центр города",
     }
+
+
+def test_handle_group_event_resolve_and_ignore_requests() -> None:
+    player_id = uuid.uuid4()
+    sess = SimpleNamespace(settings={})
+    session_state._initialize_default_group(sess, [player_id], "Стартовый тракт")
+
+    session_state.start_group_travel(
+        sess,
+        "main",
+        {
+            "allowed": True,
+            "route_kind": "zone_move",
+            "action_kind": "move",
+            "target_label": "Край болот",
+            "target_node": {
+                "map_level": "region",
+                "node_type": "zone",
+                "node_id": "marsh_edge",
+                "label": "Край болот",
+                "zone_label": "Край болот",
+                "area_label": "Край болот",
+            },
+            "next_map_position": {
+                "v": 1,
+                "map_level": "region",
+                "node_type": "zone",
+                "node_id": "marsh_edge",
+                "label": "Край болот",
+            },
+            "next_zone_label": "Край болот",
+            "traversal_kind": "marsh_path",
+            "risk_band": "high",
+            "terrain_hint": "marsh",
+            "travel_tags": ["poor_visibility"],
+        },
+        source="test",
+    )
+
+    handled_resolve, err_resolve, msg_resolve = ws_handlers._handle_group_action_request(
+        sess,
+        action="group_event_resolve",
+        actor_player_id=player_id,
+        payload={},
+        source="test",
+    )
+
+    assert handled_resolve is True
+    assert err_resolve is None
+    assert msg_resolve == "Группа main разбирается с дорожным событием: blocked_path."
+    resolved_group = session_state._get_group_states(sess)["main"]
+    assert resolved_group["status"] == "moving"
+    assert resolved_group["travel_state"]["paused"] is False
+    assert resolved_group["travel_event"]["active"] is False
+    assert resolved_group["travel_event"]["resolution"] == "resolve"
+
+    session_state.start_group_travel(
+        sess,
+        "main",
+        {
+            "allowed": True,
+            "route_kind": "landmark_move",
+            "action_kind": "move",
+            "target_label": "Ворота крепости",
+            "target_node": {
+                "map_level": "landmark",
+                "node_type": "landmark",
+                "node_id": "fortress_gate",
+                "label": "Ворота крепости",
+                "zone_label": "Стартовый тракт",
+                "area_label": "Стартовый тракт",
+            },
+            "next_map_position": {
+                "v": 1,
+                "map_level": "landmark",
+                "node_type": "landmark",
+                "node_id": "fortress_gate",
+                "label": "Ворота крепости",
+                "area_label": "Стартовый тракт",
+            },
+            "next_zone_label": "Стартовый тракт",
+            "source": "registry",
+            "traversal_kind": "road",
+            "risk_band": "low",
+            "terrain_hint": "open",
+        },
+        source="test",
+    )
+
+    handled_ignore, err_ignore, msg_ignore = ws_handlers._handle_group_action_request(
+        sess,
+        action="group_event_ignore",
+        actor_player_id=player_id,
+        payload={},
+        source="test",
+    )
+
+    assert handled_ignore is True
+    assert err_ignore is None
+    assert msg_ignore == "Группа main игнорирует дорожное событие: roadside_finding."
+    ignored_group = session_state._get_group_states(sess)["main"]
+    assert ignored_group["status"] == "moving"
+    assert ignored_group["travel_state"]["active"] is True
+    assert ignored_group["travel_event"]["active"] is False
+    assert ignored_group["travel_event"]["resolution"] == "ignore"
+
+    handled_missing, err_missing, msg_missing = ws_handlers._handle_group_action_request(
+        sess,
+        action="group_event_resolve",
+        actor_player_id=player_id,
+        payload={},
+        source="test",
+    )
+
+    assert handled_missing is True
+    assert err_missing == "У группы нет активного travel event."
+    assert msg_missing is None
 
     session_state.set_group_movement_intent(sess, "main", target_node="площадь", source="test")
 
