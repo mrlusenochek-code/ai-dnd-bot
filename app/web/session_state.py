@@ -9,6 +9,7 @@ from app.web.map_registry import (
     STATIC_MAP_NODES,
     get_current_node_context_actions,
     get_obvious_linked_static_node_ids,
+    get_static_node_scout_discoveries,
     get_static_navigation_options,
     get_static_node_detail,
     get_static_node,
@@ -472,6 +473,58 @@ def _normalize_group_last_camp_result(raw: Any) -> dict[str, Any] | None:
         "risk_band": risk_band[:20],
         "source": source[:40],
         "applied_effects": applied_effects,
+    }
+    if resolved_at:
+        result["resolved_at"] = resolved_at[:80]
+    return result
+
+
+def _normalize_group_last_scout_result(raw: Any) -> dict[str, Any] | None:
+    if not isinstance(raw, dict):
+        return None
+    result_id = str(raw.get("result_id") or "").strip()
+    result_type = str(raw.get("result_type") or "").strip().lower()
+    if result_type not in {"no_new_findings", "route_revealed", "landmark_revealed", "hidden_path_revealed", "local_clue_found"}:
+        return None
+    summary = str(raw.get("summary") or "").strip()
+    result_summary = str(raw.get("result_summary") or "").strip()
+    node_id = str(raw.get("node_id") or "").strip()
+    node_label = str(raw.get("node_label") or node_id).strip()
+    discovery_scope = str(raw.get("discovery_scope") or "").strip().lower()
+    if discovery_scope not in {"none", "adjacent_route", "adjacent_landmark", "hidden_route", "local_area"}:
+        discovery_scope = "none"
+    source = str(raw.get("source") or "scout").strip() or "scout"
+    resolved_at = str(raw.get("resolved_at") or "").strip()
+    if not result_id or not summary or not result_summary or not node_id or not node_label:
+        return None
+    discovered_node_ids = [
+        str(node_id_value).strip()[:120]
+        for node_id_value in (raw.get("discovered_node_ids") or [])
+        if str(node_id_value or "").strip()
+    ] if isinstance(raw.get("discovered_node_ids"), list) else []
+    discovered_route_ids = [
+        str(route_id).strip()[:120]
+        for route_id in (raw.get("discovered_route_ids") or [])
+        if str(route_id or "").strip()
+    ] if isinstance(raw.get("discovered_route_ids"), list) else []
+    discovered_notes = [
+        str(note).strip()[:240]
+        for note in (raw.get("discovered_notes") or [])
+        if str(note or "").strip()
+    ] if isinstance(raw.get("discovered_notes"), list) else []
+    result: dict[str, Any] = {
+        "result_id": result_id[:80],
+        "result_type": result_type[:40],
+        "summary": summary[:400],
+        "result_summary": result_summary[:400],
+        "node_id": node_id[:120],
+        "node_label": node_label[:120],
+        "discovery_scope": discovery_scope[:40],
+        "discovered_node_ids": discovered_node_ids,
+        "discovered_route_ids": discovered_route_ids,
+        "discovered_notes": discovered_notes,
+        "reveal_applied": bool(raw.get("reveal_applied")),
+        "source": source[:40],
     }
     if resolved_at:
         result["resolved_at"] = resolved_at[:80]
@@ -1668,6 +1721,146 @@ def _set_group_last_camp_result(
     return normalized
 
 
+def _set_group_last_scout_result(
+    group: dict[str, Any],
+    result: dict[str, Any] | None,
+) -> dict[str, Any] | None:
+    normalized = _normalize_group_last_scout_result(result)
+    if not normalized:
+        group.pop("last_scout_result", None)
+        return None
+    group["last_scout_result"] = normalized
+    return normalized
+
+
+def build_group_scout_result(
+    *,
+    node_context: dict[str, Any] | None = None,
+    node_detail: dict[str, Any] | None = None,
+    scout_discoveries: list[dict[str, Any]] | None = None,
+    fully_revealed_node_ids: list[str] | set[str] | None = None,
+    source: str = "scout",
+) -> dict[str, Any] | None:
+    node_summary = dict((node_context or {}).get("node_summary") or {})
+    node_id = str(node_summary.get("node_id") or "").strip()
+    node_label = str(node_summary.get("label") or node_id).strip()
+    if not node_id or not node_label:
+        return None
+    revealed_set = {
+        str(node_ref).strip().lower()
+        for node_ref in (fully_revealed_node_ids or [])
+        if str(node_ref or "").strip()
+    }
+    discoveries = [dict(item) for item in (scout_discoveries or []) if isinstance(item, dict)]
+    next_discovery = next(
+        (
+            item
+            for item in discoveries
+            if any(str(node_ref).strip().lower() not in revealed_set for node_ref in (item.get("discovered_node_ids") or []))
+        ),
+        None,
+    )
+    if next_discovery:
+        discovered_node_ids = [
+            str(node_ref).strip()
+            for node_ref in (next_discovery.get("discovered_node_ids") or [])
+            if str(node_ref or "").strip()
+        ]
+        discovered_route_ids = [
+            str(route_id).strip()
+            for route_id in (next_discovery.get("discovered_route_ids") or [])
+            if str(route_id or "").strip()
+        ]
+        discovered_notes = [
+            str(note).strip()
+            for note in (next_discovery.get("discovered_notes") or [])
+            if str(note or "").strip()
+        ]
+        result_type = str(next_discovery.get("result_type") or "route_revealed").strip().lower()
+        result_summary = "Разведка открывает новый ориентир на текущем участке пути."
+        if result_type == "hidden_path_revealed":
+            result_summary = "Разведка выводит группу на скрытый проход, который раньше не читался с дороги."
+        elif result_type == "landmark_revealed":
+            result_summary = "Разведка замечает новый ориентир рядом с текущим узлом и делает подход к нему видимым."
+        elif result_type == "route_revealed":
+            result_summary = "Разведка проясняет соседний маршрут и добавляет новый понятный выход из текущей точки."
+        return _normalize_group_last_scout_result(
+            {
+                "result_id": uuid.uuid4().hex[:12],
+                "result_type": result_type,
+                "summary": f"Разведка у {node_label} приносит новый маршрутный результат.",
+                "result_summary": result_summary,
+                "node_id": node_id,
+                "node_label": node_label,
+                "discovery_scope": str(next_discovery.get("discovery_scope") or "local_area"),
+                "discovered_node_ids": discovered_node_ids,
+                "discovered_route_ids": discovered_route_ids,
+                "discovered_notes": discovered_notes,
+                "reveal_applied": True,
+                "source": source,
+                "resolved_at": datetime.now(timezone.utc).isoformat(),
+            }
+        )
+
+    if discoveries:
+        return _normalize_group_last_scout_result(
+            {
+                "result_id": uuid.uuid4().hex[:12],
+                "result_type": "no_new_findings",
+                "summary": f"Разведка у {node_label} не приносит новых открытий.",
+                "result_summary": "Ближайшие авторские ориентиры уже раскрыты для этой группы, и новых находок сейчас нет.",
+                "node_id": node_id,
+                "node_label": node_label,
+                "discovery_scope": "none",
+                "discovered_node_ids": [],
+                "discovered_route_ids": [],
+                "discovered_notes": [],
+                "reveal_applied": False,
+                "source": source,
+                "resolved_at": datetime.now(timezone.utc).isoformat(),
+            }
+        )
+
+    detail = dict(node_detail or {})
+    clue_note = str(detail.get("travel_note") or detail.get("inspect_summary") or detail.get("danger_note") or "").strip()
+    if clue_note:
+        return _normalize_group_last_scout_result(
+            {
+                "result_id": uuid.uuid4().hex[:12],
+                "result_type": "local_clue_found",
+                "summary": f"Разведка у {node_label} даёт локальную зацепку.",
+                "result_summary": "Нового выхода разведка не открывает, но место даёт полезную локальную подсказку.",
+                "node_id": node_id,
+                "node_label": node_label,
+                "discovery_scope": "local_area",
+                "discovered_node_ids": [],
+                "discovered_route_ids": [],
+                "discovered_notes": [clue_note],
+                "reveal_applied": False,
+                "source": source,
+                "resolved_at": datetime.now(timezone.utc).isoformat(),
+            }
+        )
+
+    return _normalize_group_last_scout_result(
+        {
+            "result_id": uuid.uuid4().hex[:12],
+            "result_type": "no_new_findings",
+            "summary": f"Разведка у {node_label} не приносит новых открытий.",
+            "result_summary": "На этой точке разведка не даёт нового маршрута, ориентира или локальной зацепки.",
+            "node_id": node_id,
+            "node_label": node_label,
+            "discovery_scope": "none",
+            "discovered_node_ids": [],
+            "discovered_route_ids": [],
+            "discovered_notes": [],
+            "reveal_applied": False,
+            "source": source,
+            "resolved_at": datetime.now(timezone.utc).isoformat(),
+        }
+    )
+
+
 def build_group_camp_result(
     camp_state: dict[str, Any] | None,
     *,
@@ -1907,6 +2100,72 @@ def get_current_group_last_camp_result(
     if not isinstance(group, dict):
         return None
     return _normalize_group_last_camp_result(group.get("last_camp_result"))
+
+
+def get_current_group_last_scout_result(
+    sess: Session,
+    *,
+    player_id: uuid.UUID | str | None = None,
+    group_id: str | None = None,
+) -> dict[str, Any] | None:
+    resolved_group_id = str(group_id or "").strip()
+    resolved_player_id = str(player_id or "").strip()
+    if not resolved_group_id and resolved_player_id:
+        resolved_group_id = str(_get_player_group_id(sess, resolved_player_id) or "").strip()
+    if not resolved_group_id:
+        return None
+    group = _get_group_states(sess).get(resolved_group_id)
+    if not isinstance(group, dict):
+        return None
+    return _normalize_group_last_scout_result(group.get("last_scout_result"))
+
+
+def resolve_group_scout(
+    sess: Session,
+    group_id: str,
+    *,
+    player_id: uuid.UUID | str | None = None,
+    source: str = "scout",
+) -> tuple[dict[str, Any] | None, str | None]:
+    groups = _get_group_states(sess)
+    group_key = str(group_id or "").strip()
+    group = groups.get(group_key)
+    if not group:
+        return None, "Группа не найдена."
+    group_player_ids = [str(pid).strip() for pid in (group.get("player_ids") or []) if str(pid).strip()]
+    if not group_player_ids:
+        return None, "У группы нет участников для разведки."
+    current_map_position = _normalize_map_position(group.get("current_map_position"))
+    node_context = get_current_group_node_context(sess, player_id=player_id, group_id=group_key)
+    node_detail = get_current_group_node_detail(sess, player_id=player_id, group_id=group_key)
+    scout_discoveries = get_static_node_scout_discoveries(current_map_position=current_map_position)
+    fully_revealed_node_ids = [
+        node_id
+        for node_id in {
+            str(node_ref).strip()
+            for pid in group_player_ids
+            for node_ref in get_player_revealed_node_ids(sess, pid)
+            if str(node_ref or "").strip()
+        }
+        if all(is_player_node_revealed(sess, pid, node_id) for pid in group_player_ids)
+    ]
+    result = build_group_scout_result(
+        node_context=node_context,
+        node_detail=node_detail,
+        scout_discoveries=scout_discoveries,
+        fully_revealed_node_ids=fully_revealed_node_ids,
+        source=source,
+    )
+    if not result:
+        return None, "Не удалось подготовить результат разведки."
+    if result.get("reveal_applied") is True:
+        for pid in group_player_ids:
+            for discovered_node_id in result.get("discovered_node_ids") or []:
+                reveal_player_map_node(sess, pid, str(discovered_node_id), source=source)
+    _set_group_last_scout_result(group, result)
+    _persist_group_states(sess, groups)
+    _sync_group_position_mirrors(sess, group)
+    return dict(group), None
 
 
 def resolve_group_camp(
@@ -2249,6 +2508,10 @@ def _group_last_camp_result_summary(group: dict[str, Any]) -> dict[str, Any] | N
     return _normalize_group_last_camp_result(group.get("last_camp_result"))
 
 
+def _group_last_scout_result_summary(group: dict[str, Any]) -> dict[str, Any] | None:
+    return _normalize_group_last_scout_result(group.get("last_scout_result"))
+
+
 def _group_movement_mode(group: dict[str, Any]) -> str:
     return _normalize_group_movement_mode(group.get("movement_mode"))
 
@@ -2428,6 +2691,9 @@ def _normalize_group_state(
     last_camp_result = _normalize_group_last_camp_result(raw.get("last_camp_result"))
     if last_camp_result:
         normalized["last_camp_result"] = last_camp_result
+    last_scout_result = _normalize_group_last_scout_result(raw.get("last_scout_result"))
+    if last_scout_result:
+        normalized["last_scout_result"] = last_scout_result
     if movement_intent:
         normalized["movement_intent"] = movement_intent
     if travel_state:

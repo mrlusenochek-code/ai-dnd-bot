@@ -81,6 +81,7 @@ from app.web.session_state import (
     request_group_merge,
     request_group_split,
     resolve_group_camp,
+    resolve_group_scout,
     resolve_group_travel_event,
     resolve_group_travel_pause,
     resume_group_travel,
@@ -1663,6 +1664,9 @@ def _parse_group_command(cmdline: str) -> tuple[str | None, dict[str, Any]]:
     if lowered in {"group rest", "group_rest"}:
         return "group_rest", {}
 
+    if lowered in {"group scout", "group_scout", "group search", "group_search"}:
+        return "group_scout", {}
+
     for prefix in ("group wait", "group_wait"):
         if lowered == prefix:
             return "group_wait", {}
@@ -1825,6 +1829,7 @@ def _handle_group_action_request(
         "group_camp",
         "group_camp_resolve",
         "group_rest",
+        "group_scout",
         "group_split",
         "group_merge",
         "group_move",
@@ -1879,6 +1884,20 @@ def _handle_group_action_request(
             return True, "Не удалось установить походную активность группы.", None
         activity = get_group_travel_activity(sess, actor_group_key) or {}
         return True, None, f"Походная активность группы {actor_group_key}: {activity.get('activity')}."
+
+    if action == "group_scout":
+        if not actor_group_key:
+            return True, "Группа игрока не найдена.", None
+        updated, error = resolve_group_scout(
+            sess,
+            actor_group_key,
+            player_id=actor_player_id,
+            source=source,
+        )
+        if error:
+            return True, error, None
+        scout_result = (updated or {}).get("last_scout_result") or {}
+        return True, None, str(scout_result.get("result_summary") or f"Группа {actor_group_key} провела разведку.")
 
     if action in {"group_camp_resolve", "group_rest"}:
         if not actor_group_key:
@@ -6005,6 +6024,7 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                     "group_camp",
                     "group_camp_resolve",
                     "group_rest",
+                    "group_scout",
                     "group_split",
                     "group_merge",
                     "group_move",

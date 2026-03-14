@@ -1025,6 +1025,156 @@ def test_get_current_group_navigation_options_respects_known_and_revealed_nodes(
     assert updated_options[1]["revealed"] is False
 
 
+def test_build_group_scout_result_reveals_authored_route_or_landmark() -> None:
+    result = session_state.build_group_scout_result(
+        node_context={
+            "node_summary": {
+                "node_id": "start_trakt",
+                "label": "Стартовый тракт",
+            }
+        },
+        scout_discoveries=[
+            {
+                "result_type": "route_revealed",
+                "discovery_scope": "adjacent_route",
+                "discovered_node_ids": ["craft_town"],
+                "discovered_route_ids": ["start_trakt->craft_town"],
+                "discovered_notes": ["С тракта замечается надёжный боковой путь к озёрному городку."],
+            }
+        ],
+        fully_revealed_node_ids=["start_trakt", "fortress_gate"],
+        source="test",
+    )
+
+    assert result is not None
+    assert result["result_type"] == "route_revealed"
+    assert result["discovery_scope"] == "adjacent_route"
+    assert result["discovered_node_ids"] == ["craft_town"]
+    assert result["reveal_applied"] is True
+
+
+def test_build_group_scout_result_hidden_path_and_repeated_scout_no_new_findings() -> None:
+    hidden_result = session_state.build_group_scout_result(
+        node_context={
+            "node_summary": {
+                "node_id": "forest_road",
+                "label": "Лесная дорога",
+            }
+        },
+        scout_discoveries=[
+            {
+                "result_type": "hidden_path_revealed",
+                "discovery_scope": "hidden_route",
+                "discovered_node_ids": ["ruined_settlement"],
+                "discovered_route_ids": ["forest_road->ruined_settlement"],
+                "discovered_notes": ["В стороне от лесной дороги открывается старая тропа к разрушенному посёлку."],
+            }
+        ],
+        fully_revealed_node_ids=["forest_road"],
+        source="test",
+    )
+    repeated_result = session_state.build_group_scout_result(
+        node_context={
+            "node_summary": {
+                "node_id": "forest_road",
+                "label": "Лесная дорога",
+            }
+        },
+        scout_discoveries=[
+            {
+                "result_type": "hidden_path_revealed",
+                "discovery_scope": "hidden_route",
+                "discovered_node_ids": ["ruined_settlement"],
+                "discovered_route_ids": ["forest_road->ruined_settlement"],
+                "discovered_notes": ["В стороне от лесной дороги открывается старая тропа к разрушенному посёлку."],
+            }
+        ],
+        fully_revealed_node_ids=["forest_road", "ruined_settlement"],
+        source="test",
+    )
+
+    assert hidden_result is not None
+    assert hidden_result["result_type"] == "hidden_path_revealed"
+    assert repeated_result is not None
+    assert repeated_result["result_type"] == "no_new_findings"
+    assert repeated_result["reveal_applied"] is False
+
+
+def test_build_group_scout_result_can_return_local_clue_found() -> None:
+    result = session_state.build_group_scout_result(
+        node_context={
+            "node_summary": {
+                "node_id": "chapel_village",
+                "label": "Часовенное село",
+            }
+        },
+        node_detail={
+            "node_id": "chapel_village",
+            "travel_note": "Удобная пограничная остановка между берегом и лесными дорогами.",
+        },
+        scout_discoveries=[],
+        fully_revealed_node_ids=["chapel_village"],
+        source="test",
+    )
+
+    assert result is not None
+    assert result["result_type"] == "local_clue_found"
+    assert result["discovered_notes"] == ["Удобная пограничная остановка между берегом и лесными дорогами."]
+
+
+def test_resolve_group_scout_stores_canonical_result_and_updates_navigation_visibility() -> None:
+    player_id = uuid.uuid4()
+    sess = SimpleNamespace(settings={})
+    session_state._initialize_default_group(
+        sess,
+        [player_id],
+        {
+            "map_level": "region",
+            "node_type": "zone",
+            "node_id": "start_trakt",
+            "label": "Стартовый тракт",
+        },
+    )
+
+    before_options = session_state.get_current_group_navigation_options(sess, player_id=player_id)
+    resolved, error = session_state.resolve_group_scout(sess, "main", player_id=player_id, source="test")
+    after_options = session_state.get_current_group_navigation_options(sess, player_id=player_id)
+
+    assert error is None
+    assert resolved is not None
+    assert session_state.get_current_group_last_scout_result(sess, player_id=player_id) == resolved["last_scout_result"]
+    assert resolved["last_scout_result"]["result_type"] == "route_revealed"
+    assert [option["target_node_id"] for option in before_options] == ["fortress_gate"]
+    assert [option["target_node_id"] for option in after_options] == ["fortress_gate", "craft_town"]
+    assert after_options[1]["revealed"] is True
+
+
+def test_resolve_group_scout_reveal_scope_is_not_global_and_keeps_knowledge_reveal_split() -> None:
+    leader_id = uuid.uuid4()
+    other_id = uuid.uuid4()
+    sess = SimpleNamespace(settings={})
+    session_state._initialize_default_group(
+        sess,
+        [leader_id, other_id],
+        {
+            "map_level": "region",
+            "node_type": "zone",
+            "node_id": "start_trakt",
+            "label": "Стартовый тракт",
+        },
+    )
+    session_state._split_group(sess, "main", [other_id], new_group_id="scout")
+
+    resolved, error = session_state.resolve_group_scout(sess, "main", player_id=leader_id, source="test")
+
+    assert error is None
+    assert resolved is not None
+    assert session_state.is_player_node_revealed(sess, leader_id, "craft_town") is True
+    assert session_state.is_player_node_revealed(sess, other_id, "craft_town") is False
+    assert session_state.has_player_map_knowledge(sess, leader_id, "craft_town") is True
+    assert session_state.get_player_map_knowledge(sess, leader_id)["craft_town"]["knowledge_kind"] == "known"
+
+
 def test_execute_group_navigation_option_runs_existing_travel_flow_and_errors_cleanly() -> None:
     player_id = uuid.uuid4()
     sess = SimpleNamespace(settings={})

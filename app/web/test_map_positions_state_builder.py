@@ -111,6 +111,7 @@ def test_build_state_includes_legacy_and_structured_positions(monkeypatch) -> No
     monkeypatch.setattr(state_builder, "get_current_group_last_service_result", lambda _sess, player_id=None: None)
     monkeypatch.setattr(state_builder, "get_current_group_travel_event", lambda _sess, player_id=None: None)
     monkeypatch.setattr(state_builder, "get_current_group_last_camp_result", lambda _sess, player_id=None: None)
+    monkeypatch.setattr(state_builder, "get_current_group_last_scout_result", lambda _sess, player_id=None: None)
     monkeypatch.setattr(state_builder, "get_current_group_last_travel_event_outcome", lambda _sess, player_id=None: None)
     monkeypatch.setattr(state_builder, "get_current_group_navigation_options", lambda _sess, player_id=None: [])
     monkeypatch.setattr(state_builder, "snapshot_combat_state", lambda _session_id: None)
@@ -135,6 +136,7 @@ def test_build_state_includes_legacy_and_structured_positions(monkeypatch) -> No
             "wait_summary": None,
             "camp_summary": None,
             "last_camp_result_summary": None,
+            "last_scout_result_summary": None,
             "movement_intent_summary": None,
             "travel_state": None,
             "travel_summary": None,
@@ -153,6 +155,7 @@ def test_build_state_includes_legacy_and_structured_positions(monkeypatch) -> No
     assert payload["game"]["current_group_last_service_result"] is None
     assert payload["game"]["current_group_travel_event"] is None
     assert payload["game"]["current_group_last_camp_result"] is None
+    assert payload["game"]["current_group_last_scout_result"] is None
     assert payload["game"]["current_group_last_travel_event_outcome"] is None
     assert payload["game"]["current_group_navigation_options"] == []
     assert payload["session"]["current_group_id"] is None
@@ -368,6 +371,25 @@ def test_build_state_exports_current_player_group_id(monkeypatch) -> None:
     )
     monkeypatch.setattr(
         state_builder,
+        "get_current_group_last_scout_result",
+        lambda _sess, player_id=None: {
+            "result_id": "scout-out-1",
+            "result_type": "route_revealed",
+            "summary": "Разведка у тракта приносит новый маршрутный результат.",
+            "result_summary": "Разведка проясняет соседний маршрут и добавляет новый понятный выход из текущей точки.",
+            "node_id": "start_trakt",
+            "node_label": "Стартовый тракт",
+            "discovery_scope": "adjacent_route",
+            "discovered_node_ids": ["craft_town"],
+            "discovered_route_ids": ["start_trakt->craft_town"],
+            "discovered_notes": ["С тракта замечается надёжный боковой путь к озёрному городку."],
+            "reveal_applied": True,
+            "source": "test",
+            "resolved_at": "2026-03-14T00:08:00+00:00",
+        },
+    )
+    monkeypatch.setattr(
+        state_builder,
         "get_current_group_last_travel_event_outcome",
         lambda _sess, player_id=None: {
             "outcome_id": "out-road",
@@ -511,6 +533,21 @@ def test_build_state_exports_current_player_group_id(monkeypatch) -> None:
         "applied_effects": ["rest_quality:sheltered", "safety_note:shelter_found"],
         "resolved_at": "2026-03-14T00:07:00+00:00",
     }
+    assert payload["game"]["current_group_last_scout_result"] == {
+        "result_id": "scout-out-1",
+        "result_type": "route_revealed",
+        "summary": "Разведка у тракта приносит новый маршрутный результат.",
+        "result_summary": "Разведка проясняет соседний маршрут и добавляет новый понятный выход из текущей точки.",
+        "node_id": "start_trakt",
+        "node_label": "Стартовый тракт",
+        "discovery_scope": "adjacent_route",
+        "discovered_node_ids": ["craft_town"],
+        "discovered_route_ids": ["start_trakt->craft_town"],
+        "discovered_notes": ["С тракта замечается надёжный боковой путь к озёрному городку."],
+        "reveal_applied": True,
+        "source": "test",
+        "resolved_at": "2026-03-14T00:08:00+00:00",
+    }
     assert payload["game"]["current_group_last_travel_event_outcome"] == {
         "outcome_id": "out-road",
         "event_key": "roadside_finding",
@@ -596,6 +633,21 @@ def test_build_state_exports_group_activity_summaries(monkeypatch) -> None:
                 "source": "test",
                 "applied_effects": ["rest_quality:uneasy", "safety_note:border_watch"],
                 "resolved_at": "2026-03-14T00:06:00+00:00",
+            },
+            "last_scout_result": {
+                "result_id": "scout-out-2",
+                "result_type": "local_clue_found",
+                "summary": "Разведка у лагеря даёт локальную зацепку.",
+                "result_summary": "Нового выхода разведка не открывает, но место даёт полезную локальную подсказку.",
+                "node_id": "camp",
+                "node_label": "camp",
+                "discovery_scope": "local_area",
+                "discovered_node_ids": [],
+                "discovered_route_ids": [],
+                "discovered_notes": ["Лагерь остаётся удобной точкой сбора перед выходом."],
+                "reveal_applied": False,
+                "source": "test",
+                "resolved_at": "2026-03-14T00:07:00+00:00",
             },
             "movement_intent": {
                 "target_label": "Северные ворота",
@@ -732,6 +784,7 @@ def test_build_state_exports_group_activity_summaries(monkeypatch) -> None:
     monkeypatch.setattr(state_builder, "get_current_group_last_service_result", lambda _sess, player_id=None: None)
     monkeypatch.setattr(state_builder, "get_current_group_travel_event", lambda _sess, player_id=None: None)
     monkeypatch.setattr(state_builder, "get_current_group_last_camp_result", lambda _sess, player_id=None: None)
+    monkeypatch.setattr(state_builder, "get_current_group_last_scout_result", lambda _sess, player_id=None: None)
     monkeypatch.setattr(state_builder, "get_current_group_last_travel_event_outcome", lambda _sess, player_id=None: None)
     monkeypatch.setattr(state_builder, "get_current_group_navigation_options", lambda _sess, player_id=None: [])
     monkeypatch.setattr(state_builder, "snapshot_combat_state", lambda _session_id: None)
@@ -766,6 +819,21 @@ def test_build_state_exports_group_activity_summaries(monkeypatch) -> None:
         "source": "test",
         "applied_effects": ["rest_quality:uneasy", "safety_note:border_watch"],
         "resolved_at": "2026-03-14T00:06:00+00:00",
+    }
+    assert payload["game"]["groups"]["main"]["last_scout_result_summary"] == {
+        "result_id": "scout-out-2",
+        "result_type": "local_clue_found",
+        "summary": "Разведка у лагеря даёт локальную зацепку.",
+        "result_summary": "Нового выхода разведка не открывает, но место даёт полезную локальную подсказку.",
+        "node_id": "camp",
+        "node_label": "camp",
+        "discovery_scope": "local_area",
+        "discovered_node_ids": [],
+        "discovered_route_ids": [],
+        "discovered_notes": ["Лагерь остаётся удобной точкой сбора перед выходом."],
+        "reveal_applied": False,
+        "source": "test",
+        "resolved_at": "2026-03-14T00:07:00+00:00",
     }
     assert payload["game"]["groups"]["main"]["movement_intent_summary"] == {
         "target_label": "Северные ворота",

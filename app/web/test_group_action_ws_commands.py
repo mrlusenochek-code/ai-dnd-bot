@@ -6,12 +6,14 @@ from types import SimpleNamespace
 from app.web import session_state, ws_handlers
 
 
-def test_parse_group_command_supports_wait_camp_rest_move_navigate_context_actions_services_enter_stop_arrive_interrupt_pause_resume_event_resolution_split_and_merge() -> None:
+def test_parse_group_command_supports_wait_camp_rest_scout_move_navigate_context_actions_services_enter_stop_arrive_interrupt_pause_resume_event_resolution_split_and_merge() -> None:
     scout_id = str(uuid.uuid4())
     action_wait, payload_wait = ws_handlers._parse_group_command("group wait: держим позицию")
     action_camp_resolve, payload_camp_resolve = ws_handlers._parse_group_command("group camp resolve")
     action_camp, payload_camp = ws_handlers._parse_group_command("group camp ночлег у костра")
     action_rest, payload_rest = ws_handlers._parse_group_command("group rest")
+    action_scout, payload_scout = ws_handlers._parse_group_command("group scout")
+    action_search, payload_search = ws_handlers._parse_group_command("group search")
     action_move, payload_move = ws_handlers._parse_group_command("group move к воротам")
     action_navigate, payload_navigate = ws_handlers._parse_group_command("group navigate fortress_gate")
     action_go, payload_go = ws_handlers._parse_group_command("group go mine_entrance")
@@ -42,6 +44,8 @@ def test_parse_group_command_supports_wait_camp_rest_move_navigate_context_actio
     assert (action_camp_resolve, payload_camp_resolve) == ("group_camp_resolve", {})
     assert (action_camp, payload_camp) == ("group_camp", {"reason": "ночлег у костра"})
     assert (action_rest, payload_rest) == ("group_rest", {})
+    assert (action_scout, payload_scout) == ("group_scout", {})
+    assert (action_search, payload_search) == ("group_scout", {})
     assert (action_move, payload_move) == ("group_move", {"target_hint": "к воротам"})
     assert (action_navigate, payload_navigate) == ("group_navigate", {"target_node_id": "fortress_gate"})
     assert (action_go, payload_go) == ("group_navigate", {"target_node_id": "mine_entrance"})
@@ -179,6 +183,64 @@ def test_handle_group_camp_resolve_without_active_camp_returns_error() -> None:
     assert handled is True
     assert err == "У группы нет активного лагеря."
     assert msg is None
+
+
+def test_handle_group_scout_request_stores_canonical_result() -> None:
+    player_id = uuid.uuid4()
+    sess = SimpleNamespace(settings={})
+    session_state._initialize_default_group(
+        sess,
+        [player_id],
+        {
+            "map_level": "region",
+            "node_type": "zone",
+            "node_id": "start_trakt",
+            "label": "Стартовый тракт",
+        },
+    )
+
+    handled, err, msg = ws_handlers._handle_group_action_request(
+        sess,
+        action="group_scout",
+        actor_player_id=player_id,
+        payload={},
+        source="test",
+    )
+
+    assert handled is True
+    assert err is None
+    assert "маршрут" in str(msg) or "развед" in str(msg)
+    resolved_group = session_state._get_group_states(sess)["main"]
+    assert resolved_group["last_scout_result"]["result_type"] == "route_revealed"
+    assert session_state.is_player_node_revealed(sess, player_id, "craft_town") is True
+
+
+def test_handle_group_search_alias_uses_same_scout_flow() -> None:
+    player_id = uuid.uuid4()
+    sess = SimpleNamespace(settings={})
+    session_state._initialize_default_group(
+        sess,
+        [player_id],
+        {
+            "map_level": "region",
+            "node_type": "zone",
+            "node_id": "start_trakt",
+            "label": "Стартовый тракт",
+        },
+    )
+
+    handled, err, msg = ws_handlers._handle_group_action_request(
+        sess,
+        action="group_scout",
+        actor_player_id=player_id,
+        payload={},
+        source="test",
+    )
+
+    assert handled is True
+    assert err is None
+    assert "маршрут" in str(msg) or "развед" in str(msg)
+    assert session_state._get_group_states(sess)["main"]["last_scout_result"]["result_type"] == "route_revealed"
 
 
 def test_handle_group_context_action_wait_camp_inspect_and_navigate() -> None:

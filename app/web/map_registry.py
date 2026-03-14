@@ -457,6 +457,40 @@ STATIC_MAP_LINKS: tuple[dict[str, str], ...] = (
 )
 
 
+STATIC_MAP_SCOUT_DISCOVERIES: tuple[dict[str, Any], ...] = (
+    {
+        "node_id": "start_trakt",
+        "result_type": "route_revealed",
+        "discovery_scope": "adjacent_route",
+        "discovered_node_ids": ["craft_town"],
+        "discovered_route_ids": ["start_trakt->craft_town"],
+        "discovered_notes": [
+            "С тракта замечается надёжный боковой путь к озёрному городку."
+        ],
+    },
+    {
+        "node_id": "eastern_bank",
+        "result_type": "landmark_revealed",
+        "discovery_scope": "adjacent_landmark",
+        "discovered_node_ids": ["watchtower"],
+        "discovered_route_ids": ["eastern_bank->watchtower"],
+        "discovered_notes": [
+            "С берега становится яснее подъём к старой сторожевой башне."
+        ],
+    },
+    {
+        "node_id": "forest_road",
+        "result_type": "hidden_path_revealed",
+        "discovery_scope": "hidden_route",
+        "discovered_node_ids": ["ruined_settlement"],
+        "discovered_route_ids": ["forest_road->ruined_settlement"],
+        "discovered_notes": [
+            "В стороне от лесной дороги открывается старая тропа к разрушенному посёлку."
+        ],
+    },
+)
+
+
 def _normalized_text(value: Any) -> str:
     return str(value or "").strip().lower()
 
@@ -590,6 +624,46 @@ def get_static_map_nodes() -> list[dict[str, Any]]:
 
 def get_static_map_links() -> list[dict[str, Any]]:
     return [_merge_static_link_metadata(dict(link)) for link in STATIC_MAP_LINKS]
+
+
+def get_static_node_scout_discoveries(
+    *,
+    node_id: str | None = None,
+    current_map_position: dict[str, Any] | None = None,
+) -> list[dict[str, Any]]:
+    resolved_node_id = _normalized_text(node_id)
+    if not resolved_node_id and isinstance(current_map_position, dict):
+        resolved_node_id = _normalized_text(current_map_position.get("node_id"))
+    if not resolved_node_id:
+        return []
+    discoveries: list[dict[str, Any]] = []
+    for item in STATIC_MAP_SCOUT_DISCOVERIES:
+        if _normalized_text(item.get("node_id")) != resolved_node_id:
+            continue
+        discovered_node_ids = [
+            str(node_ref).strip()
+            for node_ref in (item.get("discovered_node_ids") or [])
+            if str(node_ref or "").strip() and get_static_node(str(node_ref)) is not None
+        ]
+        discoveries.append(
+            {
+                "node_id": resolved_node_id,
+                "result_type": str(item.get("result_type") or ""),
+                "discovery_scope": str(item.get("discovery_scope") or ""),
+                "discovered_node_ids": discovered_node_ids,
+                "discovered_route_ids": [
+                    str(route_id).strip()
+                    for route_id in (item.get("discovered_route_ids") or [])
+                    if str(route_id or "").strip()
+                ],
+                "discovered_notes": [
+                    str(note).strip()
+                    for note in (item.get("discovered_notes") or [])
+                    if str(note or "").strip()
+                ],
+            }
+        )
+    return discoveries
 
 
 def get_static_node(node_id: str | None) -> dict[str, Any] | None:
