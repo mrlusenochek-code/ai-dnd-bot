@@ -425,12 +425,135 @@ def _normalized_text(value: Any) -> str:
     return str(value or "").strip().lower()
 
 
+def get_static_node_metadata(node: dict[str, Any] | None) -> dict[str, Any]:
+    if not isinstance(node, dict):
+        return {}
+    node_type = _normalized_text(node.get("node_type"))
+    zone_band = _normalized_text(node.get("zone_band"))
+    node_id = _normalized_text(node.get("node_id"))
+    metadata: dict[str, Any] = {}
+    if node_type == "zone":
+        if zone_band == "safe":
+            metadata["settlement_kind"] = "town" if node_id == "craft_town" else "roadside"
+            metadata["environment_hint"] = "lakeshore" if node_id in {"eastern_bank", "craft_town"} else "roadland"
+            metadata["safe_rest_hint"] = True
+        elif zone_band == "border":
+            metadata["settlement_kind"] = "village" if node_id in {"chapel_village", "forest_settlement"} else "hamlet"
+            metadata["environment_hint"] = "wooded" if node_id in {"forest_road", "forest_settlement"} else "frontier"
+            metadata["safe_rest_hint"] = node_id in {"road_hamlet", "chapel_village", "forest_settlement"}
+        elif zone_band == "danger":
+            metadata["settlement_kind"] = "ruins" if node_id == "ruined_settlement" else "wilds"
+            metadata["environment_hint"] = "marsh" if node_id == "marsh_edge" else "ruined_frontier"
+            metadata["safe_rest_hint"] = False
+    elif node_type == "landmark":
+        metadata["poi_kind"] = "fortified" if node_id in {"fortress_gate", "old_fortress_edge", "watchtower"} else "shrine"
+        metadata["environment_hint"] = "fortified" if node_id == "fortress_gate" else ("marsh" if node_id == "forgotten_shrine" else "frontier")
+        metadata["safe_rest_hint"] = node_id == "watchtower"
+    elif node_type == "interior_entry":
+        metadata["poi_kind"] = "mine"
+        metadata["environment_hint"] = "ruined_frontier"
+        metadata["safe_rest_hint"] = False
+    return metadata
+
+
+def _merge_static_node_metadata(node: dict[str, Any]) -> dict[str, Any]:
+    return {**node, **get_static_node_metadata(node)}
+
+
+def get_static_link_metadata(link: dict[str, Any] | None) -> dict[str, Any]:
+    if not isinstance(link, dict):
+        return {}
+    link_kind = _normalized_text(link.get("link_kind"))
+    route_kind = _normalized_text(link.get("route_kind"))
+    from_node = get_static_node(link.get("from_node_id"))
+    to_node = get_static_node(link.get("to_node_id"))
+    from_zone_band = _normalized_text((from_node or {}).get("zone_band"))
+    to_environment = _normalized_text((to_node or {}).get("environment_hint"))
+    metadata: dict[str, Any] = {
+        "traversal_kind": "road",
+        "risk_band": "medium",
+        "terrain_hint": "mixed",
+        "travel_tags": [],
+    }
+    if link_kind in {"road", "shore_road"}:
+        metadata.update(
+            traversal_kind="road",
+            risk_band="low",
+            terrain_hint="open" if link_kind == "road" else "lakeshore",
+            travel_tags=["settled_route"],
+        )
+    elif link_kind in {"approach", "return"}:
+        metadata.update(
+            traversal_kind="gate_approach" if route_kind == "landmark_move" else "road",
+            risk_band="low" if route_kind == "landmark_move" else "medium",
+            terrain_hint="fortified",
+            travel_tags=["fortified"],
+        )
+        if from_zone_band == "danger" or to_environment in {"marsh", "ruins", "ruined_frontier", "frontier"}:
+            metadata["risk_band"] = "high" if to_environment == "marsh" or from_zone_band == "danger" else "medium"
+            metadata["terrain_hint"] = to_environment or metadata["terrain_hint"]
+            if to_environment == "marsh":
+                metadata["travel_tags"] = ["marsh", "poor_visibility"]
+            elif to_environment in {"ruins", "ruined_frontier"}:
+                metadata["travel_tags"] = ["ruins", "frontier"]
+    elif link_kind in {"branch_road", "shore_track"}:
+        metadata.update(
+            traversal_kind="trail",
+            risk_band="low",
+            terrain_hint="open" if link_kind == "branch_road" else "lakeshore",
+            travel_tags=["settled_route"],
+        )
+    elif link_kind == "forest_track":
+        metadata.update(
+            traversal_kind="trail",
+            risk_band="medium",
+            terrain_hint="wooded",
+            travel_tags=["wooded"],
+        )
+    elif link_kind == "old_road":
+        metadata.update(
+            traversal_kind="wild",
+            risk_band="medium",
+            terrain_hint="ruined_frontier",
+            travel_tags=["ruins", "frontier"],
+        )
+    elif link_kind == "ruin_path":
+        metadata.update(
+            traversal_kind="ruin_path",
+            risk_band="high",
+            terrain_hint="ruins",
+            travel_tags=["ruins", "elevated_watch"],
+        )
+    elif link_kind == "bog_track":
+        metadata.update(
+            traversal_kind="marsh_path",
+            risk_band="high",
+            terrain_hint="marsh",
+            travel_tags=["marsh", "poor_visibility"],
+        )
+    elif link_kind == "entrance":
+        metadata.update(
+            traversal_kind="entry",
+            risk_band="high",
+            terrain_hint="ruins",
+            travel_tags=["transition", "interior_threshold"],
+        )
+    return metadata
+
+
+def _merge_static_link_metadata(link: dict[str, Any]) -> dict[str, Any]:
+    metadata = get_static_link_metadata(link)
+    merged = {**link, **metadata}
+    merged["travel_tags"] = list(metadata.get("travel_tags") or [])
+    return merged
+
+
 def get_static_map_nodes() -> list[dict[str, Any]]:
-    return [dict(node) for node in STATIC_MAP_NODES]
+    return [_merge_static_node_metadata(dict(node)) for node in STATIC_MAP_NODES]
 
 
-def get_static_map_links() -> list[dict[str, str]]:
-    return [dict(link) for link in STATIC_MAP_LINKS]
+def get_static_map_links() -> list[dict[str, Any]]:
+    return [_merge_static_link_metadata(dict(link)) for link in STATIC_MAP_LINKS]
 
 
 def get_static_node(node_id: str | None) -> dict[str, Any] | None:
@@ -439,7 +562,7 @@ def get_static_node(node_id: str | None) -> dict[str, Any] | None:
         return None
     for node in STATIC_MAP_NODES:
         if _normalized_text(node.get("node_id")) == normalized_id:
-            return dict(node)
+            return _merge_static_node_metadata(dict(node))
     return None
 
 
@@ -451,16 +574,16 @@ def resolve_static_map_node(query_text: str | None) -> dict[str, Any] | None:
         values = [node.get("node_id"), node.get("label")]
         values.extend(node.get("aliases") or ())
         if any(_normalized_text(value) == normalized_query for value in values):
-            return dict(node)
+            return _merge_static_node_metadata(dict(node))
     for node in STATIC_MAP_NODES:
         values = [node.get("label")]
         values.extend(node.get("aliases") or ())
         if any(_normalized_text(value) in normalized_query for value in values if _normalized_text(value)):
-            return dict(node)
+            return _merge_static_node_metadata(dict(node))
     return None
 
 
-def find_static_link(from_node_id: str | None, to_node_id: str | None, action_kind: str | None) -> dict[str, str] | None:
+def find_static_link(from_node_id: str | None, to_node_id: str | None, action_kind: str | None) -> dict[str, Any] | None:
     normalized_from = _normalized_text(from_node_id)
     normalized_to = _normalized_text(to_node_id)
     normalized_action = _normalized_text(action_kind)
@@ -472,7 +595,7 @@ def find_static_link(from_node_id: str | None, to_node_id: str | None, action_ki
             and _normalized_text(link.get("to_node_id")) == normalized_to
             and _normalized_text(link.get("action_kind")) == normalized_action
         ):
-            return dict(link)
+            return _merge_static_link_metadata(dict(link))
     return None
 
 

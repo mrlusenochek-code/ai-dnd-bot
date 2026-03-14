@@ -708,6 +708,10 @@ def test_movement_intent_inherits_group_mode_and_activity() -> None:
     assert updated is not None
     assert updated["movement_intent"]["movement_mode"] == "fast"
     assert updated["movement_intent"]["action_kind"] == "move"
+    assert updated["movement_intent"]["route_source"] == "fallback"
+    assert updated["movement_intent"]["traversal_kind"] == "approach"
+    assert updated["movement_intent"]["risk_band"] == "medium"
+    assert updated["movement_intent"]["terrain_hint"] == "mixed"
     assert updated["travel_state"]["movement_mode"] == "fast"
     assert updated["current_map_position"]["node_id"] == "центр города"
     assert updated["movement_intent"]["travel_activity"] == {

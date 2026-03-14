@@ -462,8 +462,14 @@ def _normalize_group_movement_intent(raw: Any) -> dict[str, Any] | None:
     active = bool(raw.get("active", True))
     travel_activity = _normalize_group_travel_activity(raw.get("travel_activity"))
     route_kind = str(raw.get("route_kind") or "").strip().lower()
+    route_source = str(raw.get("route_source") or raw.get("source_kind") or "").strip().lower()
+    traversal_kind = str(raw.get("traversal_kind") or "").strip().lower()
+    risk_band = str(raw.get("risk_band") or "").strip().lower()
+    terrain_hint = str(raw.get("terrain_hint") or "").strip().lower()
     action_kind = str(raw.get("action_kind") or "").strip().lower()
     allowed = bool(raw.get("allowed", True))
+    travel_tags_raw = raw.get("travel_tags")
+    travel_tags = [str(tag).strip().lower()[:40] for tag in travel_tags_raw if str(tag).strip()] if isinstance(travel_tags_raw, list) else []
     if not target_label and not target_node:
         return None
     state: dict[str, Any] = {
@@ -477,6 +483,16 @@ def _normalize_group_movement_intent(raw: Any) -> dict[str, Any] | None:
     }
     if route_kind:
         state["route_kind"] = route_kind[:40]
+    if route_source:
+        state["route_source"] = route_source[:40]
+    if traversal_kind:
+        state["traversal_kind"] = traversal_kind[:40]
+    if risk_band:
+        state["risk_band"] = risk_band[:40]
+    if terrain_hint:
+        state["terrain_hint"] = terrain_hint[:40]
+    if travel_tags:
+        state["travel_tags"] = travel_tags
     if target_node:
         state["target_node"] = target_node
         state["target_node_type"] = str(target_node.get("node_type") or "zone")[:32]
@@ -500,6 +516,12 @@ def _normalize_group_route_summary(raw: Any) -> dict[str, Any] | None:
     next_zone_label = str(raw.get("next_zone_label") or "").strip()
     error = str(raw.get("error") or "").strip()
     pause_hint = str(raw.get("pause_hint") or "").strip().lower()
+    route_source = str(raw.get("source") or raw.get("route_source") or "").strip().lower()
+    traversal_kind = str(raw.get("traversal_kind") or "").strip().lower()
+    risk_band = str(raw.get("risk_band") or "").strip().lower()
+    terrain_hint = str(raw.get("terrain_hint") or "").strip().lower()
+    travel_tags_raw = raw.get("travel_tags")
+    travel_tags = [str(tag).strip().lower()[:40] for tag in travel_tags_raw if str(tag).strip()] if isinstance(travel_tags_raw, list) else []
     if target_node:
         if not target_label:
             target_label = str(target_node.get("label") or target_node.get("node_id") or "").strip()
@@ -525,6 +547,16 @@ def _normalize_group_route_summary(raw: Any) -> dict[str, Any] | None:
         summary["next_map_position"] = next_map_position
     if next_zone_label:
         summary["next_zone_label"] = next_zone_label[:80]
+    if route_source:
+        summary["source"] = route_source[:40]
+    if traversal_kind:
+        summary["traversal_kind"] = traversal_kind[:40]
+    if risk_band:
+        summary["risk_band"] = risk_band[:40]
+    if terrain_hint:
+        summary["terrain_hint"] = terrain_hint[:40]
+    if travel_tags:
+        summary["travel_tags"] = travel_tags
     if error:
         summary["error"] = error[:240]
     if pause_hint:
@@ -992,6 +1024,11 @@ def create_group_movement_intent(
     movement_kind: str | None = None,
     action_kind: str | None = None,
     route_kind: str | None = None,
+    route_source: str | None = None,
+    traversal_kind: str | None = None,
+    risk_band: str | None = None,
+    terrain_hint: str | None = None,
+    travel_tags: list[str] | None = None,
     allowed: bool = True,
     travel_activity: dict[str, Any] | None = None,
     source: str = "manual",
@@ -1005,6 +1042,11 @@ def create_group_movement_intent(
             "movement_kind": movement_kind,
             "action_kind": action_kind,
             "route_kind": route_kind,
+            "route_source": route_source,
+            "traversal_kind": traversal_kind,
+            "risk_band": risk_band,
+            "terrain_hint": terrain_hint,
+            "travel_tags": travel_tags,
             "allowed": allowed,
             "travel_activity": travel_activity,
             "source": source,
@@ -1639,6 +1681,11 @@ def start_group_travel(
         movement_kind=str(route.get("action_kind") or "move"),
         action_kind=str(route.get("action_kind") or "move"),
         route_kind=str(route.get("route_kind") or ""),
+        route_source=str(route.get("source") or ""),
+        traversal_kind=str(route.get("traversal_kind") or ""),
+        risk_band=str(route.get("risk_band") or ""),
+        terrain_hint=str(route.get("terrain_hint") or ""),
+        travel_tags=list(route.get("travel_tags") or []),
         allowed=True,
         travel_activity=travel_activity,
         source=source,
@@ -2056,13 +2103,16 @@ def apply_group_move_target(
     movement_kind: str = "move",
     source: str = "manual",
 ) -> dict[str, Any] | None:
+    target = _normalize_map_target_node(target_node)
     next_position, next_zone_label, ok, _error = _apply_map_position_transition(
         _get_group_states(sess).get(str(group_id or "").strip(), {}).get("current_map_position"),
-        target_node,
+        target,
         "group_move",
     )
     if not ok or not next_position:
         return None
+    target_node_type = str((target or {}).get("node_type") or "").strip().lower()
+    traversal_kind = "entry" if movement_kind == "enter" else ("approach" if target_node_type == "landmark" else "road")
     return apply_group_route(
         sess,
         group_id,
@@ -2070,7 +2120,12 @@ def apply_group_move_target(
             "allowed": True,
             "route_kind": "enter" if movement_kind == "enter" else "move",
             "action_kind": movement_kind,
-            "target_node": _normalize_map_target_node(target_node),
+            "source": "fallback",
+            "traversal_kind": traversal_kind,
+            "risk_band": "medium",
+            "terrain_hint": "mixed",
+            "travel_tags": [],
+            "target_node": target,
             "target_label": target_label,
             "next_map_position": next_position,
             "next_zone_label": next_zone_label,

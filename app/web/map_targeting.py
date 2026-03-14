@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any, Optional
 
-from app.web.map_registry import STATIC_MAP_NODES, find_static_link, get_static_node, resolve_static_map_node
+from app.web.map_registry import STATIC_MAP_NODES, find_static_link, get_static_node, get_static_node_metadata, resolve_static_map_node
 from app.web.session_state import _apply_map_position_transition, _map_position_area_label, _normalize_map_position, _normalize_map_target_node
 from app.web.ws_gameplay import infer_zone_from_action
 
@@ -35,7 +35,7 @@ def _extract_enter_target_label(text: str) -> str:
 
 
 def _static_node_to_target(node: dict[str, Any]) -> dict[str, Any]:
-    return {
+    target = {
         "map_level": str(node.get("map_level") or "region"),
         "node_type": str(node.get("node_type") or "zone"),
         "node_id": str(node.get("node_id") or "")[:120],
@@ -43,6 +43,11 @@ def _static_node_to_target(node: dict[str, Any]) -> dict[str, Any]:
         "zone_label": str(node.get("area_label") or node.get("label") or node.get("node_id") or "")[:80],
         "area_label": str(node.get("area_label") or node.get("label") or node.get("node_id") or "")[:80],
     }
+    node_metadata = get_static_node_metadata(node)
+    for key in ("zone_band", "poi_kind", "settlement_kind", "environment_hint", "safe_rest_hint"):
+        if key in node or key in node_metadata:
+            target[key] = (node.get(key) if key in node else node_metadata.get(key))
+    return target
 
 
 def _current_context_looks_static(current_map_position: dict[str, Any] | None, current_area_label: str) -> bool:
@@ -216,6 +221,7 @@ def resolve_group_target_route(
             "allowed": False,
             "route_kind": "invalid",
             "action_kind": action or "move",
+            "source": "fallback",
             "target_node": None,
             "target_node_type": None,
             "target_node_id": None,
@@ -236,6 +242,7 @@ def resolve_group_target_route(
             "allowed": False,
             "route_kind": "invalid",
             "action_kind": action or "move",
+            "source": "fallback",
             "target_node": target,
             "target_node_type": node_type,
             "target_node_id": str(target.get("node_id") or "").strip() or None,
@@ -252,6 +259,7 @@ def resolve_group_target_route(
                 "allowed": False,
                 "route_kind": "invalid",
                 "action_kind": action or "move",
+                "source": "registry",
                 "target_node": target,
                 "target_node_type": node_type,
                 "target_node_id": target_node_id or None,
@@ -269,12 +277,17 @@ def resolve_group_target_route(
             "allowed": bool(ok),
             "route_kind": str(static_link.get("route_kind") or "move"),
             "action_kind": action or "move",
+            "source": "registry",
             "target_node": target,
             "target_node_type": node_type,
             "target_node_id": target_node_id or None,
             "target_label": str(target.get("label") or target.get("node_id") or "").strip() or None,
             "next_map_position": next_map_position if isinstance(next_map_position, dict) else current_pos,
             "next_zone_label": str(next_zone_label or _map_position_area_label(current_pos)).strip() or _map_position_area_label(current_pos),
+            "traversal_kind": str(static_link.get("traversal_kind") or ""),
+            "risk_band": str(static_link.get("risk_band") or ""),
+            "terrain_hint": str(static_link.get("terrain_hint") or ""),
+            "travel_tags": list(static_link.get("travel_tags") or []),
             "error": transition_error,
         }
 
@@ -298,11 +311,16 @@ def resolve_group_target_route(
         "allowed": bool(ok),
         "route_kind": route_kind,
         "action_kind": action or "move",
+        "source": "fallback",
         "target_node": target,
         "target_node_type": node_type,
         "target_node_id": str(target.get("node_id") or "").strip() or None,
         "target_label": str(target.get("label") or target.get("node_id") or "").strip() or None,
         "next_map_position": next_map_position if isinstance(next_map_position, dict) else current_pos,
         "next_zone_label": str(next_zone_label or _map_position_area_label(current_pos)).strip() or _map_position_area_label(current_pos),
+        "traversal_kind": "road" if node_type == "zone" else ("approach" if node_type == "landmark" else "entry"),
+        "risk_band": "medium" if ok else "unknown",
+        "terrain_hint": "mixed",
+        "travel_tags": [],
         "error": transition_error,
     }

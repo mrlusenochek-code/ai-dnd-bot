@@ -3,8 +3,10 @@ from __future__ import annotations
 from app.web.map_registry import (
     find_static_link,
     get_obvious_linked_static_node_ids,
+    get_static_link_metadata,
     get_static_map_links,
     get_static_map_nodes,
+    get_static_node_metadata,
     get_static_node,
     resolve_static_map_node,
 )
@@ -30,6 +32,11 @@ def test_static_map_registry_loads_known_nodes_and_links() -> None:
     assert any(node["node_type"] == "zone" for node in nodes)
     assert any(node["node_type"] == "landmark" for node in nodes)
     assert any(node["node_type"] == "interior_entry" for node in nodes)
+    assert get_static_node_metadata(get_static_node("craft_town")) == {
+        "settlement_kind": "town",
+        "environment_hint": "lakeshore",
+        "safe_rest_hint": True,
+    }
     assert get_static_node("start_trakt") == {
         "node_id": "start_trakt",
         "label": "Стартовый тракт",
@@ -37,6 +44,9 @@ def test_static_map_registry_loads_known_nodes_and_links() -> None:
         "map_level": "region",
         "area_label": "Стартовый тракт",
         "zone_band": "safe",
+        "settlement_kind": "roadside",
+        "environment_hint": "roadland",
+        "safe_rest_hint": True,
         "aliases": (
             "стартовый тракт",
             "тракт",
@@ -50,6 +60,10 @@ def test_static_map_registry_loads_known_nodes_and_links() -> None:
         "action_kind": "move",
         "route_kind": "landmark_move",
         "link_kind": "approach",
+        "traversal_kind": "gate_approach",
+        "risk_band": "low",
+        "terrain_hint": "fortified",
+        "travel_tags": ["fortified"],
     }
     assert find_static_link("craft_town", "fortress_gate", "move") == {
         "from_node_id": "craft_town",
@@ -57,6 +71,10 @@ def test_static_map_registry_loads_known_nodes_and_links() -> None:
         "action_kind": "move",
         "route_kind": "landmark_move",
         "link_kind": "approach",
+        "traversal_kind": "gate_approach",
+        "risk_band": "low",
+        "terrain_hint": "fortified",
+        "travel_tags": ["fortified"],
     }
     assert find_static_link("forest_settlement", "old_fortress_edge", "move") == {
         "from_node_id": "forest_settlement",
@@ -64,6 +82,10 @@ def test_static_map_registry_loads_known_nodes_and_links() -> None:
         "action_kind": "move",
         "route_kind": "landmark_move",
         "link_kind": "ruin_path",
+        "traversal_kind": "ruin_path",
+        "risk_band": "high",
+        "terrain_hint": "ruins",
+        "travel_tags": ["ruins", "elevated_watch"],
     }
     assert find_static_link("ruined_settlement", "mine_entrance", "enter") == {
         "from_node_id": "ruined_settlement",
@@ -71,8 +93,18 @@ def test_static_map_registry_loads_known_nodes_and_links() -> None:
         "action_kind": "enter",
         "route_kind": "enter_location",
         "link_kind": "entrance",
+        "traversal_kind": "entry",
+        "risk_band": "high",
+        "terrain_hint": "ruins",
+        "travel_tags": ["transition", "interior_threshold"],
     }
     assert any(link["action_kind"] == "enter" for link in links)
+    assert get_static_link_metadata(find_static_link("ruined_settlement", "mine_entrance", "enter")) == {
+        "traversal_kind": "entry",
+        "risk_band": "high",
+        "terrain_hint": "ruins",
+        "travel_tags": ["transition", "interior_threshold"],
+    }
     assert get_obvious_linked_static_node_ids("start_trakt") == ["fortress_gate"]
 
 
@@ -84,6 +116,9 @@ def test_resolve_static_map_node_supports_labels_and_aliases() -> None:
         "map_level": "landmark",
         "area_label": "Стартовый тракт",
         "zone_band": "safe",
+        "poi_kind": "fortified",
+        "environment_hint": "fortified",
+        "safe_rest_hint": False,
         "aliases": (
             "ворота крепости",
             "крепостные ворота",
@@ -97,6 +132,9 @@ def test_resolve_static_map_node_supports_labels_and_aliases() -> None:
         "map_level": "interior",
         "area_label": "Разрушенный посёлок",
         "zone_band": "danger",
+        "poi_kind": "mine",
+        "environment_hint": "ruined_frontier",
+        "safe_rest_hint": False,
         "aliases": (
             "шахтный вход",
             "вход в шахту",
@@ -112,6 +150,9 @@ def test_resolve_static_map_node_supports_labels_and_aliases() -> None:
         "map_level": "region",
         "area_label": "Озёрный городок",
         "zone_band": "safe",
+        "settlement_kind": "town",
+        "environment_hint": "lakeshore",
+        "safe_rest_hint": True,
         "aliases": (
             "озёрный городок",
             "ремесленный городок",
@@ -126,6 +167,9 @@ def test_resolve_static_map_node_supports_labels_and_aliases() -> None:
         "map_level": "landmark",
         "area_label": "Край болот",
         "zone_band": "danger",
+        "poi_kind": "shrine",
+        "environment_hint": "marsh",
+        "safe_rest_hint": False,
         "aliases": (
             "забытое святилище",
             "святилище в болотах",
@@ -157,6 +201,10 @@ def test_resolve_action_target_node_prefers_static_registry_for_move_text() -> N
         "label": "Ворота крепости",
         "zone_label": "Стартовый тракт",
         "area_label": "Стартовый тракт",
+        "zone_band": "safe",
+        "poi_kind": "fortified",
+        "environment_hint": "fortified",
+        "safe_rest_hint": False,
     }
 
 
@@ -176,6 +224,10 @@ def test_resolve_action_target_node_prefers_static_registry_for_enter_text() -> 
         "label": "Шахтный вход",
         "zone_label": "Разрушенный посёлок",
         "area_label": "Разрушенный посёлок",
+        "zone_band": "danger",
+        "poi_kind": "mine",
+        "environment_hint": "ruined_frontier",
+        "safe_rest_hint": False,
     }
 
 
@@ -290,6 +342,10 @@ def test_resolve_group_target_route_zone_to_zone_move_valid() -> None:
     assert route["allowed"] is True
     assert route["route_kind"] == "zone_move"
     assert route["action_kind"] == "move"
+    assert route["source"] == "registry"
+    assert route["traversal_kind"] == "road"
+    assert route["risk_band"] == "low"
+    assert route["terrain_hint"] == "open"
     assert route["target_node_type"] == "zone"
     assert route["target_node_id"] == "eastern_bank"
 
@@ -316,6 +372,10 @@ def test_resolve_group_target_route_zone_to_landmark_move_valid() -> None:
 
     assert route["allowed"] is True
     assert route["route_kind"] == "landmark_move"
+    assert route["source"] == "registry"
+    assert route["traversal_kind"] == "gate_approach"
+    assert route["risk_band"] == "low"
+    assert route["terrain_hint"] == "fortified"
     assert route["target_node_type"] == "landmark"
     assert route["target_node_id"] == "fortress_gate"
 
@@ -343,6 +403,10 @@ def test_resolve_group_target_route_zone_to_interior_entry_enter_valid() -> None
     assert route["allowed"] is True
     assert route["route_kind"] == "enter_location"
     assert route["action_kind"] == "enter"
+    assert route["source"] == "registry"
+    assert route["traversal_kind"] == "entry"
+    assert route["risk_band"] == "high"
+    assert route["terrain_hint"] == "ruins"
 
 
 def test_resolve_group_target_route_registry_missing_link_is_authoritative_error() -> None:
@@ -435,8 +499,11 @@ def test_resolve_group_target_route_safe_and_danger_links_use_expanded_registry(
 
     assert safe_route["allowed"] is True
     assert safe_route["route_kind"] == "landmark_move"
+    assert safe_route["traversal_kind"] == "gate_approach"
     assert danger_route["allowed"] is True
     assert danger_route["target_node_id"] == "forgotten_shrine"
+    assert danger_route["risk_band"] == "high"
+    assert danger_route["terrain_hint"] == "marsh"
 
 
 def test_resolve_group_target_route_zone_enter_zone_invalid() -> None:
@@ -460,6 +527,7 @@ def test_resolve_group_target_route_zone_enter_zone_invalid() -> None:
     )
 
     assert route["allowed"] is False
+    assert route["source"] == "fallback"
     assert route["error"] == "Для `group enter` нужна interior/building цель, а не обычная zone."
 
 
@@ -487,6 +555,8 @@ def test_resolve_group_target_route_landmark_to_interior_entry_enter_falls_back_
     assert route["allowed"] is True
     assert route["route_kind"] == "enter_location"
     assert route["action_kind"] == "enter"
+    assert route["source"] == "fallback"
+    assert route["traversal_kind"] == "entry"
 
 
 def test_resolve_group_target_route_falls_back_when_registry_data_is_missing() -> None:
@@ -512,3 +582,6 @@ def test_resolve_group_target_route_falls_back_when_registry_data_is_missing() -
     assert route["allowed"] is True
     assert route["route_kind"] == "landmark_move"
     assert route["target_node_id"] == "ворота"
+    assert route["source"] == "fallback"
+    assert route["risk_band"] == "medium"
+    assert route["terrain_hint"] == "mixed"
