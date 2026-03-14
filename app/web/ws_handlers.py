@@ -66,6 +66,7 @@ from app.web.session_state import (
     complete_group_travel,
     confirm_group_enter,
     evaluate_group_travel_pause,
+    execute_group_navigation_option,
     get_player_known_node_ids,
     get_group_movement_mode,
     get_group_travel_activity,
@@ -1671,6 +1672,14 @@ def _parse_group_command(cmdline: str) -> tuple[str | None, dict[str, Any]]:
         if lowered.startswith(prefix):
             return "group_move", {"target_hint": txt[len(prefix):].strip()}
 
+    for prefix in ("group navigate ", "group_navigate "):
+        if lowered.startswith(prefix):
+            return "group_navigate", {"target_node_id": txt[len(prefix):].strip()}
+
+    for prefix in ("group go ", "group_go "):
+        if lowered.startswith(prefix):
+            return "group_navigate", {"target_node_id": txt[len(prefix):].strip()}
+
     for prefix in ("group enter ", "group_enter "):
         if lowered.startswith(prefix):
             return "group_enter", {"target_hint": txt[len(prefix):].strip()}
@@ -1787,6 +1796,7 @@ def _handle_group_action_request(
         "group_split",
         "group_merge",
         "group_move",
+        "group_navigate",
         "group_enter",
         "group_stop",
         "group_arrive",
@@ -1836,6 +1846,7 @@ def _handle_group_action_request(
 
     if action in {
         "group_move",
+        "group_navigate",
         "group_enter",
         "group_stop",
         "group_arrive",
@@ -1919,6 +1930,23 @@ def _handle_group_action_request(
             if not cleared:
                 return True, "Не удалось остановить движение группы.", None
             return True, None, f"Группа {actor_group_key} остановилась."
+        if action == "group_navigate":
+            target_node_id = str(payload.get("target_node_id") or "").strip()
+            updated, error = execute_group_navigation_option(
+                sess,
+                target_node_id=target_node_id,
+                player_id=actor_player_id,
+                group_id=actor_group_key,
+                movement_mode=payload.get("movement_mode"),
+                source=source,
+            )
+            if error:
+                return True, error, None
+            label = str((updated or {}).get("movement_intent", {}).get("target_label") or (updated or {}).get("area_label") or "цель")
+            action_kind = str((updated or {}).get("movement_intent", {}).get("action_kind") or "move")
+            if action_kind == "enter":
+                return True, None, f"Группа {actor_group_key} входит в {label}."
+            return True, None, f"Группа {actor_group_key} движется к {label}."
 
         target_node = _resolve_group_action_target(
             sess,

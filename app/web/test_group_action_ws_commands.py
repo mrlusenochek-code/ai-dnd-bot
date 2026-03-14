@@ -6,11 +6,13 @@ from types import SimpleNamespace
 from app.web import session_state, ws_handlers
 
 
-def test_parse_group_command_supports_wait_camp_move_enter_stop_arrive_interrupt_pause_resume_resolution_split_and_merge() -> None:
+def test_parse_group_command_supports_wait_camp_move_navigate_enter_stop_arrive_interrupt_pause_resume_resolution_split_and_merge() -> None:
     scout_id = str(uuid.uuid4())
     action_wait, payload_wait = ws_handlers._parse_group_command("group wait: держим позицию")
     action_camp, payload_camp = ws_handlers._parse_group_command("group camp ночлег у костра")
     action_move, payload_move = ws_handlers._parse_group_command("group move к воротам")
+    action_navigate, payload_navigate = ws_handlers._parse_group_command("group navigate fortress_gate")
+    action_go, payload_go = ws_handlers._parse_group_command("group go mine_entrance")
     action_enter, payload_enter = ws_handlers._parse_group_command("group enter замок")
     action_mode, payload_mode = ws_handlers._parse_group_command("group mode cautious")
     action_activity, payload_activity = ws_handlers._parse_group_command("group activity navigate")
@@ -30,6 +32,8 @@ def test_parse_group_command_supports_wait_camp_move_enter_stop_arrive_interrupt
     assert (action_wait, payload_wait) == ("group_wait", {"reason": "держим позицию"})
     assert (action_camp, payload_camp) == ("group_camp", {"reason": "ночлег у костра"})
     assert (action_move, payload_move) == ("group_move", {"target_hint": "к воротам"})
+    assert (action_navigate, payload_navigate) == ("group_navigate", {"target_node_id": "fortress_gate"})
+    assert (action_go, payload_go) == ("group_navigate", {"target_node_id": "mine_entrance"})
     assert (action_enter, payload_enter) == ("group_enter", {"target_hint": "замок"})
     assert (action_mode, payload_mode) == ("group_set_mode", {"movement_mode": "cautious"})
     assert (action_activity, payload_activity) == ("group_set_activity", {"activity": "navigate"})
@@ -475,6 +479,122 @@ def test_handle_group_move_respects_player_known_static_nodes() -> None:
     assert handled_unknown is True
     assert err_unknown == "Группа пока не знает эту точку карты."
     assert msg_unknown is None
+
+
+def test_handle_group_navigate_executes_registry_option_for_move_and_enter() -> None:
+    player_id = uuid.uuid4()
+    sess = SimpleNamespace(settings={})
+    session_state._initialize_default_group(
+        sess,
+        [player_id],
+        {
+            "map_level": "region",
+            "node_type": "zone",
+            "node_id": "start_trakt",
+            "label": "Стартовый тракт",
+        },
+    )
+    session_state.grant_player_map_knowledge(sess, player_id, "craft_town", knowledge_kind="known", source="test")
+
+    handled_move, err_move, msg_move = ws_handlers._handle_group_action_request(
+        sess,
+        action="group_navigate",
+        actor_player_id=player_id,
+        payload={"target_node_id": "craft_town"},
+        source="test",
+    )
+
+    assert handled_move is True
+    assert err_move is None
+    assert msg_move == "Группа main движется к Озёрный городок."
+    moving_group = session_state._get_group_states(sess)["main"]
+    assert moving_group["movement_intent"]["target_node_id"] == "craft_town"
+    assert moving_group["movement_intent"]["action_kind"] == "move"
+    assert moving_group["travel_state"]["route_summary"]["source"] == "registry"
+
+    session_state.interrupt_group_travel(sess, "main")
+    session_state.grant_player_map_knowledge(sess, player_id, "forest_road", knowledge_kind="known", source="test")
+    groups = session_state._get_group_states(sess)
+    group = groups["main"]
+    group["current_map_position"] = {
+        "v": 1,
+        "map_level": "region",
+        "node_type": "zone",
+        "node_id": "ruined_settlement",
+        "label": "Разрушенный посёлок",
+        "area_label": "Разрушенный посёлок",
+    }
+    group["area_label"] = "Разрушенный посёлок"
+    session_state._persist_group_states(sess, groups)
+    session_state.grant_player_map_knowledge(sess, player_id, "mine_entrance", knowledge_kind="known", source="test")
+
+    handled_enter, err_enter, msg_enter = ws_handlers._handle_group_action_request(
+        sess,
+        action="group_navigate",
+        actor_player_id=player_id,
+        payload={"target_node_id": "mine_entrance"},
+        source="test",
+    )
+
+    assert handled_enter is True
+    assert err_enter is None
+    assert msg_enter == "Группа main входит в Шахтный вход."
+    entered_group = session_state._get_group_states(sess)["main"]
+    assert entered_group["movement_intent"]["action_kind"] == "enter"
+    assert entered_group["travel_state"]["paused"] is True
+    assert entered_group["travel_state"]["pause_reason"] == "target_requires_enter"
+
+
+def test_handle_group_navigate_returns_clear_errors_for_unknown_and_unavailable_targets() -> None:
+    player_id = uuid.uuid4()
+    sess = SimpleNamespace(settings={})
+    session_state._initialize_default_group(
+        sess,
+        [player_id],
+        {
+            "map_level": "region",
+            "node_type": "zone",
+            "node_id": "start_trakt",
+            "label": "Стартовый тракт",
+        },
+    )
+
+    handled_unknown, err_unknown, msg_unknown = ws_handlers._handle_group_action_request(
+        sess,
+        action="group_navigate",
+        actor_player_id=player_id,
+        payload={"target_node_id": "missing_node"},
+        source="test",
+    )
+
+    assert handled_unknown is True
+    assert err_unknown == "Неизвестная navigation цель группы."
+    assert msg_unknown is None
+
+    handled_not_known, err_not_known, msg_not_known = ws_handlers._handle_group_action_request(
+        sess,
+        action="group_navigate",
+        actor_player_id=player_id,
+        payload={"target_node_id": "watchtower"},
+        source="test",
+    )
+
+    assert handled_not_known is True
+    assert err_not_known == "Группа пока не знает эту точку карты."
+    assert msg_not_known is None
+
+    session_state.grant_player_map_knowledge(sess, player_id, "watchtower", knowledge_kind="known", source="test")
+    handled_unavailable, err_unavailable, msg_unavailable = ws_handlers._handle_group_action_request(
+        sess,
+        action="group_navigate",
+        actor_player_id=player_id,
+        payload={"target_node_id": "watchtower"},
+        source="test",
+    )
+
+    assert handled_unavailable is True
+    assert err_unavailable == "Эта navigation цель сейчас недоступна из текущей точки."
+    assert msg_unavailable is None
 
 
 def test_handle_group_resume_without_paused_travel_returns_clear_error() -> None:

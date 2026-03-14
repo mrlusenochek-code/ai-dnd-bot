@@ -1010,6 +1010,88 @@ def get_current_group_navigation_options(
     )
 
 
+def get_group_navigation_option_by_target(
+    sess: Session,
+    *,
+    target_node_id: str,
+    player_id: uuid.UUID | str | None = None,
+    group_id: str | None = None,
+) -> dict[str, Any] | None:
+    normalized_target_node_id = str(target_node_id or "").strip()
+    if not normalized_target_node_id:
+        return None
+    options = get_current_group_navigation_options(sess, player_id=player_id, group_id=group_id)
+    for option in options:
+        if str(option.get("target_node_id") or "").strip() == normalized_target_node_id:
+            return dict(option)
+    return None
+
+
+def execute_group_navigation_option(
+    sess: Session,
+    *,
+    target_node_id: str,
+    player_id: uuid.UUID | str | None = None,
+    group_id: str | None = None,
+    movement_mode: str | None = None,
+    source: str = "manual",
+) -> tuple[dict[str, Any] | None, str | None]:
+    normalized_target_node_id = str(target_node_id or "").strip()
+    if not normalized_target_node_id:
+        return None, "Нужно указать target_node_id для navigation."
+    resolved_group_id = str(group_id or "").strip()
+    resolved_player_id = str(player_id or "").strip()
+    if not resolved_group_id and resolved_player_id:
+        resolved_group_id = str(_get_player_group_id(sess, resolved_player_id) or "").strip()
+    if not resolved_group_id:
+        return None, "Группа игрока не найдена."
+    option = get_group_navigation_option_by_target(
+        sess,
+        target_node_id=normalized_target_node_id,
+        player_id=resolved_player_id or None,
+        group_id=resolved_group_id,
+    )
+    if not option:
+        static_target = get_static_node(normalized_target_node_id)
+        if not static_target:
+            return None, "Неизвестная navigation цель группы."
+        if resolved_player_id and not has_player_map_knowledge(sess, resolved_player_id, normalized_target_node_id):
+            return None, "Группа пока не знает эту точку карты."
+        return None, "Эта navigation цель сейчас недоступна из текущей точки."
+
+    group = _get_group_states(sess).get(resolved_group_id)
+    current_map_position = _normalize_map_position((group or {}).get("current_map_position"))
+    if not current_map_position:
+        return None, "Не удалось определить текущую позицию группы."
+
+    static_target = get_static_node(normalized_target_node_id)
+    if not static_target:
+        return None, "Неизвестная navigation цель группы."
+
+    from app.web.map_targeting import resolve_group_target_route
+
+    route_summary = resolve_group_target_route(
+        current_map_position=current_map_position,
+        target_node=static_target,
+        action_kind=str(option.get("action_kind") or "move"),
+    )
+    if route_summary.get("allowed") is not True:
+        return None, str(route_summary.get("error") or "Недопустимая navigation цель группы.")
+
+    resolved_mode = str(movement_mode or get_group_movement_mode(sess, resolved_group_id) or "normal").strip().lower() or "normal"
+    updated = start_group_travel(
+        sess,
+        resolved_group_id,
+        route_summary,
+        movement_mode=resolved_mode,
+        source=source,
+    )
+    if not updated:
+        return None, "Не удалось запустить navigation группы."
+    updated = evaluate_group_travel_pause(sess, resolved_group_id) or updated
+    return updated, None
+
+
 def create_group_wait_state(
     *,
     reason: str | None = None,

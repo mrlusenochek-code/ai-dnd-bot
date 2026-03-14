@@ -922,6 +922,54 @@ def test_get_current_group_navigation_options_respects_known_and_revealed_nodes(
     assert updated_options[1]["revealed"] is False
 
 
+def test_execute_group_navigation_option_runs_existing_travel_flow_and_errors_cleanly() -> None:
+    player_id = uuid.uuid4()
+    sess = SimpleNamespace(settings={})
+    session_state._initialize_default_group(
+        sess,
+        [player_id],
+        {
+            "map_level": "region",
+            "node_type": "zone",
+            "node_id": "start_trakt",
+            "label": "Стартовый тракт",
+        },
+    )
+
+    updated, error = session_state.execute_group_navigation_option(
+        sess,
+        target_node_id="fortress_gate",
+        player_id=player_id,
+        source="test",
+    )
+
+    assert error is None
+    assert updated is not None
+    assert updated["movement_intent"]["target_node_id"] == "fortress_gate"
+    assert updated["travel_state"]["route_summary"]["source"] == "registry"
+
+    invalid_updated, invalid_error = session_state.execute_group_navigation_option(
+        sess,
+        target_node_id="missing_node",
+        player_id=player_id,
+        source="test",
+    )
+
+    assert invalid_updated is None
+    assert invalid_error == "Неизвестная navigation цель группы."
+
+    session_state.grant_player_map_knowledge(sess, player_id, "watchtower", knowledge_kind="known", source="test")
+    unavailable_updated, unavailable_error = session_state.execute_group_navigation_option(
+        sess,
+        target_node_id="watchtower",
+        player_id=player_id,
+        source="test",
+    )
+
+    assert unavailable_updated is None
+    assert unavailable_error == "Эта navigation цель сейчас недоступна из текущей точки."
+
+
 def test_pause_resume_and_evaluate_group_travel_preserve_mode_and_activity() -> None:
     player_id = uuid.uuid4()
     sess = SimpleNamespace(settings={})
