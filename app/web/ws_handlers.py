@@ -66,6 +66,7 @@ from app.web.session_state import (
     complete_group_travel,
     confirm_group_enter,
     evaluate_group_travel_pause,
+    execute_current_group_context_action,
     execute_group_navigation_option,
     get_player_known_node_ids,
     get_group_movement_mode,
@@ -1680,6 +1681,15 @@ def _parse_group_command(cmdline: str) -> tuple[str | None, dict[str, Any]]:
         if lowered.startswith(prefix):
             return "group_navigate", {"target_node_id": txt[len(prefix):].strip()}
 
+    for prefix in ("group do ", "group_do ", "group action ", "group_action "):
+        if lowered.startswith(prefix):
+            payload = txt[len(prefix):].strip()
+            action_key, _, action_arg = payload.partition(" ")
+            parsed_payload: dict[str, Any] = {"action_key": action_key.strip()}
+            if str(action_key or "").strip().lower() == "navigate" and action_arg.strip():
+                parsed_payload["target_node_id"] = action_arg.strip()
+            return "group_context_action", parsed_payload
+
     for prefix in ("group enter ", "group_enter "):
         if lowered.startswith(prefix):
             return "group_enter", {"target_hint": txt[len(prefix):].strip()}
@@ -1797,6 +1807,7 @@ def _handle_group_action_request(
         "group_merge",
         "group_move",
         "group_navigate",
+        "group_context_action",
         "group_enter",
         "group_stop",
         "group_arrive",
@@ -1847,6 +1858,7 @@ def _handle_group_action_request(
     if action in {
         "group_move",
         "group_navigate",
+        "group_context_action",
         "group_enter",
         "group_stop",
         "group_arrive",
@@ -1947,6 +1959,44 @@ def _handle_group_action_request(
             if action_kind == "enter":
                 return True, None, f"Группа {actor_group_key} входит в {label}."
             return True, None, f"Группа {actor_group_key} движется к {label}."
+        if action == "group_context_action":
+            action_key = str(payload.get("action_key") or "").strip().lower()
+            updated, error = execute_current_group_context_action(
+                sess,
+                action_key=action_key,
+                player_id=actor_player_id,
+                group_id=actor_group_key,
+                payload=payload,
+                source=source,
+            )
+            if error:
+                return True, error, None
+            if action_key == "navigate":
+                label = str((updated or {}).get("movement_intent", {}).get("target_label") or (updated or {}).get("area_label") or "цель")
+                action_kind = str((updated or {}).get("movement_intent", {}).get("action_kind") or "move")
+                if action_kind == "enter":
+                    return True, None, f"Группа {actor_group_key} входит в {label}."
+                return True, None, f"Группа {actor_group_key} движется к {label}."
+            if action_key == "enter":
+                label = str(
+                    (updated or {}).get("last_travel_resolution", {}).get("target_label")
+                    or (updated or {}).get("area_label")
+                    or "цель"
+                )
+                return True, None, f"Группа {actor_group_key} подтверждает вход в {label}."
+            if action_key == "inspect":
+                label = str(
+                    (updated or {}).get("last_travel_resolution", {}).get("target_label")
+                    or (updated or {}).get("current_map_position", {}).get("label")
+                    or (updated or {}).get("area_label")
+                    or "место"
+                )
+                return True, None, f"Группа {actor_group_key} осматривает {label}."
+            if action_key == "camp":
+                return True, None, f"Группа {actor_group_key} разбила лагерь."
+            if action_key == "wait":
+                return True, None, f"Группа {actor_group_key} ждёт."
+            return True, None, f"Группа {actor_group_key} выполняет действие {action_key}."
 
         target_node = _resolve_group_action_target(
             sess,
@@ -5877,6 +5927,7 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                     "group_split",
                     "group_merge",
                     "group_move",
+                    "group_context_action",
                     "group_enter",
                     "group_stop",
                     "group_arrive",

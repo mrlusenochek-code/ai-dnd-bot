@@ -1120,10 +1120,114 @@ def get_current_group_node_context(
     node_context = get_static_node_context(current_map_position=current_map_position)
     if not node_context:
         return None
+    contextual_actions = get_current_node_context_actions(current_map_position=current_map_position)
+    travel_state = _group_travel_state_summary(group)
+    if isinstance(travel_state, dict) and travel_state.get("active") is True and travel_state.get("paused") is True:
+        pause_reason = str(travel_state.get("pause_reason") or "").strip().lower()
+        if pause_reason == "target_requires_enter" and not any(
+            action.get("action_key") == "enter" for action in contextual_actions if isinstance(action, dict)
+        ):
+            contextual_actions.insert(0, {"action_key": "enter", "label": "Войти", "action_type": "action"})
+        if pause_reason == "point_of_interest_reached" and not any(
+            action.get("action_key") == "inspect" for action in contextual_actions if isinstance(action, dict)
+        ):
+            contextual_actions.insert(0, {"action_key": "inspect", "label": "Осмотреться", "action_type": "action"})
     return {
         "node_summary": node_context,
-        "contextual_actions": get_current_node_context_actions(current_map_position=current_map_position),
+        "contextual_actions": contextual_actions,
     }
+
+
+def execute_current_group_context_action(
+    sess: Session,
+    *,
+    action_key: str,
+    player_id: uuid.UUID | str | None = None,
+    group_id: str | None = None,
+    payload: dict[str, Any] | None = None,
+    source: str = "manual",
+) -> tuple[dict[str, Any] | None, str | None]:
+    normalized_action_key = str(action_key or "").strip().lower()
+    if not normalized_action_key:
+        return None, "Нужно указать action_key для contextual action."
+    resolved_group_id = str(group_id or "").strip()
+    resolved_player_id = str(player_id or "").strip()
+    if not resolved_group_id and resolved_player_id:
+        resolved_group_id = str(_get_player_group_id(sess, resolved_player_id) or "").strip()
+    if not resolved_group_id:
+        return None, "Группа игрока не найдена."
+    context = get_current_group_node_context(sess, player_id=resolved_player_id or None, group_id=resolved_group_id)
+    if not context:
+        return None, "Не удалось определить current node context группы."
+    payload = payload if isinstance(payload, dict) else {}
+    available_action = next(
+        (
+            dict(item)
+            for item in context.get("contextual_actions") or []
+            if isinstance(item, dict) and str(item.get("action_key") or "").strip().lower() == normalized_action_key
+        ),
+        None,
+    )
+    if not available_action:
+        return None, "Это contextual действие сейчас недоступно."
+    if str(available_action.get("action_type") or "action").strip().lower() != "action":
+        return None, "Это contextual действие доступно только как подсказка."
+
+    if normalized_action_key == "navigate":
+        return execute_group_navigation_option(
+            sess,
+            target_node_id=str(payload.get("target_node_id") or "").strip(),
+            player_id=resolved_player_id or None,
+            group_id=resolved_group_id,
+            movement_mode=payload.get("movement_mode"),
+            source=source,
+        )
+
+    if normalized_action_key == "wait":
+        updated = set_group_wait(
+            sess,
+            resolved_group_id,
+            reason=str(payload.get("reason") or "").strip() or None,
+            source=source,
+            requested_by=resolved_player_id or None,
+        )
+        return (updated, None) if updated else (None, "Не удалось перевести группу в ожидание.")
+
+    if normalized_action_key == "camp":
+        updated = set_group_camp(
+            sess,
+            resolved_group_id,
+            reason=str(payload.get("reason") or "").strip() or None,
+            source=source,
+            requested_by=resolved_player_id or None,
+        )
+        return (updated, None) if updated else (None, "Не удалось перевести группу в лагерь.")
+
+    if normalized_action_key == "enter":
+        updated = confirm_group_enter(sess, resolved_group_id, player_id=resolved_player_id or None, source=source)
+        if updated:
+            return updated, None
+        return None, "Для входа нужен активный paused travel с требованием enter."
+
+    if normalized_action_key == "inspect":
+        updated = inspect_group_travel_target(sess, resolved_group_id, player_id=resolved_player_id or None, source=source)
+        if updated:
+            return updated, None
+        groups = _get_group_states(sess)
+        group = groups.get(resolved_group_id)
+        current_map_position = _normalize_map_position((group or {}).get("current_map_position"))
+        current_node_id = str((current_map_position or {}).get("node_id") or "").strip()
+        if not current_map_position or not current_node_id or get_static_node(current_node_id) is None:
+            return None, "Не удалось осмотреть текущее место группы."
+        if resolved_player_id:
+            grant_player_map_knowledge(sess, resolved_player_id, current_node_id, knowledge_kind="discovered", source=source)
+            reveal_player_map_node(sess, resolved_player_id, current_node_id, source=source)
+            maybe_reveal_nearby_static_nodes(sess, resolved_player_id, current_map_position, source=source)
+        _persist_group_states(sess, groups)
+        _sync_group_position_mirrors(sess, group)
+        return dict(group or {}), None
+
+    return None, "Это contextual действие пока не поддерживается."
 
 
 def create_group_wait_state(

@@ -6,13 +6,16 @@ from types import SimpleNamespace
 from app.web import session_state, ws_handlers
 
 
-def test_parse_group_command_supports_wait_camp_move_navigate_enter_stop_arrive_interrupt_pause_resume_resolution_split_and_merge() -> None:
+def test_parse_group_command_supports_wait_camp_move_navigate_context_actions_enter_stop_arrive_interrupt_pause_resume_resolution_split_and_merge() -> None:
     scout_id = str(uuid.uuid4())
     action_wait, payload_wait = ws_handlers._parse_group_command("group wait: держим позицию")
     action_camp, payload_camp = ws_handlers._parse_group_command("group camp ночлег у костра")
     action_move, payload_move = ws_handlers._parse_group_command("group move к воротам")
     action_navigate, payload_navigate = ws_handlers._parse_group_command("group navigate fortress_gate")
     action_go, payload_go = ws_handlers._parse_group_command("group go mine_entrance")
+    action_do_inspect, payload_do_inspect = ws_handlers._parse_group_command("group do inspect")
+    action_do_navigate, payload_do_navigate = ws_handlers._parse_group_command("group action navigate fortress_gate")
+    action_do_camp, payload_do_camp = ws_handlers._parse_group_command("group action camp")
     action_enter, payload_enter = ws_handlers._parse_group_command("group enter замок")
     action_mode, payload_mode = ws_handlers._parse_group_command("group mode cautious")
     action_activity, payload_activity = ws_handlers._parse_group_command("group activity navigate")
@@ -34,6 +37,12 @@ def test_parse_group_command_supports_wait_camp_move_navigate_enter_stop_arrive_
     assert (action_move, payload_move) == ("group_move", {"target_hint": "к воротам"})
     assert (action_navigate, payload_navigate) == ("group_navigate", {"target_node_id": "fortress_gate"})
     assert (action_go, payload_go) == ("group_navigate", {"target_node_id": "mine_entrance"})
+    assert (action_do_inspect, payload_do_inspect) == ("group_context_action", {"action_key": "inspect"})
+    assert (action_do_navigate, payload_do_navigate) == (
+        "group_context_action",
+        {"action_key": "navigate", "target_node_id": "fortress_gate"},
+    )
+    assert (action_do_camp, payload_do_camp) == ("group_context_action", {"action_key": "camp"})
     assert (action_enter, payload_enter) == ("group_enter", {"target_hint": "замок"})
     assert (action_mode, payload_mode) == ("group_set_mode", {"movement_mode": "cautious"})
     assert (action_activity, payload_activity) == ("group_set_activity", {"activity": "navigate"})
@@ -78,6 +87,164 @@ def test_handle_group_wait_request_sets_waiting_state() -> None:
         "source": "test",
         "requested_by": str(player_id),
     }
+
+
+def test_handle_group_context_action_wait_camp_inspect_and_navigate() -> None:
+    player_id = uuid.uuid4()
+    sess = SimpleNamespace(settings={})
+    session_state._initialize_default_group(
+        sess,
+        [player_id],
+        {
+            "map_level": "region",
+            "node_type": "zone",
+            "node_id": "start_trakt",
+            "label": "Стартовый тракт",
+        },
+    )
+
+    handled_wait, err_wait, msg_wait = ws_handlers._handle_group_action_request(
+        sess,
+        action="group_context_action",
+        actor_player_id=player_id,
+        payload={"action_key": "wait", "reason": "держим точку"},
+        source="test",
+    )
+    assert handled_wait is True
+    assert err_wait is None
+    assert msg_wait == "Группа main ждёт."
+
+    session_state._clear_group_activity_state(session_state._get_group_states(sess)["main"], status="idle")
+
+    handled_camp, err_camp, msg_camp = ws_handlers._handle_group_action_request(
+        sess,
+        action="group_context_action",
+        actor_player_id=player_id,
+        payload={"action_key": "camp", "reason": "ночлег"},
+        source="test",
+    )
+    assert handled_camp is True
+    assert err_camp is None
+    assert msg_camp == "Группа main разбила лагерь."
+
+    session_state._clear_group_activity_state(session_state._get_group_states(sess)["main"], status="idle")
+
+    handled_inspect, err_inspect, msg_inspect = ws_handlers._handle_group_action_request(
+        sess,
+        action="group_context_action",
+        actor_player_id=player_id,
+        payload={"action_key": "inspect"},
+        source="test",
+    )
+    assert handled_inspect is True
+    assert err_inspect is None
+    assert msg_inspect == "Группа main осматривает Стартовый тракт."
+
+    handled_navigate, err_navigate, msg_navigate = ws_handlers._handle_group_action_request(
+        sess,
+        action="group_context_action",
+        actor_player_id=player_id,
+        payload={"action_key": "navigate", "target_node_id": "fortress_gate"},
+        source="test",
+    )
+    assert handled_navigate is True
+    assert err_navigate is None
+    assert msg_navigate == "Группа main движется к Ворота крепости."
+
+
+def test_handle_group_context_action_enter_and_errors_cleanly() -> None:
+    player_id = uuid.uuid4()
+    sess = SimpleNamespace(settings={})
+    session_state._initialize_default_group(
+        sess,
+        [player_id],
+        {
+            "map_level": "region",
+            "node_type": "zone",
+            "node_id": "ruined_settlement",
+            "label": "Разрушенный посёлок",
+        },
+    )
+    session_state.maybe_apply_group_enter_target(
+        sess,
+        "main",
+        {
+            "map_level": "interior",
+            "node_type": "interior_entry",
+            "node_id": "mine_entrance",
+            "label": "Шахтный вход",
+            "zone_label": "Разрушенный посёлок",
+            "area_label": "Разрушенный посёлок",
+        },
+        source="test",
+    )
+
+    handled_enter, err_enter, msg_enter = ws_handlers._handle_group_action_request(
+        sess,
+        action="group_context_action",
+        actor_player_id=player_id,
+        payload={"action_key": "enter"},
+        source="test",
+    )
+    assert handled_enter is True
+    assert err_enter is None
+    assert msg_enter == "Группа main подтверждает вход в Шахтный вход."
+
+    hint_sess = SimpleNamespace(settings={})
+    session_state._initialize_default_group(
+        hint_sess,
+        [player_id],
+        {
+            "map_level": "region",
+            "node_type": "zone",
+            "node_id": "craft_town",
+            "label": "Озёрный городок",
+        },
+    )
+    hint_handled, hint_err, hint_msg = ws_handlers._handle_group_action_request(
+        hint_sess,
+        action="group_context_action",
+        actor_player_id=player_id,
+        payload={"action_key": "rest_hint"},
+        source="test",
+    )
+    invalid_handled, invalid_err, invalid_msg = ws_handlers._handle_group_action_request(
+        hint_sess,
+        action="group_context_action",
+        actor_player_id=player_id,
+        payload={"action_key": "unknown_action"},
+        source="test",
+    )
+
+    navigate_sess = SimpleNamespace(settings={})
+    session_state._initialize_default_group(
+        navigate_sess,
+        [player_id],
+        {
+            "map_level": "region",
+            "node_type": "zone",
+            "node_id": "start_trakt",
+            "label": "Стартовый тракт",
+        },
+    )
+    session_state.grant_player_map_knowledge(navigate_sess, player_id, "watchtower", knowledge_kind="known", source="test")
+    unavailable_handled, unavailable_err, unavailable_msg = ws_handlers._handle_group_action_request(
+        navigate_sess,
+        action="group_context_action",
+        actor_player_id=player_id,
+        payload={"action_key": "navigate", "target_node_id": "watchtower"},
+        source="test",
+    )
+
+    assert hint_handled is True
+    assert hint_err == "Это contextual действие доступно только как подсказка."
+    assert hint_msg is None
+    assert invalid_handled is True
+    assert invalid_err == "Это contextual действие сейчас недоступно."
+    assert invalid_msg is None
+    assert unavailable_handled is True
+    assert unavailable_err == "Эта navigation цель сейчас недоступна из текущей точки."
+    assert unavailable_msg is None
 
 
 def test_handle_group_move_pause_resume_enter_arrive_interrupt_and_stop_requests_update_group_state() -> None:

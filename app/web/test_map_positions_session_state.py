@@ -1006,6 +1006,178 @@ def test_get_current_group_node_context_returns_node_summary_and_contextual_acti
     }
 
 
+def test_get_current_group_node_context_adds_enter_for_paused_target_requires_enter() -> None:
+    player_id = uuid.uuid4()
+    sess = SimpleNamespace(settings={})
+    session_state._initialize_default_group(
+        sess,
+        [player_id],
+        {
+            "map_level": "region",
+            "node_type": "zone",
+            "node_id": "ruined_settlement",
+            "label": "Разрушенный посёлок",
+        },
+    )
+    session_state.maybe_apply_group_enter_target(
+        sess,
+        "main",
+        {
+            "map_level": "interior",
+            "node_type": "interior_entry",
+            "node_id": "mine_entrance",
+            "label": "Шахтный вход",
+            "zone_label": "Разрушенный посёлок",
+            "area_label": "Разрушенный посёлок",
+        },
+        source="test",
+    )
+
+    context = session_state.get_current_group_node_context(sess, player_id=player_id)
+
+    assert context is not None
+    assert context["contextual_actions"][0] == {
+        "action_key": "enter",
+        "label": "Войти",
+        "action_type": "action",
+    }
+
+
+def test_execute_current_group_context_action_supports_wait_camp_inspect_enter_and_navigate() -> None:
+    player_id = uuid.uuid4()
+    sess = SimpleNamespace(settings={})
+    session_state._initialize_default_group(
+        sess,
+        [player_id],
+        {
+            "map_level": "region",
+            "node_type": "zone",
+            "node_id": "start_trakt",
+            "label": "Стартовый тракт",
+        },
+    )
+
+    waited, wait_error = session_state.execute_current_group_context_action(
+        sess,
+        action_key="wait",
+        player_id=player_id,
+        payload={"reason": "держим точку"},
+        source="test",
+    )
+    assert wait_error is None
+    assert waited is not None
+    assert waited["status"] == "waiting"
+    assert waited["wait_state"]["reason"] == "держим точку"
+
+    session_state.clear_group_movement_intent(sess, "main")
+    session_state._clear_group_activity_state(session_state._get_group_states(sess)["main"], status="idle")
+
+    camped, camp_error = session_state.execute_current_group_context_action(
+        sess,
+        action_key="camp",
+        player_id=player_id,
+        payload={"reason": "ночлег"},
+        source="test",
+    )
+    assert camp_error is None
+    assert camped is not None
+    assert camped["status"] == "camping"
+    assert camped["camp_state"]["reason"] == "ночлег"
+
+    session_state._clear_group_activity_state(session_state._get_group_states(sess)["main"], status="idle")
+    session_state.grant_player_map_knowledge(sess, player_id, "start_trakt", knowledge_kind="known", source="seed")
+    inspected, inspect_error = session_state.execute_current_group_context_action(
+        sess,
+        action_key="inspect",
+        player_id=player_id,
+        source="test",
+    )
+    assert inspect_error is None
+    assert inspected is not None
+    assert session_state.get_player_map_knowledge(sess, player_id)["start_trakt"]["knowledge_kind"] == "discovered"
+
+    navigated, navigate_error = session_state.execute_current_group_context_action(
+        sess,
+        action_key="navigate",
+        player_id=player_id,
+        payload={"target_node_id": "fortress_gate"},
+        source="test",
+    )
+    assert navigate_error is None
+    assert navigated is not None
+    assert navigated["movement_intent"]["target_node_id"] == "fortress_gate"
+    assert navigated["travel_state"]["active"] is True
+
+    paused_enter_sess = SimpleNamespace(settings={})
+    session_state._initialize_default_group(
+        paused_enter_sess,
+        [player_id],
+        {
+            "map_level": "region",
+            "node_type": "zone",
+            "node_id": "ruined_settlement",
+            "label": "Разрушенный посёлок",
+        },
+    )
+    session_state.maybe_apply_group_enter_target(
+        paused_enter_sess,
+        "main",
+        {
+            "map_level": "interior",
+            "node_type": "interior_entry",
+            "node_id": "mine_entrance",
+            "label": "Шахтный вход",
+            "zone_label": "Разрушенный посёлок",
+            "area_label": "Разрушенный посёлок",
+        },
+        source="test",
+    )
+
+    entered, enter_error = session_state.execute_current_group_context_action(
+        paused_enter_sess,
+        action_key="enter",
+        player_id=player_id,
+        source="test",
+    )
+    assert enter_error is None
+    assert entered is not None
+    assert entered["status"] == "idle"
+    assert entered["current_map_position"]["node_id"] == "mine_entrance"
+
+
+def test_execute_current_group_context_action_rejects_unavailable_and_hint_only_actions() -> None:
+    player_id = uuid.uuid4()
+    sess = SimpleNamespace(settings={})
+    session_state._initialize_default_group(
+        sess,
+        [player_id],
+        {
+            "map_level": "region",
+            "node_type": "zone",
+            "node_id": "craft_town",
+            "label": "Озёрный городок",
+        },
+    )
+
+    hint_updated, hint_error = session_state.execute_current_group_context_action(
+        sess,
+        action_key="rest_hint",
+        player_id=player_id,
+        source="test",
+    )
+    unavailable_updated, unavailable_error = session_state.execute_current_group_context_action(
+        sess,
+        action_key="camp",
+        player_id=player_id,
+        source="test",
+    )
+
+    assert hint_updated is None
+    assert hint_error == "Это contextual действие доступно только как подсказка."
+    assert unavailable_updated is None
+    assert unavailable_error == "Это contextual действие сейчас недоступно."
+
+
 def test_pause_resume_and_evaluate_group_travel_preserve_mode_and_activity() -> None:
     player_id = uuid.uuid4()
     sess = SimpleNamespace(settings={})
