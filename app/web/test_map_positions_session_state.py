@@ -1805,6 +1805,7 @@ def test_trigger_and_resolve_group_travel_event_update_state_honestly() -> None:
         sess,
         "main",
         resolution="resolve",
+        player_id=player_id,
         source="test",
     )
 
@@ -1818,6 +1819,9 @@ def test_trigger_and_resolve_group_travel_event_update_state_honestly() -> None:
     assert resolved["travel_event"]["resolution"] == "resolve"
     assert resolved["travel_event"]["source"] == "test"
     assert resolved["travel_event"]["route_snapshot"]["traversal_kind"] == "marsh_path"
+    assert resolved["last_travel_event_outcome"]["event_key"] == "blocked_path"
+    assert resolved["last_travel_event_outcome"]["outcome_type"] == "obstacle_cleared"
+    assert resolved["last_travel_event_outcome"]["applied_effects"] == ["event_closed", "travel_resumed"]
 
 
 def test_trigger_non_blocking_event_and_ignore_event() -> None:
@@ -1867,6 +1871,7 @@ def test_trigger_non_blocking_event_and_ignore_event() -> None:
         sess,
         "main",
         resolution="ignore",
+        player_id=player_id,
         source="test",
     )
 
@@ -1876,3 +1881,124 @@ def test_trigger_non_blocking_event_and_ignore_event() -> None:
     assert ignored["travel_state"]["active"] is True
     assert ignored["travel_event"]["active"] is False
     assert ignored["travel_event"]["resolution"] == "ignore"
+    assert ignored["last_travel_event_outcome"]["outcome_type"] == "ignored_event"
+    assert ignored["last_travel_event_outcome"]["event_key"] == "roadside_finding"
+
+
+def test_build_and_apply_group_travel_event_outcome_can_update_knowledge_and_reveal() -> None:
+    player_id = uuid.uuid4()
+    sess = SimpleNamespace(settings={})
+    session_state._initialize_default_group(
+        sess,
+        [player_id],
+        {
+            "map_level": "region",
+            "node_type": "zone",
+            "node_id": "start_trakt",
+            "label": "Стартовый тракт",
+        },
+    )
+
+    event = {
+        "event_id": "evt-signs",
+        "event_key": "tracks_or_signs",
+        "event_type": "roadside_hook",
+        "summary": "На дороге видны старые зарубки и следы.",
+        "route_snapshot": {
+            "allowed": True,
+            "route_kind": "landmark_move",
+            "action_kind": "move",
+            "target_label": "Сторожевая башня",
+            "target_node": {
+                "map_level": "landmark",
+                "node_type": "landmark",
+                "node_id": "watchtower",
+                "label": "Сторожевая башня",
+                "zone_label": "Восточный берег",
+                "area_label": "Восточный берег",
+            },
+            "target_node_type": "landmark",
+            "target_node_id": "watchtower",
+        },
+        "source": "travel",
+        "active": True,
+        "resolved": False,
+    }
+
+    outcome = session_state.build_group_travel_event_outcome(event, resolution="resolve", source="test")
+
+    assert outcome is not None
+    assert outcome["event_key"] == "tracks_or_signs"
+    assert outcome["outcome_type"] == "route_hint"
+    assert outcome["applied_effects"] == ["event_closed", "knowledge_updated", "node_revealed"]
+
+    applied = session_state.apply_group_travel_event_outcome(
+        sess,
+        "main",
+        outcome,
+        player_id=player_id,
+        source="test",
+    )
+
+    assert applied is not None
+    assert session_state.get_current_group_last_travel_event_outcome(sess, player_id=player_id)["event_key"] == "tracks_or_signs"
+    assert session_state.has_player_map_knowledge(sess, player_id, "watchtower") is True
+    assert session_state.is_player_node_revealed(sess, player_id, "watchtower") is True
+
+
+def test_resolve_group_travel_event_guidance_updates_only_target_knowledge() -> None:
+    player_id = uuid.uuid4()
+    sess = SimpleNamespace(settings={})
+    session_state._initialize_default_group(
+        sess,
+        [player_id],
+        {
+            "map_level": "region",
+            "node_type": "zone",
+            "node_id": "start_trakt",
+            "label": "Стартовый тракт",
+        },
+    )
+
+    session_state.trigger_group_travel_event(
+        sess,
+        "main",
+        event={
+            "event_id": "evt-lost",
+            "event_key": "lost_traveler",
+            "event_type": "roadside_hook",
+            "summary": "На тракте встречается заплутавший путник.",
+            "route_snapshot": {
+                "allowed": True,
+                "route_kind": "zone_move",
+                "action_kind": "move",
+                "target_label": "Озёрный городок",
+                "target_node": {
+                    "map_level": "region",
+                    "node_type": "zone",
+                    "node_id": "craft_town",
+                    "label": "Озёрный городок",
+                },
+                "target_node_type": "zone",
+                "target_node_id": "craft_town",
+            },
+            "source": "travel",
+            "active": True,
+            "resolved": False,
+        },
+        source="test",
+    )
+
+    updated, error = session_state.resolve_group_travel_event(
+        sess,
+        "main",
+        resolution="resolve",
+        player_id=player_id,
+        source="test",
+    )
+
+    assert error is None
+    assert updated is not None
+    assert updated["last_travel_event_outcome"]["outcome_type"] == "guidance_note"
+    assert session_state.has_player_map_knowledge(sess, player_id, "craft_town") is True
+    assert session_state.is_player_node_revealed(sess, player_id, "craft_town") is False

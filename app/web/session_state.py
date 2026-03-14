@@ -692,6 +692,55 @@ def _normalize_group_travel_event(raw: Any) -> dict[str, Any] | None:
     return event
 
 
+def _normalize_group_travel_event_outcome(raw: Any) -> dict[str, Any] | None:
+    if not isinstance(raw, dict):
+        return None
+    outcome_id = str(raw.get("outcome_id") or "").strip()
+    event_key = str(raw.get("event_key") or "").strip().lower()
+    if event_key not in {"roadside_finding", "tracks_or_signs", "lost_traveler", "blocked_path", "ominous_quiet"}:
+        return None
+    event_type = str(raw.get("event_type") or "roadside_hook").strip() or "roadside_hook"
+    outcome_type = str(raw.get("outcome_type") or "").strip().lower()
+    if outcome_type not in {
+        "finding_note",
+        "route_hint",
+        "guidance_note",
+        "obstacle_cleared",
+        "route_still_blocked",
+        "warning_note",
+        "ignored_event",
+    }:
+        return None
+    summary = str(raw.get("summary") or "").strip()
+    result_summary = str(raw.get("result_summary") or "").strip()
+    if not outcome_id or not summary or not result_summary:
+        return None
+    source = str(raw.get("source") or "travel").strip() or "travel"
+    resolved_at = str(raw.get("resolved_at") or "").strip()
+    applied_effects_raw = raw.get("applied_effects")
+    applied_effects = (
+        [str(item).strip()[:120] for item in applied_effects_raw if str(item or "").strip()]
+        if isinstance(applied_effects_raw, list)
+        else []
+    )
+    route_snapshot = _normalize_group_route_summary(raw.get("route_snapshot") or raw.get("route"))
+    outcome: dict[str, Any] = {
+        "outcome_id": outcome_id[:80],
+        "event_key": event_key,
+        "event_type": event_type[:40],
+        "outcome_type": outcome_type[:40],
+        "summary": summary[:400],
+        "result_summary": result_summary[:400],
+        "applied_effects": applied_effects,
+        "source": source[:40],
+    }
+    if resolved_at:
+        outcome["resolved_at"] = resolved_at[:80]
+    if route_snapshot:
+        outcome["route_snapshot"] = route_snapshot
+    return outcome
+
+
 def _normalize_map_knowledge_kind(raw: Any) -> str:
     kind = str(raw or "known").strip().lower()
     if kind not in _MAP_KNOWLEDGE_KIND_ORDER:
@@ -1551,11 +1600,140 @@ def get_current_group_travel_event(
     return _normalize_group_travel_event(group.get("travel_event"))
 
 
+def _set_group_last_travel_event_outcome(
+    group: dict[str, Any],
+    outcome: dict[str, Any] | None,
+) -> dict[str, Any] | None:
+    normalized = _normalize_group_travel_event_outcome(outcome)
+    if not normalized:
+        group.pop("last_travel_event_outcome", None)
+        return None
+    group["last_travel_event_outcome"] = normalized
+    return normalized
+
+
+def build_group_travel_event_outcome(
+    event: dict[str, Any] | None,
+    *,
+    resolution: str,
+    source: str = "manual",
+) -> dict[str, Any] | None:
+    normalized_event = _normalize_group_travel_event(event)
+    if not normalized_event:
+        return None
+    normalized_resolution = str(resolution or "").strip().lower()
+    if normalized_resolution not in {"resolve", "ignore"}:
+        return None
+    event_key = str(normalized_event.get("event_key") or "").strip().lower()
+    outcome_type = "ignored_event"
+    result_summary = "Группа отмечает событие, но решает не задерживаться на нём."
+    applied_effects: list[str] = ["event_closed"]
+    if event_key == "roadside_finding":
+        if normalized_resolution == "resolve":
+            outcome_type = "finding_note"
+            result_summary = "Группа отмечает дорожную примету и получает полезную заметку о ближайшем пути."
+            applied_effects = ["event_closed", "travel_hint_recorded"]
+        else:
+            result_summary = "Группа оставляет находку у обочины без дальнейшего разбора."
+    elif event_key == "tracks_or_signs":
+        if normalized_resolution == "resolve":
+            outcome_type = "route_hint"
+            result_summary = "Следы и знаки подсказывают направление и делают ближайшую цель понятнее."
+            applied_effects = ["event_closed", "knowledge_updated", "node_revealed"]
+        else:
+            result_summary = "Группа не тратит время на чтение следов и идёт дальше без новой подсказки."
+    elif event_key == "lost_traveler":
+        if normalized_resolution == "resolve":
+            outcome_type = "guidance_note"
+            result_summary = "Короткий разговор в пути даёт местную наводку и успокаивает дорогу."
+            applied_effects = ["event_closed", "guidance_recorded", "knowledge_updated"]
+        else:
+            result_summary = "Группа не останавливается для разговора с путником."
+    elif event_key == "blocked_path":
+        if normalized_resolution == "resolve":
+            outcome_type = "obstacle_cleared"
+            result_summary = "Препятствие на пути разобрано достаточно, чтобы группа могла продолжить движение."
+            applied_effects = ["event_closed", "travel_resumed"]
+        else:
+            outcome_type = "route_still_blocked"
+            result_summary = "Группа отказывается разбирать преграду и снимает текущий переход."
+            applied_effects = ["event_closed", "travel_interrupted"]
+    elif event_key == "ominous_quiet":
+        if normalized_resolution == "resolve":
+            outcome_type = "warning_note"
+            result_summary = "Подозрительная тишина фиксируется как предупреждение для дальнейшего пути."
+            applied_effects = ["event_closed", "warning_recorded"]
+        else:
+            result_summary = "Группа предпочитает не задерживаться на тревожной тишине."
+    return _normalize_group_travel_event_outcome(
+        {
+            "outcome_id": uuid.uuid4().hex[:12],
+            "event_key": event_key,
+            "event_type": normalized_event.get("event_type") or "roadside_hook",
+            "outcome_type": outcome_type,
+            "summary": str(normalized_event.get("summary") or ""),
+            "result_summary": result_summary,
+            "applied_effects": applied_effects,
+            "route_snapshot": normalized_event.get("route_snapshot"),
+            "source": source,
+            "resolved_at": datetime.now(timezone.utc).isoformat(),
+        }
+    )
+
+
+def apply_group_travel_event_outcome(
+    sess: Session,
+    group_id: str,
+    outcome: dict[str, Any] | None,
+    *,
+    player_id: uuid.UUID | str | None = None,
+    source: str = "manual",
+) -> dict[str, Any] | None:
+    groups = _get_group_states(sess)
+    group_key = str(group_id or "").strip()
+    group = groups.get(group_key)
+    normalized_outcome = _normalize_group_travel_event_outcome(outcome)
+    if not group or not normalized_outcome:
+        return None
+    _set_group_last_travel_event_outcome(group, normalized_outcome)
+    resolved_player_id = str(player_id or "").strip()
+    route_snapshot = _normalize_group_route_summary(normalized_outcome.get("route_snapshot")) or {}
+    target_node_id = str(route_snapshot.get("target_node_id") or "").strip()
+    if resolved_player_id and target_node_id and get_static_node(target_node_id):
+        outcome_type = str(normalized_outcome.get("outcome_type") or "").strip().lower()
+        if outcome_type in {"route_hint", "guidance_note"}:
+            grant_player_map_knowledge(sess, resolved_player_id, target_node_id, knowledge_kind="known", source=source)
+        if outcome_type == "route_hint":
+            reveal_player_map_node(sess, resolved_player_id, target_node_id, source=source)
+    _persist_group_states(sess, groups)
+    _sync_group_position_mirrors(sess, group)
+    return dict(group)
+
+
+def get_current_group_last_travel_event_outcome(
+    sess: Session,
+    *,
+    player_id: uuid.UUID | str | None = None,
+    group_id: str | None = None,
+) -> dict[str, Any] | None:
+    resolved_group_id = str(group_id or "").strip()
+    resolved_player_id = str(player_id or "").strip()
+    if not resolved_group_id and resolved_player_id:
+        resolved_group_id = str(_get_player_group_id(sess, resolved_player_id) or "").strip()
+    if not resolved_group_id:
+        return None
+    group = _get_group_states(sess).get(resolved_group_id)
+    if not isinstance(group, dict):
+        return None
+    return _normalize_group_travel_event_outcome(group.get("last_travel_event_outcome"))
+
+
 def resolve_group_travel_event(
     sess: Session,
     group_id: str,
     *,
     resolution: str,
+    player_id: uuid.UUID | str | None = None,
     source: str = "manual",
 ) -> tuple[dict[str, Any] | None, str | None]:
     groups = _get_group_states(sess)
@@ -1586,14 +1764,28 @@ def resolve_group_travel_event(
             travel_state["phase"] = "in_transit"
             group["travel_state"] = travel_state
             group["status"] = "moving"
+    outcome = build_group_travel_event_outcome(event, resolution=normalized_resolution, source=source)
+    if not outcome:
+        return None, "Не удалось подготовить outcome для travel event."
     resolved_event = dict(event)
     resolved_event["active"] = False
     resolved_event["resolved"] = True
     resolved_event["resolution"] = normalized_resolution
     resolved_event["source"] = str(source or event.get("source") or "travel")[:40] or "travel"
     group["travel_event"] = resolved_event
+    _set_group_last_travel_event_outcome(group, outcome)
     _persist_group_states(sess, groups)
     _sync_group_position_mirrors(sess, group)
+    if player_id:
+        updated = apply_group_travel_event_outcome(
+            sess,
+            group_key,
+            outcome,
+            player_id=player_id,
+            source=source,
+        )
+        if updated:
+            return updated, None
     return dict(group), None
 
 
@@ -1896,6 +2088,10 @@ def _group_travel_event_summary(group: dict[str, Any]) -> dict[str, Any] | None:
     return _normalize_group_travel_event(group.get("travel_event"))
 
 
+def _group_last_travel_event_outcome_summary(group: dict[str, Any]) -> dict[str, Any] | None:
+    return _normalize_group_travel_event_outcome(group.get("last_travel_event_outcome"))
+
+
 def _travel_available_resolutions_for_reason(pause_reason: str | None) -> list[dict[str, str]]:
     reason = _normalize_group_pause_reason(pause_reason)
     if reason == "target_requires_enter":
@@ -2027,6 +2223,9 @@ def _normalize_group_state(
     travel_event = _normalize_group_travel_event(raw.get("travel_event"))
     if travel_event:
         normalized["travel_event"] = travel_event
+    last_travel_event_outcome = _normalize_group_travel_event_outcome(raw.get("last_travel_event_outcome"))
+    if last_travel_event_outcome:
+        normalized["last_travel_event_outcome"] = last_travel_event_outcome
     return normalized
 
 

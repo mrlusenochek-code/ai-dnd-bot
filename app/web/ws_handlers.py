@@ -1946,6 +1946,7 @@ def _handle_group_action_request(
                 sess,
                 actor_group_key,
                 resolution=resolution,
+                player_id=actor_player_id,
                 source=source,
             )
             if error:

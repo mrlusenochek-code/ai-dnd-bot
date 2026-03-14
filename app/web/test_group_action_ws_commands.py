@@ -579,6 +579,7 @@ def test_handle_group_event_resolve_and_ignore_requests() -> None:
     assert resolved_group["travel_state"]["paused"] is False
     assert resolved_group["travel_event"]["active"] is False
     assert resolved_group["travel_event"]["resolution"] == "resolve"
+    assert resolved_group["last_travel_event_outcome"]["outcome_type"] == "obstacle_cleared"
 
     session_state.start_group_travel(
         sess,
@@ -629,6 +630,7 @@ def test_handle_group_event_resolve_and_ignore_requests() -> None:
     assert ignored_group["travel_state"]["active"] is True
     assert ignored_group["travel_event"]["active"] is False
     assert ignored_group["travel_event"]["resolution"] == "ignore"
+    assert ignored_group["last_travel_event_outcome"]["outcome_type"] == "ignored_event"
 
     handled_missing, err_missing, msg_missing = ws_handlers._handle_group_action_request(
         sess,

@@ -110,6 +110,7 @@ def test_build_state_includes_legacy_and_structured_positions(monkeypatch) -> No
     monkeypatch.setattr(state_builder, "get_current_group_node_services", lambda _sess, player_id=None: [])
     monkeypatch.setattr(state_builder, "get_current_group_last_service_result", lambda _sess, player_id=None: None)
     monkeypatch.setattr(state_builder, "get_current_group_travel_event", lambda _sess, player_id=None: None)
+    monkeypatch.setattr(state_builder, "get_current_group_last_travel_event_outcome", lambda _sess, player_id=None: None)
     monkeypatch.setattr(state_builder, "get_current_group_navigation_options", lambda _sess, player_id=None: [])
     monkeypatch.setattr(state_builder, "snapshot_combat_state", lambda _session_id: None)
 
@@ -136,6 +137,7 @@ def test_build_state_includes_legacy_and_structured_positions(monkeypatch) -> No
             "travel_state": None,
             "travel_summary": None,
             "travel_event_summary": None,
+            "last_travel_event_outcome_summary": None,
             "pause_reason": None,
             "pause_details": None,
             "available_resolutions": None,
@@ -148,6 +150,7 @@ def test_build_state_includes_legacy_and_structured_positions(monkeypatch) -> No
     assert payload["game"]["current_group_node_services"] == []
     assert payload["game"]["current_group_last_service_result"] is None
     assert payload["game"]["current_group_travel_event"] is None
+    assert payload["game"]["current_group_last_travel_event_outcome"] is None
     assert payload["game"]["current_group_navigation_options"] == []
     assert payload["session"]["current_group_id"] is None
     assert payload["players"] == [
@@ -345,6 +348,21 @@ def test_build_state_exports_current_player_group_id(monkeypatch) -> None:
     )
     monkeypatch.setattr(
         state_builder,
+        "get_current_group_last_travel_event_outcome",
+        lambda _sess, player_id=None: {
+            "outcome_id": "out-road",
+            "event_key": "roadside_finding",
+            "event_type": "roadside_hook",
+            "outcome_type": "finding_note",
+            "summary": "У обочины лежит приметная дорожная находка.",
+            "result_summary": "Группа отмечает дорожную примету и получает полезную заметку о ближайшем пути.",
+            "applied_effects": ["event_closed", "travel_hint_recorded"],
+            "source": "travel",
+            "resolved_at": "2026-03-14T00:10:00+00:00",
+        },
+    )
+    monkeypatch.setattr(
+        state_builder,
         "get_current_group_navigation_options",
         lambda _sess, player_id=None: [
             {
@@ -459,6 +477,17 @@ def test_build_state_exports_current_player_group_id(monkeypatch) -> None:
         "source": "travel",
         "active": True,
         "resolved": False,
+    }
+    assert payload["game"]["current_group_last_travel_event_outcome"] == {
+        "outcome_id": "out-road",
+        "event_key": "roadside_finding",
+        "event_type": "roadside_hook",
+        "outcome_type": "finding_note",
+        "summary": "У обочины лежит приметная дорожная находка.",
+        "result_summary": "Группа отмечает дорожную примету и получает полезную заметку о ближайшем пути.",
+        "applied_effects": ["event_closed", "travel_hint_recorded"],
+        "source": "travel",
+        "resolved_at": "2026-03-14T00:10:00+00:00",
     }
     assert payload["game"]["current_group_navigation_options"] == [
         {
@@ -656,6 +685,7 @@ def test_build_state_exports_group_activity_summaries(monkeypatch) -> None:
     monkeypatch.setattr(state_builder, "get_current_group_node_services", lambda _sess, player_id=None: [])
     monkeypatch.setattr(state_builder, "get_current_group_last_service_result", lambda _sess, player_id=None: None)
     monkeypatch.setattr(state_builder, "get_current_group_travel_event", lambda _sess, player_id=None: None)
+    monkeypatch.setattr(state_builder, "get_current_group_last_travel_event_outcome", lambda _sess, player_id=None: None)
     monkeypatch.setattr(state_builder, "get_current_group_navigation_options", lambda _sess, player_id=None: [])
     monkeypatch.setattr(state_builder, "snapshot_combat_state", lambda _session_id: None)
 
@@ -849,6 +879,7 @@ def test_build_state_exports_group_activity_summaries(monkeypatch) -> None:
         "active": True,
         "resolved": False,
     }
+    assert payload["game"]["groups"]["main"]["last_travel_event_outcome_summary"] is None
     assert payload["game"]["groups"]["main"]["available_resolutions"] is None
     assert payload["game"]["groups"]["main"]["last_resolution_summary"] is None
 
@@ -987,6 +1018,7 @@ def test_build_state_exports_paused_travel_status_and_pause_reason(monkeypatch) 
     monkeypatch.setattr(state_builder, "get_current_group_node_services", lambda _sess, player_id=None: [])
     monkeypatch.setattr(state_builder, "get_current_group_last_service_result", lambda _sess, player_id=None: None)
     monkeypatch.setattr(state_builder, "get_current_group_travel_event", lambda _sess, player_id=None: None)
+    monkeypatch.setattr(state_builder, "get_current_group_last_travel_event_outcome", lambda _sess, player_id=None: None)
     monkeypatch.setattr(state_builder, "snapshot_combat_state", lambda _session_id: None)
 
     db = _FakeDb([[player], [], [], []])
@@ -999,6 +1031,7 @@ def test_build_state_exports_paused_travel_status_and_pause_reason(monkeypatch) 
     assert payload["game"]["groups"]["main"]["travel_summary"]["pause_reason"] == "target_requires_enter"
     assert payload["game"]["groups"]["main"]["travel_summary"]["pause_details"] == {"target_node_type": "interior_entry"}
     assert payload["game"]["groups"]["main"]["travel_event_summary"] is None
+    assert payload["game"]["groups"]["main"]["last_travel_event_outcome_summary"] is None
     assert payload["game"]["groups"]["main"]["pause_reason"] == "target_requires_enter"
     assert payload["game"]["groups"]["main"]["pause_details"] == {"target_node_type": "interior_entry"}
     assert payload["game"]["groups"]["main"]["available_resolutions"] == [

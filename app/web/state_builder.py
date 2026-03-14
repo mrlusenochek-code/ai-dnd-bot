@@ -32,6 +32,7 @@ from app.web.session_state import (
     _group_available_resolutions_summary,
     settings_get,
     _group_camp_summary,
+    _group_last_travel_event_outcome_summary,
     _group_travel_event_summary,
     _group_last_travel_resolution_summary,
     _group_movement_mode,
@@ -49,6 +50,7 @@ from app.web.session_state import (
     _get_player_group_id,
     get_current_group_last_inspect_result,
     get_current_group_last_service_result,
+    get_current_group_last_travel_event_outcome,
     get_current_group_travel_event,
     get_current_group_node_detail,
     get_current_group_node_context,
@@ -355,6 +357,7 @@ async def build_state(db: AsyncSession, sess: Session) -> dict:
             "travel_state": _group_travel_state_summary(group),
             "travel_summary": _group_travel_summary(group),
             "travel_event_summary": _group_travel_event_summary(group),
+            "last_travel_event_outcome_summary": _group_last_travel_event_outcome_summary(group),
             "pause_reason": (group.get("travel_state") or {}).get("pause_reason") if isinstance(group.get("travel_state"), dict) else None,
             "pause_details": dict((group.get("travel_state") or {}).get("pause_details") or {}) if isinstance((group.get("travel_state") or {}).get("pause_details"), dict) else None,
             "available_resolutions": _group_available_resolutions_summary(group),
@@ -393,6 +396,11 @@ async def build_state(db: AsyncSession, sess: Session) -> dict:
     )
     current_group_travel_event = (
         get_current_group_travel_event(sess, player_id=sess.current_player_id)
+        if sess.current_player_id
+        else None
+    )
+    current_group_last_travel_event_outcome = (
+        get_current_group_last_travel_event_outcome(sess, player_id=sess.current_player_id)
         if sess.current_player_id
         else None
     )
@@ -436,6 +444,7 @@ async def build_state(db: AsyncSession, sess: Session) -> dict:
             "current_group_node_services": current_group_node_services,
             "current_group_last_service_result": current_group_last_service_result,
             "current_group_travel_event": current_group_travel_event,
+            "current_group_last_travel_event_outcome": current_group_last_travel_event_outcome,
             "current_group_navigation_options": current_group_navigation_options,
             "groups": groups_payload,
             "pc_positions": pc_positions,
