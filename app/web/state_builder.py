@@ -33,6 +33,8 @@ from app.web.session_state import (
     _group_camp_summary,
     _group_movement_mode,
     _group_movement_intent_summary,
+    _group_travel_state_summary,
+    _group_travel_summary,
     _group_travel_activity_summary,
     _group_wait_summary,
     _get_group_states,
@@ -336,6 +338,8 @@ async def build_state(db: AsyncSession, sess: Session) -> dict:
             "wait_summary": _group_wait_summary(group),
             "camp_summary": _group_camp_summary(group),
             "movement_intent_summary": _group_movement_intent_summary(group),
+            "travel_state": _group_travel_state_summary(group),
+            "travel_summary": _group_travel_summary(group),
         }
 
     return {

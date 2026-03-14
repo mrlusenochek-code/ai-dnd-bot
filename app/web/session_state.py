@@ -380,11 +380,9 @@ def _raw_pc_positions(sess: Session) -> dict[str, str]:
 
 def _normalize_group_status(raw: Any) -> str:
     status = str(raw or "idle").strip().lower()
-    if status == "moving":
-        return "moving_intent"
     if status == "split-ready":
         return "idle"
-    if status not in {"idle", "waiting", "camping", "moving_intent"}:
+    if status not in {"idle", "waiting", "camping", "moving_intent", "moving"}:
         return "idle"
     return status
 
@@ -486,6 +484,78 @@ def _normalize_group_movement_intent(raw: Any) -> dict[str, Any] | None:
     return state
 
 
+def _normalize_group_route_summary(raw: Any) -> dict[str, Any] | None:
+    if not isinstance(raw, dict):
+        return None
+    target_node = _normalize_map_target_node(raw.get("target_node") or raw.get("target"))
+    next_map_position = _normalize_map_position(raw.get("next_map_position"))
+    route_kind = str(raw.get("route_kind") or "").strip().lower()
+    action_kind = str(raw.get("action_kind") or raw.get("movement_kind") or "").strip().lower() or "move"
+    allowed = bool(raw.get("allowed", True))
+    target_label = str(raw.get("target_label") or "").strip()
+    target_node_type = str(raw.get("target_node_type") or "").strip().lower()
+    target_node_id = str(raw.get("target_node_id") or "").strip()
+    next_zone_label = str(raw.get("next_zone_label") or "").strip()
+    error = str(raw.get("error") or "").strip()
+    if target_node:
+        if not target_label:
+            target_label = str(target_node.get("label") or target_node.get("node_id") or "").strip()
+        if not target_node_type:
+            target_node_type = str(target_node.get("node_type") or "").strip().lower()
+        if not target_node_id:
+            target_node_id = str(target_node.get("node_id") or "").strip()
+    if not target_label and not target_node:
+        return None
+    summary: dict[str, Any] = {
+        "allowed": allowed,
+        "route_kind": route_kind[:40] or ("invalid" if not allowed else action_kind[:40]),
+        "action_kind": action_kind[:40],
+        "target_label": target_label[:80],
+    }
+    if target_node:
+        summary["target_node"] = target_node
+    if target_node_type:
+        summary["target_node_type"] = target_node_type[:32]
+    if target_node_id:
+        summary["target_node_id"] = target_node_id[:120]
+    if next_map_position:
+        summary["next_map_position"] = next_map_position
+    if next_zone_label:
+        summary["next_zone_label"] = next_zone_label[:80]
+    if error:
+        summary["error"] = error[:240]
+    return summary
+
+
+def _normalize_group_travel_state(raw: Any) -> dict[str, Any] | None:
+    if not isinstance(raw, dict):
+        return None
+    route_summary = _normalize_group_route_summary(raw.get("route_summary") or raw.get("route"))
+    target_node = _normalize_map_target_node(raw.get("target_node") or ((route_summary or {}).get("target_node")))
+    started_from = _normalize_map_position(raw.get("started_from"))
+    movement_mode = _normalize_group_movement_mode(raw.get("movement_mode") or raw.get("mode"))
+    travel_activity = _normalize_group_travel_activity(raw.get("travel_activity"))
+    phase = str(raw.get("phase") or raw.get("status") or "in_transit").strip().lower() or "in_transit"
+    progress_kind = str(raw.get("progress_kind") or "route").strip().lower() or "route"
+    progress_step = max(0, as_int(raw.get("progress_step"), 0))
+    active = bool(raw.get("active"))
+    if not route_summary or not target_node or not started_from:
+        return None
+    state: dict[str, Any] = {
+        "active": active,
+        "phase": phase[:40],
+        "route_summary": route_summary,
+        "started_from": started_from,
+        "target_node": target_node,
+        "progress_kind": progress_kind[:40],
+        "progress_step": progress_step,
+        "movement_mode": movement_mode[:40],
+    }
+    if travel_activity:
+        state["travel_activity"] = travel_activity
+    return state
+
+
 def create_group_wait_state(
     *,
     reason: str | None = None,
@@ -555,7 +625,10 @@ def _resolve_group_status(
     wait_state: dict[str, Any] | None,
     camp_state: dict[str, Any] | None,
     movement_intent: dict[str, Any] | None,
+    travel_state: dict[str, Any] | None,
 ) -> str:
+    if travel_state and travel_state.get("active"):
+        return "moving"
     if camp_state:
         return "camping"
     if wait_state:
@@ -569,6 +642,7 @@ def _clear_group_activity_state(group: dict[str, Any], *, status: str = "idle") 
     group.pop("wait_state", None)
     group.pop("camp_state", None)
     group.pop("movement_intent", None)
+    group.pop("travel_state", None)
     group["status"] = _normalize_group_status(status)
     return group
 
@@ -611,6 +685,29 @@ def _group_travel_activity_summary(group: dict[str, Any]) -> dict[str, Any] | No
 
 def _group_movement_intent_summary(group: dict[str, Any]) -> dict[str, Any] | None:
     return _normalize_group_movement_intent(group.get("movement_intent"))
+
+
+def _group_travel_state_summary(group: dict[str, Any]) -> dict[str, Any] | None:
+    return _normalize_group_travel_state(group.get("travel_state"))
+
+
+def _group_travel_summary(group: dict[str, Any]) -> dict[str, Any] | None:
+    travel_state = _group_travel_state_summary(group)
+    if not travel_state:
+        return None
+    summary = {
+        "active": bool(travel_state.get("active")),
+        "phase": travel_state.get("phase"),
+        "progress_kind": travel_state.get("progress_kind"),
+        "progress_step": travel_state.get("progress_step"),
+        "movement_mode": travel_state.get("movement_mode"),
+        "route_summary": dict(travel_state.get("route_summary") or {}),
+        "started_from": dict(travel_state.get("started_from") or {}),
+        "target_node": dict(travel_state.get("target_node") or {}),
+    }
+    if travel_state.get("travel_activity"):
+        summary["travel_activity"] = dict(travel_state["travel_activity"])
+    return summary
 
 
 def _group_default_position(
@@ -663,11 +760,13 @@ def _normalize_group_state(
     wait_state = _normalize_group_wait_state(raw.get("wait_state"))
     camp_state = _normalize_group_camp_state(raw.get("camp_state"))
     movement_intent = _normalize_group_movement_intent(raw.get("movement_intent"))
+    travel_state = _normalize_group_travel_state(raw.get("travel_state"))
     status = _resolve_group_status(
         raw.get("status"),
         wait_state=wait_state,
         camp_state=camp_state,
         movement_intent=movement_intent,
+        travel_state=travel_state,
     )
 
     normalized = {
@@ -687,6 +786,8 @@ def _normalize_group_state(
         normalized["camp_state"] = camp_state
     if movement_intent:
         normalized["movement_intent"] = movement_intent
+    if travel_state:
+        normalized["travel_state"] = travel_state
     return normalized
 
 
@@ -914,6 +1015,10 @@ def set_group_movement_mode(sess: Session, group_id: str, movement_mode: str) ->
     if current_intent:
         current_intent["movement_mode"] = group["movement_mode"]
         group["movement_intent"] = current_intent
+    current_travel = _group_travel_state_summary(group)
+    if current_travel:
+        current_travel["movement_mode"] = group["movement_mode"]
+        group["travel_state"] = current_travel
     _persist_group_states(sess, groups)
     _sync_group_position_mirrors(sess, group)
     return dict(group)
@@ -953,6 +1058,10 @@ def set_group_travel_activity(
     if current_intent:
         current_intent["travel_activity"] = normalized
         group["movement_intent"] = current_intent
+    current_travel = _group_travel_state_summary(group)
+    if current_travel:
+        current_travel["travel_activity"] = normalized
+        group["travel_state"] = current_travel
     _persist_group_states(sess, groups)
     _sync_group_position_mirrors(sess, group)
     return dict(group)
@@ -969,6 +1078,10 @@ def clear_group_travel_activity(sess: Session, group_id: str) -> dict[str, Any] 
     if current_intent:
         current_intent.pop("travel_activity", None)
         group["movement_intent"] = current_intent
+    current_travel = _group_travel_state_summary(group)
+    if current_travel:
+        current_travel.pop("travel_activity", None)
+        group["travel_state"] = current_travel
     _persist_group_states(sess, groups)
     _sync_group_position_mirrors(sess, group)
     return dict(group)
@@ -1024,6 +1137,126 @@ def clear_group_movement_intent(sess: Session, group_id: str) -> dict[str, Any] 
     return dict(group)
 
 
+def start_group_travel(
+    sess: Session,
+    group_id: str,
+    route_summary: dict[str, Any] | None,
+    *,
+    movement_mode: str | None = None,
+    source: str = "manual",
+) -> dict[str, Any] | None:
+    route = _normalize_group_route_summary(route_summary)
+    if not route or route.get("allowed") is not True:
+        return None
+    groups = _get_group_states(sess)
+    group_key = str(group_id or "").strip()
+    group = groups.get(group_key)
+    if not group:
+        return None
+    current_position = _normalize_map_position(group.get("current_map_position"))
+    target_node = route.get("target_node")
+    if not current_position or not isinstance(target_node, dict):
+        return None
+    resolved_mode = _normalize_group_movement_mode(movement_mode or group.get("movement_mode"))
+    travel_activity = _group_travel_activity_summary(group)
+    intent = create_group_movement_intent(
+        target_node=target_node,
+        target_label=str(route.get("target_label") or "") or None,
+        movement_mode=resolved_mode,
+        movement_kind=str(route.get("action_kind") or "move"),
+        action_kind=str(route.get("action_kind") or "move"),
+        route_kind=str(route.get("route_kind") or ""),
+        allowed=True,
+        travel_activity=travel_activity,
+        source=source,
+        active=True,
+    )
+    travel_state = _normalize_group_travel_state(
+        {
+            "active": True,
+            "phase": "in_transit",
+            "route_summary": route,
+            "started_from": current_position,
+            "target_node": target_node,
+            "progress_kind": "route",
+            "progress_step": 0,
+            "movement_mode": resolved_mode,
+            "travel_activity": travel_activity,
+        }
+    )
+    if not intent or not travel_state:
+        return None
+    _clear_group_activity_state(group, status="moving")
+    group["movement_intent"] = intent
+    group["travel_state"] = travel_state
+    group["status"] = "moving"
+    _persist_group_states(sess, groups)
+    _sync_group_position_mirrors(sess, group)
+    return dict(group)
+
+
+def advance_group_travel(
+    sess: Session,
+    group_id: str,
+    *,
+    progress_step_delta: int = 1,
+    phase: str | None = None,
+) -> dict[str, Any] | None:
+    groups = _get_group_states(sess)
+    group_key = str(group_id or "").strip()
+    group = groups.get(group_key)
+    if not group:
+        return None
+    travel_state = _group_travel_state_summary(group)
+    if not travel_state or travel_state.get("active") is not True:
+        return None
+    travel_state["progress_step"] = max(0, as_int(travel_state.get("progress_step"), 0) + max(0, int(progress_step_delta)))
+    if phase:
+        travel_state["phase"] = str(phase).strip().lower()[:40] or travel_state["phase"]
+    group["travel_state"] = travel_state
+    group["status"] = "moving"
+    _persist_group_states(sess, groups)
+    _sync_group_position_mirrors(sess, group)
+    return dict(group)
+
+
+def complete_group_travel(sess: Session, group_id: str) -> dict[str, Any] | None:
+    groups = _get_group_states(sess)
+    group_key = str(group_id or "").strip()
+    group = groups.get(group_key)
+    if not group:
+        return None
+    travel_state = _group_travel_state_summary(group)
+    if not travel_state or travel_state.get("active") is not True:
+        return None
+    route_summary = _normalize_group_route_summary(travel_state.get("route_summary"))
+    next_map_position = _normalize_map_position((route_summary or {}).get("next_map_position"))
+    next_zone_label = str((route_summary or {}).get("next_zone_label") or "").strip()
+    if not next_map_position or not next_zone_label:
+        return None
+    group["current_map_position"] = next_map_position
+    group["area_label"] = next_zone_label[:80]
+    _clear_group_activity_state(group, status="idle")
+    _persist_group_states(sess, groups)
+    _sync_group_position_mirrors(sess, group)
+    return dict(group)
+
+
+def interrupt_group_travel(sess: Session, group_id: str) -> dict[str, Any] | None:
+    groups = _get_group_states(sess)
+    group_key = str(group_id or "").strip()
+    group = groups.get(group_key)
+    if not group:
+        return None
+    travel_state = _group_travel_state_summary(group)
+    if not travel_state or travel_state.get("active") is not True:
+        return None
+    _clear_group_activity_state(group, status="idle")
+    _persist_group_states(sess, groups)
+    _sync_group_position_mirrors(sess, group)
+    return dict(group)
+
+
 def apply_group_route(
     sess: Session,
     group_id: str,
@@ -1034,42 +1267,13 @@ def apply_group_route(
 ) -> dict[str, Any] | None:
     if not isinstance(route_summary, dict):
         return None
-    groups = _get_group_states(sess)
-    group_key = str(group_id or "").strip()
-    group = groups.get(group_key)
-    if not group:
-        return None
-    if route_summary.get("allowed") is not True:
-        return None
-    target_node = route_summary.get("target_node")
-    next_map_position = _normalize_map_position(route_summary.get("next_map_position"))
-    next_zone_label = str(route_summary.get("next_zone_label") or "").strip()
-    if not isinstance(target_node, dict) or not next_map_position or not next_zone_label:
-        return None
-    intent = create_group_movement_intent(
-        target_node=target_node,
-        target_label=str(route_summary.get("target_label") or target_node.get("label") or target_node.get("node_id") or "").strip() or None,
-        movement_mode=_normalize_group_movement_mode(movement_mode or group.get("movement_mode")),
-        movement_kind=str(route_summary.get("action_kind") or route_summary.get("movement_kind") or "move"),
-        action_kind=str(route_summary.get("action_kind") or "move"),
-        route_kind=str(route_summary.get("route_kind") or ""),
-        allowed=bool(route_summary.get("allowed", True)),
-        travel_activity=_group_travel_activity_summary(group),
+    return start_group_travel(
+        sess,
+        group_id,
+        route_summary,
+        movement_mode=movement_mode,
         source=source,
-        active=True,
     )
-    if not intent:
-        return None
-    group["current_map_position"] = next_map_position
-    group["area_label"] = next_zone_label[:80]
-    _apply_group_activity_state(
-        group,
-        status="moving_intent",
-        movement_intent=intent,
-    )
-    _persist_group_states(sess, groups)
-    _sync_group_position_mirrors(sess, group)
-    return dict(group)
 
 
 def apply_group_move_target(

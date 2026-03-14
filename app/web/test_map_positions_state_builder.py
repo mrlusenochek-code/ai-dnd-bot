@@ -124,6 +124,8 @@ def test_build_state_includes_legacy_and_structured_positions(monkeypatch) -> No
             "wait_summary": None,
             "camp_summary": None,
             "movement_intent_summary": None,
+            "travel_state": None,
+            "travel_summary": None,
         }
     }
     assert payload["session"]["current_group_id"] is None
@@ -238,7 +240,7 @@ def test_build_state_exports_group_activity_summaries(monkeypatch) -> None:
             "player_ids": [str(player_id)],
             "current_map_position": group_position,
             "area_label": "camp",
-            "status": "moving_intent",
+            "status": "moving",
             "movement_mode": "cautious",
             "travel_activity": {
                 "activity": "navigate",
@@ -279,6 +281,54 @@ def test_build_state_exports_group_activity_summaries(monkeypatch) -> None:
                 "target_node_type": "landmark",
                 "target_node_id": "north-gate",
             },
+            "travel_state": {
+                "active": True,
+                "phase": "in_transit",
+                "route_summary": {
+                    "allowed": True,
+                    "route_kind": "landmark_move",
+                    "action_kind": "move",
+                    "target_label": "Северные ворота",
+                    "target_node": {
+                        "v": 1,
+                        "map_level": "landmark",
+                        "node_type": "landmark",
+                        "node_id": "north-gate",
+                        "label": "Северные ворота",
+                        "zone_label": "camp",
+                        "area_label": "camp",
+                    },
+                    "target_node_type": "landmark",
+                    "target_node_id": "north-gate",
+                    "next_map_position": {
+                        "v": 1,
+                        "map_level": "landmark",
+                        "node_type": "landmark",
+                        "node_id": "north-gate",
+                        "label": "Северные ворота",
+                        "area_label": "camp",
+                    },
+                    "next_zone_label": "camp",
+                },
+                "started_from": group_position,
+                "target_node": {
+                    "v": 1,
+                    "map_level": "landmark",
+                    "node_type": "landmark",
+                    "node_id": "north-gate",
+                    "label": "Северные ворота",
+                    "zone_label": "camp",
+                    "area_label": "camp",
+                },
+                "progress_kind": "route",
+                "progress_step": 1,
+                "movement_mode": "cautious",
+                "travel_activity": {
+                    "activity": "navigate",
+                    "assigned_actor_id": str(player_id),
+                    "source": "test",
+                },
+            },
         }
     }
 
@@ -307,7 +357,7 @@ def test_build_state_exports_group_activity_summaries(monkeypatch) -> None:
     db = _FakeDb([[player], [], [], []])
     payload = asyncio.run(state_builder.build_state(db, sess))
 
-    assert payload["game"]["groups"]["main"]["status"] == "moving_intent"
+    assert payload["game"]["groups"]["main"]["status"] == "moving"
     assert payload["game"]["groups"]["main"]["movement_mode"] == "cautious"
     assert payload["game"]["groups"]["main"]["travel_activity_summary"] == {
         "activity": "navigate",
@@ -347,4 +397,112 @@ def test_build_state_exports_group_activity_summaries(monkeypatch) -> None:
         "active": True,
         "target_node_type": "landmark",
         "target_node_id": "north-gate",
+    }
+    assert payload["game"]["groups"]["main"]["travel_state"] == {
+        "active": True,
+        "phase": "in_transit",
+        "route_summary": {
+            "allowed": True,
+            "route_kind": "landmark_move",
+            "action_kind": "move",
+            "target_label": "Северные ворота",
+            "target_node": {
+                "v": 1,
+                "map_level": "landmark",
+                "node_type": "landmark",
+                "node_id": "north-gate",
+                "label": "Северные ворота",
+                "zone_label": "camp",
+                "area_label": "camp",
+            },
+            "target_node_type": "landmark",
+            "target_node_id": "north-gate",
+            "next_map_position": {
+                "v": 1,
+                "map_level": "landmark",
+                "node_type": "landmark",
+                "node_id": "north-gate",
+                "label": "Северные ворота",
+                "area_label": "camp",
+            },
+            "next_zone_label": "camp",
+        },
+        "started_from": {
+            "v": 1,
+            "map_level": "region",
+            "node_type": "zone",
+            "node_id": "camp",
+            "label": "camp",
+        },
+        "target_node": {
+            "v": 1,
+            "map_level": "landmark",
+            "node_type": "landmark",
+            "node_id": "north-gate",
+            "label": "Северные ворота",
+            "zone_label": "camp",
+            "area_label": "camp",
+        },
+        "progress_kind": "route",
+        "progress_step": 1,
+        "movement_mode": "cautious",
+        "travel_activity": {
+            "activity": "navigate",
+            "assigned_actor_id": str(player_id),
+            "source": "test",
+        },
+    }
+    assert payload["game"]["groups"]["main"]["travel_summary"] == {
+        "active": True,
+        "phase": "in_transit",
+        "progress_kind": "route",
+        "progress_step": 1,
+        "movement_mode": "cautious",
+        "route_summary": {
+            "allowed": True,
+            "route_kind": "landmark_move",
+            "action_kind": "move",
+            "target_label": "Северные ворота",
+            "target_node": {
+                "v": 1,
+                "map_level": "landmark",
+                "node_type": "landmark",
+                "node_id": "north-gate",
+                "label": "Северные ворота",
+                "zone_label": "camp",
+                "area_label": "camp",
+            },
+            "target_node_type": "landmark",
+            "target_node_id": "north-gate",
+            "next_map_position": {
+                "v": 1,
+                "map_level": "landmark",
+                "node_type": "landmark",
+                "node_id": "north-gate",
+                "label": "Северные ворота",
+                "area_label": "camp",
+            },
+            "next_zone_label": "camp",
+        },
+        "started_from": {
+            "v": 1,
+            "map_level": "region",
+            "node_type": "zone",
+            "node_id": "camp",
+            "label": "camp",
+        },
+        "target_node": {
+            "v": 1,
+            "map_level": "landmark",
+            "node_type": "landmark",
+            "node_id": "north-gate",
+            "label": "Северные ворота",
+            "zone_label": "camp",
+            "area_label": "camp",
+        },
+        "travel_activity": {
+            "activity": "navigate",
+            "assigned_actor_id": str(player_id),
+            "source": "test",
+        },
     }

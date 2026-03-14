@@ -622,13 +622,13 @@ def test_group_enter_target_produces_expected_structured_target_semantics() -> N
     )
 
     assert updated is not None
+    assert updated["status"] == "moving"
     assert updated["current_map_position"] == {
         "v": 1,
-        "map_level": "interior",
-        "node_type": "interior_entry",
-        "node_id": "замок",
-        "label": "замок",
-        "area_label": "Таверна",
+        "map_level": "region",
+        "node_type": "zone",
+        "node_id": "Таверна",
+        "label": "Таверна",
     }
     assert updated["movement_intent"]["target_node_type"] == "interior_entry"
     assert updated["movement_intent"]["target_node_id"] == "замок"
@@ -636,6 +636,9 @@ def test_group_enter_target_produces_expected_structured_target_semantics() -> N
     assert updated["movement_intent"]["movement_kind"] == "enter"
     assert updated["movement_intent"]["action_kind"] == "enter"
     assert updated["movement_intent"]["allowed"] is True
+    assert updated["travel_state"]["active"] is True
+    assert updated["travel_state"]["route_summary"]["route_kind"] == "enter"
+    assert updated["travel_state"]["started_from"]["node_id"] == "Таверна"
     assert sess.settings["pc_positions"][str(player_id)] == "Таверна"
 
 
@@ -701,8 +704,109 @@ def test_movement_intent_inherits_group_mode_and_activity() -> None:
     assert updated is not None
     assert updated["movement_intent"]["movement_mode"] == "fast"
     assert updated["movement_intent"]["action_kind"] == "move"
+    assert updated["travel_state"]["movement_mode"] == "fast"
+    assert updated["current_map_position"]["node_id"] == "центр города"
     assert updated["movement_intent"]["travel_activity"] == {
         "activity": "navigate",
         "assigned_actor_id": str(player_id),
         "source": "test",
     }
+    assert updated["travel_state"]["travel_activity"] == {
+        "activity": "navigate",
+        "assigned_actor_id": str(player_id),
+        "source": "test",
+    }
+
+
+def test_start_complete_and_interrupt_group_travel_manage_position_and_status() -> None:
+    player_id = uuid.uuid4()
+    sess = SimpleNamespace(settings={})
+    session_state._initialize_default_group(sess, [player_id], "центр города")
+
+    started = session_state.start_group_travel(
+        sess,
+        "main",
+        {
+            "allowed": True,
+            "route_kind": "landmark_move",
+            "action_kind": "move",
+            "target_label": "ворота",
+            "target_node": {
+                "map_level": "landmark",
+                "node_type": "landmark",
+                "node_id": "ворота",
+                "label": "ворота",
+                "zone_label": "центр города",
+                "area_label": "центр города",
+            },
+            "next_map_position": {
+                "v": 1,
+                "map_level": "landmark",
+                "node_type": "landmark",
+                "node_id": "ворота",
+                "label": "ворота",
+                "area_label": "центр города",
+            },
+            "next_zone_label": "центр города",
+        },
+        source="test",
+    )
+
+    assert started is not None
+    assert started["status"] == "moving"
+    assert started["current_map_position"]["node_id"] == "центр города"
+    assert started["travel_state"]["active"] is True
+    assert started["travel_state"]["phase"] == "in_transit"
+    assert started["travel_state"]["route_summary"]["route_kind"] == "landmark_move"
+
+    advanced = session_state.advance_group_travel(sess, "main")
+
+    assert advanced is not None
+    assert advanced["travel_state"]["progress_step"] == 1
+    assert advanced["status"] == "moving"
+
+    completed = session_state.complete_group_travel(sess, "main")
+
+    assert completed is not None
+    assert completed["status"] == "idle"
+    assert completed["current_map_position"]["node_id"] == "ворота"
+    assert "travel_state" not in completed
+    assert "movement_intent" not in completed
+
+    restarted = session_state.start_group_travel(
+        sess,
+        "main",
+        {
+            "allowed": True,
+            "route_kind": "enter_location",
+            "action_kind": "enter",
+            "target_label": "замок",
+            "target_node": {
+                "map_level": "interior",
+                "node_type": "interior_entry",
+                "node_id": "замок",
+                "label": "замок",
+                "zone_label": "центр города",
+                "area_label": "центр города",
+            },
+            "next_map_position": {
+                "v": 1,
+                "map_level": "interior",
+                "node_type": "interior_entry",
+                "node_id": "замок",
+                "label": "замок",
+                "area_label": "центр города",
+            },
+            "next_zone_label": "центр города",
+        },
+        source="test",
+    )
+
+    assert restarted is not None
+    interrupted = session_state.interrupt_group_travel(sess, "main")
+
+    assert interrupted is not None
+    assert interrupted["status"] == "idle"
+    assert interrupted["current_map_position"]["node_id"] == "ворота"
+    assert "travel_state" not in interrupted
+    assert "movement_intent" not in interrupted

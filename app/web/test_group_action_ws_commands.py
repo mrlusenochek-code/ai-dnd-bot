@@ -6,7 +6,7 @@ from types import SimpleNamespace
 from app.web import session_state, ws_handlers
 
 
-def test_parse_group_command_supports_wait_camp_move_enter_stop_split_and_merge() -> None:
+def test_parse_group_command_supports_wait_camp_move_enter_stop_arrive_interrupt_split_and_merge() -> None:
     scout_id = str(uuid.uuid4())
     action_wait, payload_wait = ws_handlers._parse_group_command("group wait: держим позицию")
     action_camp, payload_camp = ws_handlers._parse_group_command("group camp ночлег у костра")
@@ -15,6 +15,8 @@ def test_parse_group_command_supports_wait_camp_move_enter_stop_split_and_merge(
     action_mode, payload_mode = ws_handlers._parse_group_command("group mode cautious")
     action_activity, payload_activity = ws_handlers._parse_group_command("group activity navigate")
     action_clear_activity, payload_clear_activity = ws_handlers._parse_group_command("group clear activity")
+    action_arrive, payload_arrive = ws_handlers._parse_group_command("group arrive")
+    action_interrupt, payload_interrupt = ws_handlers._parse_group_command("group interrupt")
     action_stop, payload_stop = ws_handlers._parse_group_command("group stop")
     action_split, payload_split = ws_handlers._parse_group_command(f"group split {scout_id} as scout")
     action_merge, payload_merge = ws_handlers._parse_group_command("group merge scout into main")
@@ -26,6 +28,8 @@ def test_parse_group_command_supports_wait_camp_move_enter_stop_split_and_merge(
     assert (action_mode, payload_mode) == ("group_set_mode", {"movement_mode": "cautious"})
     assert (action_activity, payload_activity) == ("group_set_activity", {"activity": "navigate"})
     assert (action_clear_activity, payload_clear_activity) == ("group_clear_activity", {})
+    assert (action_arrive, payload_arrive) == ("group_arrive", {})
+    assert (action_interrupt, payload_interrupt) == ("group_interrupt", {})
     assert (action_stop, payload_stop) == ("group_stop", {})
     assert (action_split, payload_split) == (
         "group_split",
@@ -60,7 +64,7 @@ def test_handle_group_wait_request_sets_waiting_state() -> None:
     }
 
 
-def test_handle_group_move_enter_and_stop_requests_update_group_state() -> None:
+def test_handle_group_move_enter_arrive_interrupt_and_stop_requests_update_group_state() -> None:
     player_id = uuid.uuid4()
     sess = SimpleNamespace(settings={})
     session_state._initialize_default_group(sess, [player_id], "центр города")
@@ -77,8 +81,20 @@ def test_handle_group_move_enter_and_stop_requests_update_group_state() -> None:
     assert err_move is None
     assert msg_move == "Группа main движется к ворота."
     moved_group = session_state._get_group_states(sess)["main"]
-    assert moved_group["status"] == "moving_intent"
+    assert moved_group["status"] == "moving"
     assert moved_group["current_map_position"] == {
+        "v": 1,
+        "map_level": "region",
+        "node_type": "zone",
+        "node_id": "центр города",
+        "label": "центр города",
+    }
+    assert moved_group["movement_intent"]["target_node_type"] == "landmark"
+    assert moved_group["movement_intent"]["route_kind"] == "landmark_move"
+    assert moved_group["movement_intent"]["action_kind"] == "move"
+    assert moved_group["movement_intent"]["allowed"] is True
+    assert moved_group["travel_state"]["active"] is True
+    assert moved_group["travel_state"]["route_summary"]["next_map_position"] == {
         "v": 1,
         "map_level": "landmark",
         "node_type": "landmark",
@@ -86,10 +102,30 @@ def test_handle_group_move_enter_and_stop_requests_update_group_state() -> None:
         "label": "ворота",
         "area_label": "центр города",
     }
-    assert moved_group["movement_intent"]["target_node_type"] == "landmark"
-    assert moved_group["movement_intent"]["route_kind"] == "landmark_move"
-    assert moved_group["movement_intent"]["action_kind"] == "move"
-    assert moved_group["movement_intent"]["allowed"] is True
+
+    handled_arrive, err_arrive, msg_arrive = ws_handlers._handle_group_action_request(
+        sess,
+        action="group_arrive",
+        actor_player_id=player_id,
+        payload={},
+        source="test",
+    )
+
+    assert handled_arrive is True
+    assert err_arrive is None
+    assert msg_arrive == "Группа main прибыла в ворота."
+    arrived_group = session_state._get_group_states(sess)["main"]
+    assert arrived_group["status"] == "idle"
+    assert "movement_intent" not in arrived_group
+    assert "travel_state" not in arrived_group
+    assert arrived_group["current_map_position"] == {
+        "v": 1,
+        "map_level": "landmark",
+        "node_type": "landmark",
+        "node_id": "ворота",
+        "label": "ворота",
+        "area_label": "центр города",
+    }
 
     handled_enter, err_enter, msg_enter = ws_handlers._handle_group_action_request(
         sess,
@@ -103,18 +139,46 @@ def test_handle_group_move_enter_and_stop_requests_update_group_state() -> None:
     assert err_enter is None
     assert msg_enter == "Группа main входит в замок."
     entered_group = session_state._get_group_states(sess)["main"]
+    assert entered_group["status"] == "moving"
     assert entered_group["current_map_position"] == {
         "v": 1,
-        "map_level": "interior",
-        "node_type": "interior_entry",
-        "node_id": "замок",
-        "label": "замок",
+        "map_level": "landmark",
+        "node_type": "landmark",
+        "node_id": "ворота",
+        "label": "ворота",
         "area_label": "центр города",
     }
     assert entered_group["movement_intent"]["target_node_id"] == "замок"
     assert entered_group["movement_intent"]["route_kind"] == "enter_location"
     assert entered_group["movement_intent"]["action_kind"] == "enter"
     assert entered_group["movement_intent"]["allowed"] is True
+    assert entered_group["travel_state"]["target_node"]["node_id"] == "замок"
+
+    handled_interrupt, err_interrupt, msg_interrupt = ws_handlers._handle_group_action_request(
+        sess,
+        action="group_interrupt",
+        actor_player_id=player_id,
+        payload={},
+        source="test",
+    )
+
+    assert handled_interrupt is True
+    assert err_interrupt is None
+    assert msg_interrupt == "Группа main прервала движение."
+    interrupted_group = session_state._get_group_states(sess)["main"]
+    assert interrupted_group["status"] == "idle"
+    assert "movement_intent" not in interrupted_group
+    assert "travel_state" not in interrupted_group
+    assert interrupted_group["current_map_position"] == {
+        "v": 1,
+        "map_level": "landmark",
+        "node_type": "landmark",
+        "node_id": "ворота",
+        "label": "ворота",
+        "area_label": "центр города",
+    }
+
+    session_state.set_group_movement_intent(sess, "main", target_node="площадь", source="test")
 
     handled_stop, err_stop, msg_stop = ws_handlers._handle_group_action_request(
         sess,
@@ -243,6 +307,7 @@ def test_handle_group_move_uses_route_helper_and_stores_route_summary(monkeypatc
     assert msg == "Группа main движется к ворота."
     assert calls == [("resolve", "move"), ("route", "move")]
     assert session_state._get_group_states(sess)["main"]["movement_intent"]["route_kind"] == "landmark_move"
+    assert session_state._get_group_states(sess)["main"]["current_map_position"]["node_id"] == "центр города"
 
 
 def test_handle_group_enter_invalid_target_returns_error_without_corrupting_state() -> None:
