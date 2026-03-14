@@ -64,12 +64,15 @@ from app.web.session_state import (
     clear_group_movement_intent,
     clear_group_travel_activity,
     complete_group_travel,
+    evaluate_group_travel_pause,
     get_group_movement_mode,
     get_group_travel_activity,
     interrupt_group_travel,
     maybe_apply_group_enter_target,
+    pause_group_travel,
     request_group_merge,
     request_group_split,
+    resume_group_travel,
     start_group_travel,
     set_group_movement_intent,
     set_group_movement_mode,
@@ -1683,6 +1686,12 @@ def _parse_group_command(cmdline: str) -> tuple[str | None, dict[str, Any]]:
     if lowered in {"group interrupt", "group_interrupt"}:
         return "group_interrupt", {}
 
+    if lowered in {"group pause", "group_pause"}:
+        return "group_pause", {}
+
+    if lowered in {"group resume", "group_resume"}:
+        return "group_resume", {}
+
     if lowered in {"group stop", "group_stop"}:
         return "group_stop", {}
 
@@ -1761,6 +1770,8 @@ def _handle_group_action_request(
         "group_stop",
         "group_arrive",
         "group_interrupt",
+        "group_pause",
+        "group_resume",
         "group_set_mode",
         "group_set_activity",
         "group_clear_activity",
@@ -1798,13 +1809,31 @@ def _handle_group_action_request(
         activity = get_group_travel_activity(sess, actor_group_key) or {}
         return True, None, f"Походная активность группы {actor_group_key}: {activity.get('activity')}."
 
-    if action in {"group_move", "group_enter", "group_stop", "group_arrive", "group_interrupt"}:
+    if action in {"group_move", "group_enter", "group_stop", "group_arrive", "group_interrupt", "group_pause", "group_resume"}:
         if not actor_group_key:
             return True, "Группа игрока не найдена.", None
         current_group = _get_group_states(sess).get(actor_group_key, {})
         current_travel = current_group.get("travel_state") if isinstance(current_group, dict) else None
         has_active_travel = isinstance(current_travel, dict) and bool(current_travel.get("active"))
+        is_paused_travel = has_active_travel and bool(current_travel.get("paused"))
+        if action == "group_pause":
+            updated = pause_group_travel(sess, actor_group_key, reason="manual", pause_details={"source": source}, resume_allowed=True)
+            if not updated:
+                return True, "У группы нет активного путешествия для паузы.", None
+            return True, None, f"Путешествие группы {actor_group_key} приостановлено."
+        if action == "group_resume":
+            if not is_paused_travel:
+                return True, "У группы нет приостановленного путешествия для возобновления.", None
+            updated = resume_group_travel(sess, actor_group_key)
+            if not updated:
+                return True, "Не удалось возобновить путешествие группы.", None
+            return True, None, f"Группа {actor_group_key} продолжает путь."
         if action == "group_arrive":
+            if is_paused_travel:
+                pause_reason = str(current_travel.get("pause_reason") or "").strip().lower()
+                if pause_reason == "target_requires_enter":
+                    return True, "Путешествие приостановлено: цель требует явного входа. Сначала возобновите движение группы.", None
+                return True, "Путешествие группы приостановлено. Сначала возобновите движение группы.", None
             updated = complete_group_travel(sess, actor_group_key)
             if not updated:
                 return True, "У группы нет активного путешествия для завершения.", None
@@ -1847,6 +1876,7 @@ def _handle_group_action_request(
         )
         if not updated:
             return True, ("Не удалось выполнить вход для группы." if action == "group_enter" else "Не удалось задать движение группы."), None
+        updated = evaluate_group_travel_pause(sess, actor_group_key) or updated
         label = str(updated.get("movement_intent", {}).get("target_label") or updated.get("area_label") or "цель")
         if action == "group_enter":
             return True, None, f"Группа {actor_group_key} входит в {label}."
@@ -5747,6 +5777,8 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                     "group_stop",
                     "group_arrive",
                     "group_interrupt",
+                    "group_pause",
+                    "group_resume",
                     "group_set_mode",
                     "group_set_activity",
                     "group_clear_activity",

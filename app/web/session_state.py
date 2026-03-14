@@ -382,7 +382,7 @@ def _normalize_group_status(raw: Any) -> str:
     status = str(raw or "idle").strip().lower()
     if status == "split-ready":
         return "idle"
-    if status not in {"idle", "waiting", "camping", "moving_intent", "moving"}:
+    if status not in {"idle", "waiting", "camping", "moving_intent", "moving", "paused_travel"}:
         return "idle"
     return status
 
@@ -497,6 +497,7 @@ def _normalize_group_route_summary(raw: Any) -> dict[str, Any] | None:
     target_node_id = str(raw.get("target_node_id") or "").strip()
     next_zone_label = str(raw.get("next_zone_label") or "").strip()
     error = str(raw.get("error") or "").strip()
+    pause_hint = str(raw.get("pause_hint") or "").strip().lower()
     if target_node:
         if not target_label:
             target_label = str(target_node.get("label") or target_node.get("node_id") or "").strip()
@@ -524,7 +525,35 @@ def _normalize_group_route_summary(raw: Any) -> dict[str, Any] | None:
         summary["next_zone_label"] = next_zone_label[:80]
     if error:
         summary["error"] = error[:240]
+    if pause_hint:
+        summary["pause_hint"] = pause_hint[:40]
     return summary
+
+
+def _normalize_group_pause_reason(raw: Any) -> str | None:
+    reason = str(raw or "").strip().lower()
+    if reason not in {"manual", "point_of_interest_reached", "target_requires_enter", "route_blocked", "event_pending"}:
+        return None
+    return reason
+
+
+def _normalize_group_pause_details(raw: Any) -> dict[str, Any] | None:
+    if not isinstance(raw, dict):
+        return None
+    details: dict[str, Any] = {}
+    for key, value in raw.items():
+        normalized_key = str(key or "").strip()[:80]
+        if not normalized_key:
+            continue
+        if isinstance(value, bool):
+            details[normalized_key] = value
+        elif isinstance(value, int):
+            details[normalized_key] = value
+        elif value is None:
+            continue
+        else:
+            details[normalized_key] = str(value).strip()[:240]
+    return details or None
 
 
 def _normalize_group_travel_state(raw: Any) -> dict[str, Any] | None:
@@ -539,6 +568,10 @@ def _normalize_group_travel_state(raw: Any) -> dict[str, Any] | None:
     progress_kind = str(raw.get("progress_kind") or "route").strip().lower() or "route"
     progress_step = max(0, as_int(raw.get("progress_step"), 0))
     active = bool(raw.get("active"))
+    paused = bool(raw.get("paused"))
+    pause_reason = _normalize_group_pause_reason(raw.get("pause_reason"))
+    pause_details = _normalize_group_pause_details(raw.get("pause_details"))
+    resume_allowed = bool(raw.get("resume_allowed", True))
     if not route_summary or not target_node or not started_from:
         return None
     state: dict[str, Any] = {
@@ -550,7 +583,13 @@ def _normalize_group_travel_state(raw: Any) -> dict[str, Any] | None:
         "progress_kind": progress_kind[:40],
         "progress_step": progress_step,
         "movement_mode": movement_mode[:40],
+        "paused": paused,
+        "resume_allowed": resume_allowed,
     }
+    if pause_reason:
+        state["pause_reason"] = pause_reason
+    if pause_details:
+        state["pause_details"] = pause_details
     if travel_activity:
         state["travel_activity"] = travel_activity
     return state
@@ -628,6 +667,8 @@ def _resolve_group_status(
     travel_state: dict[str, Any] | None,
 ) -> str:
     if travel_state and travel_state.get("active"):
+        if travel_state.get("paused"):
+            return "paused_travel"
         return "moving"
     if camp_state:
         return "camping"
@@ -701,10 +742,16 @@ def _group_travel_summary(group: dict[str, Any]) -> dict[str, Any] | None:
         "progress_kind": travel_state.get("progress_kind"),
         "progress_step": travel_state.get("progress_step"),
         "movement_mode": travel_state.get("movement_mode"),
+        "paused": bool(travel_state.get("paused")),
+        "resume_allowed": bool(travel_state.get("resume_allowed", True)),
         "route_summary": dict(travel_state.get("route_summary") or {}),
         "started_from": dict(travel_state.get("started_from") or {}),
         "target_node": dict(travel_state.get("target_node") or {}),
     }
+    if travel_state.get("pause_reason"):
+        summary["pause_reason"] = travel_state.get("pause_reason")
+    if travel_state.get("pause_details"):
+        summary["pause_details"] = dict(travel_state["pause_details"])
     if travel_state.get("travel_activity"):
         summary["travel_activity"] = dict(travel_state["travel_activity"])
     return summary
@@ -1190,9 +1237,129 @@ def start_group_travel(
     group["movement_intent"] = intent
     group["travel_state"] = travel_state
     group["status"] = "moving"
+    target_node_type = str((route.get("target_node") or {}).get("node_type") or "").strip().lower()
+    pause_hint = str(route.get("pause_hint") or "").strip().lower()
+    auto_pause_reason: str | None = None
+    auto_pause_details: dict[str, Any] | None = None
+    if target_node_type == "interior_entry":
+        auto_pause_reason = "target_requires_enter"
+        auto_pause_details = {"target_node_type": "interior_entry"}
+    elif pause_hint == "inspection_required":
+        auto_pause_reason = "point_of_interest_reached"
+        auto_pause_details = {"pause_hint": pause_hint, "target_node_type": target_node_type or "unknown"}
+    if auto_pause_reason:
+        normalized_reason = _normalize_group_pause_reason(auto_pause_reason)
+        if normalized_reason:
+            group["travel_state"]["paused"] = True
+            group["travel_state"]["pause_reason"] = normalized_reason
+            if auto_pause_details:
+                group["travel_state"]["pause_details"] = _normalize_group_pause_details(auto_pause_details) or auto_pause_details
+            group["travel_state"]["resume_allowed"] = True
+            group["travel_state"]["phase"] = "paused"
+            group["status"] = "paused_travel"
     _persist_group_states(sess, groups)
     _sync_group_position_mirrors(sess, group)
     return dict(group)
+
+
+def pause_group_travel(
+    sess: Session,
+    group_id: str,
+    *,
+    reason: str,
+    pause_details: dict[str, Any] | None = None,
+    resume_allowed: bool = True,
+) -> dict[str, Any] | None:
+    groups = _get_group_states(sess)
+    group_key = str(group_id or "").strip()
+    group = groups.get(group_key)
+    if not group:
+        return None
+    travel_state = _group_travel_state_summary(group)
+    if not travel_state or travel_state.get("active") is not True:
+        return None
+    normalized_reason = _normalize_group_pause_reason(reason)
+    if not normalized_reason:
+        return None
+    travel_state["paused"] = True
+    travel_state["pause_reason"] = normalized_reason
+    if pause_details:
+        travel_state["pause_details"] = _normalize_group_pause_details(pause_details) or {}
+    else:
+        travel_state.pop("pause_details", None)
+    travel_state["resume_allowed"] = bool(resume_allowed)
+    travel_state["phase"] = "paused"
+    group["travel_state"] = travel_state
+    group["status"] = "paused_travel"
+    _persist_group_states(sess, groups)
+    _sync_group_position_mirrors(sess, group)
+    return dict(group)
+
+
+def resume_group_travel(sess: Session, group_id: str) -> dict[str, Any] | None:
+    groups = _get_group_states(sess)
+    group_key = str(group_id or "").strip()
+    group = groups.get(group_key)
+    if not group:
+        return None
+    travel_state = _group_travel_state_summary(group)
+    if not travel_state or travel_state.get("active") is not True or travel_state.get("paused") is not True:
+        return None
+    if travel_state.get("resume_allowed") is not True:
+        return None
+    travel_state["paused"] = False
+    travel_state.pop("pause_reason", None)
+    travel_state.pop("pause_details", None)
+    travel_state["resume_allowed"] = True
+    travel_state["phase"] = "in_transit"
+    group["travel_state"] = travel_state
+    group["status"] = "moving"
+    _persist_group_states(sess, groups)
+    _sync_group_position_mirrors(sess, group)
+    return dict(group)
+
+
+def evaluate_group_travel_pause(
+    sess: Session,
+    group_id: str,
+    *,
+    pause_reason: str | None = None,
+    pause_details: dict[str, Any] | None = None,
+    resume_allowed: bool = True,
+) -> dict[str, Any] | None:
+    groups = _get_group_states(sess)
+    group_key = str(group_id or "").strip()
+    group = groups.get(group_key)
+    if not group:
+        return None
+    travel_state = _group_travel_state_summary(group)
+    if not travel_state or travel_state.get("active") is not True:
+        return None
+    if travel_state.get("paused") is True:
+        return dict(group)
+
+    normalized_reason = _normalize_group_pause_reason(pause_reason)
+    normalized_details = _normalize_group_pause_details(pause_details)
+    if not normalized_reason:
+        route_summary = _normalize_group_route_summary(travel_state.get("route_summary")) or {}
+        target_node = _normalize_map_target_node(travel_state.get("target_node")) or {}
+        target_node_type = str(target_node.get("node_type") or route_summary.get("target_node_type") or "").strip().lower()
+        pause_hint = str((normalized_details or {}).get("pause_hint") or route_summary.get("pause_hint") or "").strip().lower()
+        if target_node_type == "interior_entry":
+            normalized_reason = "target_requires_enter"
+            normalized_details = normalized_details or {"target_node_type": "interior_entry"}
+        elif str(route_summary.get("route_kind") or "").strip().lower() == "landmark_move" and pause_hint == "inspection_required":
+            normalized_reason = "point_of_interest_reached"
+            normalized_details = normalized_details or {"pause_hint": pause_hint}
+    if not normalized_reason:
+        return None
+    return pause_group_travel(
+        sess,
+        group_id,
+        reason=normalized_reason,
+        pause_details=normalized_details,
+        resume_allowed=resume_allowed,
+    )
 
 
 def advance_group_travel(
@@ -1209,6 +1376,8 @@ def advance_group_travel(
         return None
     travel_state = _group_travel_state_summary(group)
     if not travel_state or travel_state.get("active") is not True:
+        return None
+    if travel_state.get("paused") is True:
         return None
     travel_state["progress_step"] = max(0, as_int(travel_state.get("progress_step"), 0) + max(0, int(progress_step_delta)))
     if phase:
@@ -1228,6 +1397,8 @@ def complete_group_travel(sess: Session, group_id: str) -> dict[str, Any] | None
         return None
     travel_state = _group_travel_state_summary(group)
     if not travel_state or travel_state.get("active") is not True:
+        return None
+    if travel_state.get("paused") is True:
         return None
     route_summary = _normalize_group_route_summary(travel_state.get("route_summary"))
     next_map_position = _normalize_map_position((route_summary or {}).get("next_map_position"))

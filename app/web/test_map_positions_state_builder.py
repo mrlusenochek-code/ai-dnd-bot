@@ -323,6 +323,8 @@ def test_build_state_exports_group_activity_summaries(monkeypatch) -> None:
                 "progress_kind": "route",
                 "progress_step": 1,
                 "movement_mode": "cautious",
+                "paused": False,
+                "resume_allowed": True,
                 "travel_activity": {
                     "activity": "navigate",
                     "assigned_actor_id": str(player_id),
@@ -446,6 +448,8 @@ def test_build_state_exports_group_activity_summaries(monkeypatch) -> None:
         "progress_kind": "route",
         "progress_step": 1,
         "movement_mode": "cautious",
+        "paused": False,
+        "resume_allowed": True,
         "travel_activity": {
             "activity": "navigate",
             "assigned_actor_id": str(player_id),
@@ -458,6 +462,8 @@ def test_build_state_exports_group_activity_summaries(monkeypatch) -> None:
         "progress_kind": "route",
         "progress_step": 1,
         "movement_mode": "cautious",
+        "paused": False,
+        "resume_allowed": True,
         "route_summary": {
             "allowed": True,
             "route_kind": "landmark_move",
@@ -506,3 +512,137 @@ def test_build_state_exports_group_activity_summaries(monkeypatch) -> None:
             "source": "test",
         },
     }
+
+
+def test_build_state_exports_paused_travel_status_and_pause_reason(monkeypatch) -> None:
+    session_id = "sess-1"
+    player_id = uuid.uuid4()
+    group_position = {
+        "v": 1,
+        "map_level": "region",
+        "node_type": "zone",
+        "node_id": "camp",
+        "label": "camp",
+    }
+    sess = SimpleNamespace(
+        id=session_id,
+        title="Campaign",
+        is_active=False,
+        is_paused=False,
+        turn_index=0,
+        current_player_id=None,
+        turn_started_at=None,
+        settings={},
+    )
+    sp = SimpleNamespace(player_id=player_id, join_order=1, is_admin=False, is_active=True)
+    player = SimpleNamespace(id=player_id, display_name="Alice", web_user_id=42, telegram_user_id=None)
+    group_state = {
+        "main": {
+            "group_id": "main",
+            "player_ids": [str(player_id)],
+            "current_map_position": group_position,
+            "area_label": "camp",
+            "status": "paused_travel",
+            "movement_mode": "normal",
+            "movement_intent": {
+                "target_label": "замок",
+                "target_node": {
+                    "v": 1,
+                    "map_level": "interior",
+                    "node_type": "interior_entry",
+                    "node_id": "castle",
+                    "label": "замок",
+                    "zone_label": "camp",
+                    "area_label": "camp",
+                },
+                "movement_mode": "normal",
+                "movement_kind": "enter",
+                "action_kind": "enter",
+                "route_kind": "enter_location",
+                "allowed": True,
+                "source": "test",
+                "active": True,
+                "target_node_type": "interior_entry",
+                "target_node_id": "castle",
+            },
+            "travel_state": {
+                "active": True,
+                "phase": "paused",
+                "route_summary": {
+                    "allowed": True,
+                    "route_kind": "enter_location",
+                    "action_kind": "enter",
+                    "target_label": "замок",
+                    "target_node": {
+                        "v": 1,
+                        "map_level": "interior",
+                        "node_type": "interior_entry",
+                        "node_id": "castle",
+                        "label": "замок",
+                        "zone_label": "camp",
+                        "area_label": "camp",
+                    },
+                    "target_node_type": "interior_entry",
+                    "target_node_id": "castle",
+                    "next_map_position": {
+                        "v": 1,
+                        "map_level": "interior",
+                        "node_type": "interior_entry",
+                        "node_id": "castle",
+                        "label": "замок",
+                        "area_label": "camp",
+                    },
+                    "next_zone_label": "camp",
+                },
+                "started_from": group_position,
+                "target_node": {
+                    "v": 1,
+                    "map_level": "interior",
+                    "node_type": "interior_entry",
+                    "node_id": "castle",
+                    "label": "замок",
+                    "zone_label": "camp",
+                    "area_label": "camp",
+                },
+                "progress_kind": "route",
+                "progress_step": 0,
+                "movement_mode": "normal",
+                "paused": True,
+                "pause_reason": "target_requires_enter",
+                "pause_details": {"target_node_type": "interior_entry"},
+                "resume_allowed": True,
+            },
+        }
+    }
+
+    async def fake_list_session_players(_db, _sess, active_only=False):
+        assert active_only is False
+        return [sp]
+
+    monkeypatch.setattr(state_builder, "list_session_players", fake_list_session_players)
+    monkeypatch.setattr(state_builder, "_get_kicked", lambda _sess: set())
+    monkeypatch.setattr(state_builder, "_char_to_payload", lambda _char: None)
+    monkeypatch.setattr(state_builder, "_player_uid", lambda _player: _player.web_user_id if _player else None)
+    monkeypatch.setattr(state_builder, "_get_ready_map", lambda _sess: {str(player_id): True})
+    monkeypatch.setattr(state_builder, "_get_init_map", lambda _sess: {})
+    monkeypatch.setattr(state_builder, "_get_last_seen_map", lambda _sess: {})
+    monkeypatch.setattr(state_builder, "_initiative_fixed", lambda _sess: False)
+    monkeypatch.setattr(state_builder, "_is_free_turns", lambda _sess: False)
+    monkeypatch.setattr(state_builder, "_get_phase", lambda _sess: "turns")
+    monkeypatch.setattr(state_builder, "_get_round_actions", lambda _sess: {})
+    monkeypatch.setattr(state_builder, "_ready_active_players", lambda _sess, active_sps: active_sps)
+    monkeypatch.setattr(state_builder, "_get_group_states", lambda _sess, _player_ids=None: group_state)
+    monkeypatch.setattr(state_builder, "_get_pc_positions", lambda _sess: {str(player_id): "camp"})
+    monkeypatch.setattr(state_builder, "_get_map_positions", lambda _sess: {str(player_id): group_position})
+    monkeypatch.setattr(state_builder, "_get_player_group_id", lambda _sess, _player_id, _player_ids=None: "main")
+    monkeypatch.setattr(state_builder, "snapshot_combat_state", lambda _session_id: None)
+
+    db = _FakeDb([[player], [], [], []])
+    payload = asyncio.run(state_builder.build_state(db, sess))
+
+    assert payload["game"]["groups"]["main"]["status"] == "paused_travel"
+    assert payload["game"]["groups"]["main"]["travel_state"]["paused"] is True
+    assert payload["game"]["groups"]["main"]["travel_state"]["pause_reason"] == "target_requires_enter"
+    assert payload["game"]["groups"]["main"]["travel_summary"]["paused"] is True
+    assert payload["game"]["groups"]["main"]["travel_summary"]["pause_reason"] == "target_requires_enter"
+    assert payload["game"]["groups"]["main"]["travel_summary"]["pause_details"] == {"target_node_type": "interior_entry"}

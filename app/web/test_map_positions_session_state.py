@@ -622,7 +622,7 @@ def test_group_enter_target_produces_expected_structured_target_semantics() -> N
     )
 
     assert updated is not None
-    assert updated["status"] == "moving"
+    assert updated["status"] == "paused_travel"
     assert updated["current_map_position"] == {
         "v": 1,
         "map_level": "region",
@@ -637,8 +637,12 @@ def test_group_enter_target_produces_expected_structured_target_semantics() -> N
     assert updated["movement_intent"]["action_kind"] == "enter"
     assert updated["movement_intent"]["allowed"] is True
     assert updated["travel_state"]["active"] is True
+    assert updated["status"] == "paused_travel"
     assert updated["travel_state"]["route_summary"]["route_kind"] == "enter"
     assert updated["travel_state"]["started_from"]["node_id"] == "Таверна"
+    assert updated["travel_state"]["paused"] is True
+    assert updated["travel_state"]["pause_reason"] == "target_requires_enter"
+    assert updated["travel_state"]["pause_details"] == {"target_node_type": "interior_entry"}
     assert sess.settings["pc_positions"][str(player_id)] == "Таверна"
 
 
@@ -716,6 +720,7 @@ def test_movement_intent_inherits_group_mode_and_activity() -> None:
         "assigned_actor_id": str(player_id),
         "source": "test",
     }
+    assert updated["travel_state"]["paused"] is False
 
 
 def test_start_complete_and_interrupt_group_travel_manage_position_and_status() -> None:
@@ -758,6 +763,7 @@ def test_start_complete_and_interrupt_group_travel_manage_position_and_status() 
     assert started["travel_state"]["active"] is True
     assert started["travel_state"]["phase"] == "in_transit"
     assert started["travel_state"]["route_summary"]["route_kind"] == "landmark_move"
+    assert started["travel_state"]["paused"] is False
 
     advanced = session_state.advance_group_travel(sess, "main")
 
@@ -803,6 +809,13 @@ def test_start_complete_and_interrupt_group_travel_manage_position_and_status() 
     )
 
     assert restarted is not None
+    assert restarted["status"] == "paused_travel"
+    assert restarted["travel_state"]["pause_reason"] == "target_requires_enter"
+    resumed = session_state.resume_group_travel(sess, "main")
+
+    assert resumed is not None
+    assert resumed["status"] == "moving"
+    assert resumed["travel_state"]["paused"] is False
     interrupted = session_state.interrupt_group_travel(sess, "main")
 
     assert interrupted is not None
@@ -810,3 +823,95 @@ def test_start_complete_and_interrupt_group_travel_manage_position_and_status() 
     assert interrupted["current_map_position"]["node_id"] == "ворота"
     assert "travel_state" not in interrupted
     assert "movement_intent" not in interrupted
+
+
+def test_pause_resume_and_evaluate_group_travel_preserve_mode_and_activity() -> None:
+    player_id = uuid.uuid4()
+    sess = SimpleNamespace(settings={})
+    session_state._initialize_default_group(sess, [player_id], "центр города")
+    session_state.set_group_movement_mode(sess, "main", "cautious")
+    session_state.set_group_travel_activity(sess, "main", activity="observe", assigned_actor_id=player_id, source="test")
+    session_state.start_group_travel(
+        sess,
+        "main",
+        {
+            "allowed": True,
+            "route_kind": "landmark_move",
+            "action_kind": "move",
+            "target_label": "ворота",
+            "target_node": {
+                "map_level": "landmark",
+                "node_type": "landmark",
+                "node_id": "ворота",
+                "label": "ворота",
+                "zone_label": "центр города",
+                "area_label": "центр города",
+            },
+            "next_map_position": {
+                "v": 1,
+                "map_level": "landmark",
+                "node_type": "landmark",
+                "node_id": "ворота",
+                "label": "ворота",
+                "area_label": "центр города",
+            },
+            "next_zone_label": "центр города",
+        },
+        source="test",
+    )
+
+    paused = session_state.pause_group_travel(
+        sess,
+        "main",
+        reason="route_blocked",
+        pause_details={"blocker": "оползень"},
+        resume_allowed=True,
+    )
+
+    assert paused is not None
+    assert paused["status"] == "paused_travel"
+    assert paused["travel_state"]["paused"] is True
+    assert paused["travel_state"]["pause_reason"] == "route_blocked"
+    assert paused["travel_state"]["pause_details"] == {"blocker": "оползень"}
+    assert paused["travel_state"]["movement_mode"] == "cautious"
+    assert paused["travel_state"]["travel_activity"] == {
+        "activity": "observe",
+        "assigned_actor_id": str(player_id),
+        "source": "test",
+    }
+
+    resumed = session_state.resume_group_travel(sess, "main")
+
+    assert resumed is not None
+    assert resumed["status"] == "moving"
+    assert resumed["travel_state"]["paused"] is False
+    assert resumed["travel_state"]["movement_mode"] == "cautious"
+    assert resumed["travel_state"]["travel_activity"] == {
+        "activity": "observe",
+        "assigned_actor_id": str(player_id),
+        "source": "test",
+    }
+
+    evaluated_poi = session_state.evaluate_group_travel_pause(
+        sess,
+        "main",
+        pause_details={"pause_hint": "inspection_required"},
+    )
+
+    assert evaluated_poi is not None
+    assert evaluated_poi["travel_state"]["pause_reason"] == "point_of_interest_reached"
+    assert evaluated_poi["travel_state"]["pause_details"] == {"pause_hint": "inspection_required"}
+
+    resumed_again = session_state.resume_group_travel(sess, "main")
+    assert resumed_again is not None
+
+    evaluated_event = session_state.evaluate_group_travel_pause(
+        sess,
+        "main",
+        pause_reason="event_pending",
+        pause_details={"event_id": "poi-1"},
+    )
+
+    assert evaluated_event is not None
+    assert evaluated_event["travel_state"]["pause_reason"] == "event_pending"
+    assert evaluated_event["travel_state"]["pause_details"] == {"event_id": "poi-1"}
