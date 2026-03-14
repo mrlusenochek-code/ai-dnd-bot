@@ -434,6 +434,50 @@ def _normalize_group_camp_state(raw: Any) -> dict[str, Any] | None:
     return state
 
 
+def _normalize_group_last_camp_result(raw: Any) -> dict[str, Any] | None:
+    if not isinstance(raw, dict):
+        return None
+    result_id = str(raw.get("result_id") or "").strip()
+    result_type = str(raw.get("result_type") or "").strip().lower()
+    if result_type not in {"safe_rest", "uneasy_rest", "interrupted_rest", "roadside_pause", "sheltered_rest"}:
+        return None
+    summary = str(raw.get("summary") or "").strip()
+    result_summary = str(raw.get("result_summary") or "").strip()
+    node_id = str(raw.get("node_id") or "").strip()
+    node_label = str(raw.get("node_label") or node_id).strip()
+    rest_quality = str(raw.get("rest_quality") or "").strip().lower()
+    if rest_quality not in {"restful", "sheltered", "uneasy", "interrupted", "brief"}:
+        return None
+    risk_band = str(raw.get("risk_band") or "").strip().lower()
+    if risk_band not in {"low", "medium", "high"}:
+        risk_band = "medium"
+    source = str(raw.get("source") or "camp").strip() or "camp"
+    resolved_at = str(raw.get("resolved_at") or "").strip()
+    if not result_id or not summary or not result_summary or not node_id or not node_label:
+        return None
+    applied_effects_raw = raw.get("applied_effects")
+    applied_effects = (
+        [str(item).strip()[:120] for item in applied_effects_raw if str(item or "").strip()]
+        if isinstance(applied_effects_raw, list)
+        else []
+    )
+    result: dict[str, Any] = {
+        "result_id": result_id[:80],
+        "result_type": result_type[:40],
+        "summary": summary[:400],
+        "result_summary": result_summary[:400],
+        "node_id": node_id[:120],
+        "node_label": node_label[:120],
+        "rest_quality": rest_quality[:40],
+        "risk_band": risk_band[:20],
+        "source": source[:40],
+        "applied_effects": applied_effects,
+    }
+    if resolved_at:
+        result["resolved_at"] = resolved_at[:80]
+    return result
+
+
 def _normalize_group_movement_mode(raw: Any) -> str:
     mode = str(raw or "normal").strip().lower()
     if mode not in {"normal", "cautious", "fast"}:
@@ -1612,6 +1656,125 @@ def _set_group_last_travel_event_outcome(
     return normalized
 
 
+def _set_group_last_camp_result(
+    group: dict[str, Any],
+    result: dict[str, Any] | None,
+) -> dict[str, Any] | None:
+    normalized = _normalize_group_last_camp_result(result)
+    if not normalized:
+        group.pop("last_camp_result", None)
+        return None
+    group["last_camp_result"] = normalized
+    return normalized
+
+
+def build_group_camp_result(
+    camp_state: dict[str, Any] | None,
+    *,
+    node_context: dict[str, Any] | None = None,
+    available_services: list[dict[str, Any]] | None = None,
+    travel_event: dict[str, Any] | None = None,
+    travel_state: dict[str, Any] | None = None,
+    source: str = "camp",
+) -> dict[str, Any] | None:
+    normalized_camp_state = _normalize_group_camp_state(camp_state)
+    if not normalized_camp_state:
+        return None
+    node_summary = dict((node_context or {}).get("node_summary") or {})
+    node_id = str(node_summary.get("node_id") or "").strip()
+    node_label = str(node_summary.get("label") or node_id).strip()
+    if not node_id or not node_label:
+        return None
+    zone_band = str(node_summary.get("zone_band") or "").strip().lower()
+    settlement_kind = str(node_summary.get("settlement_kind") or "").strip().lower()
+    poi_kind = str(node_summary.get("poi_kind") or "").strip().lower()
+    safe_rest_hint = bool(node_summary.get("safe_rest_hint"))
+    normalized_travel_event = _normalize_group_travel_event(travel_event)
+    normalized_travel_state = _normalize_group_travel_state(travel_state)
+    services = available_services if isinstance(available_services, list) else []
+    has_safe_rest_service = any(
+        isinstance(item, dict) and str(item.get("service_key") or "").strip().lower() == "safe_rest"
+        for item in services
+    )
+    has_blocking_event = bool(
+        normalized_travel_event
+        and normalized_travel_event.get("active") is True
+        and str(normalized_travel_event.get("event_key") or "").strip().lower() == "blocked_path"
+    )
+    blocked_route = bool(
+        normalized_travel_state
+        and normalized_travel_state.get("active") is True
+        and normalized_travel_state.get("paused") is True
+        and str(normalized_travel_state.get("pause_reason") or "").strip().lower() == "route_blocked"
+    )
+
+    result_type = "uneasy_rest"
+    rest_quality = "uneasy"
+    risk_band = "medium"
+    summary = f"Группа устраивает лагерь у {node_label}."
+    result_summary = "Стоянка даёт передышку, но без ощущения полной безопасности."
+    applied_effects = ["rest_quality:uneasy", "safety_note:open_camp"]
+
+    if has_blocking_event or blocked_route:
+        result_type = "interrupted_rest"
+        rest_quality = "interrupted"
+        risk_band = "high"
+        summary = f"Лагерь у {node_label} постоянно сбивается дорожной преградой."
+        result_summary = "Группа получает только вынужденную паузу: путь остаётся помехой и отдых выходит рваным."
+        applied_effects = ["rest_quality:interrupted", "interruption_note:blocked_route"]
+    elif zone_band == "danger":
+        result_type = "interrupted_rest"
+        rest_quality = "interrupted"
+        risk_band = "high"
+        summary = f"Стоянка у {node_label} слишком опасна для нормального отдыха."
+        result_summary = "Группа не может по-настоящему отдохнуть: место держит всех в напряжении и вынуждает сторожить лагерь."
+        applied_effects = ["rest_quality:interrupted", "safety_note:danger_zone"]
+    elif has_safe_rest_service or poi_kind in {"chapel", "watchtower", "inn"}:
+        result_type = "sheltered_rest"
+        rest_quality = "sheltered"
+        risk_band = "low" if safe_rest_hint or zone_band == "safe" else "medium"
+        summary = f"У {node_label} находится укрытие для передышки."
+        result_summary = "Группа устраивается в месте с укрытием и получает спокойный отдых без тяжёлой дорожной суеты."
+        applied_effects = ["rest_quality:sheltered", "safety_note:shelter_found"]
+    elif safe_rest_hint or settlement_kind in {"town", "village", "hamlet"}:
+        result_type = "safe_rest"
+        rest_quality = "restful"
+        risk_band = "low"
+        summary = f"У {node_label} удаётся устроить спокойный отдых."
+        result_summary = "Текущее место поддерживает безопасную стоянку, и группа получает спокойный отдых без немедленного риска."
+        applied_effects = ["rest_quality:restful", "safety_note:safe_node"]
+    elif settlement_kind == "roadside":
+        result_type = "roadside_pause"
+        rest_quality = "brief"
+        risk_band = "medium" if zone_band == "border" else "low"
+        summary = f"У {node_label} выходит только короткий дорожный привал."
+        result_summary = "Место годится для краткой передышки, но не для полноценной стоянки."
+        applied_effects = ["rest_quality:brief", "safety_note:roadside_pause"]
+    elif zone_band == "border" or settlement_kind in {"wilds", "ruins"}:
+        result_type = "uneasy_rest"
+        rest_quality = "uneasy"
+        risk_band = "medium"
+        summary = f"Лагерь у {node_label} остаётся настороженным."
+        result_summary = "Группа отдыхает вполглаза: пограничная или дикая местность не даёт расслабиться."
+        applied_effects = ["rest_quality:uneasy", "safety_note:border_watch"]
+
+    return _normalize_group_last_camp_result(
+        {
+            "result_id": uuid.uuid4().hex[:12],
+            "result_type": result_type,
+            "summary": summary,
+            "result_summary": result_summary,
+            "node_id": node_id,
+            "node_label": node_label,
+            "rest_quality": rest_quality,
+            "risk_band": risk_band,
+            "source": source,
+            "applied_effects": applied_effects,
+            "resolved_at": datetime.now(timezone.utc).isoformat(),
+        }
+    )
+
+
 def build_group_travel_event_outcome(
     event: dict[str, Any] | None,
     *,
@@ -1726,6 +1889,57 @@ def get_current_group_last_travel_event_outcome(
     if not isinstance(group, dict):
         return None
     return _normalize_group_travel_event_outcome(group.get("last_travel_event_outcome"))
+
+
+def get_current_group_last_camp_result(
+    sess: Session,
+    *,
+    player_id: uuid.UUID | str | None = None,
+    group_id: str | None = None,
+) -> dict[str, Any] | None:
+    resolved_group_id = str(group_id or "").strip()
+    resolved_player_id = str(player_id or "").strip()
+    if not resolved_group_id and resolved_player_id:
+        resolved_group_id = str(_get_player_group_id(sess, resolved_player_id) or "").strip()
+    if not resolved_group_id:
+        return None
+    group = _get_group_states(sess).get(resolved_group_id)
+    if not isinstance(group, dict):
+        return None
+    return _normalize_group_last_camp_result(group.get("last_camp_result"))
+
+
+def resolve_group_camp(
+    sess: Session,
+    group_id: str,
+    *,
+    player_id: uuid.UUID | str | None = None,
+    source: str = "camp",
+) -> tuple[dict[str, Any] | None, str | None]:
+    groups = _get_group_states(sess)
+    group_key = str(group_id or "").strip()
+    group = groups.get(group_key)
+    if not group:
+        return None, "Группа не найдена."
+    camp_state = _group_camp_summary(group)
+    if not camp_state:
+        return None, "У группы нет активного лагеря."
+    resolved_player_id = str(player_id or "").strip()
+    result = build_group_camp_result(
+        camp_state,
+        node_context=get_current_group_node_context(sess, player_id=resolved_player_id or None, group_id=group_key),
+        available_services=get_current_group_node_services(sess, player_id=resolved_player_id or None, group_id=group_key),
+        travel_event=_group_travel_event_summary(group),
+        travel_state=_group_travel_state_summary(group),
+        source=source,
+    )
+    if not result:
+        return None, "Не удалось подготовить результат лагеря."
+    _set_group_last_camp_result(group, result)
+    _apply_group_activity_state(group, status="idle")
+    _persist_group_states(sess, groups)
+    _sync_group_position_mirrors(sess, group)
+    return dict(group), None
 
 
 def resolve_group_travel_event(
@@ -2031,6 +2245,10 @@ def _group_camp_summary(group: dict[str, Any]) -> dict[str, Any] | None:
     return _normalize_group_camp_state(group.get("camp_state"))
 
 
+def _group_last_camp_result_summary(group: dict[str, Any]) -> dict[str, Any] | None:
+    return _normalize_group_last_camp_result(group.get("last_camp_result"))
+
+
 def _group_movement_mode(group: dict[str, Any]) -> str:
     return _normalize_group_movement_mode(group.get("movement_mode"))
 
@@ -2207,6 +2425,9 @@ def _normalize_group_state(
         normalized["wait_state"] = wait_state
     if camp_state:
         normalized["camp_state"] = camp_state
+    last_camp_result = _normalize_group_last_camp_result(raw.get("last_camp_result"))
+    if last_camp_result:
+        normalized["last_camp_result"] = last_camp_result
     if movement_intent:
         normalized["movement_intent"] = movement_intent
     if travel_state:

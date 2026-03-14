@@ -492,6 +492,109 @@ def test_set_group_camp_creates_group_camp_state() -> None:
     assert session_state._get_group_states(sess)["main"]["status"] == "camping"
 
 
+def test_build_group_camp_result_prefers_safe_or_sheltered_rest_on_safe_node() -> None:
+    result = session_state.build_group_camp_result(
+        {"reason": "ночлег", "source": "test"},
+        node_context={
+            "node_summary": {
+                "node_id": "chapel_village",
+                "label": "Деревня у часовни",
+                "zone_band": "safe",
+                "settlement_kind": "village",
+                "poi_kind": "chapel",
+                "safe_rest_hint": True,
+            }
+        },
+        available_services=[{"service_key": "safe_rest", "label": "Безопасный отдых"}],
+        source="test",
+    )
+
+    assert result is not None
+    assert result["result_type"] == "sheltered_rest"
+    assert result["rest_quality"] == "sheltered"
+    assert result["risk_band"] == "low"
+
+
+def test_build_group_camp_result_prefers_uneasy_or_interrupted_rest_on_border_or_danger_node() -> None:
+    result = session_state.build_group_camp_result(
+        {"reason": "ночлег", "source": "test"},
+        node_context={
+            "node_summary": {
+                "node_id": "ruined_settlement",
+                "label": "Разрушенное поселение",
+                "zone_band": "danger",
+                "settlement_kind": "ruins",
+                "safe_rest_hint": False,
+            }
+        },
+        source="test",
+    )
+
+    assert result is not None
+    assert result["result_type"] == "interrupted_rest"
+    assert result["rest_quality"] == "interrupted"
+    assert result["risk_band"] == "high"
+
+
+def test_build_group_camp_result_active_blocking_event_worsens_outcome() -> None:
+    result = session_state.build_group_camp_result(
+        {"reason": "переждать", "source": "test"},
+        node_context={
+            "node_summary": {
+                "node_id": "start_trakt",
+                "label": "Стартовый тракт",
+                "zone_band": "safe",
+                "settlement_kind": "roadside",
+                "safe_rest_hint": True,
+            }
+        },
+        travel_event={
+            "event_id": "evt-1",
+            "event_key": "blocked_path",
+            "event_type": "roadside_hook",
+            "summary": "Путь заблокирован",
+            "route_snapshot": {
+                "allowed": True,
+                "route_kind": "zone_move",
+                "action_kind": "move",
+                "target_label": "Лесной брод",
+            },
+            "source": "test",
+            "active": True,
+            "resolved": False,
+        },
+        source="test",
+    )
+
+    assert result is not None
+    assert result["result_type"] == "interrupted_rest"
+    assert any("blocked_route" in effect for effect in result["applied_effects"])
+
+
+def test_resolve_group_camp_stores_canonical_result_and_exposes_current_result() -> None:
+    player_id = uuid.uuid4()
+    sess = SimpleNamespace(settings={})
+    session_state._initialize_default_group(
+        sess,
+        [player_id],
+        {
+            "map_level": "region",
+            "node_type": "zone",
+            "node_id": "chapel_village",
+            "label": "Деревня у часовни",
+        },
+    )
+    session_state.set_group_camp(sess, "main", reason="ночлег", source="test", requested_by=player_id)
+
+    resolved, error = session_state.resolve_group_camp(sess, "main", player_id=player_id, source="test")
+
+    assert error is None
+    assert resolved is not None
+    assert resolved["status"] == "idle"
+    assert resolved["last_camp_result"]["result_type"] in {"safe_rest", "sheltered_rest"}
+    assert session_state.get_current_group_last_camp_result(sess, player_id=player_id) == resolved["last_camp_result"]
+
+
 def test_request_and_apply_group_split_creates_two_valid_groups() -> None:
     left_id = uuid.uuid4()
     right_id = uuid.uuid4()

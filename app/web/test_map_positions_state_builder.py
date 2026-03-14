@@ -110,6 +110,7 @@ def test_build_state_includes_legacy_and_structured_positions(monkeypatch) -> No
     monkeypatch.setattr(state_builder, "get_current_group_node_services", lambda _sess, player_id=None: [])
     monkeypatch.setattr(state_builder, "get_current_group_last_service_result", lambda _sess, player_id=None: None)
     monkeypatch.setattr(state_builder, "get_current_group_travel_event", lambda _sess, player_id=None: None)
+    monkeypatch.setattr(state_builder, "get_current_group_last_camp_result", lambda _sess, player_id=None: None)
     monkeypatch.setattr(state_builder, "get_current_group_last_travel_event_outcome", lambda _sess, player_id=None: None)
     monkeypatch.setattr(state_builder, "get_current_group_navigation_options", lambda _sess, player_id=None: [])
     monkeypatch.setattr(state_builder, "snapshot_combat_state", lambda _session_id: None)
@@ -133,6 +134,7 @@ def test_build_state_includes_legacy_and_structured_positions(monkeypatch) -> No
             "travel_activity_summary": None,
             "wait_summary": None,
             "camp_summary": None,
+            "last_camp_result_summary": None,
             "movement_intent_summary": None,
             "travel_state": None,
             "travel_summary": None,
@@ -150,6 +152,7 @@ def test_build_state_includes_legacy_and_structured_positions(monkeypatch) -> No
     assert payload["game"]["current_group_node_services"] == []
     assert payload["game"]["current_group_last_service_result"] is None
     assert payload["game"]["current_group_travel_event"] is None
+    assert payload["game"]["current_group_last_camp_result"] is None
     assert payload["game"]["current_group_last_travel_event_outcome"] is None
     assert payload["game"]["current_group_navigation_options"] == []
     assert payload["session"]["current_group_id"] is None
@@ -348,6 +351,23 @@ def test_build_state_exports_current_player_group_id(monkeypatch) -> None:
     )
     monkeypatch.setattr(
         state_builder,
+        "get_current_group_last_camp_result",
+        lambda _sess, player_id=None: {
+            "result_id": "camp-out-1",
+            "result_type": "sheltered_rest",
+            "summary": "У часовни есть укрытие для спокойной стоянки.",
+            "result_summary": "Группа устраивается в укрытии и получает спокойную передышку.",
+            "node_id": "start_trakt",
+            "node_label": "Стартовый тракт",
+            "rest_quality": "sheltered",
+            "risk_band": "low",
+            "source": "test",
+            "applied_effects": ["rest_quality:sheltered", "safety_note:shelter_found"],
+            "resolved_at": "2026-03-14T00:07:00+00:00",
+        },
+    )
+    monkeypatch.setattr(
+        state_builder,
         "get_current_group_last_travel_event_outcome",
         lambda _sess, player_id=None: {
             "outcome_id": "out-road",
@@ -478,6 +498,19 @@ def test_build_state_exports_current_player_group_id(monkeypatch) -> None:
         "active": True,
         "resolved": False,
     }
+    assert payload["game"]["current_group_last_camp_result"] == {
+        "result_id": "camp-out-1",
+        "result_type": "sheltered_rest",
+        "summary": "У часовни есть укрытие для спокойной стоянки.",
+        "result_summary": "Группа устраивается в укрытии и получает спокойную передышку.",
+        "node_id": "start_trakt",
+        "node_label": "Стартовый тракт",
+        "rest_quality": "sheltered",
+        "risk_band": "low",
+        "source": "test",
+        "applied_effects": ["rest_quality:sheltered", "safety_note:shelter_found"],
+        "resolved_at": "2026-03-14T00:07:00+00:00",
+    }
     assert payload["game"]["current_group_last_travel_event_outcome"] == {
         "outcome_id": "out-road",
         "event_key": "roadside_finding",
@@ -550,6 +583,19 @@ def test_build_state_exports_group_activity_summaries(monkeypatch) -> None:
             "camp_state": {
                 "reason": "ночлег",
                 "source": "test",
+            },
+            "last_camp_result": {
+                "result_id": "camp-out-2",
+                "result_type": "uneasy_rest",
+                "summary": "Лагерь у лагеря остаётся настороженным.",
+                "result_summary": "Группа отдыхает вполглаза и не получает полной безопасности.",
+                "node_id": "camp",
+                "node_label": "camp",
+                "rest_quality": "uneasy",
+                "risk_band": "medium",
+                "source": "test",
+                "applied_effects": ["rest_quality:uneasy", "safety_note:border_watch"],
+                "resolved_at": "2026-03-14T00:06:00+00:00",
             },
             "movement_intent": {
                 "target_label": "Северные ворота",
@@ -685,6 +731,7 @@ def test_build_state_exports_group_activity_summaries(monkeypatch) -> None:
     monkeypatch.setattr(state_builder, "get_current_group_node_services", lambda _sess, player_id=None: [])
     monkeypatch.setattr(state_builder, "get_current_group_last_service_result", lambda _sess, player_id=None: None)
     monkeypatch.setattr(state_builder, "get_current_group_travel_event", lambda _sess, player_id=None: None)
+    monkeypatch.setattr(state_builder, "get_current_group_last_camp_result", lambda _sess, player_id=None: None)
     monkeypatch.setattr(state_builder, "get_current_group_last_travel_event_outcome", lambda _sess, player_id=None: None)
     monkeypatch.setattr(state_builder, "get_current_group_navigation_options", lambda _sess, player_id=None: [])
     monkeypatch.setattr(state_builder, "snapshot_combat_state", lambda _session_id: None)
@@ -706,6 +753,19 @@ def test_build_state_exports_group_activity_summaries(monkeypatch) -> None:
     assert payload["game"]["groups"]["main"]["camp_summary"] == {
         "reason": "ночлег",
         "source": "test",
+    }
+    assert payload["game"]["groups"]["main"]["last_camp_result_summary"] == {
+        "result_id": "camp-out-2",
+        "result_type": "uneasy_rest",
+        "summary": "Лагерь у лагеря остаётся настороженным.",
+        "result_summary": "Группа отдыхает вполглаза и не получает полной безопасности.",
+        "node_id": "camp",
+        "node_label": "camp",
+        "rest_quality": "uneasy",
+        "risk_band": "medium",
+        "source": "test",
+        "applied_effects": ["rest_quality:uneasy", "safety_note:border_watch"],
+        "resolved_at": "2026-03-14T00:06:00+00:00",
     }
     assert payload["game"]["groups"]["main"]["movement_intent_summary"] == {
         "target_label": "Северные ворота",

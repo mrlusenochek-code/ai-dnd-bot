@@ -6,10 +6,12 @@ from types import SimpleNamespace
 from app.web import session_state, ws_handlers
 
 
-def test_parse_group_command_supports_wait_camp_move_navigate_context_actions_services_enter_stop_arrive_interrupt_pause_resume_event_resolution_split_and_merge() -> None:
+def test_parse_group_command_supports_wait_camp_rest_move_navigate_context_actions_services_enter_stop_arrive_interrupt_pause_resume_event_resolution_split_and_merge() -> None:
     scout_id = str(uuid.uuid4())
     action_wait, payload_wait = ws_handlers._parse_group_command("group wait: держим позицию")
+    action_camp_resolve, payload_camp_resolve = ws_handlers._parse_group_command("group camp resolve")
     action_camp, payload_camp = ws_handlers._parse_group_command("group camp ночлег у костра")
+    action_rest, payload_rest = ws_handlers._parse_group_command("group rest")
     action_move, payload_move = ws_handlers._parse_group_command("group move к воротам")
     action_navigate, payload_navigate = ws_handlers._parse_group_command("group navigate fortress_gate")
     action_go, payload_go = ws_handlers._parse_group_command("group go mine_entrance")
@@ -37,7 +39,9 @@ def test_parse_group_command_supports_wait_camp_move_navigate_context_actions_se
     action_merge, payload_merge = ws_handlers._parse_group_command("group merge scout into main")
 
     assert (action_wait, payload_wait) == ("group_wait", {"reason": "держим позицию"})
+    assert (action_camp_resolve, payload_camp_resolve) == ("group_camp_resolve", {})
     assert (action_camp, payload_camp) == ("group_camp", {"reason": "ночлег у костра"})
+    assert (action_rest, payload_rest) == ("group_rest", {})
     assert (action_move, payload_move) == ("group_move", {"target_hint": "к воротам"})
     assert (action_navigate, payload_navigate) == ("group_navigate", {"target_node_id": "fortress_gate"})
     assert (action_go, payload_go) == ("group_navigate", {"target_node_id": "mine_entrance"})
@@ -95,6 +99,86 @@ def test_handle_group_wait_request_sets_waiting_state() -> None:
         "source": "test",
         "requested_by": str(player_id),
     }
+
+
+def test_handle_group_camp_resolve_request_stores_canonical_result() -> None:
+    player_id = uuid.uuid4()
+    sess = SimpleNamespace(settings={})
+    session_state._initialize_default_group(
+        sess,
+        [player_id],
+        {
+            "map_level": "region",
+            "node_type": "zone",
+            "node_id": "chapel_village",
+            "label": "Деревня у часовни",
+        },
+    )
+    session_state.set_group_camp(sess, "main", reason="ночлег", source="test", requested_by=player_id)
+
+    handled, err, msg = ws_handlers._handle_group_action_request(
+        sess,
+        action="group_camp_resolve",
+        actor_player_id=player_id,
+        payload={},
+        source="test",
+    )
+
+    assert handled is True
+    assert err is None
+    assert "спокойный отдых" in str(msg)
+    resolved_group = session_state._get_group_states(sess)["main"]
+    assert resolved_group["status"] == "idle"
+    assert "camp_state" not in resolved_group
+    assert resolved_group["last_camp_result"]["result_type"] in {"safe_rest", "sheltered_rest"}
+
+
+def test_handle_group_rest_request_sets_and_resolves_camp() -> None:
+    player_id = uuid.uuid4()
+    sess = SimpleNamespace(settings={})
+    session_state._initialize_default_group(
+        sess,
+        [player_id],
+        {
+            "map_level": "region",
+            "node_type": "zone",
+            "node_id": "start_trakt",
+            "label": "Стартовый тракт",
+        },
+    )
+
+    handled, err, msg = ws_handlers._handle_group_action_request(
+        sess,
+        action="group_rest",
+        actor_player_id=player_id,
+        payload={},
+        source="test",
+    )
+
+    assert handled is True
+    assert err is None
+    assert "передыш" in str(msg) or "отдых" in str(msg)
+    resolved_group = session_state._get_group_states(sess)["main"]
+    assert resolved_group["status"] == "idle"
+    assert resolved_group["last_camp_result"]["result_type"] in {"safe_rest", "roadside_pause", "sheltered_rest"}
+
+
+def test_handle_group_camp_resolve_without_active_camp_returns_error() -> None:
+    player_id = uuid.uuid4()
+    sess = SimpleNamespace(settings={})
+    session_state._initialize_default_group(sess, [player_id], "Таверна")
+
+    handled, err, msg = ws_handlers._handle_group_action_request(
+        sess,
+        action="group_camp_resolve",
+        actor_player_id=player_id,
+        payload={},
+        source="test",
+    )
+
+    assert handled is True
+    assert err == "У группы нет активного лагеря."
+    assert msg is None
 
 
 def test_handle_group_context_action_wait_camp_inspect_and_navigate() -> None:
