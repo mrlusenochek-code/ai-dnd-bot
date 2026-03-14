@@ -104,6 +104,7 @@ def test_build_state_includes_legacy_and_structured_positions(monkeypatch) -> No
     monkeypatch.setattr(state_builder, "_get_player_group_id", lambda _sess, _player_id, _player_ids=None: "main")
     monkeypatch.setattr(state_builder, "get_player_known_node_ids", lambda _sess, _player_id: [])
     monkeypatch.setattr(state_builder, "get_player_revealed_node_ids", lambda _sess, _player_id: [])
+    monkeypatch.setattr(state_builder, "get_current_group_navigation_options", lambda _sess, player_id=None: [])
     monkeypatch.setattr(state_builder, "snapshot_combat_state", lambda _session_id: None)
 
     db = _FakeDb([[player], [char], [], []])
@@ -134,6 +135,7 @@ def test_build_state_includes_legacy_and_structured_positions(monkeypatch) -> No
             "last_resolution_summary": None,
         }
     }
+    assert payload["game"]["current_group_navigation_options"] == []
     assert payload["session"]["current_group_id"] is None
     assert payload["players"] == [
         {
@@ -214,12 +216,50 @@ def test_build_state_exports_current_player_group_id(monkeypatch) -> None:
     monkeypatch.setattr(state_builder, "_get_player_group_id", lambda _sess, _player_id, _player_ids=None: "main")
     monkeypatch.setattr(state_builder, "get_player_known_node_ids", lambda _sess, _player_id: ["start_trakt"])
     monkeypatch.setattr(state_builder, "get_player_revealed_node_ids", lambda _sess, _player_id: ["start_trakt", "fortress_gate"])
+    monkeypatch.setattr(
+        state_builder,
+        "get_current_group_navigation_options",
+        lambda _sess, player_id=None: [
+            {
+                "target_node_id": "fortress_gate",
+                "target_label": "Ворота крепости",
+                "target_node_type": "landmark",
+                "action_kind": "move",
+                "route_kind": "landmark_move",
+                "traversal_kind": "gate_approach",
+                "risk_band": "low",
+                "terrain_hint": "fortified",
+                "travel_tags": ["fortified"],
+                "source": "registry",
+                "known": True,
+                "revealed": True,
+                "visible": True,
+            }
+        ],
+    )
     monkeypatch.setattr(state_builder, "snapshot_combat_state", lambda _session_id: None)
 
     db = _FakeDb([[player], [], [], []])
     payload = asyncio.run(state_builder.build_state(db, sess))
 
     assert payload["session"]["current_group_id"] == "main"
+    assert payload["game"]["current_group_navigation_options"] == [
+        {
+            "target_node_id": "fortress_gate",
+            "target_label": "Ворота крепости",
+            "target_node_type": "landmark",
+            "action_kind": "move",
+            "route_kind": "landmark_move",
+            "traversal_kind": "gate_approach",
+            "risk_band": "low",
+            "terrain_hint": "fortified",
+            "travel_tags": ["fortified"],
+            "source": "registry",
+            "known": True,
+            "revealed": True,
+            "visible": True,
+        }
+    ]
 
 
 def test_build_state_exports_group_activity_summaries(monkeypatch) -> None:
@@ -376,6 +416,7 @@ def test_build_state_exports_group_activity_summaries(monkeypatch) -> None:
     monkeypatch.setattr(state_builder, "_get_player_group_id", lambda _sess, _player_id, _player_ids=None: "main")
     monkeypatch.setattr(state_builder, "get_player_known_node_ids", lambda _sess, _player_id: ["camp", "north-gate"])
     monkeypatch.setattr(state_builder, "get_player_revealed_node_ids", lambda _sess, _player_id: ["camp"])
+    monkeypatch.setattr(state_builder, "get_current_group_navigation_options", lambda _sess, player_id=None: [])
     monkeypatch.setattr(state_builder, "snapshot_combat_state", lambda _session_id: None)
 
     db = _FakeDb([[player], [], [], []])

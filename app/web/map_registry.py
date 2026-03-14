@@ -631,3 +631,66 @@ def get_obvious_linked_static_node_ids(node_id: str | None, *, limit: int = 1) -
         if len(obvious_ids) >= limit:
             break
     return obvious_ids
+
+
+def get_static_navigation_options(
+    *,
+    current_node_id: str | None = None,
+    current_map_position: dict[str, Any] | None = None,
+    known_node_ids: list[str] | set[str] | None = None,
+    revealed_node_ids: list[str] | set[str] | None = None,
+) -> list[dict[str, Any]]:
+    resolved_current_node_id = _normalized_text(current_node_id)
+    if not resolved_current_node_id and isinstance(current_map_position, dict):
+        resolved_current_node_id = _normalized_text(current_map_position.get("node_id"))
+    if not resolved_current_node_id:
+        return []
+
+    normalized_known = {
+        _normalized_text(node_id)
+        for node_id in (known_node_ids or [])
+        if _normalized_text(node_id)
+    }
+    normalized_revealed = {
+        _normalized_text(node_id)
+        for node_id in (revealed_node_ids or [])
+        if _normalized_text(node_id)
+    }
+
+    options: list[dict[str, Any]] = []
+    for link in get_static_map_links():
+        if _normalized_text(link.get("from_node_id")) != resolved_current_node_id:
+            continue
+        target_node = get_static_node(str(link.get("to_node_id") or ""))
+        if not target_node:
+            continue
+        target_node_id = _normalized_text(target_node.get("node_id"))
+        is_known = target_node_id in normalized_known
+        is_revealed = target_node_id in normalized_revealed
+        if not is_known:
+            continue
+        option = {
+            "target_node_id": str(target_node.get("node_id") or ""),
+            "target_label": str(target_node.get("label") or target_node.get("node_id") or ""),
+            "target_node_type": str(target_node.get("node_type") or "zone"),
+            "action_kind": str(link.get("action_kind") or "move"),
+            "route_kind": str(link.get("route_kind") or ""),
+            "traversal_kind": str(link.get("traversal_kind") or ""),
+            "risk_band": str(link.get("risk_band") or ""),
+            "terrain_hint": str(link.get("terrain_hint") or ""),
+            "travel_tags": list(link.get("travel_tags") or []),
+            "source": "registry",
+            "known": is_known,
+            "revealed": is_revealed,
+            "visible": is_revealed,
+        }
+        options.append(option)
+
+    options.sort(
+        key=lambda item: (
+            0 if bool(item.get("revealed")) else 1,
+            str(item.get("action_kind") or ""),
+            str(item.get("target_label") or ""),
+        )
+    )
+    return options

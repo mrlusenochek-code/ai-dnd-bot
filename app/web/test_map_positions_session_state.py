@@ -895,6 +895,33 @@ def test_player_map_reveal_storage_is_separate_and_seeded_from_current_static_po
     assert session_state.has_player_map_knowledge(sess, player_id, "eastern_bank") is True
 
 
+def test_get_current_group_navigation_options_respects_known_and_revealed_nodes() -> None:
+    player_id = uuid.uuid4()
+    sess = SimpleNamespace(settings={})
+    session_state._initialize_default_group(
+        sess,
+        [player_id],
+        {
+            "map_level": "region",
+            "node_type": "zone",
+            "node_id": "start_trakt",
+            "label": "Стартовый тракт",
+        },
+    )
+
+    options = session_state.get_current_group_navigation_options(sess, player_id=player_id)
+
+    assert [option["target_node_id"] for option in options] == ["fortress_gate"]
+    assert options[0]["revealed"] is True
+
+    session_state.grant_player_map_knowledge(sess, player_id, "craft_town", knowledge_kind="known", source="test")
+    updated_options = session_state.get_current_group_navigation_options(sess, player_id=player_id)
+
+    assert [option["target_node_id"] for option in updated_options] == ["fortress_gate", "craft_town"]
+    assert updated_options[1]["known"] is True
+    assert updated_options[1]["revealed"] is False
+
+
 def test_pause_resume_and_evaluate_group_travel_preserve_mode_and_activity() -> None:
     player_id = uuid.uuid4()
     sess = SimpleNamespace(settings={})

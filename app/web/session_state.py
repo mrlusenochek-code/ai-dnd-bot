@@ -5,7 +5,7 @@ from typing import Any
 from sqlalchemy.orm.attributes import flag_modified
 
 from app.db.models import Session
-from app.web.map_registry import STATIC_MAP_NODES, get_obvious_linked_static_node_ids, get_static_node
+from app.web.map_registry import STATIC_MAP_NODES, get_obvious_linked_static_node_ids, get_static_navigation_options, get_static_node
 from app.web.utils import as_int
 
 
@@ -980,6 +980,34 @@ def is_player_node_revealed(sess: Session, player_id: uuid.UUID | str, node_id: 
     if not normalized_node_id:
         return False
     return normalized_node_id in set(get_player_revealed_node_ids(sess, player_id))
+
+
+def get_current_group_navigation_options(
+    sess: Session,
+    *,
+    player_id: uuid.UUID | str | None = None,
+    group_id: str | None = None,
+) -> list[dict[str, Any]]:
+    resolved_group_id = str(group_id or "").strip()
+    resolved_player_id = str(player_id or "").strip()
+    if not resolved_group_id and resolved_player_id:
+        resolved_group_id = str(_get_player_group_id(sess, resolved_player_id) or "").strip()
+    if not resolved_group_id:
+        return []
+    group = _get_group_states(sess).get(resolved_group_id)
+    if not isinstance(group, dict):
+        return []
+    current_map_position = _normalize_map_position(group.get("current_map_position"))
+    if not current_map_position:
+        return []
+    if not resolved_player_id:
+        player_ids = group.get("player_ids") if isinstance(group.get("player_ids"), list) else []
+        resolved_player_id = str(player_ids[0] or "").strip() if player_ids else ""
+    return get_static_navigation_options(
+        current_map_position=current_map_position,
+        known_node_ids=get_player_known_node_ids(sess, resolved_player_id) if resolved_player_id else None,
+        revealed_node_ids=get_player_revealed_node_ids(sess, resolved_player_id) if resolved_player_id else None,
+    )
 
 
 def create_group_wait_state(

@@ -3,6 +3,7 @@ from __future__ import annotations
 from app.web.map_registry import (
     find_static_link,
     get_obvious_linked_static_node_ids,
+    get_static_navigation_options,
     get_static_link_metadata,
     get_static_map_links,
     get_static_map_nodes,
@@ -106,6 +107,57 @@ def test_static_map_registry_loads_known_nodes_and_links() -> None:
         "travel_tags": ["transition", "interior_threshold"],
     }
     assert get_obvious_linked_static_node_ids("start_trakt") == ["fortress_gate"]
+
+
+def test_get_static_navigation_options_returns_expected_registry_options() -> None:
+    options = get_static_navigation_options(
+        current_node_id="start_trakt",
+        known_node_ids={"start_trakt", "fortress_gate", "craft_town"},
+        revealed_node_ids={"start_trakt", "fortress_gate"},
+    )
+
+    assert options == [
+        {
+            "target_node_id": "fortress_gate",
+            "target_label": "Ворота крепости",
+            "target_node_type": "landmark",
+            "action_kind": "move",
+            "route_kind": "landmark_move",
+            "traversal_kind": "gate_approach",
+            "risk_band": "low",
+            "terrain_hint": "fortified",
+            "travel_tags": ["fortified"],
+            "source": "registry",
+            "known": True,
+            "revealed": True,
+            "visible": True,
+        },
+        {
+            "target_node_id": "craft_town",
+            "target_label": "Озёрный городок",
+            "target_node_type": "zone",
+            "action_kind": "move",
+            "route_kind": "zone_move",
+            "traversal_kind": "road",
+            "risk_band": "low",
+            "terrain_hint": "open",
+            "travel_tags": ["settled_route"],
+            "source": "registry",
+            "known": True,
+            "revealed": False,
+            "visible": False,
+        },
+    ]
+
+
+def test_get_static_navigation_options_hides_unknown_static_targets() -> None:
+    options = get_static_navigation_options(
+        current_node_id="start_trakt",
+        known_node_ids={"start_trakt", "fortress_gate"},
+        revealed_node_ids={"start_trakt", "fortress_gate"},
+    )
+
+    assert [option["target_node_id"] for option in options] == ["fortress_gate"]
 
 
 def test_resolve_static_map_node_supports_labels_and_aliases() -> None:
