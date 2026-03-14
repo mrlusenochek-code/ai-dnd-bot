@@ -2,7 +2,9 @@ from __future__ import annotations
 
 from app.web.map_registry import (
     find_static_link,
+    get_current_node_context_actions,
     get_obvious_linked_static_node_ids,
+    get_static_node_context,
     get_static_navigation_options,
     get_static_link_metadata,
     get_static_map_links,
@@ -158,6 +160,59 @@ def test_get_static_navigation_options_hides_unknown_static_targets() -> None:
     )
 
     assert [option["target_node_id"] for option in options] == ["fortress_gate"]
+
+
+def test_get_static_node_context_builds_zone_landmark_and_interior_summaries() -> None:
+    assert get_static_node_context(node_id="craft_town") == {
+        "node_id": "craft_town",
+        "label": "Озёрный городок",
+        "node_type": "zone",
+        "area_label": "Озёрный городок",
+        "zone_band": "safe",
+        "settlement_kind": "town",
+        "environment_hint": "lakeshore",
+        "safe_rest_hint": True,
+    }
+    assert get_static_node_context(node_id="fortress_gate") == {
+        "node_id": "fortress_gate",
+        "label": "Ворота крепости",
+        "node_type": "landmark",
+        "area_label": "Стартовый тракт",
+        "zone_band": "safe",
+        "poi_kind": "fortified",
+        "environment_hint": "fortified",
+        "safe_rest_hint": False,
+    }
+    assert get_static_node_context(node_id="mine_entrance") == {
+        "node_id": "mine_entrance",
+        "label": "Шахтный вход",
+        "node_type": "interior_entry",
+        "area_label": "Разрушенный посёлок",
+        "zone_band": "danger",
+        "poi_kind": "mine",
+        "environment_hint": "ruined_frontier",
+        "safe_rest_hint": False,
+    }
+
+
+def test_get_current_node_context_actions_uses_metadata_honestly() -> None:
+    assert get_current_node_context_actions(node_id="craft_town") == [
+        {"action_key": "navigate", "label": "Продолжить путь", "action_type": "action"},
+        {"action_key": "inspect", "label": "Осмотреться", "action_type": "action"},
+        {"action_key": "wait", "label": "Подождать", "action_type": "action"},
+        {"action_key": "rest_hint", "label": "Есть место для передышки", "action_type": "hint"},
+    ]
+    assert get_current_node_context_actions(node_id="mine_entrance") == [
+        {"action_key": "enter", "label": "Войти", "action_type": "action"},
+        {"action_key": "inspect", "label": "Осмотреть вход", "action_type": "action"},
+        {"action_key": "wait", "label": "Подождать", "action_type": "action"},
+    ]
+    assert get_current_node_context_actions(node_id="marsh_edge") == [
+        {"action_key": "navigate", "label": "Продолжить путь", "action_type": "action"},
+        {"action_key": "inspect", "label": "Осмотреться", "action_type": "action"},
+        {"action_key": "wait", "label": "Подождать", "action_type": "action"},
+        {"action_key": "camp", "label": "Разбить лагерь", "action_type": "action"},
+    ]
 
 
 def test_resolve_static_map_node_supports_labels_and_aliases() -> None:

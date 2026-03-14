@@ -104,6 +104,7 @@ def test_build_state_includes_legacy_and_structured_positions(monkeypatch) -> No
     monkeypatch.setattr(state_builder, "_get_player_group_id", lambda _sess, _player_id, _player_ids=None: "main")
     monkeypatch.setattr(state_builder, "get_player_known_node_ids", lambda _sess, _player_id: [])
     monkeypatch.setattr(state_builder, "get_player_revealed_node_ids", lambda _sess, _player_id: [])
+    monkeypatch.setattr(state_builder, "get_current_group_node_context", lambda _sess, player_id=None: None)
     monkeypatch.setattr(state_builder, "get_current_group_navigation_options", lambda _sess, player_id=None: [])
     monkeypatch.setattr(state_builder, "snapshot_combat_state", lambda _session_id: None)
 
@@ -135,6 +136,7 @@ def test_build_state_includes_legacy_and_structured_positions(monkeypatch) -> No
             "last_resolution_summary": None,
         }
     }
+    assert payload["game"]["current_group_node_context"] is None
     assert payload["game"]["current_group_navigation_options"] == []
     assert payload["session"]["current_group_id"] is None
     assert payload["players"] == [
@@ -218,6 +220,29 @@ def test_build_state_exports_current_player_group_id(monkeypatch) -> None:
     monkeypatch.setattr(state_builder, "get_player_revealed_node_ids", lambda _sess, _player_id: ["start_trakt", "fortress_gate"])
     monkeypatch.setattr(
         state_builder,
+        "get_current_group_node_context",
+        lambda _sess, player_id=None: {
+            "node_summary": {
+                "node_id": "start_trakt",
+                "label": "Стартовый тракт",
+                "node_type": "zone",
+                "area_label": "Стартовый тракт",
+                "zone_band": "safe",
+                "settlement_kind": "roadside",
+                "environment_hint": "roadland",
+                "safe_rest_hint": True,
+            },
+            "contextual_actions": [
+                {"action_key": "navigate", "label": "Продолжить путь", "action_type": "action"},
+                {"action_key": "inspect", "label": "Осмотреться", "action_type": "action"},
+                {"action_key": "wait", "label": "Подождать", "action_type": "action"},
+                {"action_key": "camp", "label": "Разбить лагерь", "action_type": "action"},
+                {"action_key": "rest_hint", "label": "Есть место для передышки", "action_type": "hint"},
+            ],
+        },
+    )
+    monkeypatch.setattr(
+        state_builder,
         "get_current_group_navigation_options",
         lambda _sess, player_id=None: [
             {
@@ -243,6 +268,25 @@ def test_build_state_exports_current_player_group_id(monkeypatch) -> None:
     payload = asyncio.run(state_builder.build_state(db, sess))
 
     assert payload["session"]["current_group_id"] == "main"
+    assert payload["game"]["current_group_node_context"] == {
+        "node_summary": {
+            "node_id": "start_trakt",
+            "label": "Стартовый тракт",
+            "node_type": "zone",
+            "area_label": "Стартовый тракт",
+            "zone_band": "safe",
+            "settlement_kind": "roadside",
+            "environment_hint": "roadland",
+            "safe_rest_hint": True,
+        },
+        "contextual_actions": [
+            {"action_key": "navigate", "label": "Продолжить путь", "action_type": "action"},
+            {"action_key": "inspect", "label": "Осмотреться", "action_type": "action"},
+            {"action_key": "wait", "label": "Подождать", "action_type": "action"},
+            {"action_key": "camp", "label": "Разбить лагерь", "action_type": "action"},
+            {"action_key": "rest_hint", "label": "Есть место для передышки", "action_type": "hint"},
+        ],
+    }
     assert payload["game"]["current_group_navigation_options"] == [
         {
             "target_node_id": "fortress_gate",
@@ -416,6 +460,7 @@ def test_build_state_exports_group_activity_summaries(monkeypatch) -> None:
     monkeypatch.setattr(state_builder, "_get_player_group_id", lambda _sess, _player_id, _player_ids=None: "main")
     monkeypatch.setattr(state_builder, "get_player_known_node_ids", lambda _sess, _player_id: ["camp", "north-gate"])
     monkeypatch.setattr(state_builder, "get_player_revealed_node_ids", lambda _sess, _player_id: ["camp"])
+    monkeypatch.setattr(state_builder, "get_current_group_node_context", lambda _sess, player_id=None: None)
     monkeypatch.setattr(state_builder, "get_current_group_navigation_options", lambda _sess, player_id=None: [])
     monkeypatch.setattr(state_builder, "snapshot_combat_state", lambda _session_id: None)
 
@@ -724,6 +769,7 @@ def test_build_state_exports_paused_travel_status_and_pause_reason(monkeypatch) 
     monkeypatch.setattr(state_builder, "_get_pc_positions", lambda _sess: {str(player_id): "camp"})
     monkeypatch.setattr(state_builder, "_get_map_positions", lambda _sess: {str(player_id): group_position})
     monkeypatch.setattr(state_builder, "_get_player_group_id", lambda _sess, _player_id, _player_ids=None: "main")
+    monkeypatch.setattr(state_builder, "get_current_group_node_context", lambda _sess, player_id=None: None)
     monkeypatch.setattr(state_builder, "snapshot_combat_state", lambda _session_id: None)
 
     db = _FakeDb([[player], [], [], []])

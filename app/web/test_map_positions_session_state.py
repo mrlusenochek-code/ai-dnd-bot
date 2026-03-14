@@ -970,6 +970,42 @@ def test_execute_group_navigation_option_runs_existing_travel_flow_and_errors_cl
     assert unavailable_error == "Эта navigation цель сейчас недоступна из текущей точки."
 
 
+def test_get_current_group_node_context_returns_node_summary_and_contextual_actions() -> None:
+    player_id = uuid.uuid4()
+    sess = SimpleNamespace(settings={})
+    session_state._initialize_default_group(
+        sess,
+        [player_id],
+        {
+            "map_level": "region",
+            "node_type": "zone",
+            "node_id": "craft_town",
+            "label": "Озёрный городок",
+        },
+    )
+
+    context = session_state.get_current_group_node_context(sess, player_id=player_id)
+
+    assert context == {
+        "node_summary": {
+            "node_id": "craft_town",
+            "label": "Озёрный городок",
+            "node_type": "zone",
+            "area_label": "Озёрный городок",
+            "zone_band": "safe",
+            "settlement_kind": "town",
+            "environment_hint": "lakeshore",
+            "safe_rest_hint": True,
+        },
+        "contextual_actions": [
+            {"action_key": "navigate", "label": "Продолжить путь", "action_type": "action"},
+            {"action_key": "inspect", "label": "Осмотреться", "action_type": "action"},
+            {"action_key": "wait", "label": "Подождать", "action_type": "action"},
+            {"action_key": "rest_hint", "label": "Есть место для передышки", "action_type": "hint"},
+        ],
+    }
+
+
 def test_pause_resume_and_evaluate_group_travel_preserve_mode_and_activity() -> None:
     player_id = uuid.uuid4()
     sess = SimpleNamespace(settings={})

@@ -46,6 +46,7 @@ from app.web.session_state import (
     _get_map_positions,
     _get_pc_positions,
     _get_player_group_id,
+    get_current_group_node_context,
     get_current_group_navigation_options,
     get_player_known_node_ids,
     get_player_revealed_node_ids,
@@ -358,6 +359,11 @@ async def build_state(db: AsyncSession, sess: Session) -> dict:
         if sess.current_player_id
         else []
     )
+    current_group_node_context = (
+        get_current_group_node_context(sess, player_id=sess.current_player_id)
+        if sess.current_player_id
+        else None
+    )
 
     return {
         "type": "state",
@@ -392,6 +398,7 @@ async def build_state(db: AsyncSession, sess: Session) -> dict:
             "free_round": _get_free_round(sess) if free_turns else None,
             "actions_done": actions_done,
             "actions_total": actions_total,
+            "current_group_node_context": current_group_node_context,
             "current_group_navigation_options": current_group_navigation_options,
             "groups": groups_payload,
             "pc_positions": pc_positions,

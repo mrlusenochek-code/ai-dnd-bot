@@ -5,7 +5,14 @@ from typing import Any
 from sqlalchemy.orm.attributes import flag_modified
 
 from app.db.models import Session
-from app.web.map_registry import STATIC_MAP_NODES, get_obvious_linked_static_node_ids, get_static_navigation_options, get_static_node
+from app.web.map_registry import (
+    STATIC_MAP_NODES,
+    get_current_node_context_actions,
+    get_obvious_linked_static_node_ids,
+    get_static_navigation_options,
+    get_static_node,
+    get_static_node_context,
+)
 from app.web.utils import as_int
 
 
@@ -1090,6 +1097,33 @@ def execute_group_navigation_option(
         return None, "Не удалось запустить navigation группы."
     updated = evaluate_group_travel_pause(sess, resolved_group_id) or updated
     return updated, None
+
+
+def get_current_group_node_context(
+    sess: Session,
+    *,
+    player_id: uuid.UUID | str | None = None,
+    group_id: str | None = None,
+) -> dict[str, Any] | None:
+    resolved_group_id = str(group_id or "").strip()
+    resolved_player_id = str(player_id or "").strip()
+    if not resolved_group_id and resolved_player_id:
+        resolved_group_id = str(_get_player_group_id(sess, resolved_player_id) or "").strip()
+    if not resolved_group_id:
+        return None
+    group = _get_group_states(sess).get(resolved_group_id)
+    if not isinstance(group, dict):
+        return None
+    current_map_position = _normalize_map_position(group.get("current_map_position"))
+    if not current_map_position:
+        return None
+    node_context = get_static_node_context(current_map_position=current_map_position)
+    if not node_context:
+        return None
+    return {
+        "node_summary": node_context,
+        "contextual_actions": get_current_node_context_actions(current_map_position=current_map_position),
+    }
 
 
 def create_group_wait_state(

@@ -694,3 +694,75 @@ def get_static_navigation_options(
         )
     )
     return options
+
+
+def get_static_node_context(
+    *,
+    node_id: str | None = None,
+    current_map_position: dict[str, Any] | None = None,
+) -> dict[str, Any] | None:
+    resolved_node = get_static_node(node_id)
+    if not resolved_node and isinstance(current_map_position, dict):
+        resolved_node = get_static_node(current_map_position.get("node_id"))
+    if resolved_node:
+        summary: dict[str, Any] = {
+            "node_id": str(resolved_node.get("node_id") or ""),
+            "label": str(resolved_node.get("label") or resolved_node.get("node_id") or ""),
+            "node_type": str(resolved_node.get("node_type") or "zone"),
+            "area_label": str(resolved_node.get("area_label") or resolved_node.get("label") or ""),
+            "zone_band": str(resolved_node.get("zone_band") or ""),
+        }
+        for key in ("settlement_kind", "poi_kind", "environment_hint", "safe_rest_hint"):
+            if key in resolved_node:
+                summary[key] = resolved_node.get(key)
+        return summary
+    if not isinstance(current_map_position, dict):
+        return None
+    return {
+        "node_id": str(current_map_position.get("node_id") or ""),
+        "label": str(current_map_position.get("label") or current_map_position.get("node_id") or ""),
+        "node_type": str(current_map_position.get("node_type") or "zone"),
+        "area_label": str(current_map_position.get("area_label") or current_map_position.get("label") or ""),
+    }
+
+
+def get_current_node_context_actions(
+    *,
+    node_id: str | None = None,
+    current_map_position: dict[str, Any] | None = None,
+) -> list[dict[str, Any]]:
+    context = get_static_node_context(node_id=node_id, current_map_position=current_map_position)
+    if not context:
+        return []
+
+    node_type = _normalized_text(context.get("node_type"))
+    zone_band = _normalized_text(context.get("zone_band"))
+    settlement_kind = _normalized_text(context.get("settlement_kind"))
+    safe_rest_hint = bool(context.get("safe_rest_hint"))
+
+    actions: list[dict[str, Any]] = []
+
+    def _add(action_key: str, label: str, action_type: str = "action") -> None:
+        if any(existing.get("action_key") == action_key for existing in actions):
+            return
+        actions.append({"action_key": action_key, "label": label, "action_type": action_type})
+
+    if node_type == "interior_entry":
+        _add("enter", "Войти")
+        _add("inspect", "Осмотреть вход")
+        _add("wait", "Подождать")
+        return actions
+
+    _add("navigate", "Продолжить путь")
+    _add("inspect", "Осмотреться")
+    _add("wait", "Подождать")
+
+    if settlement_kind in {"town", "village", "hamlet"} or safe_rest_hint:
+        _add("rest_hint", "Есть место для передышки", "hint")
+
+    if node_type in {"zone", "landmark"} and (
+        settlement_kind in {"roadside", "wilds", "ruins"} or zone_band in {"border", "danger"}
+    ):
+        _add("camp", "Разбить лагерь")
+
+    return actions
