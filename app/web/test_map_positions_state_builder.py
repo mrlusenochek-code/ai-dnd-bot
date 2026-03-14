@@ -255,6 +255,9 @@ def test_build_state_exports_group_activity_summaries(monkeypatch) -> None:
                 },
                 "movement_mode": "travel",
                 "source": "test",
+                "active": True,
+                "target_node_type": "landmark",
+                "target_node_id": "north-gate",
             },
         }
     }
@@ -306,4 +309,7 @@ def test_build_state_exports_group_activity_summaries(monkeypatch) -> None:
         },
         "movement_mode": "travel",
         "source": "test",
+        "active": True,
+        "target_node_type": "landmark",
+        "target_node_id": "north-gate",
     }

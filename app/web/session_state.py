@@ -434,15 +434,19 @@ def _normalize_group_movement_intent(raw: Any) -> dict[str, Any] | None:
         target_label = str(raw.get("target") or "").strip()
     movement_mode = str(raw.get("movement_mode") or raw.get("mode") or "travel").strip().lower() or "travel"
     source = str(raw.get("source") or "manual").strip() or "manual"
+    active = bool(raw.get("active", True))
     if not target_label and not target_node:
         return None
     state: dict[str, Any] = {
         "target_label": target_label[:80],
         "movement_mode": movement_mode[:40],
         "source": source[:40],
+        "active": active,
     }
     if target_node:
         state["target_node"] = target_node
+        state["target_node_type"] = str(target_node.get("node_type") or "zone")[:32]
+        state["target_node_id"] = str(target_node.get("node_id") or "")[:120]
     return state
 
 
@@ -486,6 +490,7 @@ def create_group_movement_intent(
     target_label: str | None = None,
     movement_mode: str | None = None,
     source: str = "manual",
+    active: bool = True,
 ) -> dict[str, Any] | None:
     return _normalize_group_movement_intent(
         {
@@ -493,6 +498,7 @@ def create_group_movement_intent(
             "target_label": target_label,
             "movement_mode": movement_mode,
             "source": source,
+            "active": active,
         }
     )
 
@@ -828,6 +834,118 @@ def set_group_camp(
     _persist_group_states(sess, groups)
     _sync_group_position_mirrors(sess, group)
     return dict(group)
+
+
+def set_group_movement_intent(
+    sess: Session,
+    group_id: str,
+    *,
+    target_node: dict[str, Any] | str,
+    target_label: str | None = None,
+    movement_mode: str = "travel",
+    source: str = "manual",
+) -> dict[str, Any] | None:
+    groups = _get_group_states(sess)
+    group_key = str(group_id or "").strip()
+    group = groups.get(group_key)
+    if not group:
+        return None
+    movement_intent = create_group_movement_intent(
+        target_node=target_node,
+        target_label=target_label,
+        movement_mode=movement_mode,
+        source=source,
+        active=True,
+    )
+    if not movement_intent:
+        return None
+    _apply_group_activity_state(
+        group,
+        status="moving_intent",
+        movement_intent=movement_intent,
+    )
+    _persist_group_states(sess, groups)
+    _sync_group_position_mirrors(sess, group)
+    return dict(group)
+
+
+def clear_group_movement_intent(sess: Session, group_id: str) -> dict[str, Any] | None:
+    groups = _get_group_states(sess)
+    group_key = str(group_id or "").strip()
+    group = groups.get(group_key)
+    if not group:
+        return None
+    _clear_group_activity_state(group)
+    _persist_group_states(sess, groups)
+    _sync_group_position_mirrors(sess, group)
+    return dict(group)
+
+
+def apply_group_move_target(
+    sess: Session,
+    group_id: str,
+    target_node: dict[str, Any] | str,
+    *,
+    target_label: str | None = None,
+    movement_mode: str = "travel",
+    source: str = "manual",
+) -> dict[str, Any] | None:
+    groups = _get_group_states(sess)
+    group_key = str(group_id or "").strip()
+    group = groups.get(group_key)
+    if not group:
+        return None
+    intent = create_group_movement_intent(
+        target_node=target_node,
+        target_label=target_label,
+        movement_mode=movement_mode,
+        source=source,
+        active=True,
+    )
+    if not intent:
+        return None
+    next_position, next_zone_label, ok, _error = _apply_map_position_transition(
+        group.get("current_map_position"),
+        intent.get("target_node"),
+        "group_move",
+    )
+    if not ok or not next_position:
+        return None
+    group["current_map_position"] = next_position
+    group["area_label"] = next_zone_label
+    _apply_group_activity_state(
+        group,
+        status="moving_intent",
+        movement_intent=intent,
+    )
+    _persist_group_states(sess, groups)
+    _sync_group_position_mirrors(sess, group)
+    return dict(group)
+
+
+def maybe_apply_group_enter_target(
+    sess: Session,
+    group_id: str,
+    target_node: dict[str, Any] | str,
+    *,
+    target_label: str | None = None,
+    movement_mode: str = "enter",
+    source: str = "manual",
+) -> dict[str, Any] | None:
+    target = _normalize_map_target_node(target_node)
+    if not target:
+        return None
+    target_node_type = str(target.get("node_type") or "").strip().lower()
+    if target_node_type not in {"landmark", "building", "interior_entry"}:
+        return None
+    return apply_group_move_target(
+        sess,
+        group_id,
+        target,
+        target_label=target_label,
+        movement_mode=movement_mode,
+        source=source,
+    )
 
 
 def request_group_split(

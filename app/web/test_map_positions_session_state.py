@@ -539,3 +539,91 @@ def test_request_and_apply_group_merge_rejoins_colocated_groups() -> None:
         "requested_by": str(right_id),
     }
     assert session_state._get_group_states(sess)["main"]["player_ids"] == [str(left_id), str(right_id)]
+
+
+def test_set_group_movement_intent_stores_canonical_structured_target() -> None:
+    player_id = uuid.uuid4()
+    sess = SimpleNamespace(settings={})
+    session_state._initialize_default_group(sess, [player_id], "Таверна")
+
+    updated = session_state.set_group_movement_intent(
+        sess,
+        "main",
+        target_node={
+            "map_level": "landmark",
+            "node_type": "landmark",
+            "node_id": "north-gate",
+            "label": "Северные ворота",
+            "zone_label": "Таверна",
+            "area_label": "Таверна",
+        },
+        source="test",
+        movement_mode="travel",
+    )
+
+    assert updated is not None
+    assert updated["status"] == "moving_intent"
+    assert updated["movement_intent"] == {
+        "target_label": "Северные ворота",
+        "movement_mode": "travel",
+        "source": "test",
+        "active": True,
+        "target_node": {
+            "v": 1,
+            "map_level": "landmark",
+            "node_type": "landmark",
+            "node_id": "north-gate",
+            "label": "Северные ворота",
+            "zone_label": "Таверна",
+            "area_label": "Таверна",
+        },
+        "target_node_type": "landmark",
+        "target_node_id": "north-gate",
+    }
+
+
+def test_clear_group_movement_intent_clears_intent_and_restores_idle() -> None:
+    player_id = uuid.uuid4()
+    sess = SimpleNamespace(settings={})
+    session_state._initialize_default_group(sess, [player_id], "Таверна")
+    session_state.set_group_movement_intent(sess, "main", target_node="центр города", source="test")
+
+    updated = session_state.clear_group_movement_intent(sess, "main")
+
+    assert updated is not None
+    assert updated["status"] == "idle"
+    assert "movement_intent" not in updated
+    assert "movement_intent" not in session_state._get_group_states(sess)["main"]
+
+
+def test_group_enter_target_produces_expected_structured_target_semantics() -> None:
+    player_id = uuid.uuid4()
+    sess = SimpleNamespace(settings={})
+    session_state._initialize_default_group(sess, [player_id], "Таверна")
+
+    updated = session_state.maybe_apply_group_enter_target(
+        sess,
+        "main",
+        {
+            "map_level": "interior",
+            "node_type": "interior_entry",
+            "node_id": "замок",
+            "label": "замок",
+            "zone_label": "Таверна",
+            "area_label": "Таверна",
+        },
+        source="test",
+    )
+
+    assert updated is not None
+    assert updated["current_map_position"] == {
+        "v": 1,
+        "map_level": "interior",
+        "node_type": "interior_entry",
+        "node_id": "замок",
+        "label": "замок",
+        "area_label": "Таверна",
+    }
+    assert updated["movement_intent"]["target_node_type"] == "interior_entry"
+    assert updated["movement_intent"]["target_node_id"] == "замок"
+    assert sess.settings["pc_positions"][str(player_id)] == "Таверна"

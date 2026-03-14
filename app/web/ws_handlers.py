@@ -51,15 +51,20 @@ from app.web.session_state import (
     _default_map_position,
     _get_player_group_id,
     _get_ready_map,
+    _get_group_states,
     _set_ready,
     _get_init_map,
     _get_player_map_position,
     _get_player_position_context,
     _map_position_area_label,
+    apply_group_move_target,
     apply_group_merge,
     apply_group_split,
+    clear_group_movement_intent,
+    maybe_apply_group_enter_target,
     request_group_merge,
     request_group_split,
+    set_group_movement_intent,
     set_group_camp,
     set_group_wait,
     _touch_last_seen,
@@ -1671,6 +1676,17 @@ def _parse_group_command(cmdline: str) -> tuple[str | None, dict[str, Any]]:
         if lowered.startswith(prefix + " "):
             return "group_camp", {"reason": txt[len(prefix):].strip()}
 
+    for prefix in ("group move ", "group_move "):
+        if lowered.startswith(prefix):
+            return "group_move", {"target_hint": txt[len(prefix):].strip()}
+
+    for prefix in ("group enter ", "group_enter "):
+        if lowered.startswith(prefix):
+            return "group_enter", {"target_hint": txt[len(prefix):].strip()}
+
+    if lowered in {"group stop", "group_stop"}:
+        return "group_stop", {}
+
     for prefix in ("group split ", "group_split "):
         if lowered.startswith(prefix):
             payload = txt[len(prefix):].strip()
@@ -1705,6 +1721,52 @@ def _parse_group_command(cmdline: str) -> tuple[str | None, dict[str, Any]]:
     return None, {}
 
 
+def _resolve_group_action_target(
+    sess,
+    *,
+    actor_group_id: str,
+    payload: dict[str, Any],
+    enter: bool,
+) -> dict[str, Any] | None:
+    group = _get_group_states(sess).get(actor_group_id)
+    current_map_position = group.get("current_map_position") if isinstance(group, dict) else None
+    current_zone_label = str((group or {}).get("area_label") or "стартовая локация")
+
+    direct_target = payload.get("target_node") or payload.get("target")
+    if isinstance(direct_target, dict):
+        target_node = dict(direct_target)
+        if enter and str(target_node.get("node_type") or "").strip().lower() not in {"landmark", "building", "interior_entry"}:
+            target_label = str(target_node.get("label") or target_node.get("node_id") or "").strip() or "entry"
+            target_node = {
+                "map_level": "interior",
+                "node_type": "interior_entry",
+                "node_id": target_label,
+                "label": target_label,
+                "zone_label": current_zone_label,
+                "area_label": current_zone_label,
+            }
+        return target_node
+
+    target_hint = str(payload.get("target_hint") or payload.get("target_label") or direct_target or "").strip()
+    if not target_hint:
+        return None
+    if enter:
+        return {
+            "map_level": "interior",
+            "node_type": "interior_entry",
+            "node_id": target_hint,
+            "label": target_hint,
+            "zone_label": current_zone_label,
+            "area_label": current_zone_label,
+        }
+    return _infer_action_target_node(
+        target_hint,
+        infer_zone_from_action(target_hint, current_zone_label),
+        current_map_position if isinstance(current_map_position, dict) else None,
+        current_zone_label,
+    )
+
+
 def _handle_group_action_request(
     sess,
     *,
@@ -1713,13 +1775,59 @@ def _handle_group_action_request(
     payload: dict[str, Any] | None = None,
     source: str = "ws",
 ) -> tuple[bool, Optional[str], Optional[str]]:
-    if action not in {"group_wait", "group_camp", "group_split", "group_merge"}:
+    if action not in {"group_wait", "group_camp", "group_split", "group_merge", "group_move", "group_enter", "group_stop"}:
         return False, None, None
 
     payload = payload if isinstance(payload, dict) else {}
     actor_group_id = _get_player_group_id(sess, actor_player_id)
     actor_group_key = str(actor_group_id or "").strip()
     actor_id = str(actor_player_id)
+
+    if action in {"group_move", "group_enter", "group_stop"}:
+        if not actor_group_key:
+            return True, "Группа игрока не найдена.", None
+        if action == "group_stop":
+            cleared = clear_group_movement_intent(sess, actor_group_key)
+            if not cleared:
+                return True, "Не удалось остановить движение группы.", None
+            return True, None, f"Группа {actor_group_key} остановилась."
+
+        target_node = _resolve_group_action_target(
+            sess,
+            actor_group_id=actor_group_key,
+            payload=payload,
+            enter=action == "group_enter",
+        )
+        if not target_node:
+            return True, "Нужно указать цель движения группы.", None
+
+        movement_mode = str(payload.get("movement_mode") or ("enter" if action == "group_enter" else "travel")).strip().lower() or "travel"
+        if action == "group_enter":
+            updated = maybe_apply_group_enter_target(
+                sess,
+                actor_group_key,
+                target_node,
+                target_label=str(target_node.get("label") or target_node.get("node_id") or "").strip() or None,
+                movement_mode=movement_mode,
+                source=source,
+            )
+            if not updated:
+                return True, "Не удалось выполнить вход для группы.", None
+            label = str(updated.get("movement_intent", {}).get("target_label") or updated.get("area_label") or "цель")
+            return True, None, f"Группа {actor_group_key} входит в {label}."
+
+        updated = apply_group_move_target(
+            sess,
+            actor_group_key,
+            target_node,
+            target_label=str(target_node.get("label") or target_node.get("node_id") or "").strip() or None,
+            movement_mode=movement_mode,
+            source=source,
+        )
+        if not updated:
+            return True, "Не удалось задать движение группы.", None
+        label = str(updated.get("movement_intent", {}).get("target_label") or updated.get("area_label") or "цель")
+        return True, None, f"Группа {actor_group_key} движется к {label}."
 
     if action in {"group_wait", "group_camp"}:
         group_id = str(payload.get("group_id") or actor_group_key).strip()
@@ -5606,7 +5714,7 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                             await _broadcast_state_unlocked(session_id, combat_log_ui_patch=combat_patch)
                             continue
 
-                if action in {"group_wait", "group_camp", "group_split", "group_merge"}:
+                if action in {"group_wait", "group_camp", "group_split", "group_merge", "group_move", "group_enter", "group_stop"}:
                     handled_group_action, group_err, group_msg = _handle_group_action_request(
                         sess,
                         action=action,
