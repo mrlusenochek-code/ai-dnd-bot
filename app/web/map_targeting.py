@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from typing import Any, Optional
 
+from app.web.map_registry import STATIC_MAP_NODES, find_static_link, get_static_node, resolve_static_map_node
 from app.web.session_state import _apply_map_position_transition, _map_position_area_label, _normalize_map_position, _normalize_map_target_node
 from app.web.ws_gameplay import infer_zone_from_action
 
@@ -33,6 +34,58 @@ def _extract_enter_target_label(text: str) -> str:
     return raw
 
 
+def _static_node_to_target(node: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "map_level": str(node.get("map_level") or "region"),
+        "node_type": str(node.get("node_type") or "zone"),
+        "node_id": str(node.get("node_id") or "")[:120],
+        "label": str(node.get("label") or node.get("node_id") or "")[:80],
+        "zone_label": str(node.get("area_label") or node.get("label") or node.get("node_id") or "")[:80],
+        "area_label": str(node.get("area_label") or node.get("label") or node.get("node_id") or "")[:80],
+    }
+
+
+def _current_context_looks_static(current_map_position: dict[str, Any] | None, current_area_label: str) -> bool:
+    current_node_id = str((current_map_position or {}).get("node_id") or "").strip()
+    if current_node_id and get_static_node(current_node_id):
+        return True
+    normalized_area = str(current_area_label or "").strip().lower()
+    if not normalized_area:
+        return False
+    for node in STATIC_MAP_NODES:
+        if str(node.get("area_label") or "").strip().lower() == normalized_area:
+            return True
+    return False
+
+
+def _resolve_registry_target_node(
+    *,
+    text: str,
+    target_node: dict[str, Any] | str | None,
+    current_map_position: dict[str, Any] | None,
+    current_area_label: str,
+) -> dict[str, Any] | None:
+    if isinstance(target_node, dict):
+        node_id = str(target_node.get("node_id") or "").strip()
+        if node_id:
+            static_node = get_static_node(node_id)
+            if static_node:
+                return _static_node_to_target(static_node)
+    if not _current_context_looks_static(current_map_position, current_area_label):
+        normalized_text = str(text or "").strip().lower()
+        static_match = resolve_static_map_node(normalized_text)
+        if not static_match:
+            return None
+        match_values = [static_match.get("label"), *list(static_match.get("aliases") or ())]
+        if normalized_text not in {str(value or "").strip().lower() for value in match_values}:
+            return None
+        return _static_node_to_target(static_match)
+    static_match = resolve_static_map_node(text)
+    if static_match:
+        return _static_node_to_target(static_match)
+    return None
+
+
 def resolve_action_target_node(
     *,
     action_text: str = "",
@@ -46,12 +99,29 @@ def resolve_action_target_node(
     current_area = str(current_area_label or "стартовая локация").strip() or "стартовая локация"
 
     if target_node is not None:
+        static_target = _resolve_registry_target_node(
+            text=str(target_node),
+            target_node=target_node,
+            current_map_position=current_map_position,
+            current_area_label=current_area,
+        )
+        if static_target:
+            return static_target
         return _normalize_map_target_node(target_node)
 
     text = str(target_text or action_text or "").strip()
     if not text:
         return None
     lowered = text.lower()
+
+    static_target = _resolve_registry_target_node(
+        text=text,
+        target_node=target_node,
+        current_map_position=current_map_position,
+        current_area_label=current_area,
+    )
+    if static_target:
+        return static_target
 
     if normalized_action_kind == "enter":
         target_label = _extract_enter_target_label(text) or text
@@ -137,6 +207,10 @@ def resolve_group_target_route(
         }
 
     node_type = str(target.get("node_type") or "zone").strip().lower()
+    current_node_id = str((current_pos or {}).get("node_id") or "").strip()
+    target_node_id = str(target.get("node_id") or "").strip()
+    current_registry_node = get_static_node(current_node_id)
+    target_registry_node = get_static_node(target_node_id)
     valid_transition, transition_error = validate_group_target_transition(action_kind=action, target_node=target)
     if not valid_transition:
         return {
@@ -149,6 +223,39 @@ def resolve_group_target_route(
             "target_label": str(target.get("label") or target.get("node_id") or "").strip() or None,
             "next_map_position": current_pos,
             "next_zone_label": _map_position_area_label(current_pos),
+            "error": transition_error,
+        }
+
+    if current_registry_node and target_registry_node:
+        static_link = find_static_link(current_node_id, target_node_id, action)
+        if not static_link:
+            return {
+                "allowed": False,
+                "route_kind": "invalid",
+                "action_kind": action or "move",
+                "target_node": target,
+                "target_node_type": node_type,
+                "target_node_id": target_node_id or None,
+                "target_label": str(target.get("label") or target.get("node_id") or "").strip() or None,
+                "next_map_position": current_pos,
+                "next_zone_label": _map_position_area_label(current_pos),
+                "error": "Для известных узлов карты нет допустимого перехода по registry link.",
+            }
+        next_map_position, next_zone_label, ok, transition_error = _apply_map_position_transition(
+            current_pos,
+            target,
+            f"group_{action or 'move'}",
+        )
+        return {
+            "allowed": bool(ok),
+            "route_kind": str(static_link.get("route_kind") or "move"),
+            "action_kind": action or "move",
+            "target_node": target,
+            "target_node_type": node_type,
+            "target_node_id": target_node_id or None,
+            "target_label": str(target.get("label") or target.get("node_id") or "").strip() or None,
+            "next_map_position": next_map_position if isinstance(next_map_position, dict) else current_pos,
+            "next_zone_label": str(next_zone_label or _map_position_area_label(current_pos)).strip() or _map_position_area_label(current_pos),
             "error": transition_error,
         }
 
