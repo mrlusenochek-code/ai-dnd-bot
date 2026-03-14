@@ -7,6 +7,8 @@ from app.web.map_registry import (
     get_static_node_detail,
     get_static_node_context,
     get_static_node_inspect_result,
+    get_static_node_service_result,
+    get_static_node_services,
     get_static_navigation_options,
     get_static_link_metadata,
     get_static_map_links,
@@ -258,6 +260,55 @@ def test_static_node_detail_and_inspect_result_expose_handcrafted_content() -> N
     }
 
 
+def test_static_node_services_and_service_results_expose_handcrafted_service_surface() -> None:
+    assert get_static_node_services(node_id="craft_town") == [
+        {
+            "service_key": "safe_rest",
+            "label": "Безопасный отдых",
+            "service_type": "rest",
+            "summary": "Можно перевести дух и переждать путь в сравнительно безопасных условиях.",
+            "source": "registry",
+            "service_hints": ["припасы", "постоялый двор", "ремесленные мастерские"],
+        },
+        {
+            "service_key": "resupply",
+            "label": "Пополнение припасов",
+            "service_type": "supplies",
+            "summary": "Здесь можно пополнить базовые дорожные запасы перед выходом.",
+            "source": "registry",
+            "service_hints": ["припасы", "постоялый двор", "ремесленные мастерские"],
+        },
+        {
+            "service_key": "local_guidance",
+            "label": "Местные указания",
+            "service_type": "guidance",
+            "summary": "Здесь можно получить ориентиры, слухи и безопасные подсказки по ближайшим дорогам.",
+            "source": "registry",
+            "service_hints": ["припасы", "постоялый двор", "ремесленные мастерские"],
+        },
+        {
+            "service_key": "healing_aid",
+            "label": "Помощь с ранами",
+            "service_type": "aid",
+            "summary": "На месте можно получить перевязку, уход или базовую помощь после дороги.",
+            "source": "registry",
+            "service_hints": ["припасы", "постоялый двор", "ремесленные мастерские"],
+        },
+    ]
+    assert get_static_node_services(node_id="ruined_settlement") == []
+    assert get_static_node_service_result(node_id="chapel_village", service_key="shrine_aid", source="test") == {
+        "service_key": "shrine_aid",
+        "label": "Поддержка у святыни",
+        "service_type": "shrine",
+        "summary": "Здесь могут дать тихий приют, совет или скромную духовную помощь.",
+        "node_id": "chapel_village",
+        "node_label": "Часовенное село",
+        "source": "test",
+        "result_summary": "У святыни можно получить благословение, тишину и скромную помощь в дороге.",
+        "service_hints": ["убежище при часовне", "местные слухи"],
+    }
+
+
 def test_resolve_static_map_node_supports_labels_and_aliases() -> None:
     assert resolve_static_map_node("ворота крепости") == {
         "node_id": "fortress_gate",
@@ -273,6 +324,7 @@ def test_resolve_static_map_node_supports_labels_and_aliases() -> None:
         "inspect_summary": "У ворот хорошо видно дорогу, подходы к городку и кто проходит в сторону границы.",
         "travel_note": "Надёжный ориентир и точка встречи перед выходом в опасные земли.",
         "service_hints": ["караул", "укрытие у стены"],
+        "services": ["safe_rest", "local_guidance"],
         "aliases": (
             "ворота крепости",
             "крепостные ворота",
@@ -315,6 +367,7 @@ def test_resolve_static_map_node_supports_labels_and_aliases() -> None:
         "inspect_summary": "Здесь легко пополнить припасы, переждать дорогу и собрать слухи о ближних тропах.",
         "travel_note": "Самая надёжная безопасная точка региона перед выходом в пограничные земли.",
         "service_hints": ["припасы", "постоялый двор", "ремесленные мастерские"],
+        "services": ["safe_rest", "resupply", "local_guidance", "healing_aid"],
         "aliases": (
             "озёрный городок",
             "ремесленный городок",

@@ -46,6 +46,7 @@ STATIC_MAP_NODES: tuple[dict[str, Any], ...] = (
         "inspect_summary": "Здесь легко пополнить припасы, переждать дорогу и собрать слухи о ближних тропах.",
         "travel_note": "Самая надёжная безопасная точка региона перед выходом в пограничные земли.",
         "service_hints": ["припасы", "постоялый двор", "ремесленные мастерские"],
+        "services": ["safe_rest", "resupply", "local_guidance", "healing_aid"],
         "aliases": (
             "озёрный городок",
             "ремесленный городок",
@@ -73,6 +74,7 @@ STATIC_MAP_NODES: tuple[dict[str, Any], ...] = (
         "map_level": "region",
         "area_label": "Дорожный хутор",
         "zone_band": "border",
+        "services": ["safe_rest", "resupply", "local_guidance"],
         "aliases": (
             "дорожный хутор",
             "хутор у тракта",
@@ -90,6 +92,7 @@ STATIC_MAP_NODES: tuple[dict[str, Any], ...] = (
         "inspect_summary": "Жители держатся настороженно, но могут подсказать безопасную дорогу и где не ночевать.",
         "travel_note": "Удобная пограничная остановка между берегом и лесными дорогами.",
         "service_hints": ["убежище при часовне", "местные слухи"],
+        "services": ["safe_rest", "local_guidance", "shrine_aid", "healing_aid"],
         "aliases": (
             "часовенное село",
             "часовня",
@@ -107,6 +110,7 @@ STATIC_MAP_NODES: tuple[dict[str, Any], ...] = (
         "inspect_summary": "Отсюда видно, где лес ещё под контролем людей, а где начинаются старые опасные руины.",
         "travel_note": "Последняя относительно спокойная стоянка перед дорогой к старой крепости.",
         "service_hints": ["охотничьи припасы", "ночлег под крышей"],
+        "services": ["safe_rest", "resupply", "local_guidance"],
         "aliases": (
             "лесной посёлок",
             "посёлок в лесу",
@@ -154,6 +158,7 @@ STATIC_MAP_NODES: tuple[dict[str, Any], ...] = (
         "inspect_summary": "У ворот хорошо видно дорогу, подходы к городку и кто проходит в сторону границы.",
         "travel_note": "Надёжный ориентир и точка встречи перед выходом в опасные земли.",
         "service_hints": ["караул", "укрытие у стены"],
+        "services": ["safe_rest", "local_guidance"],
         "aliases": (
             "ворота крепости",
             "крепостные ворота",
@@ -800,6 +805,106 @@ def get_current_node_context_actions(
         _add("camp", "Разбить лагерь")
 
     return actions
+
+
+def get_static_node_services(
+    *,
+    node_id: str | None = None,
+    current_map_position: dict[str, Any] | None = None,
+) -> list[dict[str, Any]]:
+    resolved_node = get_static_node(node_id)
+    if not resolved_node and isinstance(current_map_position, dict):
+        resolved_node = get_static_node(current_map_position.get("node_id"))
+    if not resolved_node:
+        return []
+    detail = get_static_node_detail(node_id=str(resolved_node.get("node_id") or ""))
+    service_defs = {
+        "safe_rest": {
+            "label": "Безопасный отдых",
+            "service_type": "rest",
+            "summary": "Можно перевести дух и переждать путь в сравнительно безопасных условиях.",
+        },
+        "resupply": {
+            "label": "Пополнение припасов",
+            "service_type": "supplies",
+            "summary": "Здесь можно пополнить базовые дорожные запасы перед выходом.",
+        },
+        "healing_aid": {
+            "label": "Помощь с ранами",
+            "service_type": "aid",
+            "summary": "На месте можно получить перевязку, уход или базовую помощь после дороги.",
+        },
+        "local_guidance": {
+            "label": "Местные указания",
+            "service_type": "guidance",
+            "summary": "Здесь можно получить ориентиры, слухи и безопасные подсказки по ближайшим дорогам.",
+        },
+        "shrine_aid": {
+            "label": "Поддержка у святыни",
+            "service_type": "shrine",
+            "summary": "Здесь могут дать тихий приют, совет или скромную духовную помощь.",
+        },
+    }
+    services: list[dict[str, Any]] = []
+    for raw_key in resolved_node.get("services") or []:
+        service_key = _normalized_text(raw_key)
+        service_def = service_defs.get(service_key)
+        if not service_def:
+            continue
+        service = {
+            "service_key": service_key,
+            "label": service_def["label"],
+            "service_type": service_def["service_type"],
+            "summary": service_def["summary"],
+            "source": "registry",
+        }
+        if detail and detail.get("service_hints"):
+            service["service_hints"] = list(detail.get("service_hints") or [])
+        services.append(service)
+    return services
+
+
+def get_static_node_service_result(
+    *,
+    service_key: str,
+    node_id: str | None = None,
+    current_map_position: dict[str, Any] | None = None,
+    source: str = "registry",
+) -> dict[str, Any] | None:
+    normalized_service_key = _normalized_text(service_key)
+    if not normalized_service_key:
+        return None
+    detail = get_static_node_detail(node_id=node_id, current_map_position=current_map_position)
+    if not detail:
+        return None
+    available = {
+        str(item.get("service_key") or "").strip(): item
+        for item in get_static_node_services(node_id=node_id, current_map_position=current_map_position)
+        if isinstance(item, dict)
+    }
+    service = available.get(normalized_service_key)
+    if not service:
+        return None
+    result = {
+        "service_key": normalized_service_key,
+        "label": str(service.get("label") or normalized_service_key),
+        "service_type": str(service.get("service_type") or "service"),
+        "summary": str(service.get("summary") or ""),
+        "node_id": str(detail.get("node_id") or ""),
+        "node_label": str(detail.get("label") or detail.get("node_id") or ""),
+        "source": str(source or "registry"),
+    }
+    service_result_notes = {
+        "safe_rest": "Место подходит для короткой передышки без немедленной дорожной угрозы.",
+        "resupply": "Здесь можно собрать базовые припасы и привести снаряжение в порядок.",
+        "healing_aid": "Здесь помогут с перевязкой, тёплой водой и простым уходом после пути.",
+        "local_guidance": "Местные подскажут, какая дорога сейчас спокойнее и где не стоит задерживаться.",
+        "shrine_aid": "У святыни можно получить благословение, тишину и скромную помощь в дороге.",
+    }
+    result["result_summary"] = service_result_notes.get(normalized_service_key, result["summary"])
+    if detail.get("service_hints"):
+        result["service_hints"] = list(detail.get("service_hints") or [])
+    return result
 
 
 def get_static_node_detail(

@@ -47,8 +47,10 @@ from app.web.session_state import (
     _get_pc_positions,
     _get_player_group_id,
     get_current_group_last_inspect_result,
+    get_current_group_last_service_result,
     get_current_group_node_detail,
     get_current_group_node_context,
+    get_current_group_node_services,
     get_current_group_navigation_options,
     get_player_known_node_ids,
     get_player_revealed_node_ids,
@@ -376,6 +378,16 @@ async def build_state(db: AsyncSession, sess: Session) -> dict:
         if sess.current_player_id
         else None
     )
+    current_group_node_services = (
+        get_current_group_node_services(sess, player_id=sess.current_player_id)
+        if sess.current_player_id
+        else []
+    )
+    current_group_last_service_result = (
+        get_current_group_last_service_result(sess, player_id=sess.current_player_id)
+        if sess.current_player_id
+        else None
+    )
 
     return {
         "type": "state",
@@ -413,6 +425,8 @@ async def build_state(db: AsyncSession, sess: Session) -> dict:
             "current_group_node_context": current_group_node_context,
             "current_group_node_detail": current_group_node_detail,
             "current_group_last_inspect_result": current_group_last_inspect_result,
+            "current_group_node_services": current_group_node_services,
+            "current_group_last_service_result": current_group_last_service_result,
             "current_group_navigation_options": current_group_navigation_options,
             "groups": groups_payload,
             "pc_positions": pc_positions,

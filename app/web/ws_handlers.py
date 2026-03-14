@@ -67,6 +67,7 @@ from app.web.session_state import (
     confirm_group_enter,
     evaluate_group_travel_pause,
     execute_current_group_context_action,
+    execute_current_group_service,
     execute_group_navigation_option,
     get_player_known_node_ids,
     get_group_movement_mode,
@@ -1690,6 +1691,10 @@ def _parse_group_command(cmdline: str) -> tuple[str | None, dict[str, Any]]:
                 parsed_payload["target_node_id"] = action_arg.strip()
             return "group_context_action", parsed_payload
 
+    for prefix in ("group use service ", "group_use_service ", "group service ", "group_service "):
+        if lowered.startswith(prefix):
+            return "group_service", {"service_key": txt[len(prefix):].strip()}
+
     for prefix in ("group enter ", "group_enter "):
         if lowered.startswith(prefix):
             return "group_enter", {"target_hint": txt[len(prefix):].strip()}
@@ -1808,6 +1813,7 @@ def _handle_group_action_request(
         "group_move",
         "group_navigate",
         "group_context_action",
+        "group_service",
         "group_enter",
         "group_stop",
         "group_arrive",
@@ -1859,6 +1865,7 @@ def _handle_group_action_request(
         "group_move",
         "group_navigate",
         "group_context_action",
+        "group_service",
         "group_enter",
         "group_stop",
         "group_arrive",
@@ -1997,6 +2004,23 @@ def _handle_group_action_request(
             if action_key == "wait":
                 return True, None, f"Группа {actor_group_key} ждёт."
             return True, None, f"Группа {actor_group_key} выполняет действие {action_key}."
+        if action == "group_service":
+            service_key = str(payload.get("service_key") or "").strip().lower()
+            updated, error = execute_current_group_service(
+                sess,
+                service_key=service_key,
+                player_id=actor_player_id,
+                group_id=actor_group_key,
+                source=source,
+            )
+            if error:
+                return True, error, None
+            label = str(
+                (updated or {}).get("last_service_result", {}).get("label")
+                or service_key
+                or "услуга"
+            )
+            return True, None, f"Группа {actor_group_key} использует услугу: {label}."
 
         target_node = _resolve_group_action_target(
             sess,
@@ -5928,6 +5952,7 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                     "group_merge",
                     "group_move",
                     "group_context_action",
+                    "group_service",
                     "group_enter",
                     "group_stop",
                     "group_arrive",

@@ -6,7 +6,7 @@ from types import SimpleNamespace
 from app.web import session_state, ws_handlers
 
 
-def test_parse_group_command_supports_wait_camp_move_navigate_context_actions_enter_stop_arrive_interrupt_pause_resume_resolution_split_and_merge() -> None:
+def test_parse_group_command_supports_wait_camp_move_navigate_context_actions_services_enter_stop_arrive_interrupt_pause_resume_resolution_split_and_merge() -> None:
     scout_id = str(uuid.uuid4())
     action_wait, payload_wait = ws_handlers._parse_group_command("group wait: держим позицию")
     action_camp, payload_camp = ws_handlers._parse_group_command("group camp ночлег у костра")
@@ -16,6 +16,8 @@ def test_parse_group_command_supports_wait_camp_move_navigate_context_actions_en
     action_do_inspect, payload_do_inspect = ws_handlers._parse_group_command("group do inspect")
     action_do_navigate, payload_do_navigate = ws_handlers._parse_group_command("group action navigate fortress_gate")
     action_do_camp, payload_do_camp = ws_handlers._parse_group_command("group action camp")
+    action_service, payload_service = ws_handlers._parse_group_command("group service safe_rest")
+    action_use_service, payload_use_service = ws_handlers._parse_group_command("group use service shrine_aid")
     action_enter, payload_enter = ws_handlers._parse_group_command("group enter замок")
     action_mode, payload_mode = ws_handlers._parse_group_command("group mode cautious")
     action_activity, payload_activity = ws_handlers._parse_group_command("group activity navigate")
@@ -43,6 +45,8 @@ def test_parse_group_command_supports_wait_camp_move_navigate_context_actions_en
         {"action_key": "navigate", "target_node_id": "fortress_gate"},
     )
     assert (action_do_camp, payload_do_camp) == ("group_context_action", {"action_key": "camp"})
+    assert (action_service, payload_service) == ("group_service", {"service_key": "safe_rest"})
+    assert (action_use_service, payload_use_service) == ("group_service", {"service_key": "shrine_aid"})
     assert (action_enter, payload_enter) == ("group_enter", {"target_hint": "замок"})
     assert (action_mode, payload_mode) == ("group_set_mode", {"movement_mode": "cautious"})
     assert (action_activity, payload_activity) == ("group_set_activity", {"activity": "navigate"})
@@ -244,6 +248,58 @@ def test_handle_group_context_action_enter_and_errors_cleanly() -> None:
     assert invalid_msg is None
     assert unavailable_handled is True
     assert unavailable_err == "Эта navigation цель сейчас недоступна из текущей точки."
+    assert unavailable_msg is None
+
+
+def test_handle_group_service_executes_and_errors_cleanly() -> None:
+    player_id = uuid.uuid4()
+    craft_sess = SimpleNamespace(settings={})
+    session_state._initialize_default_group(
+        craft_sess,
+        [player_id],
+        {
+            "map_level": "region",
+            "node_type": "zone",
+            "node_id": "craft_town",
+            "label": "Озёрный городок",
+        },
+    )
+
+    handled_service, err_service, msg_service = ws_handlers._handle_group_action_request(
+        craft_sess,
+        action="group_service",
+        actor_player_id=player_id,
+        payload={"service_key": "resupply"},
+        source="test",
+    )
+
+    assert handled_service is True
+    assert err_service is None
+    assert msg_service == "Группа main использует услугу: Пополнение припасов."
+    assert session_state.get_current_group_last_service_result(craft_sess, player_id=player_id)["service_key"] == "resupply"
+
+    ruined_sess = SimpleNamespace(settings={})
+    session_state._initialize_default_group(
+        ruined_sess,
+        [player_id],
+        {
+            "map_level": "region",
+            "node_type": "zone",
+            "node_id": "ruined_settlement",
+            "label": "Разрушенный посёлок",
+        },
+    )
+
+    unavailable_handled, unavailable_err, unavailable_msg = ws_handlers._handle_group_action_request(
+        ruined_sess,
+        action="group_service",
+        actor_player_id=player_id,
+        payload={"service_key": "safe_rest"},
+        source="test",
+    )
+
+    assert unavailable_handled is True
+    assert unavailable_err == "Эта услуга сейчас недоступна в текущем месте."
     assert unavailable_msg is None
 
 

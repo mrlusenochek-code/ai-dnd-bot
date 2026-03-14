@@ -1004,6 +1004,43 @@ def test_get_current_group_node_context_returns_node_summary_and_contextual_acti
             {"action_key": "wait", "label": "Подождать", "action_type": "action"},
             {"action_key": "rest_hint", "label": "Есть место для передышки", "action_type": "hint"},
         ],
+        "available_services": [
+            {
+                "service_key": "safe_rest",
+                "label": "Безопасный отдых",
+                "service_type": "rest",
+                "summary": "Можно перевести дух и переждать путь в сравнительно безопасных условиях.",
+                "source": "registry",
+                "service_hints": ["припасы", "постоялый двор", "ремесленные мастерские"],
+            },
+            {
+                "service_key": "resupply",
+                "label": "Пополнение припасов",
+                "service_type": "supplies",
+                "summary": "Здесь можно пополнить базовые дорожные запасы перед выходом.",
+                "source": "registry",
+                "service_hints": ["припасы", "постоялый двор", "ремесленные мастерские"],
+            },
+            {
+                "service_key": "local_guidance",
+                "label": "Местные указания",
+                "service_type": "guidance",
+                "summary": "Здесь можно получить ориентиры, слухи и безопасные подсказки по ближайшим дорогам.",
+                "source": "registry",
+                "service_hints": ["припасы", "постоялый двор", "ремесленные мастерские"],
+            },
+            {
+                "service_key": "healing_aid",
+                "label": "Помощь с ранами",
+                "service_type": "aid",
+                "summary": "На месте можно получить перевязку, уход или базовую помощь после дороги.",
+                "source": "registry",
+                "service_hints": ["припасы", "постоялый двор", "ремесленные мастерские"],
+            },
+        ],
+        "service_actions": [
+            {"action_key": "use_service", "label": "Воспользоваться услугой", "action_type": "action"},
+        ],
     }
 
 
@@ -1037,6 +1074,75 @@ def test_inspect_current_group_node_stores_canonical_inspect_result_and_updates_
     }
     assert session_state.get_player_map_knowledge(sess, player_id)["craft_town"]["knowledge_kind"] == "discovered"
     assert session_state.is_player_node_revealed(sess, player_id, "craft_town") is True
+
+
+def test_get_current_group_node_services_and_execute_service_store_result() -> None:
+    player_id = uuid.uuid4()
+    sess = SimpleNamespace(settings={})
+    session_state._initialize_default_group(
+        sess,
+        [player_id],
+        {
+            "map_level": "region",
+            "node_type": "zone",
+            "node_id": "craft_town",
+            "label": "Озёрный городок",
+        },
+    )
+
+    services = session_state.get_current_group_node_services(sess, player_id=player_id)
+    updated, error = session_state.execute_current_group_service(
+        sess,
+        player_id=player_id,
+        service_key="resupply",
+        source="test",
+    )
+
+    assert [service["service_key"] for service in services] == [
+        "safe_rest",
+        "resupply",
+        "local_guidance",
+        "healing_aid",
+    ]
+    assert error is None
+    assert updated is not None
+    assert session_state.get_current_group_last_service_result(sess, player_id=player_id) == {
+        "service_key": "resupply",
+        "label": "Пополнение припасов",
+        "service_type": "supplies",
+        "summary": "Здесь можно пополнить базовые дорожные запасы перед выходом.",
+        "result_summary": "Здесь можно собрать базовые припасы и привести снаряжение в порядок.",
+        "node_id": "craft_town",
+        "node_label": "Озёрный городок",
+        "source": "test",
+        "service_hints": ["припасы", "постоялый двор", "ремесленные мастерские"],
+        "used_at": updated["last_service_result"]["used_at"],
+    }
+
+
+def test_execute_current_group_service_rejects_unavailable_service_cleanly() -> None:
+    player_id = uuid.uuid4()
+    sess = SimpleNamespace(settings={})
+    session_state._initialize_default_group(
+        sess,
+        [player_id],
+        {
+            "map_level": "region",
+            "node_type": "zone",
+            "node_id": "ruined_settlement",
+            "label": "Разрушенный посёлок",
+        },
+    )
+
+    updated, error = session_state.execute_current_group_service(
+        sess,
+        player_id=player_id,
+        service_key="safe_rest",
+        source="test",
+    )
+
+    assert updated is None
+    assert error == "Эта услуга сейчас недоступна в текущем месте."
 
 
 def test_get_current_group_node_context_adds_enter_for_paused_target_requires_enter() -> None:
