@@ -126,6 +126,10 @@ def test_build_state_includes_legacy_and_structured_positions(monkeypatch) -> No
             "movement_intent_summary": None,
             "travel_state": None,
             "travel_summary": None,
+            "pause_reason": None,
+            "pause_details": None,
+            "available_resolutions": None,
+            "last_resolution_summary": None,
         }
     }
     assert payload["session"]["current_group_id"] is None
@@ -512,6 +516,8 @@ def test_build_state_exports_group_activity_summaries(monkeypatch) -> None:
             "source": "test",
         },
     }
+    assert payload["game"]["groups"]["main"]["available_resolutions"] is None
+    assert payload["game"]["groups"]["main"]["last_resolution_summary"] is None
 
 
 def test_build_state_exports_paused_travel_status_and_pause_reason(monkeypatch) -> None:
@@ -612,6 +618,13 @@ def test_build_state_exports_paused_travel_status_and_pause_reason(monkeypatch) 
                 "pause_details": {"target_node_type": "interior_entry"},
                 "resume_allowed": True,
             },
+            "last_travel_resolution": {
+                "resolution_kind": "inspect_target",
+                "pause_reason": "point_of_interest_reached",
+                "target_label": "старые ворота",
+                "source": "test",
+                "details": {"inspected": True},
+            },
         }
     }
 
@@ -646,3 +659,17 @@ def test_build_state_exports_paused_travel_status_and_pause_reason(monkeypatch) 
     assert payload["game"]["groups"]["main"]["travel_summary"]["paused"] is True
     assert payload["game"]["groups"]["main"]["travel_summary"]["pause_reason"] == "target_requires_enter"
     assert payload["game"]["groups"]["main"]["travel_summary"]["pause_details"] == {"target_node_type": "interior_entry"}
+    assert payload["game"]["groups"]["main"]["pause_reason"] == "target_requires_enter"
+    assert payload["game"]["groups"]["main"]["pause_details"] == {"target_node_type": "interior_entry"}
+    assert payload["game"]["groups"]["main"]["available_resolutions"] == [
+        {"resolution": "confirm_enter", "label": "confirm_enter"},
+        {"resolution": "resume", "label": "resume"},
+        {"resolution": "interrupt", "label": "interrupt"},
+    ]
+    assert payload["game"]["groups"]["main"]["last_resolution_summary"] == {
+        "resolution_kind": "inspect_target",
+        "pause_reason": "point_of_interest_reached",
+        "target_label": "старые ворота",
+        "source": "test",
+        "details": {"inspected": True},
+    }

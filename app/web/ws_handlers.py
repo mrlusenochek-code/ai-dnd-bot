@@ -64,14 +64,18 @@ from app.web.session_state import (
     clear_group_movement_intent,
     clear_group_travel_activity,
     complete_group_travel,
+    confirm_group_enter,
     evaluate_group_travel_pause,
     get_group_movement_mode,
     get_group_travel_activity,
+    inspect_group_travel_target,
     interrupt_group_travel,
     maybe_apply_group_enter_target,
+    bypass_group_travel_pause,
     pause_group_travel,
     request_group_merge,
     request_group_split,
+    resolve_group_travel_pause,
     resume_group_travel,
     start_group_travel,
     set_group_movement_intent,
@@ -1692,6 +1696,18 @@ def _parse_group_command(cmdline: str) -> tuple[str | None, dict[str, Any]]:
     if lowered in {"group resume", "group_resume"}:
         return "group_resume", {}
 
+    if lowered in {"group confirm enter", "group_confirm_enter"}:
+        return "group_confirm_enter", {}
+
+    if lowered in {"group inspect", "group_inspect_target"}:
+        return "group_inspect_target", {}
+
+    if lowered in {"group bypass", "group_bypass"}:
+        return "group_bypass", {}
+
+    if lowered in {"group resolve", "group_resolve_pause"}:
+        return "group_resolve_pause", {}
+
     if lowered in {"group stop", "group_stop"}:
         return "group_stop", {}
 
@@ -1772,6 +1788,10 @@ def _handle_group_action_request(
         "group_interrupt",
         "group_pause",
         "group_resume",
+        "group_confirm_enter",
+        "group_inspect_target",
+        "group_bypass",
+        "group_resolve_pause",
         "group_set_mode",
         "group_set_activity",
         "group_clear_activity",
@@ -1809,13 +1829,58 @@ def _handle_group_action_request(
         activity = get_group_travel_activity(sess, actor_group_key) or {}
         return True, None, f"Походная активность группы {actor_group_key}: {activity.get('activity')}."
 
-    if action in {"group_move", "group_enter", "group_stop", "group_arrive", "group_interrupt", "group_pause", "group_resume"}:
+    if action in {
+        "group_move",
+        "group_enter",
+        "group_stop",
+        "group_arrive",
+        "group_interrupt",
+        "group_pause",
+        "group_resume",
+        "group_confirm_enter",
+        "group_inspect_target",
+        "group_bypass",
+        "group_resolve_pause",
+    }:
         if not actor_group_key:
             return True, "Группа игрока не найдена.", None
         current_group = _get_group_states(sess).get(actor_group_key, {})
         current_travel = current_group.get("travel_state") if isinstance(current_group, dict) else None
         has_active_travel = isinstance(current_travel, dict) and bool(current_travel.get("active"))
         is_paused_travel = has_active_travel and bool(current_travel.get("paused"))
+        if action == "group_confirm_enter":
+            updated = confirm_group_enter(sess, actor_group_key, source=source)
+            if not updated:
+                return True, "Нечего подтверждать: группе нужен paused travel с требованием enter.", None
+            label = str(updated.get("last_travel_resolution", {}).get("target_label") or updated.get("area_label") or "цель")
+            return True, None, f"Группа {actor_group_key} подтверждает вход в {label}."
+        if action == "group_inspect_target":
+            updated = inspect_group_travel_target(sess, actor_group_key, source=source)
+            if not updated:
+                return True, "Нечего осматривать: группе нужен paused travel у точки интереса.", None
+            label = str(updated.get("last_travel_resolution", {}).get("target_label") or "цель")
+            return True, None, f"Группа {actor_group_key} осматривает {label}."
+        if action == "group_bypass":
+            updated = bypass_group_travel_pause(sess, actor_group_key, source=source)
+            if not updated:
+                return True, "Нечего обходить: группе нужен paused travel с blocked route.", None
+            label = str(updated.get("last_travel_resolution", {}).get("target_label") or "препятствие")
+            return True, None, f"Группа {actor_group_key} обходит препятствие на пути к {label}."
+        if action == "group_resolve_pause":
+            updated = resolve_group_travel_pause(sess, actor_group_key, source=source)
+            if not updated:
+                return True, "Не удалось разрешить paused travel группы.", None
+            resolution_kind = str(updated.get("last_travel_resolution", {}).get("resolution_kind") or "")
+            if resolution_kind == "confirm_enter":
+                label = str(updated.get("last_travel_resolution", {}).get("target_label") or updated.get("area_label") or "цель")
+                return True, None, f"Группа {actor_group_key} подтверждает вход в {label}."
+            if resolution_kind == "inspect_target":
+                label = str(updated.get("last_travel_resolution", {}).get("target_label") or "цель")
+                return True, None, f"Группа {actor_group_key} осматривает {label}."
+            if resolution_kind == "bypass":
+                label = str(updated.get("last_travel_resolution", {}).get("target_label") or "препятствие")
+                return True, None, f"Группа {actor_group_key} обходит препятствие на пути к {label}."
+            return True, None, f"Paused travel группы {actor_group_key} разрешён."
         if action == "group_pause":
             updated = pause_group_travel(sess, actor_group_key, reason="manual", pause_details={"source": source}, resume_allowed=True)
             if not updated:
@@ -5779,6 +5844,10 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                     "group_interrupt",
                     "group_pause",
                     "group_resume",
+                    "group_confirm_enter",
+                    "group_inspect_target",
+                    "group_bypass",
+                    "group_resolve_pause",
                     "group_set_mode",
                     "group_set_activity",
                     "group_clear_activity",

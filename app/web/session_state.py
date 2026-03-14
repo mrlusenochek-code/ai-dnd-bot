@@ -595,6 +595,29 @@ def _normalize_group_travel_state(raw: Any) -> dict[str, Any] | None:
     return state
 
 
+def _normalize_group_travel_resolution(raw: Any) -> dict[str, Any] | None:
+    if not isinstance(raw, dict):
+        return None
+    resolution_kind = str(raw.get("resolution_kind") or raw.get("kind") or "").strip().lower()
+    if resolution_kind not in {"confirm_enter", "inspect_target", "bypass", "resolve_pause"}:
+        return None
+    pause_reason = _normalize_group_pause_reason(raw.get("pause_reason"))
+    target_label = str(raw.get("target_label") or "").strip()
+    source = str(raw.get("source") or "manual").strip() or "manual"
+    details = _normalize_group_pause_details(raw.get("details") or raw.get("resolution_details"))
+    summary: dict[str, Any] = {
+        "resolution_kind": resolution_kind,
+        "source": source[:40],
+    }
+    if pause_reason:
+        summary["pause_reason"] = pause_reason
+    if target_label:
+        summary["target_label"] = target_label[:80]
+    if details:
+        summary["details"] = details
+    return summary
+
+
 def create_group_wait_state(
     *,
     reason: str | None = None,
@@ -688,6 +711,29 @@ def _clear_group_activity_state(group: dict[str, Any], *, status: str = "idle") 
     return group
 
 
+def _set_group_last_travel_resolution(
+    group: dict[str, Any],
+    *,
+    resolution_kind: str,
+    pause_reason: str | None = None,
+    target_label: str | None = None,
+    source: str = "manual",
+    details: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    normalized = _normalize_group_travel_resolution(
+        {
+            "resolution_kind": resolution_kind,
+            "pause_reason": pause_reason,
+            "target_label": target_label,
+            "source": source,
+            "details": details,
+        }
+    )
+    if normalized:
+        group["last_travel_resolution"] = normalized
+    return group
+
+
 def _apply_group_activity_state(
     group: dict[str, Any],
     *,
@@ -755,6 +801,51 @@ def _group_travel_summary(group: dict[str, Any]) -> dict[str, Any] | None:
     if travel_state.get("travel_activity"):
         summary["travel_activity"] = dict(travel_state["travel_activity"])
     return summary
+
+
+def _group_last_travel_resolution_summary(group: dict[str, Any]) -> dict[str, Any] | None:
+    return _normalize_group_travel_resolution(group.get("last_travel_resolution"))
+
+
+def _travel_available_resolutions_for_reason(pause_reason: str | None) -> list[dict[str, str]]:
+    reason = _normalize_group_pause_reason(pause_reason)
+    if reason == "target_requires_enter":
+        return [
+            {"resolution": "confirm_enter", "label": "confirm_enter"},
+            {"resolution": "resume", "label": "resume"},
+            {"resolution": "interrupt", "label": "interrupt"},
+        ]
+    if reason == "point_of_interest_reached":
+        return [
+            {"resolution": "inspect_target", "label": "inspect_target"},
+            {"resolution": "resume", "label": "resume"},
+            {"resolution": "interrupt", "label": "interrupt"},
+        ]
+    if reason == "route_blocked":
+        return [
+            {"resolution": "bypass", "label": "bypass"},
+            {"resolution": "interrupt", "label": "interrupt"},
+        ]
+    if reason == "event_pending":
+        return [
+            {"resolution": "resolve_pause", "label": "resolve_pause"},
+            {"resolution": "resume", "label": "resume"},
+            {"resolution": "interrupt", "label": "interrupt"},
+        ]
+    if reason == "manual":
+        return [
+            {"resolution": "resume", "label": "resume"},
+            {"resolution": "interrupt", "label": "interrupt"},
+        ]
+    return []
+
+
+def _group_available_resolutions_summary(group: dict[str, Any]) -> list[dict[str, str]] | None:
+    travel_state = _group_travel_state_summary(group)
+    if not travel_state or travel_state.get("active") is not True or travel_state.get("paused") is not True:
+        return None
+    available = _travel_available_resolutions_for_reason(travel_state.get("pause_reason"))
+    return available or None
 
 
 def _group_default_position(
@@ -835,6 +926,9 @@ def _normalize_group_state(
         normalized["movement_intent"] = movement_intent
     if travel_state:
         normalized["travel_state"] = travel_state
+    last_resolution = _normalize_group_travel_resolution(raw.get("last_travel_resolution"))
+    if last_resolution:
+        normalized["last_travel_resolution"] = last_resolution
     return normalized
 
 
@@ -1317,6 +1411,149 @@ def resume_group_travel(sess: Session, group_id: str) -> dict[str, Any] | None:
     _persist_group_states(sess, groups)
     _sync_group_position_mirrors(sess, group)
     return dict(group)
+
+
+def confirm_group_enter(sess: Session, group_id: str, *, source: str = "manual") -> dict[str, Any] | None:
+    groups = _get_group_states(sess)
+    group_key = str(group_id or "").strip()
+    group = groups.get(group_key)
+    if not group:
+        return None
+    travel_state = _group_travel_state_summary(group)
+    if not travel_state or travel_state.get("active") is not True or travel_state.get("paused") is not True:
+        return None
+    pause_reason = str(travel_state.get("pause_reason") or "").strip().lower()
+    route_summary = _normalize_group_route_summary(travel_state.get("route_summary"))
+    next_map_position = _normalize_map_position((route_summary or {}).get("next_map_position"))
+    next_zone_label = str((route_summary or {}).get("next_zone_label") or "").strip()
+    target_label = str((route_summary or {}).get("target_label") or "").strip()
+    if pause_reason != "target_requires_enter" or not next_map_position or not next_zone_label:
+        return None
+    group["current_map_position"] = next_map_position
+    group["area_label"] = next_zone_label[:80]
+    _set_group_last_travel_resolution(
+        group,
+        resolution_kind="confirm_enter",
+        pause_reason=pause_reason,
+        target_label=target_label or str(next_map_position.get("label") or ""),
+        source=source,
+        details={"confirmed": True},
+    )
+    _clear_group_activity_state(group, status="idle")
+    _persist_group_states(sess, groups)
+    _sync_group_position_mirrors(sess, group)
+    return dict(group)
+
+
+def inspect_group_travel_target(sess: Session, group_id: str, *, source: str = "manual") -> dict[str, Any] | None:
+    groups = _get_group_states(sess)
+    group_key = str(group_id or "").strip()
+    group = groups.get(group_key)
+    if not group:
+        return None
+    travel_state = _group_travel_state_summary(group)
+    if not travel_state or travel_state.get("active") is not True or travel_state.get("paused") is not True:
+        return None
+    pause_reason = str(travel_state.get("pause_reason") or "").strip().lower()
+    route_summary = _normalize_group_route_summary(travel_state.get("route_summary"))
+    if pause_reason != "point_of_interest_reached" or not route_summary:
+        return None
+    target_label = str(route_summary.get("target_label") or "")
+    _set_group_last_travel_resolution(
+        group,
+        resolution_kind="inspect_target",
+        pause_reason=pause_reason,
+        target_label=target_label,
+        source=source,
+        details={"inspected": True},
+    )
+    _clear_group_activity_state(group, status="idle")
+    _persist_group_states(sess, groups)
+    _sync_group_position_mirrors(sess, group)
+    return dict(group)
+
+
+def bypass_group_travel_pause(sess: Session, group_id: str, *, source: str = "manual") -> dict[str, Any] | None:
+    groups = _get_group_states(sess)
+    group_key = str(group_id or "").strip()
+    group = groups.get(group_key)
+    if not group:
+        return None
+    travel_state = _group_travel_state_summary(group)
+    if not travel_state or travel_state.get("active") is not True or travel_state.get("paused") is not True:
+        return None
+    pause_reason = str(travel_state.get("pause_reason") or "").strip().lower()
+    route_summary = _normalize_group_route_summary(travel_state.get("route_summary"))
+    if pause_reason != "route_blocked" or not route_summary:
+        return None
+    target_label = str(route_summary.get("target_label") or "")
+    _set_group_last_travel_resolution(
+        group,
+        resolution_kind="bypass",
+        pause_reason=pause_reason,
+        target_label=target_label,
+        source=source,
+        details={"bypassed": True},
+    )
+    _clear_group_activity_state(group, status="idle")
+    _persist_group_states(sess, groups)
+    _sync_group_position_mirrors(sess, group)
+    return dict(group)
+
+
+def resolve_group_travel_pause(
+    sess: Session,
+    group_id: str,
+    *,
+    resolution_kind: str | None = None,
+    source: str = "manual",
+) -> dict[str, Any] | None:
+    groups = _get_group_states(sess)
+    group_key = str(group_id or "").strip()
+    group = groups.get(group_key)
+    if not group:
+        return None
+    travel_state = _group_travel_state_summary(group)
+    if not travel_state or travel_state.get("active") is not True or travel_state.get("paused") is not True:
+        return None
+    pause_reason = str(travel_state.get("pause_reason") or "").strip().lower()
+    normalized_resolution = str(resolution_kind or "").strip().lower()
+    if not normalized_resolution:
+        if pause_reason == "target_requires_enter":
+            normalized_resolution = "confirm_enter"
+        elif pause_reason == "point_of_interest_reached":
+            normalized_resolution = "inspect_target"
+        elif pause_reason == "route_blocked":
+            normalized_resolution = "bypass"
+        elif pause_reason == "event_pending":
+            normalized_resolution = "resolve_pause"
+    if normalized_resolution == "confirm_enter":
+        return confirm_group_enter(sess, group_id, source=source)
+    if normalized_resolution == "inspect_target":
+        return inspect_group_travel_target(sess, group_id, source=source)
+    if normalized_resolution == "bypass":
+        return bypass_group_travel_pause(sess, group_id, source=source)
+    if normalized_resolution == "resolve_pause" and pause_reason == "event_pending":
+        route_summary = _normalize_group_route_summary(travel_state.get("route_summary")) or {}
+        target_label = str(route_summary.get("target_label") or "")
+        _set_group_last_travel_resolution(
+            group,
+            resolution_kind="resolve_pause",
+            pause_reason=pause_reason,
+            target_label=target_label,
+            source=source,
+            details={"resolved": True},
+        )
+        group["travel_state"]["paused"] = False
+        group["travel_state"].pop("pause_reason", None)
+        group["travel_state"].pop("pause_details", None)
+        group["travel_state"]["resume_allowed"] = True
+        group["travel_state"]["phase"] = "in_transit"
+        group["status"] = "moving"
+        _persist_group_states(sess, groups)
+        _sync_group_position_mirrors(sess, group)
+        return dict(group)
+    return None
 
 
 def evaluate_group_travel_pause(

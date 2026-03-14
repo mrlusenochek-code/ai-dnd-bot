@@ -915,3 +915,180 @@ def test_pause_resume_and_evaluate_group_travel_preserve_mode_and_activity() -> 
     assert evaluated_event is not None
     assert evaluated_event["travel_state"]["pause_reason"] == "event_pending"
     assert evaluated_event["travel_state"]["pause_details"] == {"event_id": "poi-1"}
+
+
+def test_confirm_inspect_bypass_and_resolve_group_travel_pause() -> None:
+    player_id = uuid.uuid4()
+    sess = SimpleNamespace(settings={})
+    session_state._initialize_default_group(sess, [player_id], "центр города")
+
+    entered = session_state.start_group_travel(
+        sess,
+        "main",
+        {
+            "allowed": True,
+            "route_kind": "enter_location",
+            "action_kind": "enter",
+            "target_label": "замок",
+            "target_node": {
+                "map_level": "interior",
+                "node_type": "interior_entry",
+                "node_id": "замок",
+                "label": "замок",
+                "zone_label": "центр города",
+                "area_label": "центр города",
+            },
+            "next_map_position": {
+                "v": 1,
+                "map_level": "interior",
+                "node_type": "interior_entry",
+                "node_id": "замок",
+                "label": "замок",
+                "area_label": "центр города",
+            },
+            "next_zone_label": "центр города",
+        },
+        source="test",
+    )
+
+    assert entered is not None
+    assert entered["status"] == "paused_travel"
+    confirmed = session_state.confirm_group_enter(sess, "main", source="test")
+
+    assert confirmed is not None
+    assert confirmed["status"] == "idle"
+    assert confirmed["current_map_position"]["node_id"] == "замок"
+    assert confirmed["last_travel_resolution"] == {
+        "resolution_kind": "confirm_enter",
+        "pause_reason": "target_requires_enter",
+        "target_label": "замок",
+        "source": "test",
+        "details": {"confirmed": True},
+    }
+
+    poi = session_state.start_group_travel(
+        sess,
+        "main",
+        {
+            "allowed": True,
+            "route_kind": "landmark_move",
+            "action_kind": "move",
+            "target_label": "ворота",
+            "target_node": {
+                "map_level": "landmark",
+                "node_type": "landmark",
+                "node_id": "ворота",
+                "label": "ворота",
+                "zone_label": "центр города",
+                "area_label": "центр города",
+            },
+            "next_map_position": {
+                "v": 1,
+                "map_level": "landmark",
+                "node_type": "landmark",
+                "node_id": "ворота",
+                "label": "ворота",
+                "area_label": "центр города",
+            },
+            "next_zone_label": "центр города",
+            "pause_hint": "inspection_required",
+        },
+        source="test",
+    )
+
+    assert poi is not None
+    assert poi["status"] == "paused_travel"
+    inspected = session_state.inspect_group_travel_target(sess, "main", source="test")
+
+    assert inspected is not None
+    assert inspected["status"] == "idle"
+    assert inspected["current_map_position"]["node_id"] == "замок"
+    assert inspected["last_travel_resolution"] == {
+        "resolution_kind": "inspect_target",
+        "pause_reason": "point_of_interest_reached",
+        "target_label": "ворота",
+        "source": "test",
+        "details": {"inspected": True},
+    }
+
+    session_state.start_group_travel(
+        sess,
+        "main",
+        {
+            "allowed": True,
+            "route_kind": "zone_move",
+            "action_kind": "move",
+            "target_label": "лесная тропа",
+            "target_node": {
+                "map_level": "region",
+                "node_type": "zone",
+                "node_id": "лесная тропа",
+                "label": "лесная тропа",
+                "zone_label": "лесная тропа",
+                "area_label": "лесная тропа",
+            },
+            "next_map_position": {
+                "v": 1,
+                "map_level": "region",
+                "node_type": "zone",
+                "node_id": "лесная тропа",
+                "label": "лесная тропа",
+            },
+            "next_zone_label": "лесная тропа",
+        },
+        source="test",
+    )
+    session_state.pause_group_travel(sess, "main", reason="route_blocked", pause_details={"blocker": "оползень"})
+    bypassed = session_state.bypass_group_travel_pause(sess, "main", source="test")
+
+    assert bypassed is not None
+    assert bypassed["status"] == "idle"
+    assert bypassed["current_map_position"]["node_id"] == "замок"
+    assert bypassed["last_travel_resolution"] == {
+        "resolution_kind": "bypass",
+        "pause_reason": "route_blocked",
+        "target_label": "лесная тропа",
+        "source": "test",
+        "details": {"bypassed": True},
+    }
+
+    session_state.start_group_travel(
+        sess,
+        "main",
+        {
+            "allowed": True,
+            "route_kind": "zone_move",
+            "action_kind": "move",
+            "target_label": "старая башня",
+            "target_node": {
+                "map_level": "region",
+                "node_type": "zone",
+                "node_id": "старая башня",
+                "label": "старая башня",
+                "zone_label": "старая башня",
+                "area_label": "старая башня",
+            },
+            "next_map_position": {
+                "v": 1,
+                "map_level": "region",
+                "node_type": "zone",
+                "node_id": "старая башня",
+                "label": "старая башня",
+            },
+            "next_zone_label": "старая башня",
+        },
+        source="test",
+    )
+    session_state.pause_group_travel(sess, "main", reason="event_pending", pause_details={"event_id": "poi-1"})
+    resolved = session_state.resolve_group_travel_pause(sess, "main", source="test")
+
+    assert resolved is not None
+    assert resolved["status"] == "moving"
+    assert resolved["travel_state"]["paused"] is False
+    assert resolved["last_travel_resolution"] == {
+        "resolution_kind": "resolve_pause",
+        "pause_reason": "event_pending",
+        "target_label": "старая башня",
+        "source": "test",
+        "details": {"resolved": True},
+    }
