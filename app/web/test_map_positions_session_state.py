@@ -99,6 +99,26 @@ def test_same_player_map_position_falls_back_to_legacy_when_structured_absent() 
     assert session_state._same_player_map_position(sess, left_id, right_id) is True
 
 
+def test_same_player_map_position_legacy_fallback_does_not_read_pc_positions_helper(monkeypatch) -> None:
+    left_id = uuid.uuid4()
+    right_id = uuid.uuid4()
+    sess = SimpleNamespace(
+        settings={
+            "pc_positions": {
+                str(left_id): "Таверна",
+                str(right_id): "Таверна",
+            }
+        }
+    )
+
+    def _unexpected_read(_sess) -> dict[str, str]:
+        raise AssertionError("_get_pc_positions should not be used by same-position fallback")
+
+    monkeypatch.setattr(session_state, "_get_pc_positions", _unexpected_read)
+
+    assert session_state._same_player_map_position(sess, left_id, right_id) is True
+
+
 def test_get_player_position_context_prefers_structured_and_exposes_zone_label() -> None:
     player_id = uuid.uuid4()
     sess = SimpleNamespace(

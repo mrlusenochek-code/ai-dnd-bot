@@ -242,9 +242,8 @@ def _same_player_map_position(
     if left_position or right_position:
         return _map_position_identity_equals(left_position, right_position)
 
-    positions = _get_pc_positions(sess)
-    left_zone = str(positions.get(str(left_player_id), "") or "").strip()
-    right_zone = str(positions.get(str(right_player_id), "") or "").strip()
+    left_zone = _get_player_position_label(sess, left_player_id).strip()
+    right_zone = _get_player_position_label(sess, right_player_id).strip()
     return bool(left_zone and right_zone and left_zone == right_zone)
 
 
