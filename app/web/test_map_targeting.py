@@ -15,7 +15,18 @@ def test_static_map_registry_loads_known_nodes_and_links() -> None:
     nodes = get_static_map_nodes()
     links = get_static_map_links()
 
-    assert len(nodes) >= 5
+    node_ids = [node["node_id"] for node in nodes]
+
+    assert len(nodes) >= 12
+    assert len(node_ids) == len(set(node_ids))
+    assert "craft_town" in node_ids
+    assert "road_hamlet" in node_ids
+    assert "chapel_village" in node_ids
+    assert "forest_settlement" in node_ids
+    assert "ruined_settlement" in node_ids
+    assert "old_fortress_edge" in node_ids
+    assert "marsh_edge" in node_ids
+    assert "forgotten_shrine" in node_ids
     assert any(node["node_type"] == "zone" for node in nodes)
     assert any(node["node_type"] == "landmark" for node in nodes)
     assert any(node["node_type"] == "interior_entry" for node in nodes)
@@ -25,6 +36,7 @@ def test_static_map_registry_loads_known_nodes_and_links() -> None:
         "node_type": "zone",
         "map_level": "region",
         "area_label": "Стартовый тракт",
+        "zone_band": "safe",
         "aliases": (
             "стартовый тракт",
             "тракт",
@@ -39,6 +51,27 @@ def test_static_map_registry_loads_known_nodes_and_links() -> None:
         "route_kind": "landmark_move",
         "link_kind": "approach",
     }
+    assert find_static_link("craft_town", "fortress_gate", "move") == {
+        "from_node_id": "craft_town",
+        "to_node_id": "fortress_gate",
+        "action_kind": "move",
+        "route_kind": "landmark_move",
+        "link_kind": "approach",
+    }
+    assert find_static_link("forest_settlement", "old_fortress_edge", "move") == {
+        "from_node_id": "forest_settlement",
+        "to_node_id": "old_fortress_edge",
+        "action_kind": "move",
+        "route_kind": "landmark_move",
+        "link_kind": "ruin_path",
+    }
+    assert find_static_link("ruined_settlement", "mine_entrance", "enter") == {
+        "from_node_id": "ruined_settlement",
+        "to_node_id": "mine_entrance",
+        "action_kind": "enter",
+        "route_kind": "enter_location",
+        "link_kind": "entrance",
+    }
     assert any(link["action_kind"] == "enter" for link in links)
     assert get_obvious_linked_static_node_ids("start_trakt") == ["fortress_gate"]
 
@@ -50,6 +83,7 @@ def test_resolve_static_map_node_supports_labels_and_aliases() -> None:
         "node_type": "landmark",
         "map_level": "landmark",
         "area_label": "Стартовый тракт",
+        "zone_band": "safe",
         "aliases": (
             "ворота крепости",
             "крепостные ворота",
@@ -61,13 +95,41 @@ def test_resolve_static_map_node_supports_labels_and_aliases() -> None:
         "label": "Шахтный вход",
         "node_type": "interior_entry",
         "map_level": "interior",
-        "area_label": "Лесная дорога",
+        "area_label": "Разрушенный посёлок",
+        "zone_band": "danger",
         "aliases": (
             "шахтный вход",
             "вход в шахту",
             "шахта",
             "шахте",
             "к шахте",
+        ),
+    }
+    assert resolve_static_map_node("ремесленный городок") == {
+        "node_id": "craft_town",
+        "label": "Озёрный городок",
+        "node_type": "zone",
+        "map_level": "region",
+        "area_label": "Озёрный городок",
+        "zone_band": "safe",
+        "aliases": (
+            "озёрный городок",
+            "ремесленный городок",
+            "городок у озера",
+            "городок",
+        ),
+    }
+    assert resolve_static_map_node("старое святилище") == {
+        "node_id": "forgotten_shrine",
+        "label": "Забытое святилище",
+        "node_type": "landmark",
+        "map_level": "landmark",
+        "area_label": "Край болот",
+        "zone_band": "danger",
+        "aliases": (
+            "забытое святилище",
+            "святилище в болотах",
+            "старое святилище",
         ),
     }
 
@@ -101,7 +163,7 @@ def test_resolve_action_target_node_prefers_static_registry_for_move_text() -> N
 def test_resolve_action_target_node_prefers_static_registry_for_enter_text() -> None:
     target = resolve_action_target_node(
         target_text="шахта",
-        current_area_label="Лесная дорога",
+        current_area_label="Разрушенный посёлок",
         action_kind="enter",
         known_node_ids={"mine_entrance"},
         require_known_static=True,
@@ -112,8 +174,8 @@ def test_resolve_action_target_node_prefers_static_registry_for_enter_text() -> 
         "node_type": "interior_entry",
         "node_id": "mine_entrance",
         "label": "Шахтный вход",
-        "zone_label": "Лесная дорога",
-        "area_label": "Лесная дорога",
+        "zone_label": "Разрушенный посёлок",
+        "area_label": "Разрушенный посёлок",
     }
 
 
@@ -264,16 +326,16 @@ def test_resolve_group_target_route_zone_to_interior_entry_enter_valid() -> None
             "v": 1,
             "map_level": "region",
             "node_type": "zone",
-            "node_id": "forest_road",
-            "label": "Лесная дорога",
+            "node_id": "ruined_settlement",
+            "label": "Разрушенный посёлок",
         },
         target_node={
             "map_level": "interior",
             "node_type": "interior_entry",
             "node_id": "mine_entrance",
             "label": "Шахтный вход",
-            "zone_label": "Лесная дорога",
-            "area_label": "Лесная дорога",
+            "zone_label": "Разрушенный посёлок",
+            "area_label": "Разрушенный посёлок",
         },
         action_kind="enter",
     )
@@ -314,16 +376,16 @@ def test_resolve_group_target_route_zone_to_interior_entry_move_invalid() -> Non
             "v": 1,
             "map_level": "region",
             "node_type": "zone",
-            "node_id": "forest_road",
-            "label": "Лесная дорога",
+            "node_id": "ruined_settlement",
+            "label": "Разрушенный посёлок",
         },
         target_node={
             "map_level": "interior",
             "node_type": "interior_entry",
             "node_id": "mine_entrance",
             "label": "Шахтный вход",
-            "zone_label": "Лесная дорога",
-            "area_label": "Лесная дорога",
+            "zone_label": "Разрушенный посёлок",
+            "area_label": "Разрушенный посёлок",
         },
         action_kind="move",
     )
@@ -331,6 +393,50 @@ def test_resolve_group_target_route_zone_to_interior_entry_move_invalid() -> Non
     assert route["allowed"] is False
     assert route["route_kind"] == "invalid"
     assert route["error"] == "Для `group move` допустимы только zone или landmark цели."
+
+
+def test_resolve_group_target_route_safe_and_danger_links_use_expanded_registry() -> None:
+    safe_route = resolve_group_target_route(
+        current_map_position={
+            "v": 1,
+            "map_level": "region",
+            "node_type": "zone",
+            "node_id": "craft_town",
+            "label": "Озёрный городок",
+        },
+        target_node={
+            "map_level": "landmark",
+            "node_type": "landmark",
+            "node_id": "fortress_gate",
+            "label": "Ворота крепости",
+            "zone_label": "Стартовый тракт",
+            "area_label": "Стартовый тракт",
+        },
+        action_kind="move",
+    )
+    danger_route = resolve_group_target_route(
+        current_map_position={
+            "v": 1,
+            "map_level": "region",
+            "node_type": "zone",
+            "node_id": "marsh_edge",
+            "label": "Край болот",
+        },
+        target_node={
+            "map_level": "landmark",
+            "node_type": "landmark",
+            "node_id": "forgotten_shrine",
+            "label": "Забытое святилище",
+            "zone_label": "Край болот",
+            "area_label": "Край болот",
+        },
+        action_kind="move",
+    )
+
+    assert safe_route["allowed"] is True
+    assert safe_route["route_kind"] == "landmark_move"
+    assert danger_route["allowed"] is True
+    assert danger_route["target_node_id"] == "forgotten_shrine"
 
 
 def test_resolve_group_target_route_zone_enter_zone_invalid() -> None:
