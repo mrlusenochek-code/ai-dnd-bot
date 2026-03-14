@@ -93,6 +93,7 @@ def test_infer_action_position_update_returns_zone_move_via_canonical_transition
         "node_type": "zone",
         "node_id": "улица у таверны",
         "label": "улица у таверны",
+        "area_label": "улица у таверны",
     }
 
 
@@ -111,13 +112,14 @@ def test_infer_action_position_update_returns_landmark_node_for_landmark_move() 
         "иду к воротам",
     )
 
-    assert next_zone == "ворота"
+    assert next_zone == "центр города"
     assert next_map_position == {
         "v": 1,
         "map_level": "landmark",
         "node_type": "landmark",
         "node_id": "ворота",
         "label": "ворота",
+        "area_label": "центр города",
     }
 
 
@@ -154,6 +156,7 @@ def test_apply_player_action_position_update_updates_structured_and_legacy_state
             "node_type": "zone",
             "node_id": "улица у таверны",
             "label": "улица у таверны",
+            "area_label": "улица у таверны",
         },
     }
     assert sess.settings["map_positions"][str(player_id)] == payload["map_position_after"]
@@ -178,13 +181,14 @@ def test_apply_player_action_position_update_preserves_narrative_zone_inference(
     payload = ws_handlers._apply_player_action_position_update(sess, player_id, "захожу в замок")
 
     assert payload["zone_before"] == "таверна"
-    assert payload["zone_after"] == "замок"
+    assert payload["zone_after"] == "таверна"
     assert payload["map_position_after"] == {
         "v": 1,
         "map_level": "interior",
         "node_type": "interior_entry",
         "node_id": "замок",
         "label": "замок",
+        "area_label": "таверна",
     }
 
 
@@ -206,7 +210,7 @@ def test_apply_player_action_position_update_emits_structured_landmark_payload()
     payload = ws_handlers._apply_player_action_position_update(sess, player_id, "иду к воротам")
 
     assert payload["zone_before"] == "центр города"
-    assert payload["zone_after"] == "ворота"
+    assert payload["zone_after"] == "центр города"
     assert payload["map_position_before"] == {
         "v": 1,
         "map_level": "region",
@@ -220,5 +224,6 @@ def test_apply_player_action_position_update_emits_structured_landmark_payload()
         "node_type": "landmark",
         "node_id": "ворота",
         "label": "ворота",
+        "area_label": "центр города",
     }
-    assert sess.settings["pc_positions"][str(player_id)] == "ворота"
+    assert sess.settings["pc_positions"][str(player_id)] == "центр города"

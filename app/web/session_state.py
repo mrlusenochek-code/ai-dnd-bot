@@ -124,6 +124,7 @@ def _normalize_map_position(raw: Any) -> dict[str, Any] | None:
     node_type = str(raw.get("node_type") or "").strip().lower()
     node_id = str(raw.get("node_id") or "").strip()
     label = str(raw.get("label") or "").strip()
+    area_label = str(raw.get("area_label") or "").strip()
 
     if not node_type:
         node_type = "zone"
@@ -139,13 +140,33 @@ def _normalize_map_position(raw: Any) -> dict[str, Any] | None:
     if not node_id:
         return None
 
-    return {
+    normalized = {
         "v": 1,
         "map_level": map_level[:32],
         "node_type": node_type[:32],
         "node_id": node_id[:120],
         "label": label[:80] or node_id[:80],
     }
+    if area_label:
+        normalized["area_label"] = area_label[:80]
+    return normalized
+
+
+def _map_position_area_label(pos: Any, fallback: str = "стартовая локация") -> str:
+    normalized = _normalize_map_position(pos)
+    fallback_label = str(fallback or "").strip() or "стартовая локация"
+    if not normalized:
+        return fallback_label[:80]
+
+    node_type = str(normalized.get("node_type") or "").strip().lower()
+    if node_type == "zone":
+        return _format_map_position_label(normalized)
+
+    area_label = str(normalized.get("area_label") or "").strip()
+    if area_label:
+        return area_label[:80]
+
+    return _format_map_position_label(normalized)
 
 
 def _normalize_map_target_node(raw: Any) -> dict[str, Any] | None:
@@ -158,17 +179,22 @@ def _normalize_map_target_node(raw: Any) -> dict[str, Any] | None:
         return None
 
     zone_label = ""
+    area_label = ""
     if isinstance(raw, dict):
         zone_label = str(raw.get("zone_label") or "").strip()
+        area_label = str(raw.get("area_label") or "").strip()
     if not zone_label:
         zone_label = str(pos.get("label") or pos.get("node_id") or "").strip()
     if not zone_label:
         return None
 
-    return {
+    target = {
         **pos,
         "zone_label": zone_label[:80],
     }
+    if area_label:
+        target["area_label"] = area_label[:80]
+    return target
 
 
 def _apply_map_position_transition(
@@ -177,10 +203,18 @@ def _apply_map_position_transition(
     movement_reason: str | None = None,
 ) -> tuple[dict[str, Any] | None, str, bool, str | None]:
     current_pos = _normalize_map_position(current_map_position)
-    current_zone = _format_map_position_label(current_pos)
+    current_zone = _map_position_area_label(current_pos)
     target = _normalize_map_target_node(target_node)
     if not target:
         return current_pos, current_zone, False, "invalid_target_node"
+
+    target_node_type = str(target.get("node_type") or "zone").strip().lower()
+    target_label = str(target.get("label") or target.get("node_id") or "").strip()
+    current_area_label = _map_position_area_label(current_pos, fallback=current_zone)
+    if target_node_type == "zone":
+        next_area_label = target_label
+    else:
+        next_area_label = str(target.get("area_label") or "").strip() or current_area_label or target_label
 
     next_position = {
         "v": 1,
@@ -188,8 +222,9 @@ def _apply_map_position_transition(
         "node_type": str(target.get("node_type") or "zone"),
         "node_id": str(target.get("node_id") or "")[:120],
         "label": str(target.get("label") or "")[:80],
+        "area_label": next_area_label[:80] or target_label[:80] or current_zone,
     }
-    next_zone = str(target.get("zone_label") or _format_map_position_label(next_position)).strip() or current_zone
+    next_zone = _map_position_area_label(next_position, fallback=current_zone)
     _ = movement_reason
     return next_position, next_zone[:80], True, None
 
@@ -250,7 +285,7 @@ def _get_player_position_context(sess: Session, player_id: uuid.UUID | str) -> d
     pos = _get_player_map_position(sess, pid)
     if pos:
         return {
-            "zone_label": _format_map_position_label(pos),
+            "zone_label": _map_position_area_label(pos),
             "map_position": dict(pos),
         }
 
@@ -315,7 +350,7 @@ def _set_player_map_position(sess: Session, player_id: uuid.UUID, position: dict
 
     # legacy mirror for old zone-based code
     legacy = dict(_get_pc_positions(sess))
-    legacy[pid] = _format_map_position_label(pos)
+    legacy[pid] = _map_position_area_label(pos)
     settings_set(sess, "pc_positions", legacy)
 
 
@@ -344,7 +379,7 @@ def _initialize_map_positions(
     for pid in player_ids:
         pid_str = str(pid)
         map_positions[pid_str] = dict(pos)
-        legacy_positions[pid_str] = _format_map_position_label(pos)
+        legacy_positions[pid_str] = _map_position_area_label(pos)
     settings_set(sess, "map_positions", map_positions)
     settings_set(sess, "pc_positions", legacy_positions)
 
@@ -353,7 +388,7 @@ def _get_pc_positions(sess: Session) -> dict[str, str]:
     # Prefer new structured positions if they already exist.
     map_positions = _get_map_positions(sess)
     if map_positions:
-        return {pid: _format_map_position_label(pos) for pid, pos in map_positions.items()}
+        return {pid: _map_position_area_label(pos) for pid, pos in map_positions.items()}
 
     # Legacy fallback.
     raw = settings_get(sess, "pc_positions", {}) or {}

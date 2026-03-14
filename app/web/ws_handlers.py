@@ -54,6 +54,7 @@ from app.web.session_state import (
     _get_init_map,
     _get_player_map_position,
     _get_player_position_context,
+    _map_position_area_label,
     _touch_last_seen,
     _get_phase,
     _set_phase,
@@ -179,7 +180,7 @@ def _infer_action_position_update(
 ) -> tuple[str, dict[str, Any]]:
     zone_before = str(current_zone_label or "стартовая локация").strip() or "стартовая локация"
     next_zone_label = infer_zone_from_action(text, zone_before)
-    target_node = _infer_action_target_node(text, next_zone_label)
+    target_node = _infer_action_target_node(text, next_zone_label, current_map_position, zone_before)
     next_map_position, resolved_zone_label, ok, _error = _apply_map_position_transition(
         current_map_position,
         target_node,
@@ -190,9 +191,15 @@ def _infer_action_position_update(
     return next_zone_label, _default_map_position(next_zone_label)
 
 
-def _infer_action_target_node(text: str, inferred_zone_label: str) -> dict[str, Any]:
+def _infer_action_target_node(
+    text: str,
+    inferred_zone_label: str,
+    current_map_position: dict[str, Any] | None = None,
+    current_zone_label: str = "стартовая локация",
+) -> dict[str, Any]:
     src = str(text or "").strip().lower()
     zone_label = str(inferred_zone_label or "стартовая локация").strip() or "стартовая локация"
+    current_area_label = _map_position_area_label(current_map_position, fallback=current_zone_label)
 
     if any(token in src for token in ("захожу", "вхожу", "войти", "внутрь", "внутри")):
         return {
@@ -200,7 +207,8 @@ def _infer_action_target_node(text: str, inferred_zone_label: str) -> dict[str, 
             "node_type": "interior_entry",
             "node_id": zone_label,
             "label": zone_label,
-            "zone_label": zone_label,
+            "zone_label": current_area_label,
+            "area_label": current_area_label,
         }
 
     landmark_patterns = (
@@ -217,7 +225,8 @@ def _infer_action_target_node(text: str, inferred_zone_label: str) -> dict[str, 
                 "node_type": "landmark",
                 "node_id": label,
                 "label": label,
-                "zone_label": label,
+                "zone_label": current_area_label,
+                "area_label": current_area_label,
             }
 
     return {
@@ -226,6 +235,7 @@ def _infer_action_target_node(text: str, inferred_zone_label: str) -> dict[str, 
         "node_id": zone_label,
         "label": zone_label,
         "zone_label": zone_label,
+        "area_label": zone_label,
     }
 
 

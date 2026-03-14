@@ -31,6 +31,52 @@ def test_set_player_map_position_stores_structured_and_legacy_label() -> None:
     assert sess.settings["pc_positions"][str(player_id)] == "Старый подвал"
 
 
+def test_map_position_area_label_returns_zone_label_for_zone_position() -> None:
+    pos = {
+        "map_level": "region",
+        "node_type": "zone",
+        "node_id": "центр-города",
+        "label": "центр города",
+    }
+
+    assert session_state._map_position_area_label(pos) == "центр города"
+
+
+def test_map_position_area_label_returns_parent_zone_for_landmark() -> None:
+    pos = {
+        "map_level": "landmark",
+        "node_type": "landmark",
+        "node_id": "north-gate",
+        "label": "Северные ворота",
+        "area_label": "центр города",
+    }
+
+    assert session_state._map_position_area_label(pos) == "центр города"
+
+
+def test_map_position_area_label_returns_parent_zone_for_interior_entry() -> None:
+    pos = {
+        "map_level": "interior",
+        "node_type": "interior_entry",
+        "node_id": "castle",
+        "label": "замок",
+        "area_label": "дорога к замку",
+    }
+
+    assert session_state._map_position_area_label(pos) == "дорога к замку"
+
+
+def test_map_position_area_label_falls_back_when_parent_missing() -> None:
+    pos = {
+        "map_level": "interior",
+        "node_type": "interior_entry",
+        "node_id": "castle",
+        "label": "замок",
+    }
+
+    assert session_state._map_position_area_label(pos) == "замок"
+
+
 def test_apply_map_position_transition_moves_between_zones() -> None:
     current = {
         "map_level": "region",
@@ -59,6 +105,7 @@ def test_apply_map_position_transition_moves_between_zones() -> None:
         "node_type": "zone",
         "node_id": "улица у таверны",
         "label": "улица у таверны",
+        "area_label": "улица у таверны",
     }
 
 
@@ -83,13 +130,14 @@ def test_apply_map_position_transition_moves_to_landmark_and_keeps_legacy_zone_l
 
     assert ok is True
     assert error is None
-    assert next_zone == "Северные ворота"
+    assert next_zone == "центр города"
     assert next_position == {
         "v": 1,
         "map_level": "landmark",
         "node_type": "landmark",
         "node_id": "ворота",
         "label": "Северные ворота",
+        "area_label": "центр города",
     }
 
 
@@ -100,16 +148,17 @@ def test_get_pc_positions_prefers_structured_map_positions() -> None:
             "pc_positions": {str(player_id): "Устаревшая зона"},
             "map_positions": {
                 str(player_id): {
-                    "map_level": "region",
-                    "node_type": "zone",
+                    "map_level": "landmark",
+                    "node_type": "landmark",
                     "node_id": "north-gate",
                     "label": "Северные ворота",
+                    "area_label": "центр города",
                 }
             },
         }
     )
 
-    assert session_state._get_pc_positions(sess) == {str(player_id): "Северные ворота"}
+    assert session_state._get_pc_positions(sess) == {str(player_id): "центр города"}
 
 
 def test_map_position_identity_equals_ignores_label_mismatch() -> None:
@@ -192,19 +241,21 @@ def test_get_player_position_context_prefers_structured_and_exposes_zone_label()
                     "node_type": "landmark",
                     "node_id": "old-tavern-cellar",
                     "label": "Старый подвал",
+                    "area_label": "Таверна",
                 }
             },
         }
     )
 
     assert session_state._get_player_position_context(sess, player_id) == {
-        "zone_label": "Старый подвал",
+        "zone_label": "Таверна",
         "map_position": {
             "v": 1,
             "map_level": "district",
             "node_type": "landmark",
             "node_id": "old-tavern-cellar",
             "label": "Старый подвал",
+            "area_label": "Таверна",
         },
     }
 
