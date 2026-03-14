@@ -30,11 +30,13 @@ from app.web.ws_turns import (
 from app.web.session_state import (
     _ensure_settings,
     settings_get,
+    _get_group_states,
     _get_ready_map,
     _get_init_map,
     _get_last_seen_map,
     _get_map_positions,
     _get_pc_positions,
+    _get_player_group_id,
     _get_phase,
     _initiative_fixed,
 )
@@ -194,6 +196,7 @@ async def build_state(db: AsyncSession, sess: Session) -> dict:
     if player_ids:
         q = await db.execute(select(Player).where(Player.id.in_(player_ids)))
         players_by_id = {p.id: p for p in q.scalars().all()}
+    players_by_id_str = {str(pid): player for pid, player in players_by_id.items()}
     chars_by_player_id: dict = {}
     skills_by_character_id: dict = {}
     if player_ids:
@@ -257,6 +260,7 @@ async def build_state(db: AsyncSession, sess: Session) -> dict:
     round_participants = _ready_active_players(sess, active_sps) if free_turns else active_sps
     actions_total = len(round_participants)
     actions_done = sum(1 for sp in round_participants if str(sp.player_id) in round_actions)
+    group_states = _get_group_states(sess, [sp.player_id for sp in active_sps])
     positions = _get_pc_positions(sess)
     structured_positions = _get_map_positions(sess)
     combat_snapshot = snapshot_combat_state(session_id)
@@ -268,6 +272,8 @@ async def build_state(db: AsyncSession, sess: Session) -> dict:
         if char and char_payload is not None:
             char_payload["level_progress"] = _level_progress_payload(char)
             char_payload["skills"] = _skills_payload_for_character(char, skills_by_character_id.get(char.id, []))
+        group_id = _get_player_group_id(sess, sp.player_id, [sp.player_id for sp in active_sps])
+        group = group_states.get(group_id) if group_id else None
         players_payload.append(
             {
                 "id": str(sp.player_id),
@@ -282,6 +288,9 @@ async def build_state(db: AsyncSession, sess: Session) -> dict:
                 "last_seen": last_seen_map.get(str(sp.player_id)),
                 "char": char_payload,
                 "has_character": char is not None,
+                "group_id": group_id,
+                "group_area_label": (group.get("area_label") if isinstance(group, dict) else None),
+                "group_map_position": (dict(group["current_map_position"]) if isinstance(group, dict) else None),
                 "zone": positions.get(str(sp.player_id), "стартовая локация"),
                 "map_position": structured_positions.get(str(sp.player_id)),
             }
@@ -300,6 +309,23 @@ async def build_state(db: AsyncSession, sess: Session) -> dict:
         if isinstance(structured, dict):
             map_positions[key] = dict(structured)
 
+    groups_payload: dict[str, dict[str, Any]] = {}
+    for group_id, group in group_states.items():
+        member_uids: list[int] = []
+        for member_id in group.get("player_ids", []):
+            player_obj = players_by_id_str.get(str(member_id))
+            member_uid = _player_uid(player_obj)
+            if member_uid is not None:
+                member_uids.append(member_uid)
+        groups_payload[group_id] = {
+            "group_id": group_id,
+            "player_ids": list(group.get("player_ids", [])),
+            "member_uids": member_uids,
+            "current_map_position": dict(group["current_map_position"]),
+            "area_label": group.get("area_label"),
+            "status": group.get("status"),
+        }
+
     return {
         "type": "state",
         "session": {
@@ -314,6 +340,7 @@ async def build_state(db: AsyncSession, sess: Session) -> dict:
             "remaining_seconds": remaining,
             "all_ready": bool(all_ready),
             "can_begin": bool(can_begin),
+            "current_group_id": (_get_player_group_id(sess, sess.current_player_id, [sp.player_id for sp in active_sps]) if sess.current_player_id else None),
             "initiative_fixed": _initiative_fixed(sess),
             "round": (as_int(settings_get(sess, "round", 0), 0) or 1) if _initiative_fixed(sess) else None,
         },
@@ -332,6 +359,7 @@ async def build_state(db: AsyncSession, sess: Session) -> dict:
             "free_round": _get_free_round(sess) if free_turns else None,
             "actions_done": actions_done,
             "actions_total": actions_total,
+            "groups": groups_payload,
             "pc_positions": pc_positions,
             "map_positions": map_positions,
         },

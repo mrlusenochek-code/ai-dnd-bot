@@ -8,6 +8,9 @@ from app.db.models import Session
 from app.web.utils import as_int
 
 
+DEFAULT_GROUP_ID = "main"
+
+
 def _ensure_settings(sess: Session) -> dict:
     if not sess.settings or not isinstance(sess.settings, dict):
         sess.settings = {}
@@ -261,42 +264,63 @@ def _format_map_position_prompt(pos: Any) -> str:
 
 
 def _get_map_positions(sess: Session) -> dict[str, dict[str, Any]]:
-    raw = settings_get(sess, "map_positions", {}) or {}
-    out: dict[str, dict[str, Any]] = {}
-    if not isinstance(raw, dict):
-        return out
-    for k, v in raw.items():
-        if k is None or v is None:
-            continue
-        pid = str(k).strip()
-        pos = _normalize_map_position(v)
-        if pid and pos:
-            out[pid] = pos
-    return out
+    groups = _get_group_states(sess)
+    if groups:
+        out: dict[str, dict[str, Any]] = {}
+        for group in groups.values():
+            pos = _normalize_map_position(group.get("current_map_position"))
+            if not pos:
+                continue
+            for pid in group.get("player_ids", []):
+                out[str(pid)] = dict(pos)
+        if out:
+            return out
+    return _raw_player_map_positions(sess)
 
 
 def _get_player_map_position(sess: Session, player_id: uuid.UUID | str) -> dict[str, Any] | None:
-    positions = _get_map_positions(sess)
+    group_id = _get_player_group_id(sess, player_id)
+    if group_id:
+        group = _get_group_states(sess).get(group_id)
+        if group:
+            pos = _normalize_map_position(group.get("current_map_position"))
+            if pos:
+                return pos
+
+    positions = _raw_player_map_positions(sess)
     return positions.get(str(player_id))
 
 
 def _get_player_position_context(sess: Session, player_id: uuid.UUID | str) -> dict[str, Any]:
     pid = str(player_id)
+    group_id = _get_player_group_id(sess, pid)
+    if group_id:
+        group = _get_group_states(sess).get(group_id)
+        if group:
+            pos = _normalize_map_position(group.get("current_map_position"))
+            if pos:
+                return {
+                    "group_id": group_id,
+                    "zone_label": str(group.get("area_label") or _map_position_area_label(pos)),
+                    "map_position": dict(pos),
+                }
+
     pos = _get_player_map_position(sess, pid)
     if pos:
         return {
+            "group_id": None,
             "zone_label": _map_position_area_label(pos),
             "map_position": dict(pos),
         }
 
-    legacy_positions = settings_get(sess, "pc_positions", {}) or {}
+    legacy_positions = _raw_pc_positions(sess)
     zone_label = "стартовая локация"
-    if isinstance(legacy_positions, dict):
-        raw_zone = legacy_positions.get(pid)
-        zone_text = str(raw_zone or "").strip()
-        if zone_text:
-            zone_label = zone_text[:80]
+    raw_zone = legacy_positions.get(pid)
+    zone_text = str(raw_zone or "").strip()
+    if zone_text:
+        zone_label = zone_text[:80]
     return {
+        "group_id": None,
         "zone_label": zone_label,
         "map_position": None,
     }
@@ -324,11 +348,358 @@ def _map_position_identity_equals(left: Any, right: Any) -> bool:
     return bool(left_identity and right_identity and left_identity == right_identity)
 
 
+def _raw_player_map_positions(sess: Session) -> dict[str, dict[str, Any]]:
+    raw = settings_get(sess, "map_positions", {}) or {}
+    out: dict[str, dict[str, Any]] = {}
+    if not isinstance(raw, dict):
+        return out
+    for k, v in raw.items():
+        if k is None or v is None:
+            continue
+        pid = str(k).strip()
+        pos = _normalize_map_position(v)
+        if pid and pos:
+            out[pid] = pos
+    return out
+
+
+def _raw_pc_positions(sess: Session) -> dict[str, str]:
+    raw = settings_get(sess, "pc_positions", {}) or {}
+    out: dict[str, str] = {}
+    if not isinstance(raw, dict):
+        return out
+    for k, v in raw.items():
+        if k is None or v is None:
+            continue
+        pid = str(k).strip()
+        zone = str(v).strip()
+        if pid and zone:
+            out[pid] = zone[:80]
+    return out
+
+
+def _normalize_group_status(raw: Any) -> str:
+    status = str(raw or "idle").strip().lower()
+    if status not in {"idle", "split-ready", "moving"}:
+        return "idle"
+    return status
+
+
+def _group_default_position(
+    sess: Session,
+    player_ids: list[str],
+    fallback_position: dict[str, Any] | str | None = None,
+) -> dict[str, Any]:
+    pos = _normalize_map_position(fallback_position)
+    if pos:
+        return pos
+
+    raw_positions = _raw_player_map_positions(sess)
+    for pid in player_ids:
+        existing = raw_positions.get(pid)
+        if existing:
+            return dict(existing)
+
+    legacy_positions = _raw_pc_positions(sess)
+    for pid in player_ids:
+        zone = str(legacy_positions.get(pid) or "").strip()
+        if zone:
+            return _default_map_position(zone)
+
+    return _default_map_position("стартовая локация")
+
+
+def _normalize_group_state(
+    sess: Session,
+    group_id: str,
+    raw: Any,
+) -> dict[str, Any] | None:
+    group_key = str(group_id or "").strip()[:80]
+    if not group_key or not isinstance(raw, dict):
+        return None
+
+    raw_members = raw.get("player_ids")
+    player_ids: list[str] = []
+    if isinstance(raw_members, list):
+        for item in raw_members:
+            pid = str(item or "").strip()
+            if pid and pid not in player_ids:
+                player_ids.append(pid)
+    if not player_ids:
+        return None
+
+    pos = _normalize_map_position(raw.get("current_map_position"))
+    if not pos:
+        pos = _group_default_position(sess, player_ids)
+    area_label = str(raw.get("area_label") or "").strip() or _map_position_area_label(pos)
+
+    return {
+        "group_id": group_key,
+        "player_ids": player_ids,
+        "current_map_position": pos,
+        "area_label": area_label[:80],
+        "status": _normalize_group_status(raw.get("status")),
+    }
+
+
+def _persist_group_states(sess: Session, groups: dict[str, dict[str, Any]]) -> None:
+    payload: dict[str, dict[str, Any]] = {}
+    for group_id, group in groups.items():
+        normalized = _normalize_group_state(sess, group_id, group)
+        if not normalized:
+            continue
+        payload[group_id] = normalized
+    settings_set(sess, "groups", payload)
+
+
+def _candidate_group_player_ids(sess: Session, player_ids: list[uuid.UUID | str] | None = None) -> list[str]:
+    out: list[str] = []
+    for item in player_ids or []:
+        pid = str(item or "").strip()
+        if pid and pid not in out:
+            out.append(pid)
+
+    for mapping in (_raw_player_map_positions(sess), _raw_pc_positions(sess)):
+        for pid in mapping.keys():
+            if pid not in out:
+                out.append(pid)
+
+    raw_groups = settings_get(sess, "groups", {}) or {}
+    if isinstance(raw_groups, dict):
+        for item in raw_groups.values():
+            if not isinstance(item, dict):
+                continue
+            raw_members = item.get("player_ids")
+            if not isinstance(raw_members, list):
+                continue
+            for member in raw_members:
+                pid = str(member or "").strip()
+                if pid and pid not in out:
+                    out.append(pid)
+    return out
+
+
+def _sync_group_position_mirrors(sess: Session, group: dict[str, Any]) -> None:
+    player_ids = [str(pid).strip() for pid in (group.get("player_ids") or []) if str(pid).strip()]
+    if not player_ids:
+        return
+
+    pos = _normalize_map_position(group.get("current_map_position")) or _group_default_position(sess, player_ids)
+    area_label = str(group.get("area_label") or "").strip() or _map_position_area_label(pos)
+
+    map_positions = _raw_player_map_positions(sess)
+    legacy_positions = _raw_pc_positions(sess)
+    for pid in player_ids:
+        map_positions[pid] = dict(pos)
+        legacy_positions[pid] = area_label[:80]
+    settings_set(sess, "map_positions", map_positions)
+    settings_set(sess, "pc_positions", legacy_positions)
+
+
+def _initialize_default_group(
+    sess: Session,
+    player_ids: list[uuid.UUID | str],
+    default_position: dict[str, Any] | str | None = None,
+    *,
+    status: str = "idle",
+) -> dict[str, dict[str, Any]]:
+    normalized_player_ids: list[str] = []
+    for item in player_ids:
+        pid = str(item or "").strip()
+        if pid and pid not in normalized_player_ids:
+            normalized_player_ids.append(pid)
+
+    if not normalized_player_ids:
+        settings_set(sess, "groups", {})
+        return {}
+
+    pos = _group_default_position(sess, normalized_player_ids, default_position)
+    group = {
+        "group_id": DEFAULT_GROUP_ID,
+        "player_ids": normalized_player_ids,
+        "current_map_position": pos,
+        "area_label": _map_position_area_label(pos),
+        "status": _normalize_group_status(status),
+    }
+    groups = {DEFAULT_GROUP_ID: group}
+    _persist_group_states(sess, groups)
+    _sync_group_position_mirrors(sess, group)
+    return _get_group_states(sess)
+
+
+def _get_group_states(
+    sess: Session,
+    player_ids: list[uuid.UUID | str] | None = None,
+) -> dict[str, dict[str, Any]]:
+    raw = settings_get(sess, "groups", {}) or {}
+    groups: dict[str, dict[str, Any]] = {}
+    assigned: set[str] = set()
+    changed = not isinstance(raw, dict)
+
+    if isinstance(raw, dict):
+        for group_id, value in raw.items():
+            normalized = _normalize_group_state(sess, str(group_id), value)
+            if not normalized:
+                changed = True
+                continue
+            deduped_members: list[str] = []
+            for pid in normalized["player_ids"]:
+                if pid in assigned:
+                    changed = True
+                    continue
+                assigned.add(pid)
+                deduped_members.append(pid)
+            if not deduped_members:
+                changed = True
+                continue
+            if deduped_members != normalized["player_ids"]:
+                changed = True
+            normalized["player_ids"] = deduped_members
+            groups[normalized["group_id"]] = normalized
+
+    candidate_player_ids = _candidate_group_player_ids(sess, player_ids)
+    missing_player_ids = [pid for pid in candidate_player_ids if pid not in assigned]
+    if not groups and candidate_player_ids:
+        return _initialize_default_group(sess, candidate_player_ids)
+
+    if missing_player_ids:
+        main_group = groups.get(DEFAULT_GROUP_ID)
+        if not main_group:
+            pos = _group_default_position(sess, missing_player_ids)
+            main_group = {
+                "group_id": DEFAULT_GROUP_ID,
+                "player_ids": [],
+                "current_map_position": pos,
+                "area_label": _map_position_area_label(pos),
+                "status": "idle",
+            }
+            groups[DEFAULT_GROUP_ID] = main_group
+            changed = True
+        for pid in missing_player_ids:
+            if pid not in main_group["player_ids"]:
+                main_group["player_ids"].append(pid)
+                changed = True
+
+    if changed:
+        _persist_group_states(sess, groups)
+        for group in groups.values():
+            _sync_group_position_mirrors(sess, group)
+
+    return groups
+
+
+def _get_player_group_id(
+    sess: Session,
+    player_id: uuid.UUID | str,
+    player_ids: list[uuid.UUID | str] | None = None,
+) -> str | None:
+    pid = str(player_id)
+    for group_id, group in _get_group_states(sess, player_ids).items():
+        if pid in group.get("player_ids", []):
+            return group_id
+    return None
+
+
+def _set_group_map_position(
+    sess: Session,
+    group_id: str,
+    position: dict[str, Any] | str,
+    *,
+    status: str | None = None,
+) -> dict[str, Any] | None:
+    groups = _get_group_states(sess)
+    group_key = str(group_id or "").strip()
+    group = groups.get(group_key)
+    pos = _normalize_map_position(position)
+    if not group or not pos:
+        return None
+    group["current_map_position"] = pos
+    group["area_label"] = _map_position_area_label(pos)
+    if status is not None:
+        group["status"] = _normalize_group_status(status)
+    _persist_group_states(sess, groups)
+    _sync_group_position_mirrors(sess, group)
+    return dict(group)
+
+
+def _split_group(
+    sess: Session,
+    group_id: str,
+    member_player_ids: list[uuid.UUID | str],
+    *,
+    new_group_id: str | None = None,
+) -> dict[str, Any] | None:
+    groups = _get_group_states(sess)
+    source_group = groups.get(str(group_id or "").strip())
+    if not source_group:
+        return None
+
+    split_members: list[str] = []
+    for item in member_player_ids:
+        pid = str(item or "").strip()
+        if pid and pid in source_group["player_ids"] and pid not in split_members:
+            split_members.append(pid)
+    if not split_members or len(split_members) >= len(source_group["player_ids"]):
+        return None
+
+    new_key = str(new_group_id or f"{source_group['group_id']}_split_{len(groups) + 1}").strip()[:80]
+    if not new_key or new_key in groups:
+        return None
+
+    source_group["player_ids"] = [pid for pid in source_group["player_ids"] if pid not in split_members]
+    source_group["status"] = "split-ready"
+    new_group = {
+        "group_id": new_key,
+        "player_ids": split_members,
+        "current_map_position": dict(source_group["current_map_position"]),
+        "area_label": str(source_group["area_label"]),
+        "status": "split-ready",
+    }
+    groups[new_key] = new_group
+    _persist_group_states(sess, groups)
+    _sync_group_position_mirrors(sess, source_group)
+    _sync_group_position_mirrors(sess, new_group)
+    return dict(new_group)
+
+
+def _merge_groups(
+    sess: Session,
+    target_group_id: str,
+    source_group_id: str,
+) -> dict[str, Any] | None:
+    groups = _get_group_states(sess)
+    target_key = str(target_group_id or "").strip()
+    source_key = str(source_group_id or "").strip()
+    target_group = groups.get(target_key)
+    source_group = groups.get(source_key)
+    if not target_group or not source_group or target_key == source_key:
+        return None
+
+    target_pos = target_group.get("current_map_position")
+    source_pos = source_group.get("current_map_position")
+    if target_pos and source_pos and not _map_position_identity_equals(target_pos, source_pos):
+        return None
+
+    for pid in source_group.get("player_ids", []):
+        if pid not in target_group["player_ids"]:
+            target_group["player_ids"].append(pid)
+    target_group["status"] = "idle"
+    groups.pop(source_key, None)
+    _persist_group_states(sess, groups)
+    _sync_group_position_mirrors(sess, target_group)
+    return dict(target_group)
+
+
 def _same_player_map_position(
     sess: Session,
     left_player_id: uuid.UUID | str,
     right_player_id: uuid.UUID | str,
 ) -> bool:
+    left_group_id = _get_player_group_id(sess, left_player_id)
+    right_group_id = _get_player_group_id(sess, right_player_id)
+    if left_group_id and right_group_id and left_group_id == right_group_id:
+        return True
+
     left_position = _get_player_map_position(sess, left_player_id)
     right_position = _get_player_map_position(sess, right_player_id)
     if left_position or right_position:
@@ -344,28 +715,46 @@ def _set_player_map_position(sess: Session, player_id: uuid.UUID, position: dict
     if not pos:
         return
     pid = str(player_id)
-    positions = dict(_get_map_positions(sess))
+    group_id = _get_player_group_id(sess, pid, [pid])
+    if group_id:
+        _set_group_map_position(sess, group_id, pos)
+        return
+
+    positions = dict(_raw_player_map_positions(sess))
     positions[pid] = pos
     settings_set(sess, "map_positions", positions)
 
-    # legacy mirror for old zone-based code
-    legacy = dict(_get_pc_positions(sess))
+    legacy = dict(_raw_pc_positions(sess))
     legacy[pid] = _map_position_area_label(pos)
     settings_set(sess, "pc_positions", legacy)
 
 
 def _clear_player_map_position(sess: Session, player_id: uuid.UUID | str) -> None:
     pid = str(player_id)
-    positions = dict(_get_map_positions(sess))
+    positions = dict(_raw_player_map_positions(sess))
     if pid in positions:
         positions.pop(pid, None)
     settings_set(sess, "map_positions", positions)
 
-    legacy = settings_get(sess, "pc_positions", {}) or {}
-    legacy_positions = dict(legacy) if isinstance(legacy, dict) else {}
+    legacy_positions = dict(_raw_pc_positions(sess))
     if pid in legacy_positions:
         legacy_positions.pop(pid, None)
     settings_set(sess, "pc_positions", legacy_positions)
+
+    groups = _get_group_states(sess)
+    changed = False
+    for group_id, group in list(groups.items()):
+        members = [member for member in group.get("player_ids", []) if member != pid]
+        if len(members) == len(group.get("player_ids", [])):
+            continue
+        changed = True
+        if not members:
+            groups.pop(group_id, None)
+            continue
+        group["player_ids"] = members
+        _sync_group_position_mirrors(sess, group)
+    if changed:
+        _persist_group_states(sess, groups)
 
 
 def _initialize_map_positions(
@@ -382,27 +771,29 @@ def _initialize_map_positions(
         legacy_positions[pid_str] = _map_position_area_label(pos)
     settings_set(sess, "map_positions", map_positions)
     settings_set(sess, "pc_positions", legacy_positions)
+    _initialize_default_group(sess, [str(pid) for pid in player_ids], pos)
 
 
 def _get_pc_positions(sess: Session) -> dict[str, str]:
+    groups = _get_group_states(sess)
+    if groups:
+        out: dict[str, str] = {}
+        for group in groups.values():
+            area_label = str(group.get("area_label") or "").strip()
+            current_pos = group.get("current_map_position")
+            zone = area_label or _map_position_area_label(current_pos)
+            for pid in group.get("player_ids", []):
+                out[str(pid)] = zone[:80]
+        if out:
+            return out
+
     # Prefer new structured positions if they already exist.
-    map_positions = _get_map_positions(sess)
+    map_positions = _raw_player_map_positions(sess)
     if map_positions:
         return {pid: _map_position_area_label(pos) for pid, pos in map_positions.items()}
 
     # Legacy fallback.
-    raw = settings_get(sess, "pc_positions", {}) or {}
-    out: dict[str, str] = {}
-    if not isinstance(raw, dict):
-        return out
-    for k, v in raw.items():
-        if k is None or v is None:
-            continue
-        pid = str(k).strip()
-        zone = str(v).strip()
-        if pid and zone:
-            out[pid] = zone[:80]
-    return out
+    return _raw_pc_positions(sess)
 
 
 def _set_pc_zone(sess: Session, player_id: uuid.UUID, zone: str) -> None:

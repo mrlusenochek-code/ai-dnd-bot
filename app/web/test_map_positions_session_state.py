@@ -248,6 +248,7 @@ def test_get_player_position_context_prefers_structured_and_exposes_zone_label()
     )
 
     assert session_state._get_player_position_context(sess, player_id) == {
+        "group_id": "main",
         "zone_label": "Таверна",
         "map_position": {
             "v": 1,
@@ -265,8 +266,15 @@ def test_get_player_position_context_falls_back_to_legacy_zone() -> None:
     sess = SimpleNamespace(settings={"pc_positions": {str(player_id): "Таверна"}})
 
     assert session_state._get_player_position_context(sess, player_id) == {
+        "group_id": "main",
         "zone_label": "Таверна",
-        "map_position": None,
+        "map_position": {
+            "v": 1,
+            "map_level": "region",
+            "node_type": "zone",
+            "node_id": "Таверна",
+            "label": "Таверна",
+        },
     }
 
 
@@ -302,3 +310,134 @@ def test_clear_player_map_position_removes_structured_and_legacy_entries() -> No
     assert str(player_id) not in sess.settings["map_positions"]
     assert str(other_id) in sess.settings["pc_positions"]
     assert str(other_id) in sess.settings["map_positions"]
+
+
+def test_initialize_default_group_creates_main_group_for_all_players() -> None:
+    left_id = uuid.uuid4()
+    right_id = uuid.uuid4()
+    sess = SimpleNamespace(settings={})
+
+    groups = session_state._initialize_default_group(
+        sess,
+        [left_id, right_id],
+        {
+            "map_level": "region",
+            "node_type": "zone",
+            "node_id": "camp-square",
+            "label": "Площадь лагеря",
+        },
+    )
+
+    assert groups == {
+        "main": {
+            "group_id": "main",
+            "player_ids": [str(left_id), str(right_id)],
+            "current_map_position": {
+                "v": 1,
+                "map_level": "region",
+                "node_type": "zone",
+                "node_id": "camp-square",
+                "label": "Площадь лагеря",
+            },
+            "area_label": "Площадь лагеря",
+            "status": "idle",
+        }
+    }
+
+
+def test_get_player_group_id_resolves_membership_from_group_state() -> None:
+    left_id = uuid.uuid4()
+    right_id = uuid.uuid4()
+    sess = SimpleNamespace(settings={})
+    session_state._initialize_default_group(sess, [left_id, right_id], "Таверна")
+
+    assert session_state._get_player_group_id(sess, left_id) == "main"
+    assert session_state._get_player_group_id(sess, right_id) == "main"
+
+
+def test_set_group_map_position_updates_all_member_mirrors() -> None:
+    left_id = uuid.uuid4()
+    right_id = uuid.uuid4()
+    sess = SimpleNamespace(settings={})
+    session_state._initialize_default_group(sess, [left_id, right_id], "Таверна")
+
+    session_state._set_group_map_position(
+        sess,
+        "main",
+        {
+            "map_level": "landmark",
+            "node_type": "landmark",
+            "node_id": "north-gate",
+            "label": "Северные ворота",
+            "area_label": "центр города",
+        },
+    )
+
+    groups = session_state._get_group_states(sess)
+    assert groups["main"]["current_map_position"] == {
+        "v": 1,
+        "map_level": "landmark",
+        "node_type": "landmark",
+        "node_id": "north-gate",
+        "label": "Северные ворота",
+        "area_label": "центр города",
+    }
+    assert sess.settings["map_positions"][str(left_id)] == groups["main"]["current_map_position"]
+    assert sess.settings["map_positions"][str(right_id)] == groups["main"]["current_map_position"]
+    assert sess.settings["pc_positions"][str(left_id)] == "центр города"
+    assert sess.settings["pc_positions"][str(right_id)] == "центр города"
+
+
+def test_split_group_creates_second_group_with_shared_position() -> None:
+    left_id = uuid.uuid4()
+    right_id = uuid.uuid4()
+    third_id = uuid.uuid4()
+    sess = SimpleNamespace(settings={})
+    session_state._initialize_default_group(sess, [left_id, right_id, third_id], "Таверна")
+
+    new_group = session_state._split_group(sess, "main", [third_id], new_group_id="scout")
+
+    assert new_group == {
+        "group_id": "scout",
+        "player_ids": [str(third_id)],
+        "current_map_position": {
+            "v": 1,
+            "map_level": "region",
+            "node_type": "zone",
+            "node_id": "Таверна",
+            "label": "Таверна",
+        },
+        "area_label": "Таверна",
+        "status": "split-ready",
+    }
+    groups = session_state._get_group_states(sess)
+    assert groups["main"]["player_ids"] == [str(left_id), str(right_id)]
+    assert session_state._get_player_group_id(sess, third_id) == "scout"
+
+
+def test_merge_groups_rejoins_colocated_groups_and_keeps_positions_consistent() -> None:
+    left_id = uuid.uuid4()
+    right_id = uuid.uuid4()
+    sess = SimpleNamespace(settings={})
+    session_state._initialize_default_group(sess, [left_id, right_id], "Таверна")
+    session_state._split_group(sess, "main", [right_id], new_group_id="scout")
+
+    merged = session_state._merge_groups(sess, "main", "scout")
+
+    assert merged is not None
+    assert session_state._get_group_states(sess) == {
+        "main": {
+            "group_id": "main",
+            "player_ids": [str(left_id), str(right_id)],
+            "current_map_position": {
+                "v": 1,
+                "map_level": "region",
+                "node_type": "zone",
+                "node_id": "Таверна",
+                "label": "Таверна",
+            },
+            "area_label": "Таверна",
+            "status": "idle",
+        }
+    }
+    assert session_state._get_map_positions(sess)[str(left_id)] == session_state._get_map_positions(sess)[str(right_id)]
