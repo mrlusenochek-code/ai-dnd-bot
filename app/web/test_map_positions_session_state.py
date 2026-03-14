@@ -341,6 +341,7 @@ def test_initialize_default_group_creates_main_group_for_all_players() -> None:
             },
             "area_label": "Площадь лагеря",
             "status": "idle",
+            "movement_mode": "normal",
         }
     }
 
@@ -439,6 +440,7 @@ def test_merge_groups_rejoins_colocated_groups_and_keeps_positions_consistent() 
             },
             "area_label": "Таверна",
             "status": "idle",
+            "movement_mode": "normal",
         }
     }
     assert session_state._get_map_positions(sess)[str(left_id)] == session_state._get_map_positions(sess)[str(right_id)]
@@ -563,9 +565,11 @@ def test_set_group_movement_intent_stores_canonical_structured_target() -> None:
 
     assert updated is not None
     assert updated["status"] == "moving_intent"
+    assert updated["movement_mode"] == "normal"
     assert updated["movement_intent"] == {
         "target_label": "Северные ворота",
-        "movement_mode": "travel",
+        "movement_mode": "normal",
+        "movement_kind": "move",
         "source": "test",
         "active": True,
         "target_node": {
@@ -626,4 +630,74 @@ def test_group_enter_target_produces_expected_structured_target_semantics() -> N
     }
     assert updated["movement_intent"]["target_node_type"] == "interior_entry"
     assert updated["movement_intent"]["target_node_id"] == "замок"
+    assert updated["movement_intent"]["movement_mode"] == "normal"
+    assert updated["movement_intent"]["movement_kind"] == "enter"
     assert sess.settings["pc_positions"][str(player_id)] == "Таверна"
+
+
+def test_set_and_get_group_movement_mode() -> None:
+    player_id = uuid.uuid4()
+    sess = SimpleNamespace(settings={})
+    session_state._initialize_default_group(sess, [player_id], "Таверна")
+
+    updated = session_state.set_group_movement_mode(sess, "main", "cautious")
+
+    assert updated is not None
+    assert updated["movement_mode"] == "cautious"
+    assert session_state.get_group_movement_mode(sess, "main") == "cautious"
+
+
+def test_set_and_clear_group_travel_activity_preserves_assigned_actor() -> None:
+    player_id = uuid.uuid4()
+    sess = SimpleNamespace(settings={})
+    session_state._initialize_default_group(sess, [player_id], "Таверна")
+
+    updated = session_state.set_group_travel_activity(
+        sess,
+        "main",
+        activity="observe",
+        assigned_actor_id=player_id,
+        source="test",
+    )
+
+    assert updated is not None
+    assert session_state.get_group_travel_activity(sess, "main") == {
+        "activity": "observe",
+        "assigned_actor_id": str(player_id),
+        "source": "test",
+    }
+
+    cleared = session_state.clear_group_travel_activity(sess, "main")
+
+    assert cleared is not None
+    assert session_state.get_group_travel_activity(sess, "main") is None
+
+
+def test_movement_intent_inherits_group_mode_and_activity() -> None:
+    player_id = uuid.uuid4()
+    sess = SimpleNamespace(settings={})
+    session_state._initialize_default_group(sess, [player_id], "центр города")
+    session_state.set_group_movement_mode(sess, "main", "fast")
+    session_state.set_group_travel_activity(sess, "main", activity="navigate", assigned_actor_id=player_id, source="test")
+
+    updated = session_state.apply_group_move_target(
+        sess,
+        "main",
+        {
+            "map_level": "landmark",
+            "node_type": "landmark",
+            "node_id": "ворота",
+            "label": "ворота",
+            "zone_label": "центр города",
+            "area_label": "центр города",
+        },
+        source="test",
+    )
+
+    assert updated is not None
+    assert updated["movement_intent"]["movement_mode"] == "fast"
+    assert updated["movement_intent"]["travel_activity"] == {
+        "activity": "navigate",
+        "assigned_actor_id": str(player_id),
+        "source": "test",
+    }

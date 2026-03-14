@@ -61,10 +61,15 @@ from app.web.session_state import (
     apply_group_merge,
     apply_group_split,
     clear_group_movement_intent,
+    clear_group_travel_activity,
+    get_group_movement_mode,
+    get_group_travel_activity,
     maybe_apply_group_enter_target,
     request_group_merge,
     request_group_split,
     set_group_movement_intent,
+    set_group_movement_mode,
+    set_group_travel_activity,
     set_group_camp,
     set_group_wait,
     _touch_last_seen,
@@ -1657,6 +1662,17 @@ def _parse_group_command(cmdline: str) -> tuple[str | None, dict[str, Any]]:
         if lowered.startswith(prefix):
             return "group_enter", {"target_hint": txt[len(prefix):].strip()}
 
+    for prefix in ("group mode ", "group_mode "):
+        if lowered.startswith(prefix):
+            return "group_set_mode", {"movement_mode": txt[len(prefix):].strip()}
+
+    for prefix in ("group activity ", "group_activity "):
+        if lowered.startswith(prefix):
+            return "group_set_activity", {"activity": txt[len(prefix):].strip()}
+
+    if lowered in {"group clear activity", "group_clear_activity"}:
+        return "group_clear_activity", {}
+
     if lowered in {"group stop", "group_stop"}:
         return "group_stop", {}
 
@@ -1725,13 +1741,50 @@ def _handle_group_action_request(
     payload: dict[str, Any] | None = None,
     source: str = "ws",
 ) -> tuple[bool, Optional[str], Optional[str]]:
-    if action not in {"group_wait", "group_camp", "group_split", "group_merge", "group_move", "group_enter", "group_stop"}:
+    if action not in {
+        "group_wait",
+        "group_camp",
+        "group_split",
+        "group_merge",
+        "group_move",
+        "group_enter",
+        "group_stop",
+        "group_set_mode",
+        "group_set_activity",
+        "group_clear_activity",
+    }:
         return False, None, None
 
     payload = payload if isinstance(payload, dict) else {}
     actor_group_id = _get_player_group_id(sess, actor_player_id)
     actor_group_key = str(actor_group_id or "").strip()
     actor_id = str(actor_player_id)
+
+    if action in {"group_set_mode", "group_set_activity", "group_clear_activity"}:
+        if not actor_group_key:
+            return True, "Группа игрока не найдена.", None
+        if action == "group_set_mode":
+            movement_mode = str(payload.get("movement_mode") or "").strip().lower()
+            updated = set_group_movement_mode(sess, actor_group_key, movement_mode)
+            if not updated:
+                return True, "Не удалось изменить режим движения группы.", None
+            return True, None, f"Режим движения группы {actor_group_key}: {updated.get('movement_mode')}."
+        if action == "group_clear_activity":
+            updated = clear_group_travel_activity(sess, actor_group_key)
+            if not updated:
+                return True, "Не удалось очистить походную активность группы.", None
+            return True, None, f"Походная активность группы {actor_group_key} очищена."
+        updated = set_group_travel_activity(
+            sess,
+            actor_group_key,
+            activity=str(payload.get("activity") or "").strip().lower(),
+            assigned_actor_id=payload.get("assigned_actor_id") or actor_id,
+            source=source,
+        )
+        if not updated:
+            return True, "Не удалось установить походную активность группы.", None
+        activity = get_group_travel_activity(sess, actor_group_key) or {}
+        return True, None, f"Походная активность группы {actor_group_key}: {activity.get('activity')}."
 
     if action in {"group_move", "group_enter", "group_stop"}:
         if not actor_group_key:
@@ -1757,7 +1810,7 @@ def _handle_group_action_request(
         if not valid_transition:
             return True, transition_error or "Недопустимая цель перемещения группы.", None
 
-        movement_mode = str(payload.get("movement_mode") or ("enter" if action == "group_enter" else "travel")).strip().lower() or "travel"
+        movement_mode = str(payload.get("movement_mode") or get_group_movement_mode(sess, actor_group_key) or "normal").strip().lower() or "normal"
         if action == "group_enter":
             updated = maybe_apply_group_enter_target(
                 sess,
@@ -1778,6 +1831,7 @@ def _handle_group_action_request(
             target_node,
             target_label=str(target_node.get("label") or target_node.get("node_id") or "").strip() or None,
             movement_mode=movement_mode,
+            movement_kind="move",
             source=source,
         )
         if not updated:
@@ -5670,7 +5724,18 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                             await _broadcast_state_unlocked(session_id, combat_log_ui_patch=combat_patch)
                             continue
 
-                if action in {"group_wait", "group_camp", "group_split", "group_merge", "group_move", "group_enter", "group_stop"}:
+                if action in {
+                    "group_wait",
+                    "group_camp",
+                    "group_split",
+                    "group_merge",
+                    "group_move",
+                    "group_enter",
+                    "group_stop",
+                    "group_set_mode",
+                    "group_set_activity",
+                    "group_clear_activity",
+                }:
                     handled_group_action, group_err, group_msg = _handle_group_action_request(
                         sess,
                         action=action,

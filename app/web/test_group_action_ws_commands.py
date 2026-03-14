@@ -12,6 +12,9 @@ def test_parse_group_command_supports_wait_camp_move_enter_stop_split_and_merge(
     action_camp, payload_camp = ws_handlers._parse_group_command("group camp ночлег у костра")
     action_move, payload_move = ws_handlers._parse_group_command("group move к воротам")
     action_enter, payload_enter = ws_handlers._parse_group_command("group enter замок")
+    action_mode, payload_mode = ws_handlers._parse_group_command("group mode cautious")
+    action_activity, payload_activity = ws_handlers._parse_group_command("group activity navigate")
+    action_clear_activity, payload_clear_activity = ws_handlers._parse_group_command("group clear activity")
     action_stop, payload_stop = ws_handlers._parse_group_command("group stop")
     action_split, payload_split = ws_handlers._parse_group_command(f"group split {scout_id} as scout")
     action_merge, payload_merge = ws_handlers._parse_group_command("group merge scout into main")
@@ -20,6 +23,9 @@ def test_parse_group_command_supports_wait_camp_move_enter_stop_split_and_merge(
     assert (action_camp, payload_camp) == ("group_camp", {"reason": "ночлег у костра"})
     assert (action_move, payload_move) == ("group_move", {"target_hint": "к воротам"})
     assert (action_enter, payload_enter) == ("group_enter", {"target_hint": "замок"})
+    assert (action_mode, payload_mode) == ("group_set_mode", {"movement_mode": "cautious"})
+    assert (action_activity, payload_activity) == ("group_set_activity", {"activity": "navigate"})
+    assert (action_clear_activity, payload_clear_activity) == ("group_clear_activity", {})
     assert (action_stop, payload_stop) == ("group_stop", {})
     assert (action_split, payload_split) == (
         "group_split",
@@ -118,6 +124,55 @@ def test_handle_group_move_enter_and_stop_requests_update_group_state() -> None:
     stopped_group = session_state._get_group_states(sess)["main"]
     assert stopped_group["status"] == "idle"
     assert "movement_intent" not in stopped_group
+
+
+def test_handle_group_mode_and_activity_requests_update_group_state() -> None:
+    player_id = uuid.uuid4()
+    sess = SimpleNamespace(settings={})
+    session_state._initialize_default_group(sess, [player_id], "центр города")
+
+    handled_mode, err_mode, msg_mode = ws_handlers._handle_group_action_request(
+        sess,
+        action="group_set_mode",
+        actor_player_id=player_id,
+        payload={"movement_mode": "fast"},
+        source="test",
+    )
+
+    assert handled_mode is True
+    assert err_mode is None
+    assert msg_mode == "Режим движения группы main: fast."
+    assert session_state.get_group_movement_mode(sess, "main") == "fast"
+
+    handled_activity, err_activity, msg_activity = ws_handlers._handle_group_action_request(
+        sess,
+        action="group_set_activity",
+        actor_player_id=player_id,
+        payload={"activity": "observe"},
+        source="test",
+    )
+
+    assert handled_activity is True
+    assert err_activity is None
+    assert msg_activity == "Походная активность группы main: observe."
+    assert session_state.get_group_travel_activity(sess, "main") == {
+        "activity": "observe",
+        "assigned_actor_id": str(player_id),
+        "source": "test",
+    }
+
+    handled_clear, err_clear, msg_clear = ws_handlers._handle_group_action_request(
+        sess,
+        action="group_clear_activity",
+        actor_player_id=player_id,
+        payload={},
+        source="test",
+    )
+
+    assert handled_clear is True
+    assert err_clear is None
+    assert msg_clear == "Походная активность группы main очищена."
+    assert session_state.get_group_travel_activity(sess, "main") is None
 
 
 def test_handle_group_move_uses_resolver_and_validation(monkeypatch) -> None:
@@ -230,5 +285,6 @@ def test_handle_group_split_and_merge_requests_update_group_state() -> None:
             },
             "area_label": "Таверна",
             "status": "idle",
+            "movement_mode": "normal",
         }
     }

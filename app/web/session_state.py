@@ -423,6 +423,30 @@ def _normalize_group_camp_state(raw: Any) -> dict[str, Any] | None:
     return state
 
 
+def _normalize_group_movement_mode(raw: Any) -> str:
+    mode = str(raw or "normal").strip().lower()
+    if mode not in {"normal", "cautious", "fast"}:
+        return "normal"
+    return mode
+
+
+def _normalize_group_travel_activity(raw: Any) -> dict[str, Any] | None:
+    if not isinstance(raw, dict):
+        return None
+    activity = str(raw.get("activity") or raw.get("name") or "").strip().lower()
+    if activity not in {"observe", "track", "forage", "navigate", "avoid_danger"}:
+        return None
+    assigned_actor_id = str(raw.get("assigned_actor_id") or raw.get("assigned_player_id") or "").strip()
+    source = str(raw.get("source") or "manual").strip() or "manual"
+    state: dict[str, Any] = {
+        "activity": activity,
+        "source": source[:40],
+    }
+    if assigned_actor_id:
+        state["assigned_actor_id"] = assigned_actor_id[:80]
+    return state
+
+
 def _normalize_group_movement_intent(raw: Any) -> dict[str, Any] | None:
     if not isinstance(raw, dict):
         return None
@@ -432,14 +456,17 @@ def _normalize_group_movement_intent(raw: Any) -> dict[str, Any] | None:
         target_label = str(target_node.get("label") or target_node.get("node_id") or "").strip()
     if not target_label and isinstance(raw.get("target"), str):
         target_label = str(raw.get("target") or "").strip()
-    movement_mode = str(raw.get("movement_mode") or raw.get("mode") or "travel").strip().lower() or "travel"
+    movement_mode = _normalize_group_movement_mode(raw.get("movement_mode") or raw.get("mode"))
+    movement_kind = str(raw.get("movement_kind") or raw.get("kind") or "move").strip().lower() or "move"
     source = str(raw.get("source") or "manual").strip() or "manual"
     active = bool(raw.get("active", True))
+    travel_activity = _normalize_group_travel_activity(raw.get("travel_activity"))
     if not target_label and not target_node:
         return None
     state: dict[str, Any] = {
         "target_label": target_label[:80],
         "movement_mode": movement_mode[:40],
+        "movement_kind": movement_kind[:40],
         "source": source[:40],
         "active": active,
     }
@@ -447,6 +474,8 @@ def _normalize_group_movement_intent(raw: Any) -> dict[str, Any] | None:
         state["target_node"] = target_node
         state["target_node_type"] = str(target_node.get("node_type") or "zone")[:32]
         state["target_node_id"] = str(target_node.get("node_id") or "")[:120]
+    if travel_activity:
+        state["travel_activity"] = travel_activity
     return state
 
 
@@ -489,6 +518,8 @@ def create_group_movement_intent(
     target_node: dict[str, Any] | str | None = None,
     target_label: str | None = None,
     movement_mode: str | None = None,
+    movement_kind: str | None = None,
+    travel_activity: dict[str, Any] | None = None,
     source: str = "manual",
     active: bool = True,
 ) -> dict[str, Any] | None:
@@ -497,6 +528,8 @@ def create_group_movement_intent(
             "target_node": target_node,
             "target_label": target_label,
             "movement_mode": movement_mode,
+            "movement_kind": movement_kind,
+            "travel_activity": travel_activity,
             "source": source,
             "active": active,
         }
@@ -553,6 +586,14 @@ def _group_wait_summary(group: dict[str, Any]) -> dict[str, Any] | None:
 
 def _group_camp_summary(group: dict[str, Any]) -> dict[str, Any] | None:
     return _normalize_group_camp_state(group.get("camp_state"))
+
+
+def _group_movement_mode(group: dict[str, Any]) -> str:
+    return _normalize_group_movement_mode(group.get("movement_mode"))
+
+
+def _group_travel_activity_summary(group: dict[str, Any]) -> dict[str, Any] | None:
+    return _normalize_group_travel_activity(group.get("travel_activity"))
 
 
 def _group_movement_intent_summary(group: dict[str, Any]) -> dict[str, Any] | None:
@@ -622,7 +663,11 @@ def _normalize_group_state(
         "current_map_position": pos,
         "area_label": area_label[:80],
         "status": status,
+        "movement_mode": _normalize_group_movement_mode(raw.get("movement_mode")),
     }
+    travel_activity = _normalize_group_travel_activity(raw.get("travel_activity"))
+    if travel_activity:
+        normalized["travel_activity"] = travel_activity
     if wait_state:
         normalized["wait_state"] = wait_state
     if camp_state:
@@ -710,6 +755,7 @@ def _initialize_default_group(
         "current_map_position": pos,
         "area_label": _map_position_area_label(pos),
         "status": _normalize_group_status(status),
+        "movement_mode": "normal",
     }
     groups = {DEFAULT_GROUP_ID: group}
     _persist_group_states(sess, groups)
@@ -762,6 +808,7 @@ def _get_group_states(
                 "current_map_position": pos,
                 "area_label": _map_position_area_label(pos),
                 "status": "idle",
+                "movement_mode": "normal",
             }
             groups[DEFAULT_GROUP_ID] = main_group
             changed = True
@@ -836,13 +883,42 @@ def set_group_camp(
     return dict(group)
 
 
-def set_group_movement_intent(
+def get_group_movement_mode(sess: Session, group_id: str) -> str | None:
+    group = _get_group_states(sess).get(str(group_id or "").strip())
+    if not group:
+        return None
+    return _group_movement_mode(group)
+
+
+def set_group_movement_mode(sess: Session, group_id: str, movement_mode: str) -> dict[str, Any] | None:
+    groups = _get_group_states(sess)
+    group_key = str(group_id or "").strip()
+    group = groups.get(group_key)
+    if not group:
+        return None
+    group["movement_mode"] = _normalize_group_movement_mode(movement_mode)
+    current_intent = _group_movement_intent_summary(group)
+    if current_intent:
+        current_intent["movement_mode"] = group["movement_mode"]
+        group["movement_intent"] = current_intent
+    _persist_group_states(sess, groups)
+    _sync_group_position_mirrors(sess, group)
+    return dict(group)
+
+
+def get_group_travel_activity(sess: Session, group_id: str) -> dict[str, Any] | None:
+    group = _get_group_states(sess).get(str(group_id or "").strip())
+    if not group:
+        return None
+    return _group_travel_activity_summary(group)
+
+
+def set_group_travel_activity(
     sess: Session,
     group_id: str,
     *,
-    target_node: dict[str, Any] | str,
-    target_label: str | None = None,
-    movement_mode: str = "travel",
+    activity: str,
+    assigned_actor_id: uuid.UUID | str | None = None,
     source: str = "manual",
 ) -> dict[str, Any] | None:
     groups = _get_group_states(sess)
@@ -850,10 +926,64 @@ def set_group_movement_intent(
     group = groups.get(group_key)
     if not group:
         return None
+    normalized = _normalize_group_travel_activity(
+        {
+            "activity": activity,
+            "assigned_actor_id": assigned_actor_id,
+            "source": source,
+        }
+    )
+    if not normalized:
+        return None
+    group["travel_activity"] = normalized
+    current_intent = _group_movement_intent_summary(group)
+    if current_intent:
+        current_intent["travel_activity"] = normalized
+        group["movement_intent"] = current_intent
+    _persist_group_states(sess, groups)
+    _sync_group_position_mirrors(sess, group)
+    return dict(group)
+
+
+def clear_group_travel_activity(sess: Session, group_id: str) -> dict[str, Any] | None:
+    groups = _get_group_states(sess)
+    group_key = str(group_id or "").strip()
+    group = groups.get(group_key)
+    if not group:
+        return None
+    group.pop("travel_activity", None)
+    current_intent = _group_movement_intent_summary(group)
+    if current_intent:
+        current_intent.pop("travel_activity", None)
+        group["movement_intent"] = current_intent
+    _persist_group_states(sess, groups)
+    _sync_group_position_mirrors(sess, group)
+    return dict(group)
+
+
+def set_group_movement_intent(
+    sess: Session,
+    group_id: str,
+    *,
+    target_node: dict[str, Any] | str,
+    target_label: str | None = None,
+    movement_mode: str | None = None,
+    movement_kind: str = "move",
+    source: str = "manual",
+) -> dict[str, Any] | None:
+    groups = _get_group_states(sess)
+    group_key = str(group_id or "").strip()
+    group = groups.get(group_key)
+    if not group:
+        return None
+    resolved_mode = _normalize_group_movement_mode(movement_mode or group.get("movement_mode"))
+    travel_activity = _group_travel_activity_summary(group)
     movement_intent = create_group_movement_intent(
         target_node=target_node,
         target_label=target_label,
-        movement_mode=movement_mode,
+        movement_mode=resolved_mode,
+        movement_kind=movement_kind,
+        travel_activity=travel_activity,
         source=source,
         active=True,
     )
@@ -887,7 +1017,8 @@ def apply_group_move_target(
     target_node: dict[str, Any] | str,
     *,
     target_label: str | None = None,
-    movement_mode: str = "travel",
+    movement_mode: str | None = None,
+    movement_kind: str = "move",
     source: str = "manual",
 ) -> dict[str, Any] | None:
     groups = _get_group_states(sess)
@@ -898,7 +1029,9 @@ def apply_group_move_target(
     intent = create_group_movement_intent(
         target_node=target_node,
         target_label=target_label,
-        movement_mode=movement_mode,
+        movement_mode=_normalize_group_movement_mode(movement_mode or group.get("movement_mode")),
+        movement_kind=movement_kind,
+        travel_activity=_group_travel_activity_summary(group),
         source=source,
         active=True,
     )
@@ -929,7 +1062,7 @@ def maybe_apply_group_enter_target(
     target_node: dict[str, Any] | str,
     *,
     target_label: str | None = None,
-    movement_mode: str = "enter",
+    movement_mode: str | None = None,
     source: str = "manual",
 ) -> dict[str, Any] | None:
     target = _normalize_map_target_node(target_node)
@@ -944,6 +1077,7 @@ def maybe_apply_group_enter_target(
         target,
         target_label=target_label,
         movement_mode=movement_mode,
+        movement_kind="enter",
         source=source,
     )
 

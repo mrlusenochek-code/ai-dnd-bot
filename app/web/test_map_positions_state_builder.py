@@ -48,6 +48,7 @@ def test_build_state_includes_legacy_and_structured_positions(monkeypatch) -> No
         "main": {
             "group_id": "main",
             "player_ids": [str(player_id)],
+            "movement_mode": "normal",
             "current_map_position": structured_position,
             "area_label": "Старый подвал",
             "status": "idle",
@@ -117,6 +118,9 @@ def test_build_state_includes_legacy_and_structured_positions(monkeypatch) -> No
             "current_map_position": structured_position,
             "area_label": "Старый подвал",
             "status": "idle",
+            "movement_mode": "normal",
+            "travel_activity": None,
+            "travel_activity_summary": None,
             "wait_summary": None,
             "camp_summary": None,
             "movement_intent_summary": None,
@@ -165,6 +169,7 @@ def test_build_state_exports_current_player_group_id(monkeypatch) -> None:
         "main": {
             "group_id": "main",
             "player_ids": [str(player_id)],
+            "movement_mode": "normal",
             "current_map_position": {
                 "v": 1,
                 "map_level": "region",
@@ -234,6 +239,12 @@ def test_build_state_exports_group_activity_summaries(monkeypatch) -> None:
             "current_map_position": group_position,
             "area_label": "camp",
             "status": "moving_intent",
+            "movement_mode": "cautious",
+            "travel_activity": {
+                "activity": "navigate",
+                "assigned_actor_id": str(player_id),
+                "source": "test",
+            },
             "wait_state": {
                 "reason": "ждём остальных",
                 "source": "test",
@@ -253,7 +264,13 @@ def test_build_state_exports_group_activity_summaries(monkeypatch) -> None:
                     "zone_label": "camp",
                     "area_label": "camp",
                 },
-                "movement_mode": "travel",
+                "movement_mode": "cautious",
+                "movement_kind": "move",
+                "travel_activity": {
+                    "activity": "navigate",
+                    "assigned_actor_id": str(player_id),
+                    "source": "test",
+                },
                 "source": "test",
                 "active": True,
                 "target_node_type": "landmark",
@@ -288,6 +305,12 @@ def test_build_state_exports_group_activity_summaries(monkeypatch) -> None:
     payload = asyncio.run(state_builder.build_state(db, sess))
 
     assert payload["game"]["groups"]["main"]["status"] == "moving_intent"
+    assert payload["game"]["groups"]["main"]["movement_mode"] == "cautious"
+    assert payload["game"]["groups"]["main"]["travel_activity_summary"] == {
+        "activity": "navigate",
+        "assigned_actor_id": str(player_id),
+        "source": "test",
+    }
     assert payload["game"]["groups"]["main"]["wait_summary"] == {
         "reason": "ждём остальных",
         "source": "test",
@@ -307,7 +330,13 @@ def test_build_state_exports_group_activity_summaries(monkeypatch) -> None:
             "zone_label": "camp",
             "area_label": "camp",
         },
-        "movement_mode": "travel",
+        "movement_mode": "cautious",
+        "movement_kind": "move",
+        "travel_activity": {
+            "activity": "navigate",
+            "assigned_actor_id": str(player_id),
+            "source": "test",
+        },
         "source": "test",
         "active": True,
         "target_node_type": "landmark",
