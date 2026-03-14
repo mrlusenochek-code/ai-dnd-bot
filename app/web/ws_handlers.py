@@ -76,6 +76,7 @@ from app.web.session_state import (
 )
 from app.web.session_lock import get_session_lock
 from app.web.state_builder import broadcast_state, _broadcast_state_unlocked, send_state_to_ws, _maybe_restore_combat_state
+from app.web.map_targeting import resolve_action_target_node, validate_group_target_transition
 from app.web.combat_bridge import (
     _append_combat_patch_lines,
     _build_combat_start_preamble_lines,
@@ -192,7 +193,12 @@ def _infer_action_position_update(
 ) -> tuple[str, dict[str, Any]]:
     zone_before = str(current_zone_label or "стартовая локация").strip() or "стартовая локация"
     next_zone_label = infer_zone_from_action(text, zone_before)
-    target_node = _infer_action_target_node(text, next_zone_label, current_map_position, zone_before)
+    target_node = resolve_action_target_node(
+        action_text=text,
+        current_map_position=current_map_position,
+        current_area_label=zone_before,
+        action_kind="enter" if any(token in str(text or "").lower() for token in ("захожу", "вхожу", "войти", "внутрь", "внутри")) else "move",
+    )
     next_map_position, resolved_zone_label, ok, _error = _apply_map_position_transition(
         current_map_position,
         target_node,
@@ -209,46 +215,13 @@ def _infer_action_target_node(
     current_map_position: dict[str, Any] | None = None,
     current_zone_label: str = "стартовая локация",
 ) -> dict[str, Any]:
-    src = str(text or "").strip().lower()
-    zone_label = str(inferred_zone_label or "стартовая локация").strip() or "стартовая локация"
-    current_area_label = _map_position_area_label(current_map_position, fallback=current_zone_label)
-
-    if any(token in src for token in ("захожу", "вхожу", "войти", "внутрь", "внутри")):
-        return {
-            "map_level": "interior",
-            "node_type": "interior_entry",
-            "node_id": zone_label,
-            "label": zone_label,
-            "zone_label": current_area_label,
-            "area_label": current_area_label,
-        }
-
-    landmark_patterns = (
-        ("ворот", "ворота"),
-        ("подвал", "подвал"),
-        ("фонтан", "фонтан"),
-        ("башн", "башня"),
-        ("двер", "дверь"),
+    resolved = resolve_action_target_node(
+        action_text=text,
+        current_map_position=current_map_position,
+        current_area_label=current_zone_label,
+        action_kind="enter" if any(token in str(text or "").lower() for token in ("захожу", "вхожу", "войти", "внутрь", "внутри")) else "move",
     )
-    for stem, label in landmark_patterns:
-        if stem in src:
-            return {
-                "map_level": "landmark",
-                "node_type": "landmark",
-                "node_id": label,
-                "label": label,
-                "zone_label": current_area_label,
-                "area_label": current_area_label,
-            }
-
-    return {
-        "map_level": "region",
-        "node_type": "zone",
-        "node_id": zone_label,
-        "label": zone_label,
-        "zone_label": zone_label,
-        "area_label": zone_label,
-    }
+    return dict(resolved or {})
 
 
 def _apply_player_action_position_update(
@@ -1733,37 +1706,14 @@ def _resolve_group_action_target(
     current_zone_label = str((group or {}).get("area_label") or "стартовая локация")
 
     direct_target = payload.get("target_node") or payload.get("target")
-    if isinstance(direct_target, dict):
-        target_node = dict(direct_target)
-        if enter and str(target_node.get("node_type") or "").strip().lower() not in {"landmark", "building", "interior_entry"}:
-            target_label = str(target_node.get("label") or target_node.get("node_id") or "").strip() or "entry"
-            target_node = {
-                "map_level": "interior",
-                "node_type": "interior_entry",
-                "node_id": target_label,
-                "label": target_label,
-                "zone_label": current_zone_label,
-                "area_label": current_zone_label,
-            }
-        return target_node
-
-    target_hint = str(payload.get("target_hint") or payload.get("target_label") or direct_target or "").strip()
-    if not target_hint:
-        return None
-    if enter:
-        return {
-            "map_level": "interior",
-            "node_type": "interior_entry",
-            "node_id": target_hint,
-            "label": target_hint,
-            "zone_label": current_zone_label,
-            "area_label": current_zone_label,
-        }
-    return _infer_action_target_node(
-        target_hint,
-        infer_zone_from_action(target_hint, current_zone_label),
-        current_map_position if isinstance(current_map_position, dict) else None,
-        current_zone_label,
+    target_hint = str(payload.get("target_hint") or payload.get("target_label") or "").strip()
+    return resolve_action_target_node(
+        action_text=target_hint,
+        target_text=target_hint,
+        current_map_position=current_map_position if isinstance(current_map_position, dict) else None,
+        current_area_label=current_zone_label,
+        action_kind="enter" if enter else "move",
+        target_node=direct_target,
     )
 
 
@@ -1800,6 +1750,12 @@ def _handle_group_action_request(
         )
         if not target_node:
             return True, "Нужно указать цель движения группы.", None
+        valid_transition, transition_error = validate_group_target_transition(
+            action_kind="enter" if action == "group_enter" else "move",
+            target_node=target_node,
+        )
+        if not valid_transition:
+            return True, transition_error or "Недопустимая цель перемещения группы.", None
 
         movement_mode = str(payload.get("movement_mode") or ("enter" if action == "group_enter" else "travel")).strip().lower() or "travel"
         if action == "group_enter":

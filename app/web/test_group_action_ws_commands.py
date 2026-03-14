@@ -120,6 +120,73 @@ def test_handle_group_move_enter_and_stop_requests_update_group_state() -> None:
     assert "movement_intent" not in stopped_group
 
 
+def test_handle_group_move_uses_resolver_and_validation(monkeypatch) -> None:
+    player_id = uuid.uuid4()
+    sess = SimpleNamespace(settings={})
+    session_state._initialize_default_group(sess, [player_id], "центр города")
+    calls: list[tuple[str, str]] = []
+
+    def fake_resolve(**kwargs):
+        calls.append(("resolve", str(kwargs.get("action_kind") or "")))
+        return {
+            "map_level": "landmark",
+            "node_type": "landmark",
+            "node_id": "ворота",
+            "label": "ворота",
+            "zone_label": "центр города",
+            "area_label": "центр города",
+        }
+
+    def fake_validate(**kwargs):
+        calls.append(("validate", str(kwargs.get("action_kind") or "")))
+        return True, None
+
+    monkeypatch.setattr(ws_handlers, "resolve_action_target_node", fake_resolve)
+    monkeypatch.setattr(ws_handlers, "validate_group_target_transition", fake_validate)
+
+    handled, err, msg = ws_handlers._handle_group_action_request(
+        sess,
+        action="group_move",
+        actor_player_id=player_id,
+        payload={"target_hint": "к воротам"},
+        source="test",
+    )
+
+    assert handled is True
+    assert err is None
+    assert msg == "Группа main движется к ворота."
+    assert calls == [("resolve", "move"), ("validate", "move")]
+
+
+def test_handle_group_enter_invalid_target_returns_error_without_corrupting_state() -> None:
+    player_id = uuid.uuid4()
+    sess = SimpleNamespace(settings={})
+    session_state._initialize_default_group(sess, [player_id], "центр города")
+    before = session_state._get_group_states(sess)
+
+    handled, err, msg = ws_handlers._handle_group_action_request(
+        sess,
+        action="group_enter",
+        actor_player_id=player_id,
+        payload={
+            "target_node": {
+                "map_level": "region",
+                "node_type": "zone",
+                "node_id": "центр города",
+                "label": "центр города",
+                "zone_label": "центр города",
+                "area_label": "центр города",
+            }
+        },
+        source="test",
+    )
+
+    assert handled is True
+    assert err == "Для `group enter` нужна interior/building цель, а не обычная zone."
+    assert msg is None
+    assert session_state._get_group_states(sess) == before
+
+
 def test_handle_group_split_and_merge_requests_update_group_state() -> None:
     left_id = uuid.uuid4()
     right_id = uuid.uuid4()
