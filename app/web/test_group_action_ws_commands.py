@@ -87,6 +87,9 @@ def test_handle_group_move_enter_and_stop_requests_update_group_state() -> None:
         "area_label": "центр города",
     }
     assert moved_group["movement_intent"]["target_node_type"] == "landmark"
+    assert moved_group["movement_intent"]["route_kind"] == "landmark_move"
+    assert moved_group["movement_intent"]["action_kind"] == "move"
+    assert moved_group["movement_intent"]["allowed"] is True
 
     handled_enter, err_enter, msg_enter = ws_handlers._handle_group_action_request(
         sess,
@@ -109,6 +112,9 @@ def test_handle_group_move_enter_and_stop_requests_update_group_state() -> None:
         "area_label": "центр города",
     }
     assert entered_group["movement_intent"]["target_node_id"] == "замок"
+    assert entered_group["movement_intent"]["route_kind"] == "enter_location"
+    assert entered_group["movement_intent"]["action_kind"] == "enter"
+    assert entered_group["movement_intent"]["allowed"] is True
 
     handled_stop, err_stop, msg_stop = ws_handlers._handle_group_action_request(
         sess,
@@ -175,7 +181,7 @@ def test_handle_group_mode_and_activity_requests_update_group_state() -> None:
     assert session_state.get_group_travel_activity(sess, "main") is None
 
 
-def test_handle_group_move_uses_resolver_and_validation(monkeypatch) -> None:
+def test_handle_group_move_uses_route_helper_and_stores_route_summary(monkeypatch) -> None:
     player_id = uuid.uuid4()
     sess = SimpleNamespace(settings={})
     session_state._initialize_default_group(sess, [player_id], "центр города")
@@ -192,12 +198,37 @@ def test_handle_group_move_uses_resolver_and_validation(monkeypatch) -> None:
             "area_label": "центр города",
         }
 
-    def fake_validate(**kwargs):
-        calls.append(("validate", str(kwargs.get("action_kind") or "")))
-        return True, None
+    def fake_route(**kwargs):
+        calls.append(("route", str(kwargs.get("action_kind") or "")))
+        return {
+            "allowed": True,
+            "route_kind": "landmark_move",
+            "action_kind": "move",
+            "target_node": {
+                "map_level": "landmark",
+                "node_type": "landmark",
+                "node_id": "ворота",
+                "label": "ворота",
+                "zone_label": "центр города",
+                "area_label": "центр города",
+            },
+            "target_node_type": "landmark",
+            "target_node_id": "ворота",
+            "target_label": "ворота",
+            "next_map_position": {
+                "v": 1,
+                "map_level": "landmark",
+                "node_type": "landmark",
+                "node_id": "ворота",
+                "label": "ворота",
+                "area_label": "центр города",
+            },
+            "next_zone_label": "центр города",
+            "error": None,
+        }
 
     monkeypatch.setattr(ws_handlers, "resolve_action_target_node", fake_resolve)
-    monkeypatch.setattr(ws_handlers, "validate_group_target_transition", fake_validate)
+    monkeypatch.setattr(ws_handlers, "resolve_group_target_route", fake_route)
 
     handled, err, msg = ws_handlers._handle_group_action_request(
         sess,
@@ -210,7 +241,8 @@ def test_handle_group_move_uses_resolver_and_validation(monkeypatch) -> None:
     assert handled is True
     assert err is None
     assert msg == "Группа main движется к ворота."
-    assert calls == [("resolve", "move"), ("validate", "move")]
+    assert calls == [("resolve", "move"), ("route", "move")]
+    assert session_state._get_group_states(sess)["main"]["movement_intent"]["route_kind"] == "landmark_move"
 
 
 def test_handle_group_enter_invalid_target_returns_error_without_corrupting_state() -> None:

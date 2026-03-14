@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any, Optional
 
-from app.web.session_state import _map_position_area_label, _normalize_map_target_node
+from app.web.session_state import _apply_map_position_transition, _map_position_area_label, _normalize_map_position, _normalize_map_target_node
 from app.web.ws_gameplay import infer_zone_from_action
 
 
@@ -111,3 +111,72 @@ def validate_group_target_transition(
         return False, "Для `group enter` нужна interior/building цель, а не обычная zone."
 
     return False, "Неизвестный тип перехода группы."
+
+
+def resolve_group_target_route(
+    *,
+    current_map_position: dict[str, Any] | None,
+    target_node: dict[str, Any] | str | None,
+    action_kind: str,
+) -> dict[str, Any]:
+    current_pos = _normalize_map_position(current_map_position)
+    target = _normalize_map_target_node(target_node)
+    action = str(action_kind or "").strip().lower()
+    if not target:
+        return {
+            "allowed": False,
+            "route_kind": "invalid",
+            "action_kind": action or "move",
+            "target_node": None,
+            "target_node_type": None,
+            "target_node_id": None,
+            "target_label": None,
+            "next_map_position": current_pos,
+            "next_zone_label": _map_position_area_label(current_pos),
+            "error": "Не удалось определить цель перемещения.",
+        }
+
+    node_type = str(target.get("node_type") or "zone").strip().lower()
+    valid_transition, transition_error = validate_group_target_transition(action_kind=action, target_node=target)
+    if not valid_transition:
+        return {
+            "allowed": False,
+            "route_kind": "invalid",
+            "action_kind": action or "move",
+            "target_node": target,
+            "target_node_type": node_type,
+            "target_node_id": str(target.get("node_id") or "").strip() or None,
+            "target_label": str(target.get("label") or target.get("node_id") or "").strip() or None,
+            "next_map_position": current_pos,
+            "next_zone_label": _map_position_area_label(current_pos),
+            "error": transition_error,
+        }
+
+    next_map_position, next_zone_label, ok, transition_error = _apply_map_position_transition(
+        current_pos,
+        target,
+        f"group_{action or 'move'}",
+    )
+    route_kind = "invalid"
+    if ok:
+        if node_type == "zone":
+            route_kind = "zone_move"
+        elif node_type == "landmark":
+            route_kind = "landmark_move"
+        elif node_type in {"interior_entry", "building"}:
+            route_kind = "enter_location"
+        else:
+            route_kind = "move"
+
+    return {
+        "allowed": bool(ok),
+        "route_kind": route_kind,
+        "action_kind": action or "move",
+        "target_node": target,
+        "target_node_type": node_type,
+        "target_node_id": str(target.get("node_id") or "").strip() or None,
+        "target_label": str(target.get("label") or target.get("node_id") or "").strip() or None,
+        "next_map_position": next_map_position if isinstance(next_map_position, dict) else current_pos,
+        "next_zone_label": str(next_zone_label or _map_position_area_label(current_pos)).strip() or _map_position_area_label(current_pos),
+        "error": transition_error,
+    }

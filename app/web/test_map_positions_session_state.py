@@ -570,8 +570,10 @@ def test_set_group_movement_intent_stores_canonical_structured_target() -> None:
         "target_label": "Северные ворота",
         "movement_mode": "normal",
         "movement_kind": "move",
+        "action_kind": "move",
         "source": "test",
         "active": True,
+        "allowed": True,
         "target_node": {
             "v": 1,
             "map_level": "landmark",
@@ -632,6 +634,8 @@ def test_group_enter_target_produces_expected_structured_target_semantics() -> N
     assert updated["movement_intent"]["target_node_id"] == "замок"
     assert updated["movement_intent"]["movement_mode"] == "normal"
     assert updated["movement_intent"]["movement_kind"] == "enter"
+    assert updated["movement_intent"]["action_kind"] == "enter"
+    assert updated["movement_intent"]["allowed"] is True
     assert sess.settings["pc_positions"][str(player_id)] == "Таверна"
 
 
@@ -696,6 +700,7 @@ def test_movement_intent_inherits_group_mode_and_activity() -> None:
 
     assert updated is not None
     assert updated["movement_intent"]["movement_mode"] == "fast"
+    assert updated["movement_intent"]["action_kind"] == "move"
     assert updated["movement_intent"]["travel_activity"] == {
         "activity": "navigate",
         "assigned_actor_id": str(player_id),

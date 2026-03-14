@@ -57,6 +57,7 @@ from app.web.session_state import (
     _get_player_map_position,
     _get_player_position_context,
     _map_position_area_label,
+    apply_group_route,
     apply_group_move_target,
     apply_group_merge,
     apply_group_split,
@@ -81,7 +82,7 @@ from app.web.session_state import (
 )
 from app.web.session_lock import get_session_lock
 from app.web.state_builder import broadcast_state, _broadcast_state_unlocked, send_state_to_ws, _maybe_restore_combat_state
-from app.web.map_targeting import resolve_action_target_node, validate_group_target_transition
+from app.web.map_targeting import resolve_action_target_node, resolve_group_target_route, validate_group_target_transition
 from app.web.combat_bridge import (
     _append_combat_patch_lines,
     _build_combat_start_preamble_lines,
@@ -1803,40 +1804,27 @@ def _handle_group_action_request(
         )
         if not target_node:
             return True, "Нужно указать цель движения группы.", None
-        valid_transition, transition_error = validate_group_target_transition(
-            action_kind="enter" if action == "group_enter" else "move",
+        route_summary = resolve_group_target_route(
+            current_map_position=_get_group_states(sess).get(actor_group_key, {}).get("current_map_position"),
             target_node=target_node,
+            action_kind="enter" if action == "group_enter" else "move",
         )
-        if not valid_transition:
-            return True, transition_error or "Недопустимая цель перемещения группы.", None
+        if route_summary.get("allowed") is not True:
+            return True, str(route_summary.get("error") or "Недопустимая цель перемещения группы."), None
 
         movement_mode = str(payload.get("movement_mode") or get_group_movement_mode(sess, actor_group_key) or "normal").strip().lower() or "normal"
-        if action == "group_enter":
-            updated = maybe_apply_group_enter_target(
-                sess,
-                actor_group_key,
-                target_node,
-                target_label=str(target_node.get("label") or target_node.get("node_id") or "").strip() or None,
-                movement_mode=movement_mode,
-                source=source,
-            )
-            if not updated:
-                return True, "Не удалось выполнить вход для группы.", None
-            label = str(updated.get("movement_intent", {}).get("target_label") or updated.get("area_label") or "цель")
-            return True, None, f"Группа {actor_group_key} входит в {label}."
-
-        updated = apply_group_move_target(
+        updated = apply_group_route(
             sess,
             actor_group_key,
-            target_node,
-            target_label=str(target_node.get("label") or target_node.get("node_id") or "").strip() or None,
+            route_summary,
             movement_mode=movement_mode,
-            movement_kind="move",
             source=source,
         )
         if not updated:
-            return True, "Не удалось задать движение группы.", None
+            return True, ("Не удалось выполнить вход для группы." if action == "group_enter" else "Не удалось задать движение группы."), None
         label = str(updated.get("movement_intent", {}).get("target_label") or updated.get("area_label") or "цель")
+        if action == "group_enter":
+            return True, None, f"Группа {actor_group_key} входит в {label}."
         return True, None, f"Группа {actor_group_key} движется к {label}."
 
     if action in {"group_wait", "group_camp"}:

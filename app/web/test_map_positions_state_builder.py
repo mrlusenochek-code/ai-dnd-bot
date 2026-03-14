@@ -266,6 +266,9 @@ def test_build_state_exports_group_activity_summaries(monkeypatch) -> None:
                 },
                 "movement_mode": "cautious",
                 "movement_kind": "move",
+                "action_kind": "move",
+                "route_kind": "landmark_move",
+                "allowed": True,
                 "travel_activity": {
                     "activity": "navigate",
                     "assigned_actor_id": str(player_id),
@@ -332,6 +335,9 @@ def test_build_state_exports_group_activity_summaries(monkeypatch) -> None:
         },
         "movement_mode": "cautious",
         "movement_kind": "move",
+        "action_kind": "move",
+        "route_kind": "landmark_move",
+        "allowed": True,
         "travel_activity": {
             "activity": "navigate",
             "assigned_actor_id": str(player_id),
