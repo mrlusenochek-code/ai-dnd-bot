@@ -1016,6 +1016,10 @@ def test_get_current_group_navigation_options_respects_known_and_revealed_nodes(
 
     assert [option["target_node_id"] for option in options] == ["fortress_gate"]
     assert options[0]["revealed"] is True
+    assert options[0]["route_id"] == "start_trakt->fortress_gate:move"
+    assert options[0]["access_state"] == "open"
+    assert options[0]["is_traversable"] is True
+    assert options[0]["blocked"] is False
 
     session_state.grant_player_map_knowledge(sess, player_id, "craft_town", knowledge_kind="known", source="test")
     updated_options = session_state.get_current_group_navigation_options(sess, player_id=player_id)
@@ -1023,6 +1027,70 @@ def test_get_current_group_navigation_options_respects_known_and_revealed_nodes(
     assert [option["target_node_id"] for option in updated_options] == ["fortress_gate", "craft_town"]
     assert updated_options[1]["known"] is True
     assert updated_options[1]["revealed"] is False
+    assert updated_options[1]["access_state"] == "open"
+    assert updated_options[1]["is_traversable"] is True
+
+
+def test_group_route_access_state_stores_reads_and_is_scoped_per_group() -> None:
+    leader_id = uuid.uuid4()
+    other_id = uuid.uuid4()
+    sess = SimpleNamespace(settings={})
+    session_state._initialize_default_group(sess, [leader_id, other_id], "Стартовый тракт")
+    session_state._split_group(sess, "main", [other_id], new_group_id="scout")
+
+    stored = session_state.set_group_route_access_state(
+        sess,
+        "main",
+        "start_trakt->craft_town:move",
+        access_state="blocked",
+        summary="Путь к городку завален поваленными телегами.",
+        block_reason="debris",
+        source="test",
+    )
+
+    assert stored is not None
+    assert session_state.get_group_route_access_state(sess, "main", "start_trakt->craft_town:move") == stored
+    assert session_state.get_effective_group_route_access_state(
+        sess,
+        "main",
+        route_id="start_trakt->craft_town:move",
+    )["is_traversable"] is False
+    assert session_state.get_group_route_access_state(sess, "scout", "start_trakt->craft_town:move") is None
+
+
+def test_navigation_options_keep_blocked_revealed_route_visible_but_unavailable() -> None:
+    player_id = uuid.uuid4()
+    sess = SimpleNamespace(settings={})
+    session_state._initialize_default_group(
+        sess,
+        [player_id],
+        {
+            "map_level": "region",
+            "node_type": "zone",
+            "node_id": "start_trakt",
+            "label": "Стартовый тракт",
+        },
+    )
+    session_state.grant_player_map_knowledge(sess, player_id, "craft_town", knowledge_kind="known", source="test")
+    session_state.reveal_player_map_node(sess, player_id, "craft_town", source="test")
+    session_state.set_group_route_access_state(
+        sess,
+        "main",
+        "start_trakt->craft_town:move",
+        access_state="blocked",
+        summary="Путь к городку перекрыт.",
+        block_reason="blocked_path",
+        source="test",
+    )
+
+    options = session_state.get_current_group_navigation_options(sess, player_id=player_id)
+    blocked_option = next(option for option in options if option["target_node_id"] == "craft_town")
+
+    assert blocked_option["revealed"] is True
+    assert blocked_option["blocked"] is True
+    assert blocked_option["is_traversable"] is False
+    assert blocked_option["access_state"] == "blocked"
+    assert blocked_option["block_reason"] == "blocked_path"
 
 
 def test_build_group_scout_result_reveals_authored_route_or_landmark() -> None:
@@ -1221,6 +1289,61 @@ def test_execute_group_navigation_option_runs_existing_travel_flow_and_errors_cl
 
     assert unavailable_updated is None
     assert unavailable_error == "Эта navigation цель сейчас недоступна из текущей точки."
+
+
+def test_execute_group_navigation_option_rejects_blocked_revealed_route_and_allows_cleared_route() -> None:
+    player_id = uuid.uuid4()
+    sess = SimpleNamespace(settings={})
+    session_state._initialize_default_group(
+        sess,
+        [player_id],
+        {
+            "map_level": "region",
+            "node_type": "zone",
+            "node_id": "start_trakt",
+            "label": "Стартовый тракт",
+        },
+    )
+    session_state.grant_player_map_knowledge(sess, player_id, "craft_town", knowledge_kind="known", source="test")
+    session_state.reveal_player_map_node(sess, player_id, "craft_town", source="test")
+    session_state.set_group_route_access_state(
+        sess,
+        "main",
+        "start_trakt->craft_town:move",
+        access_state="blocked",
+        summary="Путь к городку перекрыт.",
+        block_reason="оползень",
+        source="test",
+    )
+
+    blocked_updated, blocked_error = session_state.execute_group_navigation_option(
+        sess,
+        target_node_id="craft_town",
+        player_id=player_id,
+        source="test",
+    )
+
+    assert blocked_updated is None
+    assert blocked_error == "Маршрут к Озёрный городок сейчас заблокирован: оползень."
+
+    session_state.set_group_route_access_state(
+        sess,
+        "main",
+        "start_trakt->craft_town:move",
+        access_state="cleared",
+        summary="Путь к городку снова проходим.",
+        source="test",
+    )
+    cleared_updated, cleared_error = session_state.execute_group_navigation_option(
+        sess,
+        target_node_id="craft_town",
+        player_id=player_id,
+        source="test",
+    )
+
+    assert cleared_error is None
+    assert cleared_updated is not None
+    assert cleared_updated["movement_intent"]["target_node_id"] == "craft_town"
 
 
 def test_get_current_group_node_context_returns_node_summary_and_contextual_actions() -> None:
@@ -2072,9 +2195,18 @@ def test_trigger_and_resolve_group_travel_event_update_state_honestly() -> None:
     assert resolved["travel_event"]["resolution"] == "resolve"
     assert resolved["travel_event"]["source"] == "test"
     assert resolved["travel_event"]["route_snapshot"]["traversal_kind"] == "marsh_path"
+    assert resolved["travel_event"]["route_snapshot"]["route_id"] == "стартовый тракт->marsh_edge:move"
     assert resolved["last_travel_event_outcome"]["event_key"] == "blocked_path"
     assert resolved["last_travel_event_outcome"]["outcome_type"] == "obstacle_cleared"
     assert resolved["last_travel_event_outcome"]["applied_effects"] == ["event_closed", "travel_resumed"]
+    assert session_state.get_group_route_access_state(sess, "main", "стартовый тракт->marsh_edge:move") == {
+        "route_id": "стартовый тракт->marsh_edge:move",
+        "access_state": "cleared",
+        "is_traversable": True,
+        "summary": "Группа расчистила маршрут и может снова пройти этим путём.",
+        "source": "test",
+        "updated_at": resolved["route_access_states"]["стартовый тракт->marsh_edge:move"]["updated_at"],
+    }
 
 
 def test_trigger_non_blocking_event_and_ignore_event() -> None:
@@ -2197,6 +2329,58 @@ def test_build_and_apply_group_travel_event_outcome_can_update_knowledge_and_rev
     assert session_state.get_current_group_last_travel_event_outcome(sess, player_id=player_id)["event_key"] == "tracks_or_signs"
     assert session_state.has_player_map_knowledge(sess, player_id, "watchtower") is True
     assert session_state.is_player_node_revealed(sess, player_id, "watchtower") is True
+
+
+def test_apply_group_travel_event_outcome_route_still_blocked_updates_route_accessibility() -> None:
+    player_id = uuid.uuid4()
+    sess = SimpleNamespace(settings={})
+    session_state._initialize_default_group(
+        sess,
+        [player_id],
+        {
+            "map_level": "region",
+            "node_type": "zone",
+            "node_id": "marsh_edge",
+            "label": "Край болот",
+        },
+    )
+
+    applied = session_state.apply_group_travel_event_outcome(
+        sess,
+        "main",
+        {
+            "outcome_id": "out-blocked",
+            "event_key": "blocked_path",
+            "event_type": "roadside_hook",
+            "outcome_type": "route_still_blocked",
+            "summary": "Путь вязнет в болоте.",
+            "result_summary": "Маршрут остаётся перекрыт.",
+            "applied_effects": ["event_closed", "travel_interrupted"],
+            "route_snapshot": {
+                "allowed": True,
+                "route_id": "marsh_edge->forgotten_shrine:move",
+                "route_kind": "landmark_move",
+                "action_kind": "move",
+                "target_node_id": "forgotten_shrine",
+                "target_label": "Забытое святилище",
+            },
+            "source": "test",
+            "resolved_at": "2026-03-15T00:10:00+00:00",
+        },
+        player_id=player_id,
+        source="test",
+    )
+
+    assert applied is not None
+    assert session_state.get_group_route_access_state(sess, "main", "marsh_edge->forgotten_shrine:move") == {
+        "route_id": "marsh_edge->forgotten_shrine:move",
+        "access_state": "blocked",
+        "is_traversable": False,
+        "summary": "Маршрут остаётся заблокированным после попытки разобраться с преградой.",
+        "block_reason": "route_blocked",
+        "source": "test",
+        "updated_at": applied["route_access_states"]["marsh_edge->forgotten_shrine:move"]["updated_at"],
+    }
 
 
 def test_resolve_group_travel_event_guidance_updates_only_target_knowledge() -> None:

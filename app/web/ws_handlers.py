@@ -91,6 +91,7 @@ from app.web.session_state import (
     set_group_travel_activity,
     set_group_camp,
     set_group_wait,
+    validate_group_route_accessibility,
     _touch_last_seen,
     _get_phase,
     _set_phase,
@@ -2117,6 +2118,9 @@ def _handle_group_action_request(
         )
         if route_summary.get("allowed") is not True:
             return True, str(route_summary.get("error") or "Недопустимая цель перемещения группы."), None
+        blocked_error = validate_group_route_accessibility(sess, actor_group_key, route_summary)
+        if blocked_error:
+            return True, blocked_error, None
 
         movement_mode = str(payload.get("movement_mode") or get_group_movement_mode(sess, actor_group_key) or "normal").strip().lower() or "normal"
         updated = start_group_travel(

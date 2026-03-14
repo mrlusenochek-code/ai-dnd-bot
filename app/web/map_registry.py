@@ -495,6 +495,17 @@ def _normalized_text(value: Any) -> str:
     return str(value or "").strip().lower()
 
 
+def build_static_route_id(from_node_id: str | None, to_node_id: str | None, action_kind: str | None) -> str:
+    normalized_from = _normalized_text(from_node_id)
+    normalized_to = _normalized_text(to_node_id)
+    normalized_action = _normalized_text(action_kind)
+    if not normalized_from or not normalized_to:
+        return ""
+    if normalized_action:
+        return f"{normalized_from}->{normalized_to}:{normalized_action}"
+    return f"{normalized_from}->{normalized_to}"
+
+
 def get_static_node_metadata(node: dict[str, Any] | None) -> dict[str, Any]:
     if not isinstance(node, dict):
         return {}
@@ -615,6 +626,11 @@ def _merge_static_link_metadata(link: dict[str, Any]) -> dict[str, Any]:
     metadata = get_static_link_metadata(link)
     merged = {**link, **metadata}
     merged["travel_tags"] = list(metadata.get("travel_tags") or [])
+    merged["route_id"] = build_static_route_id(
+        merged.get("from_node_id"),
+        merged.get("to_node_id"),
+        merged.get("action_kind"),
+    )
     return merged
 
 
@@ -780,6 +796,7 @@ def get_static_navigation_options(
         if not is_known:
             continue
         option = {
+            "route_id": str(link.get("route_id") or ""),
             "target_node_id": str(target_node.get("node_id") or ""),
             "target_label": str(target_node.get("label") or target_node.get("node_id") or ""),
             "target_node_type": str(target_node.get("node_type") or "zone"),

@@ -112,6 +112,7 @@ def test_build_state_includes_legacy_and_structured_positions(monkeypatch) -> No
     monkeypatch.setattr(state_builder, "get_current_group_travel_event", lambda _sess, player_id=None: None)
     monkeypatch.setattr(state_builder, "get_current_group_last_camp_result", lambda _sess, player_id=None: None)
     monkeypatch.setattr(state_builder, "get_current_group_last_scout_result", lambda _sess, player_id=None: None)
+    monkeypatch.setattr(state_builder, "get_current_group_route_access_states", lambda _sess, player_id=None: [])
     monkeypatch.setattr(state_builder, "get_current_group_last_travel_event_outcome", lambda _sess, player_id=None: None)
     monkeypatch.setattr(state_builder, "get_current_group_navigation_options", lambda _sess, player_id=None: [])
     monkeypatch.setattr(state_builder, "snapshot_combat_state", lambda _session_id: None)
@@ -136,6 +137,7 @@ def test_build_state_includes_legacy_and_structured_positions(monkeypatch) -> No
             "wait_summary": None,
             "camp_summary": None,
             "last_camp_result_summary": None,
+            "route_access_states": None,
             "last_scout_result_summary": None,
             "movement_intent_summary": None,
             "travel_state": None,
@@ -156,6 +158,7 @@ def test_build_state_includes_legacy_and_structured_positions(monkeypatch) -> No
     assert payload["game"]["current_group_travel_event"] is None
     assert payload["game"]["current_group_last_camp_result"] is None
     assert payload["game"]["current_group_last_scout_result"] is None
+    assert payload["game"]["current_group_route_access_states"] == []
     assert payload["game"]["current_group_last_travel_event_outcome"] is None
     assert payload["game"]["current_group_navigation_options"] == []
     assert payload["session"]["current_group_id"] is None
@@ -390,6 +393,21 @@ def test_build_state_exports_current_player_group_id(monkeypatch) -> None:
     )
     monkeypatch.setattr(
         state_builder,
+        "get_current_group_route_access_states",
+        lambda _sess, player_id=None: [
+            {
+                "route_id": "start_trakt->craft_town:move",
+                "access_state": "blocked",
+                "is_traversable": False,
+                "summary": "Путь к городку перекрыт.",
+                "block_reason": "blocked_path",
+                "source": "test",
+                "updated_at": "2026-03-15T00:09:00+00:00",
+            }
+        ],
+    )
+    monkeypatch.setattr(
+        state_builder,
         "get_current_group_last_travel_event_outcome",
         lambda _sess, player_id=None: {
             "outcome_id": "out-road",
@@ -408,6 +426,7 @@ def test_build_state_exports_current_player_group_id(monkeypatch) -> None:
         "get_current_group_navigation_options",
         lambda _sess, player_id=None: [
             {
+                "route_id": "start_trakt->fortress_gate:move",
                 "target_node_id": "fortress_gate",
                 "target_label": "Ворота крепости",
                 "target_node_type": "landmark",
@@ -421,6 +440,9 @@ def test_build_state_exports_current_player_group_id(monkeypatch) -> None:
                 "known": True,
                 "revealed": True,
                 "visible": True,
+                "access_state": "open",
+                "is_traversable": True,
+                "blocked": False,
             }
         ],
     )
@@ -548,6 +570,17 @@ def test_build_state_exports_current_player_group_id(monkeypatch) -> None:
         "source": "test",
         "resolved_at": "2026-03-14T00:08:00+00:00",
     }
+    assert payload["game"]["current_group_route_access_states"] == [
+        {
+            "route_id": "start_trakt->craft_town:move",
+            "access_state": "blocked",
+            "is_traversable": False,
+            "summary": "Путь к городку перекрыт.",
+            "block_reason": "blocked_path",
+            "source": "test",
+            "updated_at": "2026-03-15T00:09:00+00:00",
+        }
+    ]
     assert payload["game"]["current_group_last_travel_event_outcome"] == {
         "outcome_id": "out-road",
         "event_key": "roadside_finding",
@@ -561,6 +594,7 @@ def test_build_state_exports_current_player_group_id(monkeypatch) -> None:
     }
     assert payload["game"]["current_group_navigation_options"] == [
         {
+            "route_id": "start_trakt->fortress_gate:move",
             "target_node_id": "fortress_gate",
             "target_label": "Ворота крепости",
             "target_node_type": "landmark",
@@ -574,6 +608,9 @@ def test_build_state_exports_current_player_group_id(monkeypatch) -> None:
             "known": True,
             "revealed": True,
             "visible": True,
+            "access_state": "open",
+            "is_traversable": True,
+            "blocked": False,
         }
     ]
 
@@ -648,6 +685,16 @@ def test_build_state_exports_group_activity_summaries(monkeypatch) -> None:
                 "reveal_applied": False,
                 "source": "test",
                 "resolved_at": "2026-03-14T00:07:00+00:00",
+            },
+            "route_access_states": {
+                "camp->north-gate:move": {
+                    "route_id": "camp->north-gate:move",
+                    "access_state": "cleared",
+                    "is_traversable": True,
+                    "summary": "Подход к северным воротам снова открыт.",
+                    "source": "test",
+                    "updated_at": "2026-03-15T00:06:00+00:00",
+                }
             },
             "movement_intent": {
                 "target_label": "Северные ворота",
@@ -785,6 +832,7 @@ def test_build_state_exports_group_activity_summaries(monkeypatch) -> None:
     monkeypatch.setattr(state_builder, "get_current_group_travel_event", lambda _sess, player_id=None: None)
     monkeypatch.setattr(state_builder, "get_current_group_last_camp_result", lambda _sess, player_id=None: None)
     monkeypatch.setattr(state_builder, "get_current_group_last_scout_result", lambda _sess, player_id=None: None)
+    monkeypatch.setattr(state_builder, "get_current_group_route_access_states", lambda _sess, player_id=None: [])
     monkeypatch.setattr(state_builder, "get_current_group_last_travel_event_outcome", lambda _sess, player_id=None: None)
     monkeypatch.setattr(state_builder, "get_current_group_navigation_options", lambda _sess, player_id=None: [])
     monkeypatch.setattr(state_builder, "snapshot_combat_state", lambda _session_id: None)
@@ -835,6 +883,16 @@ def test_build_state_exports_group_activity_summaries(monkeypatch) -> None:
         "source": "test",
         "resolved_at": "2026-03-14T00:07:00+00:00",
     }
+    assert payload["game"]["groups"]["main"]["route_access_states"] == [
+        {
+            "route_id": "camp->north-gate:move",
+            "access_state": "cleared",
+            "is_traversable": True,
+            "summary": "Подход к северным воротам снова открыт.",
+            "source": "test",
+            "updated_at": "2026-03-15T00:06:00+00:00",
+        }
+    ]
     assert payload["game"]["groups"]["main"]["movement_intent_summary"] == {
         "target_label": "Северные ворота",
         "target_node": {

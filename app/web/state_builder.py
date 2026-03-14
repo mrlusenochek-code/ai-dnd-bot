@@ -33,6 +33,7 @@ from app.web.session_state import (
     settings_get,
     _group_camp_summary,
     _group_last_camp_result_summary,
+    _group_route_access_states_summary,
     _group_last_scout_result_summary,
     _group_last_travel_event_outcome_summary,
     _group_travel_event_summary,
@@ -55,6 +56,7 @@ from app.web.session_state import (
     get_current_group_last_scout_result,
     get_current_group_last_service_result,
     get_current_group_last_travel_event_outcome,
+    get_current_group_route_access_states,
     get_current_group_travel_event,
     get_current_group_node_detail,
     get_current_group_node_context,
@@ -358,6 +360,7 @@ async def build_state(db: AsyncSession, sess: Session) -> dict:
             "wait_summary": _group_wait_summary(group),
             "camp_summary": _group_camp_summary(group),
             "last_camp_result_summary": _group_last_camp_result_summary(group),
+            "route_access_states": _group_route_access_states_summary(group),
             "last_scout_result_summary": _group_last_scout_result_summary(group),
             "movement_intent_summary": _group_movement_intent_summary(group),
             "travel_state": _group_travel_state_summary(group),
@@ -415,6 +418,11 @@ async def build_state(db: AsyncSession, sess: Session) -> dict:
         if sess.current_player_id
         else None
     )
+    current_group_route_access_states = (
+        get_current_group_route_access_states(sess, player_id=sess.current_player_id)
+        if sess.current_player_id
+        else []
+    )
     current_group_last_travel_event_outcome = (
         get_current_group_last_travel_event_outcome(sess, player_id=sess.current_player_id)
         if sess.current_player_id
@@ -462,6 +470,7 @@ async def build_state(db: AsyncSession, sess: Session) -> dict:
             "current_group_travel_event": current_group_travel_event,
             "current_group_last_camp_result": current_group_last_camp_result,
             "current_group_last_scout_result": current_group_last_scout_result,
+            "current_group_route_access_states": current_group_route_access_states,
             "current_group_last_travel_event_outcome": current_group_last_travel_event_outcome,
             "current_group_navigation_options": current_group_navigation_options,
             "groups": groups_payload,

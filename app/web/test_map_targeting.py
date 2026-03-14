@@ -69,6 +69,7 @@ def test_static_map_registry_loads_known_nodes_and_links() -> None:
         "from_node_id": "start_trakt",
         "to_node_id": "fortress_gate",
         "action_kind": "move",
+        "route_id": "start_trakt->fortress_gate:move",
         "route_kind": "landmark_move",
         "link_kind": "approach",
         "traversal_kind": "gate_approach",
@@ -80,6 +81,7 @@ def test_static_map_registry_loads_known_nodes_and_links() -> None:
         "from_node_id": "craft_town",
         "to_node_id": "fortress_gate",
         "action_kind": "move",
+        "route_id": "craft_town->fortress_gate:move",
         "route_kind": "landmark_move",
         "link_kind": "approach",
         "traversal_kind": "gate_approach",
@@ -91,6 +93,7 @@ def test_static_map_registry_loads_known_nodes_and_links() -> None:
         "from_node_id": "forest_settlement",
         "to_node_id": "old_fortress_edge",
         "action_kind": "move",
+        "route_id": "forest_settlement->old_fortress_edge:move",
         "route_kind": "landmark_move",
         "link_kind": "ruin_path",
         "traversal_kind": "ruin_path",
@@ -102,6 +105,7 @@ def test_static_map_registry_loads_known_nodes_and_links() -> None:
         "from_node_id": "ruined_settlement",
         "to_node_id": "mine_entrance",
         "action_kind": "enter",
+        "route_id": "ruined_settlement->mine_entrance:enter",
         "route_kind": "enter_location",
         "link_kind": "entrance",
         "traversal_kind": "entry",
@@ -128,6 +132,7 @@ def test_get_static_navigation_options_returns_expected_registry_options() -> No
 
     assert options == [
         {
+            "route_id": "start_trakt->fortress_gate:move",
             "target_node_id": "fortress_gate",
             "target_label": "Ворота крепости",
             "target_node_type": "landmark",
@@ -143,6 +148,7 @@ def test_get_static_navigation_options_returns_expected_registry_options() -> No
             "visible": True,
         },
         {
+            "route_id": "start_trakt->craft_town:move",
             "target_node_id": "craft_town",
             "target_label": "Озёрный городок",
             "target_node_type": "zone",

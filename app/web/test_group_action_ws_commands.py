@@ -1089,6 +1089,44 @@ def test_handle_group_navigate_returns_clear_errors_for_unknown_and_unavailable_
     assert msg_unavailable is None
 
 
+def test_handle_group_navigate_rejects_revealed_but_blocked_route() -> None:
+    player_id = uuid.uuid4()
+    sess = SimpleNamespace(settings={})
+    session_state._initialize_default_group(
+        sess,
+        [player_id],
+        {
+            "map_level": "region",
+            "node_type": "zone",
+            "node_id": "start_trakt",
+            "label": "Стартовый тракт",
+        },
+    )
+    session_state.grant_player_map_knowledge(sess, player_id, "craft_town", knowledge_kind="known", source="test")
+    session_state.reveal_player_map_node(sess, player_id, "craft_town", source="test")
+    session_state.set_group_route_access_state(
+        sess,
+        "main",
+        "start_trakt->craft_town:move",
+        access_state="blocked",
+        summary="Путь к городку перекрыт.",
+        block_reason="оползень",
+        source="test",
+    )
+
+    handled, err, msg = ws_handlers._handle_group_action_request(
+        sess,
+        action="group_navigate",
+        actor_player_id=player_id,
+        payload={"target_node_id": "craft_town"},
+        source="test",
+    )
+
+    assert handled is True
+    assert err == "Маршрут к Озёрный городок сейчас заблокирован: оползень."
+    assert msg is None
+
+
 def test_handle_group_resume_without_paused_travel_returns_clear_error() -> None:
     player_id = uuid.uuid4()
     sess = SimpleNamespace(settings={})

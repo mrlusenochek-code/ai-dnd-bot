@@ -7,6 +7,7 @@ from sqlalchemy.orm.attributes import flag_modified
 from app.db.models import Session
 from app.web.map_registry import (
     STATIC_MAP_NODES,
+    build_static_route_id,
     get_current_node_context_actions,
     get_obvious_linked_static_node_ids,
     get_static_node_scout_discoveries,
@@ -531,6 +532,48 @@ def _normalize_group_last_scout_result(raw: Any) -> dict[str, Any] | None:
     return result
 
 
+def _normalize_group_route_access_state(raw: Any) -> dict[str, Any] | None:
+    if not isinstance(raw, dict):
+        return None
+    route_id = str(raw.get("route_id") or "").strip().lower()
+    access_state = str(raw.get("access_state") or "").strip().lower()
+    if access_state not in {"open", "blocked", "cleared"}:
+        return None
+    summary = str(raw.get("summary") or "").strip()
+    source = str(raw.get("source") or "route_access").strip() or "route_access"
+    updated_at = str(raw.get("updated_at") or "").strip()
+    if not route_id or not summary:
+        return None
+    block_reason = str(raw.get("block_reason") or "").strip()
+    is_traversable = access_state in {"open", "cleared"}
+    state: dict[str, Any] = {
+        "route_id": route_id[:160],
+        "access_state": access_state[:40],
+        "is_traversable": bool(raw.get("is_traversable", is_traversable)) if access_state == "blocked" else is_traversable,
+        "summary": summary[:240],
+        "source": source[:40],
+    }
+    state["is_traversable"] = access_state in {"open", "cleared"}
+    if block_reason:
+        state["block_reason"] = block_reason[:120]
+    if updated_at:
+        state["updated_at"] = updated_at[:80]
+    return state
+
+
+def _normalize_group_route_access_state_map(raw: Any) -> dict[str, dict[str, Any]]:
+    if not isinstance(raw, dict):
+        return {}
+    normalized: dict[str, dict[str, Any]] = {}
+    for route_id, value in raw.items():
+        candidate = value if isinstance(value, dict) else {"route_id": route_id, "access_state": value, "summary": str(value or route_id)}
+        merged = {"route_id": route_id, **candidate} if isinstance(candidate, dict) else candidate
+        state = _normalize_group_route_access_state(merged)
+        if state:
+            normalized[state["route_id"]] = state
+    return normalized
+
+
 def _normalize_group_movement_mode(raw: Any) -> str:
     mode = str(raw or "normal").strip().lower()
     if mode not in {"normal", "cautious", "fast"}:
@@ -621,6 +664,7 @@ def _normalize_group_route_summary(raw: Any) -> dict[str, Any] | None:
     target_label = str(raw.get("target_label") or "").strip()
     target_node_type = str(raw.get("target_node_type") or "").strip().lower()
     target_node_id = str(raw.get("target_node_id") or "").strip()
+    route_id = str(raw.get("route_id") or "").strip().lower()
     next_zone_label = str(raw.get("next_zone_label") or "").strip()
     error = str(raw.get("error") or "").strip()
     pause_hint = str(raw.get("pause_hint") or "").strip().lower()
@@ -637,6 +681,12 @@ def _normalize_group_route_summary(raw: Any) -> dict[str, Any] | None:
             target_node_type = str(target_node.get("node_type") or "").strip().lower()
         if not target_node_id:
             target_node_id = str(target_node.get("node_id") or "").strip()
+    if not route_id and target_node_id:
+        route_id = build_static_route_id(
+            (raw.get("from_node_id") or (raw.get("started_from") or {}).get("node_id") or (raw.get("current_map_position") or {}).get("node_id")),
+            target_node_id,
+            action_kind,
+        )
     if not target_label and not target_node:
         return None
     summary: dict[str, Any] = {
@@ -651,6 +701,8 @@ def _normalize_group_route_summary(raw: Any) -> dict[str, Any] | None:
         summary["target_node_type"] = target_node_type[:32]
     if target_node_id:
         summary["target_node_id"] = target_node_id[:120]
+    if route_id:
+        summary["route_id"] = route_id[:160]
     if next_map_position:
         summary["next_map_position"] = next_map_position
     if next_zone_label:
@@ -1168,6 +1220,120 @@ def is_player_node_revealed(sess: Session, player_id: uuid.UUID | str, node_id: 
     return normalized_node_id in set(get_player_revealed_node_ids(sess, player_id))
 
 
+def get_group_route_access_state(
+    sess: Session,
+    group_id: str,
+    route_id: str,
+) -> dict[str, Any] | None:
+    normalized_group_id = str(group_id or "").strip()
+    normalized_route_id = str(route_id or "").strip().lower()
+    if not normalized_group_id or not normalized_route_id:
+        return None
+    group = _get_group_states(sess).get(normalized_group_id)
+    if not isinstance(group, dict):
+        return None
+    return _normalize_group_route_access_state((_normalize_group_route_access_state_map(group.get("route_access_states"))).get(normalized_route_id))
+
+
+def set_group_route_access_state(
+    sess: Session,
+    group_id: str,
+    route_id: str,
+    *,
+    access_state: str,
+    summary: str,
+    block_reason: str | None = None,
+    source: str = "route_access",
+) -> dict[str, Any] | None:
+    groups = _get_group_states(sess)
+    group_key = str(group_id or "").strip()
+    normalized_route_id = str(route_id or "").strip().lower()
+    group = groups.get(group_key)
+    if not group or not normalized_route_id:
+        return None
+    route_state = _normalize_group_route_access_state(
+        {
+            "route_id": normalized_route_id,
+            "access_state": access_state,
+            "summary": summary,
+            "block_reason": block_reason,
+            "source": source,
+            "updated_at": datetime.now(timezone.utc).isoformat(),
+        }
+    )
+    if not route_state:
+        return None
+    access_map = _normalize_group_route_access_state_map(group.get("route_access_states"))
+    access_map[route_state["route_id"]] = route_state
+    group["route_access_states"] = access_map
+    _persist_group_states(sess, groups)
+    _sync_group_position_mirrors(sess, group)
+    return route_state
+
+
+def get_effective_group_route_access_state(
+    sess: Session,
+    group_id: str,
+    *,
+    route_id: str | None = None,
+    route_summary: dict[str, Any] | None = None,
+) -> dict[str, Any] | None:
+    normalized_group_id = str(group_id or "").strip()
+    route = _normalize_group_route_summary(route_summary) if isinstance(route_summary, dict) else None
+    normalized_route_id = str(route_id or (route or {}).get("route_id") or "").strip().lower()
+    if not normalized_group_id or not normalized_route_id:
+        return None
+    explicit = get_group_route_access_state(sess, normalized_group_id, normalized_route_id)
+    if explicit:
+        return explicit
+    target_label = str((route or {}).get("target_label") or normalized_route_id).strip() or normalized_route_id
+    return {
+        "route_id": normalized_route_id,
+        "access_state": "open",
+        "is_traversable": True,
+        "summary": f"Маршрут к {target_label} открыт для прохода.",
+        "source": "registry",
+    }
+
+
+def get_current_group_route_access_states(
+    sess: Session,
+    *,
+    player_id: uuid.UUID | str | None = None,
+    group_id: str | None = None,
+) -> list[dict[str, Any]]:
+    resolved_group_id = str(group_id or "").strip()
+    resolved_player_id = str(player_id or "").strip()
+    if not resolved_group_id and resolved_player_id:
+        resolved_group_id = str(_get_player_group_id(sess, resolved_player_id) or "").strip()
+    if not resolved_group_id:
+        return []
+    group = _get_group_states(sess).get(resolved_group_id)
+    if not isinstance(group, dict):
+        return []
+    access_map = _normalize_group_route_access_state_map(group.get("route_access_states"))
+    return [dict(access_map[key]) for key in sorted(access_map.keys())]
+
+
+def validate_group_route_accessibility(
+    sess: Session,
+    group_id: str,
+    route_summary: dict[str, Any] | None,
+) -> str | None:
+    route = _normalize_group_route_summary(route_summary)
+    group_key = str(group_id or "").strip()
+    if not route or not group_key:
+        return None
+    effective = get_effective_group_route_access_state(sess, group_key, route_summary=route)
+    if not effective or effective.get("is_traversable") is True:
+        return None
+    block_reason = str(effective.get("block_reason") or "").strip()
+    target_label = str(route.get("target_label") or route.get("target_node_id") or "цель").strip()
+    if block_reason:
+        return f"Маршрут к {target_label} сейчас заблокирован: {block_reason}."
+    return f"Маршрут к {target_label} сейчас заблокирован."
+
+
 def get_current_group_navigation_options(
     sess: Session,
     *,
@@ -1189,11 +1355,27 @@ def get_current_group_navigation_options(
     if not resolved_player_id:
         player_ids = group.get("player_ids") if isinstance(group.get("player_ids"), list) else []
         resolved_player_id = str(player_ids[0] or "").strip() if player_ids else ""
-    return get_static_navigation_options(
+    options = get_static_navigation_options(
         current_map_position=current_map_position,
         known_node_ids=get_player_known_node_ids(sess, resolved_player_id) if resolved_player_id else None,
         revealed_node_ids=get_player_revealed_node_ids(sess, resolved_player_id) if resolved_player_id else None,
     )
+    annotated: list[dict[str, Any]] = []
+    for option in options:
+        annotated_option = dict(option)
+        effective = get_effective_group_route_access_state(sess, resolved_group_id, route_id=annotated_option.get("route_id"))
+        if effective:
+            annotated_option["access_state"] = effective.get("access_state")
+            annotated_option["is_traversable"] = bool(effective.get("is_traversable"))
+            annotated_option["blocked"] = annotated_option["is_traversable"] is not True
+            if effective.get("block_reason"):
+                annotated_option["block_reason"] = effective.get("block_reason")
+        else:
+            annotated_option["access_state"] = "open"
+            annotated_option["is_traversable"] = True
+            annotated_option["blocked"] = False
+        annotated.append(annotated_option)
+    return annotated
 
 
 def get_group_navigation_option_by_target(
@@ -1263,6 +1445,9 @@ def execute_group_navigation_option(
     )
     if route_summary.get("allowed") is not True:
         return None, str(route_summary.get("error") or "Недопустимая navigation цель группы.")
+    blocked_error = validate_group_route_accessibility(sess, resolved_group_id, route_summary)
+    if blocked_error:
+        return None, blocked_error
 
     resolved_mode = str(movement_mode or get_group_movement_mode(sess, resolved_group_id) or "normal").strip().lower() or "normal"
     updated = start_group_travel(
@@ -2054,9 +2239,35 @@ def apply_group_travel_event_outcome(
     _set_group_last_travel_event_outcome(group, normalized_outcome)
     resolved_player_id = str(player_id or "").strip()
     route_snapshot = _normalize_group_route_summary(normalized_outcome.get("route_snapshot")) or {}
+    route_id = str(route_snapshot.get("route_id") or "").strip().lower()
     target_node_id = str(route_snapshot.get("target_node_id") or "").strip()
+    outcome_type = str(normalized_outcome.get("outcome_type") or "").strip().lower()
+    if route_id and outcome_type == "obstacle_cleared":
+        access_map = _normalize_group_route_access_state_map(group.get("route_access_states"))
+        access_map[route_id] = _normalize_group_route_access_state(
+            {
+                "route_id": route_id,
+                "access_state": "cleared",
+                "summary": "Группа расчистила маршрут и может снова пройти этим путём.",
+                "source": source,
+                "updated_at": datetime.now(timezone.utc).isoformat(),
+            }
+        ) or access_map.get(route_id) or {}
+        group["route_access_states"] = access_map
+    elif route_id and outcome_type == "route_still_blocked":
+        access_map = _normalize_group_route_access_state_map(group.get("route_access_states"))
+        access_map[route_id] = _normalize_group_route_access_state(
+            {
+                "route_id": route_id,
+                "access_state": "blocked",
+                "summary": "Маршрут остаётся заблокированным после попытки разобраться с преградой.",
+                "block_reason": "route_blocked",
+                "source": source,
+                "updated_at": datetime.now(timezone.utc).isoformat(),
+            }
+        ) or access_map.get(route_id) or {}
+        group["route_access_states"] = access_map
     if resolved_player_id and target_node_id and get_static_node(target_node_id):
-        outcome_type = str(normalized_outcome.get("outcome_type") or "").strip().lower()
         if outcome_type in {"route_hint", "guidance_note"}:
             grant_player_map_knowledge(sess, resolved_player_id, target_node_id, knowledge_kind="known", source=source)
         if outcome_type == "route_hint":
@@ -2249,16 +2460,15 @@ def resolve_group_travel_event(
     _set_group_last_travel_event_outcome(group, outcome)
     _persist_group_states(sess, groups)
     _sync_group_position_mirrors(sess, group)
-    if player_id:
-        updated = apply_group_travel_event_outcome(
-            sess,
-            group_key,
-            outcome,
-            player_id=player_id,
-            source=source,
-        )
-        if updated:
-            return updated, None
+    updated = apply_group_travel_event_outcome(
+        sess,
+        group_key,
+        outcome,
+        player_id=player_id,
+        source=source,
+    )
+    if updated:
+        return updated, None
     return dict(group), None
 
 
@@ -2508,6 +2718,13 @@ def _group_last_camp_result_summary(group: dict[str, Any]) -> dict[str, Any] | N
     return _normalize_group_last_camp_result(group.get("last_camp_result"))
 
 
+def _group_route_access_states_summary(group: dict[str, Any]) -> list[dict[str, Any]] | None:
+    access_map = _normalize_group_route_access_state_map(group.get("route_access_states"))
+    if not access_map:
+        return None
+    return [dict(access_map[key]) for key in sorted(access_map.keys())]
+
+
 def _group_last_scout_result_summary(group: dict[str, Any]) -> dict[str, Any] | None:
     return _normalize_group_last_scout_result(group.get("last_scout_result"))
 
@@ -2691,6 +2908,9 @@ def _normalize_group_state(
     last_camp_result = _normalize_group_last_camp_result(raw.get("last_camp_result"))
     if last_camp_result:
         normalized["last_camp_result"] = last_camp_result
+    route_access_states = _normalize_group_route_access_state_map(raw.get("route_access_states"))
+    if route_access_states:
+        normalized["route_access_states"] = route_access_states
     last_scout_result = _normalize_group_last_scout_result(raw.get("last_scout_result"))
     if last_scout_result:
         normalized["last_scout_result"] = last_scout_result
@@ -3070,17 +3290,27 @@ def start_group_travel(
     movement_mode: str | None = None,
     source: str = "manual",
 ) -> dict[str, Any] | None:
-    route = _normalize_group_route_summary(route_summary)
-    if not route or route.get("allowed") is not True:
-        return None
     groups = _get_group_states(sess)
     group_key = str(group_id or "").strip()
     group = groups.get(group_key)
     if not group:
         return None
     current_position = _normalize_map_position(group.get("current_map_position"))
+    raw_route = dict(route_summary or {}) if isinstance(route_summary, dict) else None
+    if isinstance(raw_route, dict) and not raw_route.get("route_id"):
+        raw_route["route_id"] = build_static_route_id(
+            (current_position or {}).get("node_id"),
+            raw_route.get("target_node_id") or ((raw_route.get("target_node") or {}).get("node_id")),
+            raw_route.get("action_kind"),
+        )
+    route = _normalize_group_route_summary(raw_route)
+    if not route or route.get("allowed") is not True:
+        return None
     target_node = route.get("target_node")
     if not current_position or not isinstance(target_node, dict):
+        return None
+    blocked_error = validate_group_route_accessibility(sess, group_key, route)
+    if blocked_error:
         return None
     resolved_mode = _normalize_group_movement_mode(movement_mode or group.get("movement_mode"))
     travel_activity = _group_travel_activity_summary(group)

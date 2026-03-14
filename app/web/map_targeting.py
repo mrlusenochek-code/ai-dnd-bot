@@ -275,6 +275,7 @@ def resolve_group_target_route(
         )
         return {
             "allowed": bool(ok),
+            "route_id": str(static_link.get("route_id") or ""),
             "route_kind": str(static_link.get("route_kind") or "move"),
             "action_kind": action or "move",
             "source": "registry",
