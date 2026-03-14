@@ -9,7 +9,7 @@ from app.gm import combat_narration as gm_combat_narration, contracts as gm_cont
 from app.web.gameplay_helpers import _character_meta_from_stats, get_character
 from app.web.inventory_helpers import _inventory_prompt_line
 from app.web.regexes import COMBAT_MECHANICS_EVENT_RE
-from app.web.session_state import _get_pc_positions
+from app.web.session_state import _format_map_position_prompt, _get_player_map_position, _get_player_position_label
 from app.web.utils import _short_text
 from app.web.combat_helpers import _de_numberize_text
 
@@ -239,7 +239,9 @@ async def _build_combat_scene_facts_for_llm(
     max_lines: int = 10,
 ) -> str:
     ch = await get_character(db, sess.id, player.id)
-    zone = _get_pc_positions(sess).get(str(player.id), "стартовая локация")
+    position = _get_player_map_position(sess, player.id)
+    zone = _get_player_position_label(sess, player.id)
+    position_hint = _format_map_position_prompt(position) if position else zone
     meta = _character_meta_from_stats(ch.stats) if ch else {"gender": "", "race": "", "description": ""}
     inv_line = _inventory_prompt_line(ch.stats, max_len=120) if ch else ""
     inv_summary = str(inv_line or "").strip()
@@ -291,6 +293,8 @@ async def _build_combat_scene_facts_for_llm(
     tail = scene_lines[-max(1, min(6, int(max_lines))):]
     facts_lines: list[str] = []
     facts_lines.append(f"- Зона игрока: {_short_text(zone, 90)}")
+    if position_hint != zone:
+        facts_lines.append(f"- Позиция карты: {_short_text(position_hint, 120)}")
     facts_lines.append(f"- Окружение: {_combat_zone_environment_hint(zone)}.")
     facts_lines.append(f"- Инвентарь: {_short_text(inv_summary, 100)}.")
     appearance = _short_text(str(meta.get("description") or "").strip(), 130)

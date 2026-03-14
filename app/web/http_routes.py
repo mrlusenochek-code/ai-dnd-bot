@@ -2950,7 +2950,7 @@ async def api_character_create(payload: dict):
             }
         if (
             isinstance(race_features, dict)
-            and str(selected_race.get("key") or "").strip().lower() == "gith"
+            and selected_race_key == "gith"
             and selected_subrace is not None
         ):
             runtime_raw = race_features.get("runtime")
@@ -2962,7 +2962,7 @@ async def api_character_create(payload: dict):
             if selected_subrace_key == "githzerai":
                 runtime.setdefault("githzerai_shield_used", False)
                 runtime.setdefault("githzerai_detect_thoughts_used", False)
-            race_features["runtime"] = runtime
+            race_features["runtime"] = runtime  
         if isinstance(race_features, dict) and race_choice_languages:
             base_langs = race_features.get("languages")
             base_langs_list = base_langs if isinstance(base_langs, list) else []

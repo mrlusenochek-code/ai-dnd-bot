@@ -93,7 +93,213 @@ def _touch_last_seen(sess: Session, player_id: uuid.UUID) -> None:
     settings_set(sess, "last_seen", m)
 
 
+def _default_map_position(zone_label: str = "стартовая локация") -> dict[str, Any]:
+    label = str(zone_label or "").strip() or "стартовая локация"
+    return {
+        "v": 1,
+        "map_level": "region",
+        "node_type": "zone",
+        "node_id": label[:80],
+        "label": label[:80],
+    }
+
+
+def _normalize_map_position(raw: Any) -> dict[str, Any] | None:
+    if isinstance(raw, str):
+        return _default_map_position(raw)
+
+    if not isinstance(raw, dict):
+        return None
+
+    map_level = str(raw.get("map_level") or "").strip().lower()
+    node_type = str(raw.get("node_type") or "").strip().lower()
+    node_id = str(raw.get("node_id") or "").strip()
+    label = str(raw.get("label") or "").strip()
+
+    if not map_level:
+        map_level = "region"
+    if not node_type:
+        node_type = "zone"
+    if not node_id and label:
+        node_id = label
+    if not label and node_id:
+        label = node_id
+
+    if not node_id:
+        return None
+
+    return {
+        "v": 1,
+        "map_level": map_level[:32],
+        "node_type": node_type[:32],
+        "node_id": node_id[:120],
+        "label": label[:80] or node_id[:80],
+    }
+
+
+def _format_map_position_label(pos: Any) -> str:
+    normalized = _normalize_map_position(pos)
+    if not normalized:
+        return "стартовая локация"
+    label = str(normalized.get("label") or "").strip()
+    if label:
+        return label[:80]
+    node_id = str(normalized.get("node_id") or "").strip()
+    return node_id[:80] or "стартовая локация"
+
+
+def _format_map_position_prompt(pos: Any) -> str:
+    normalized = _normalize_map_position(pos)
+    if not normalized:
+        return "стартовая локация"
+    label = _format_map_position_label(normalized)
+    map_level = str(normalized.get("map_level") or "").strip().lower()
+    node_type = str(normalized.get("node_type") or "").strip().lower()
+    node_id = str(normalized.get("node_id") or "").strip()
+    extras: list[str] = []
+    if map_level and map_level != "region":
+        extras.append(f"level={map_level}")
+    if node_type and node_type != "zone":
+        extras.append(f"type={node_type}")
+    if node_id and node_id != label:
+        extras.append(f"node={node_id[:80]}")
+    if not extras:
+        return label
+    return f"{label} [{', '.join(extras)}]"
+
+
+def _get_map_positions(sess: Session) -> dict[str, dict[str, Any]]:
+    raw = settings_get(sess, "map_positions", {}) or {}
+    out: dict[str, dict[str, Any]] = {}
+    if not isinstance(raw, dict):
+        return out
+    for k, v in raw.items():
+        if k is None or v is None:
+            continue
+        pid = str(k).strip()
+        pos = _normalize_map_position(v)
+        if pid and pos:
+            out[pid] = pos
+    return out
+
+
+def _get_player_map_position(sess: Session, player_id: uuid.UUID | str) -> dict[str, Any] | None:
+    positions = _get_map_positions(sess)
+    return positions.get(str(player_id))
+
+
+def _get_player_position_context(sess: Session, player_id: uuid.UUID | str) -> dict[str, Any]:
+    pid = str(player_id)
+    pos = _get_player_map_position(sess, pid)
+    if pos:
+        return {
+            "zone_label": _format_map_position_label(pos),
+            "map_position": dict(pos),
+        }
+
+    legacy_positions = settings_get(sess, "pc_positions", {}) or {}
+    zone_label = "стартовая локация"
+    if isinstance(legacy_positions, dict):
+        raw_zone = legacy_positions.get(pid)
+        zone_text = str(raw_zone or "").strip()
+        if zone_text:
+            zone_label = zone_text[:80]
+    return {
+        "zone_label": zone_label,
+        "map_position": None,
+    }
+
+
+def _get_player_position_label(sess: Session, player_id: uuid.UUID | str) -> str:
+    return str(_get_player_position_context(sess, player_id).get("zone_label") or "стартовая локация")
+
+
+def _map_position_identity(pos: Any) -> tuple[str, str, str] | None:
+    normalized = _normalize_map_position(pos)
+    if not normalized:
+        return None
+    map_level = str(normalized.get("map_level") or "").strip().lower()
+    node_type = str(normalized.get("node_type") or "").strip().lower()
+    node_id = str(normalized.get("node_id") or "").strip()
+    if not map_level or not node_type or not node_id:
+        return None
+    return (map_level, node_type, node_id)
+
+
+def _map_position_identity_equals(left: Any, right: Any) -> bool:
+    left_identity = _map_position_identity(left)
+    right_identity = _map_position_identity(right)
+    return bool(left_identity and right_identity and left_identity == right_identity)
+
+
+def _same_player_map_position(
+    sess: Session,
+    left_player_id: uuid.UUID | str,
+    right_player_id: uuid.UUID | str,
+) -> bool:
+    left_position = _get_player_map_position(sess, left_player_id)
+    right_position = _get_player_map_position(sess, right_player_id)
+    if left_position or right_position:
+        return _map_position_identity_equals(left_position, right_position)
+
+    positions = _get_pc_positions(sess)
+    left_zone = str(positions.get(str(left_player_id), "") or "").strip()
+    right_zone = str(positions.get(str(right_player_id), "") or "").strip()
+    return bool(left_zone and right_zone and left_zone == right_zone)
+
+
+def _set_player_map_position(sess: Session, player_id: uuid.UUID, position: dict[str, Any] | str) -> None:
+    pos = _normalize_map_position(position)
+    if not pos:
+        return
+    pid = str(player_id)
+    positions = dict(_get_map_positions(sess))
+    positions[pid] = pos
+    settings_set(sess, "map_positions", positions)
+
+    # legacy mirror for old zone-based code
+    legacy = dict(_get_pc_positions(sess))
+    legacy[pid] = _format_map_position_label(pos)
+    settings_set(sess, "pc_positions", legacy)
+
+
+def _clear_player_map_position(sess: Session, player_id: uuid.UUID | str) -> None:
+    pid = str(player_id)
+    positions = dict(_get_map_positions(sess))
+    if pid in positions:
+        positions.pop(pid, None)
+    settings_set(sess, "map_positions", positions)
+
+    legacy = settings_get(sess, "pc_positions", {}) or {}
+    legacy_positions = dict(legacy) if isinstance(legacy, dict) else {}
+    if pid in legacy_positions:
+        legacy_positions.pop(pid, None)
+    settings_set(sess, "pc_positions", legacy_positions)
+
+
+def _initialize_map_positions(
+    sess: Session,
+    player_ids: list[uuid.UUID],
+    default_position: dict[str, Any] | str,
+) -> None:
+    pos = _normalize_map_position(default_position) or _default_map_position("стартовая локация")
+    map_positions: dict[str, dict[str, Any]] = {}
+    legacy_positions: dict[str, str] = {}
+    for pid in player_ids:
+        pid_str = str(pid)
+        map_positions[pid_str] = dict(pos)
+        legacy_positions[pid_str] = _format_map_position_label(pos)
+    settings_set(sess, "map_positions", map_positions)
+    settings_set(sess, "pc_positions", legacy_positions)
+
+
 def _get_pc_positions(sess: Session) -> dict[str, str]:
+    # Prefer new structured positions if they already exist.
+    map_positions = _get_map_positions(sess)
+    if map_positions:
+        return {pid: _format_map_position_label(pos) for pid, pos in map_positions.items()}
+
+    # Legacy fallback.
     raw = settings_get(sess, "pc_positions", {}) or {}
     out: dict[str, str] = {}
     if not isinstance(raw, dict):
@@ -112,17 +318,12 @@ def _set_pc_zone(sess: Session, player_id: uuid.UUID, zone: str) -> None:
     z = str(zone or "").strip()
     if not z:
         return
-    m = dict(_get_pc_positions(sess))
-    m[str(player_id)] = z[:80]
-    settings_set(sess, "pc_positions", m)
+    _set_player_map_position(sess, player_id, _default_map_position(z))
 
 
 def _initialize_pc_positions(sess: Session, player_ids: list[uuid.UUID], default_zone: str) -> None:
     zone = str(default_zone or "").strip() or "стартовая локация"
-    m: dict[str, str] = {}
-    for pid in player_ids:
-        m[str(pid)] = zone
-    settings_set(sess, "pc_positions", m)
+    _initialize_map_positions(sess, player_ids, _default_map_position(zone))
 
 
 def _get_phase(sess: Session) -> str:

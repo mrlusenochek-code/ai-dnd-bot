@@ -50,7 +50,8 @@ from app.web.session_state import (
     _get_ready_map,
     _set_ready,
     _get_init_map,
-    _get_pc_positions,
+    _get_player_map_position,
+    _get_player_position_context,
     _touch_last_seen,
     _get_phase,
     _set_phase,
@@ -149,6 +150,24 @@ TOOL_LABELS_RU: dict[str, str] = {
     "shawm": "Шалмей",
     "viol": "Виола",
 }
+
+
+def _build_player_action_position_payload(
+    sess: Any,
+    player_id: uuid.UUID | str,
+    *,
+    zone_after: str | None = None,
+    map_position_after: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    position_context = _get_player_position_context(sess, player_id)
+    zone_before = str(position_context.get("zone_label") or "стартовая локация")
+    position_before = position_context.get("map_position")
+    return {
+        "zone_before": zone_before,
+        "zone_after": str(zone_after or zone_before),
+        "map_position_before": dict(position_before) if isinstance(position_before, dict) else None,
+        "map_position_after": dict(map_position_after) if isinstance(map_position_after, dict) else None,
+    }
 VALID_TOOL_KEYS = set(TOOL_LABELS_RU)
 TINKER_DEVICE_LABELS_RU: dict[str, str] = {
     "clockwork_toy": "Заводная игрушка",
@@ -8064,8 +8083,15 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                     innate_spell_key = _detect_innate_spell_key(text) if combat_action == "combat_innate_spell" else None
                     actor_label = await _event_actor_label(db, sess, player)
                     pid = str(player.id)
-                    current_zone = _get_pc_positions(sess).get(pid, "стартовая локация")
+                    current_position = _get_player_position_context(sess, pid)
+                    current_zone = str(current_position.get("zone_label") or "стартовая локация")
                     new_zone_preview = current_zone
+                    position_payload = _build_player_action_position_payload(
+                        sess,
+                        player.id,
+                        zone_after=new_zone_preview,
+                        map_position_after=_get_player_map_position(sess, player.id),
+                    )
                     payload = {
                         "type": (
                             "combat_innate_spell"
@@ -8102,12 +8128,11 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                         "raw_text": text,
                         "mode": "free_turns" if _is_free_turns(sess) else "turns",
                         "phase": _get_phase(sess),
-                        "zone_before": current_zone,
-                        "zone_after": new_zone_preview,
                         "turn_index": int(sess.turn_index or 0),
                         "combat_chat_action": combat_action,
                         "spell_key": innate_spell_key,
                     }
+                    payload.update(position_payload)
                     await add_event(
                         db,
                         sess,
@@ -8563,9 +8588,16 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                     )
                     round_actions[pid] = gm_action_text
                     settings_set(sess, "round_actions", round_actions)
-                    current_zone = _get_pc_positions(sess).get(pid, "стартовая локация")
+                    current_position = _get_player_position_context(sess, pid)
+                    current_zone = str(current_position.get("zone_label") or "стартовая локация")
                     new_zone = infer_zone_from_action(text, current_zone)
                     _set_pc_zone(sess, player.id, new_zone)
+                    position_payload = _build_player_action_position_payload(
+                        sess,
+                        player.id,
+                        zone_after=new_zone,
+                        map_position_after=_get_player_map_position(sess, player.id),
+                    )
                     actor_label = await _event_actor_label(db, sess, player)
                     payload = {
                         "type": "player_action",
@@ -8575,11 +8607,10 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                         "raw_text": gm_action_text,
                         "mode": "free_turns",
                         "phase": phase,
-                        "zone_before": current_zone,
-                        "zone_after": new_zone,
                         "turn_index": int(sess.turn_index or 0),
                         "combat_chat_action": combat_action,
                     }
+                    payload.update(position_payload)
                     await add_event(
                         db,
                         sess,
@@ -8615,9 +8646,16 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                 actor_label = await _event_actor_label(db, sess, player)
                 pid = str(player.id)
                 phase = _get_phase(sess)
-                current_zone = _get_pc_positions(sess).get(pid, "стартовая локация")
+                current_position = _get_player_position_context(sess, pid)
+                current_zone = str(current_position.get("zone_label") or "стартовая локация")
                 new_zone = infer_zone_from_action(text, current_zone)
                 _set_pc_zone(sess, player.id, new_zone)
+                position_payload = _build_player_action_position_payload(
+                    sess,
+                    player.id,
+                    zone_after=new_zone,
+                    map_position_after=_get_player_map_position(sess, player.id),
+                )
                 build_player_gm_action_text = _resolve_build_player_gm_action_text()
                 gm_action_text, _moved, encounter_patch = await build_player_gm_action_text(
                     db,
@@ -8634,11 +8672,10 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                     "raw_text": gm_action_text,
                     "mode": "free_turns" if _is_free_turns(sess) else "turns",
                     "phase": phase,
-                    "zone_before": current_zone,
-                    "zone_after": new_zone,
                     "turn_index": int(sess.turn_index or 0),
                     "combat_chat_action": combat_action,
                 }
+                payload.update(position_payload)
                 await add_event(
                     db,
                     sess,

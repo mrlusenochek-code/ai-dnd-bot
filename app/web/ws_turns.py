@@ -9,10 +9,10 @@ from sqlalchemy.orm.attributes import flag_modified
 from app.db.models import Session, SessionPlayer
 from app.web.db_helpers import list_session_players
 from app.web.session_state import (
+    _clear_player_map_position,
     _get_init_map,
     _get_initiative_order,
     _get_last_seen_map,
-    _get_pc_positions,
     _get_ready_map,
     _initiative_fixed,
     settings_get,
@@ -55,10 +55,7 @@ def _remove_player_from_session_settings(sess: Session, player_id: uuid.UUID) ->
         round_actions.pop(pid, None)
         settings_set(sess, "round_actions", round_actions)
 
-    pc_positions = dict(_get_pc_positions(sess))
-    if pid in pc_positions:
-        pc_positions.pop(pid, None)
-        settings_set(sess, "pc_positions", pc_positions)
+    _clear_player_map_position(sess, player_id)
 
 
 def _clear_initiative(sess: Session) -> None:

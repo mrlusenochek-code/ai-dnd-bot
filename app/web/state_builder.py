@@ -33,6 +33,7 @@ from app.web.session_state import (
     _get_ready_map,
     _get_init_map,
     _get_last_seen_map,
+    _get_map_positions,
     _get_pc_positions,
     _get_phase,
     _initiative_fixed,
@@ -257,6 +258,7 @@ async def build_state(db: AsyncSession, sess: Session) -> dict:
     actions_total = len(round_participants)
     actions_done = sum(1 for sp in round_participants if str(sp.player_id) in round_actions)
     positions = _get_pc_positions(sess)
+    structured_positions = _get_map_positions(sess)
     combat_snapshot = snapshot_combat_state(session_id)
     players_payload = []
     for sp in all_sps:
@@ -281,16 +283,22 @@ async def build_state(db: AsyncSession, sess: Session) -> dict:
                 "char": char_payload,
                 "has_character": char is not None,
                 "zone": positions.get(str(sp.player_id), "стартовая локация"),
+                "map_position": structured_positions.get(str(sp.player_id)),
             }
         )
 
     pc_positions: dict[str, str] = {}
+    map_positions: dict[str, dict[str, Any]] = {}
     for sp in all_sps:
         pl = players_by_id.get(sp.player_id)
         uid = _player_uid(pl)
         key = str(uid) if uid is not None else str(sp.player_id)
         zone = positions.get(str(sp.player_id), "стартовая локация")
         pc_positions[key] = zone
+
+        structured = structured_positions.get(str(sp.player_id))
+        if isinstance(structured, dict):
+            map_positions[key] = dict(structured)
 
     return {
         "type": "state",
@@ -325,6 +333,7 @@ async def build_state(db: AsyncSession, sess: Session) -> dict:
             "actions_done": actions_done,
             "actions_total": actions_total,
             "pc_positions": pc_positions,
+            "map_positions": map_positions,
         },
         "combat": combat_snapshot if isinstance(combat_snapshot, dict) else None,
     }

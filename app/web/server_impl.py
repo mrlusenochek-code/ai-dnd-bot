@@ -50,9 +50,11 @@ from app.web.machine_lines import (
 )
 from app.web.session_lock import get_session_lock
 from app.web.session_state import (
+    _clear_player_map_position,
     _ensure_settings,
     settings_get,
     settings_set,
+    _format_map_position_prompt,
     _get_ready_map,
     _set_ready,
     _get_init_map,
@@ -62,7 +64,10 @@ from app.web.session_state import (
     _set_initiative_order,
     _get_last_seen_map,
     _touch_last_seen,
+    _get_player_map_position,
+    _get_player_position_label,
     _get_pc_positions,
+    _same_player_map_position,
     _set_pc_zone,
     _initialize_pc_positions,
     _get_phase,
@@ -859,7 +864,7 @@ async def _apply_inventory_machine_commands(db: AsyncSession, sess: Session, com
                 continue
             from_zone = str(positions.get(str(from_pair[0].player_id), "") or "")
             to_zone = str(positions.get(str(to_pair[0].player_id), "") or "")
-            if from_zone != to_zone:
+            if not _same_player_map_position(sess, from_pair[0].player_id, to_pair[0].player_id):
                 logger.warning(
                     "INV_TRANSFER blocked due to different zones",
                     extra={
@@ -869,6 +874,8 @@ async def _apply_inventory_machine_commands(db: AsyncSession, sess: Session, com
                             "name": cmd.get("name"),
                             "from_zone": from_zone,
                             "to_zone": to_zone,
+                            "from_position": _get_player_map_position(sess, from_pair[0].player_id),
+                            "to_position": _get_player_map_position(sess, to_pair[0].player_id),
                         }
                     },
                 )
@@ -1019,7 +1026,7 @@ async def _apply_zone_set_machine_commands(db: AsyncSession, sess: Session, comm
 
 
 def _format_state_text_for_player(sess: Session, player: Player, ch: Optional[Character]) -> str:
-    zone = _get_pc_positions(sess).get(str(player.id), "стартовая локация")
+    zone = _get_player_position_label(sess, player.id)
     char_name = str(ch.name).strip() if ch and str(ch.name or "").strip() else "(персонаж не создан)"
     hp_sta = "HP/STA: —"
     if ch:
@@ -1038,7 +1045,9 @@ async def _build_combat_scene_facts_for_llm(
     max_lines: int = 10,
 ) -> str:
     ch = await get_character(db, sess.id, player.id)
-    zone = _get_pc_positions(sess).get(str(player.id), "стартовая локация")
+    position = _get_player_map_position(sess, player.id)
+    zone = _get_player_position_label(sess, player.id)
+    position_hint = _format_map_position_prompt(position) if position else zone
     meta = _character_meta_from_stats(ch.stats) if ch else {"gender": "", "race": "", "description": ""}
     inv_line = _inventory_prompt_line(ch.stats, max_len=120) if ch else ""
     inv_summary = str(inv_line or "").strip()
@@ -1090,6 +1099,8 @@ async def _build_combat_scene_facts_for_llm(
     tail = scene_lines[-max(1, min(6, int(max_lines))):]
     facts_lines: list[str] = []
     facts_lines.append(f"- Зона игрока: {_short_text(zone, 90)}")
+    if position_hint != zone:
+        facts_lines.append(f"- Позиция карты: {_short_text(position_hint, 120)}")
     facts_lines.append(f"- Окружение: {_combat_zone_environment_hint(zone)}.")
     facts_lines.append(f"- Инвентарь: {_short_text(inv_summary, 100)}.")
     appearance = _short_text(str(meta.get("description") or "").strip(), 130)
@@ -1481,7 +1492,6 @@ def _build_positions_block_for_prompt(
     uid_map: dict[int, tuple[SessionPlayer, Player]],
     chars_by_uid: dict[int, Character],
 ) -> str:
-    positions = _get_pc_positions(sess)
     rows: list[str] = []
     for uid, (sp, pl) in sorted(uid_map.items(), key=lambda x: int(x[1][0].join_order or 0)):
         ch = chars_by_uid.get(uid)
@@ -1490,8 +1500,10 @@ def _build_positions_block_for_prompt(
             if ch and str(ch.name or "").strip()
             else (str(pl.display_name or "").strip() or f"Персонаж #{sp.join_order}")
         )
-        zone = positions.get(str(sp.player_id), "стартовая локация")
-        rows.append(f"- {actor_name} (#{uid}): {zone}")
+        position = _get_player_map_position(sess, sp.player_id)
+        zone = _get_player_position_label(sess, sp.player_id)
+        zone_text = _format_map_position_prompt(position) if position else zone
+        rows.append(f"- {actor_name} (#{uid}): {zone_text}")
     return "\n".join(rows) if rows else "- (нет активных игроков)"
 
 
@@ -1577,10 +1589,7 @@ def _remove_player_from_session_settings(sess: Session, player_id: uuid.UUID) ->
         round_actions.pop(pid, None)
         settings_set(sess, "round_actions", round_actions)
 
-    pc_positions = dict(_get_pc_positions(sess))
-    if pid in pc_positions:
-        pc_positions.pop(pid, None)
-        settings_set(sess, "pc_positions", pc_positions)
+    _clear_player_map_position(sess, player_id)
 
 
 def _clear_initiative(sess: Session) -> None:

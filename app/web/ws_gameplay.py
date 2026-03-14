@@ -4,7 +4,7 @@ from typing import Optional
 from app.db.models import Character, Player, Session
 from app.web.inventory_helpers import _equip_state_line, _inventory_state_line
 from app.web.regexes import CHAT_COMBAT_ACTION_PATTERNS, ZONE_MOVE_RE
-from app.web.session_state import _get_pc_positions
+from app.web.session_state import _get_player_position_label
 from app.web.utils import as_int
 
 
@@ -49,7 +49,7 @@ def infer_zone_from_action(text: str, current_zone: str) -> str:
 
 
 def _format_state_text_for_player(sess: Session, player: Player, ch: Optional[Character]) -> str:
-    zone = _get_pc_positions(sess).get(str(player.id), "стартовая локация")
+    zone = _get_player_position_label(sess, player.id)
     char_name = str(ch.name).strip() if ch and str(ch.name or "").strip() else "(персонаж не создан)"
     hp_sta = "HP/STA: —"
     if ch:
