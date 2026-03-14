@@ -64,26 +64,34 @@ def _resolve_registry_target_node(
     target_node: dict[str, Any] | str | None,
     current_map_position: dict[str, Any] | None,
     current_area_label: str,
-) -> dict[str, Any] | None:
+    known_node_ids: set[str] | None = None,
+    require_known_static: bool = False,
+) -> tuple[dict[str, Any] | None, dict[str, Any] | None, bool]:
     if isinstance(target_node, dict):
         node_id = str(target_node.get("node_id") or "").strip()
         if node_id:
             static_node = get_static_node(node_id)
             if static_node:
-                return _static_node_to_target(static_node)
+                if require_known_static and known_node_ids is not None and node_id not in known_node_ids:
+                    return None, static_node, True
+                return _static_node_to_target(static_node), static_node, False
     if not _current_context_looks_static(current_map_position, current_area_label):
         normalized_text = str(text or "").strip().lower()
         static_match = resolve_static_map_node(normalized_text)
         if not static_match:
-            return None
+            return None, None, False
         match_values = [static_match.get("label"), *list(static_match.get("aliases") or ())]
         if normalized_text not in {str(value or "").strip().lower() for value in match_values}:
-            return None
-        return _static_node_to_target(static_match)
+            return None, None, False
+        if require_known_static and known_node_ids is not None and str(static_match.get("node_id") or "").strip() not in known_node_ids:
+            return None, static_match, True
+        return _static_node_to_target(static_match), static_match, False
     static_match = resolve_static_map_node(text)
     if static_match:
-        return _static_node_to_target(static_match)
-    return None
+        if require_known_static and known_node_ids is not None and str(static_match.get("node_id") or "").strip() not in known_node_ids:
+            return None, static_match, True
+        return _static_node_to_target(static_match), static_match, False
+    return None, None, False
 
 
 def resolve_action_target_node(
@@ -94,19 +102,26 @@ def resolve_action_target_node(
     current_area_label: str = "стартовая локация",
     action_kind: str = "move",
     target_node: dict[str, Any] | str | None = None,
+    known_node_ids: list[str] | set[str] | None = None,
+    require_known_static: bool = False,
 ) -> dict[str, Any] | None:
     normalized_action_kind = str(action_kind or "move").strip().lower() or "move"
     current_area = str(current_area_label or "стартовая локация").strip() or "стартовая локация"
+    normalized_known_node_ids = {str(node_id).strip() for node_id in (known_node_ids or []) if str(node_id).strip()} if known_node_ids is not None else None
 
     if target_node is not None:
-        static_target = _resolve_registry_target_node(
+        static_target, _matched_static, blocked_unknown_static = _resolve_registry_target_node(
             text=str(target_node),
             target_node=target_node,
             current_map_position=current_map_position,
             current_area_label=current_area,
+            known_node_ids=normalized_known_node_ids,
+            require_known_static=require_known_static,
         )
         if static_target:
             return static_target
+        if blocked_unknown_static:
+            return None
         return _normalize_map_target_node(target_node)
 
     text = str(target_text or action_text or "").strip()
@@ -114,14 +129,18 @@ def resolve_action_target_node(
         return None
     lowered = text.lower()
 
-    static_target = _resolve_registry_target_node(
+    static_target, _matched_static, blocked_unknown_static = _resolve_registry_target_node(
         text=text,
         target_node=target_node,
         current_map_position=current_map_position,
         current_area_label=current_area,
+        known_node_ids=normalized_known_node_ids,
+        require_known_static=require_known_static,
     )
     if static_target:
         return static_target
+    if blocked_unknown_static:
+        return None
 
     if normalized_action_kind == "enter":
         target_label = _extract_enter_target_label(text) or text

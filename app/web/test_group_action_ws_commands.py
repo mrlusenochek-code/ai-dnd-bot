@@ -426,6 +426,53 @@ def test_handle_group_move_uses_route_helper_and_stores_route_summary(monkeypatc
     assert session_state._get_group_states(sess)["main"]["current_map_position"]["node_id"] == "центр города"
 
 
+def test_handle_group_move_respects_player_known_static_nodes() -> None:
+    player_id = uuid.uuid4()
+    sess = SimpleNamespace(settings={})
+    session_state._initialize_default_group(
+        sess,
+        [player_id],
+        {
+            "map_level": "region",
+            "node_type": "zone",
+            "node_id": "start_trakt",
+            "label": "Стартовый тракт",
+        },
+    )
+
+    known_node_ids = session_state.get_player_known_node_ids(sess, player_id)
+
+    assert "start_trakt" in known_node_ids
+    assert "fortress_gate" in known_node_ids
+    assert "eastern_bank" not in known_node_ids
+
+    handled_known, err_known, msg_known = ws_handlers._handle_group_action_request(
+        sess,
+        action="group_move",
+        actor_player_id=player_id,
+        payload={"target_hint": "ворота крепости"},
+        source="test",
+    )
+
+    assert handled_known is True
+    assert err_known is None
+    assert msg_known == "Группа main движется к Ворота крепости."
+
+    session_state.interrupt_group_travel(sess, "main")
+
+    handled_unknown, err_unknown, msg_unknown = ws_handlers._handle_group_action_request(
+        sess,
+        action="group_move",
+        actor_player_id=player_id,
+        payload={"target_hint": "Восточный берег"},
+        source="test",
+    )
+
+    assert handled_unknown is True
+    assert err_unknown == "Группа пока не знает эту точку карты."
+    assert msg_unknown is None
+
+
 def test_handle_group_resume_without_paused_travel_returns_clear_error() -> None:
     player_id = uuid.uuid4()
     sess = SimpleNamespace(settings={})

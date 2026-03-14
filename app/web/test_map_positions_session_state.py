@@ -825,6 +825,39 @@ def test_start_complete_and_interrupt_group_travel_manage_position_and_status() 
     assert "movement_intent" not in interrupted
 
 
+def test_player_map_knowledge_grant_get_has_and_upgrade_cleanly() -> None:
+    player_id = uuid.uuid4()
+    sess = SimpleNamespace(settings={})
+    session_state._initialize_default_group(
+        sess,
+        [player_id],
+        {
+            "map_level": "region",
+            "node_type": "zone",
+            "node_id": "start_trakt",
+            "label": "Стартовый тракт",
+        },
+    )
+
+    seeded = session_state.get_player_map_knowledge(sess, player_id)
+
+    assert seeded["start_trakt"]["knowledge_kind"] == "known"
+    assert session_state.has_player_map_knowledge(sess, player_id, "start_trakt") is True
+    assert session_state.has_player_map_knowledge(sess, player_id, "fortress_gate") is True
+    assert session_state.has_player_map_knowledge(sess, player_id, "eastern_bank") is False
+
+    session_state.grant_player_map_knowledge(sess, player_id, "eastern_bank", knowledge_kind="known", source="test")
+    session_state.grant_player_map_knowledge(sess, player_id, "eastern_bank", knowledge_kind="discovered", source="travel")
+    session_state.maybe_mark_player_node_visited(sess, player_id, "eastern_bank", source="arrival")
+
+    knowledge = session_state.get_player_map_knowledge(sess, player_id)
+
+    assert knowledge["eastern_bank"]["knowledge_kind"] == "visited"
+    assert knowledge["eastern_bank"]["source"] == "arrival"
+    assert session_state.has_player_map_knowledge(sess, player_id, "eastern_bank", minimum_kind="discovered") is True
+    assert session_state.has_player_map_knowledge(sess, player_id, "eastern_bank", minimum_kind="visited") is True
+
+
 def test_pause_resume_and_evaluate_group_travel_preserve_mode_and_activity() -> None:
     player_id = uuid.uuid4()
     sess = SimpleNamespace(settings={})
@@ -1051,6 +1084,121 @@ def test_confirm_inspect_bypass_and_resolve_group_travel_pause() -> None:
         "source": "test",
         "details": {"bypassed": True},
     }
+
+
+def test_complete_inspect_and_confirm_enter_update_player_map_knowledge() -> None:
+    player_id = uuid.uuid4()
+    sess = SimpleNamespace(settings={})
+    session_state._initialize_default_group(
+        sess,
+        [player_id],
+        {
+            "map_level": "region",
+            "node_type": "zone",
+            "node_id": "start_trakt",
+            "label": "Стартовый тракт",
+        },
+    )
+
+    session_state.start_group_travel(
+        sess,
+        "main",
+        {
+            "allowed": True,
+            "route_kind": "landmark_move",
+            "action_kind": "move",
+            "target_label": "Ворота крепости",
+            "target_node": {
+                "map_level": "landmark",
+                "node_type": "landmark",
+                "node_id": "fortress_gate",
+                "label": "Ворота крепости",
+                "zone_label": "Стартовый тракт",
+                "area_label": "Стартовый тракт",
+            },
+            "next_map_position": {
+                "v": 1,
+                "map_level": "landmark",
+                "node_type": "landmark",
+                "node_id": "fortress_gate",
+                "label": "Ворота крепости",
+                "area_label": "Стартовый тракт",
+            },
+            "next_zone_label": "Стартовый тракт",
+        },
+        source="test",
+    )
+    completed = session_state.complete_group_travel(sess, "main", player_id=player_id, source="test")
+
+    assert completed is not None
+    assert session_state.get_player_map_knowledge(sess, player_id)["fortress_gate"]["knowledge_kind"] == "visited"
+
+    session_state.start_group_travel(
+        sess,
+        "main",
+        {
+            "allowed": True,
+            "route_kind": "landmark_move",
+            "action_kind": "move",
+            "target_label": "Сторожевая башня",
+            "target_node": {
+                "map_level": "landmark",
+                "node_type": "landmark",
+                "node_id": "watchtower",
+                "label": "Сторожевая башня",
+                "zone_label": "Восточный берег",
+                "area_label": "Восточный берег",
+            },
+            "next_map_position": {
+                "v": 1,
+                "map_level": "landmark",
+                "node_type": "landmark",
+                "node_id": "watchtower",
+                "label": "Сторожевая башня",
+                "area_label": "Восточный берег",
+            },
+            "next_zone_label": "Восточный берег",
+            "pause_hint": "inspection_required",
+        },
+        source="test",
+    )
+    inspected = session_state.inspect_group_travel_target(sess, "main", player_id=player_id, source="test")
+
+    assert inspected is not None
+    assert session_state.get_player_map_knowledge(sess, player_id)["watchtower"]["knowledge_kind"] == "discovered"
+
+    session_state.start_group_travel(
+        sess,
+        "main",
+        {
+            "allowed": True,
+            "route_kind": "enter_location",
+            "action_kind": "enter",
+            "target_label": "Шахтный вход",
+            "target_node": {
+                "map_level": "interior",
+                "node_type": "interior_entry",
+                "node_id": "mine_entrance",
+                "label": "Шахтный вход",
+                "zone_label": "Лесная дорога",
+                "area_label": "Лесная дорога",
+            },
+            "next_map_position": {
+                "v": 1,
+                "map_level": "interior",
+                "node_type": "interior_entry",
+                "node_id": "mine_entrance",
+                "label": "Шахтный вход",
+                "area_label": "Лесная дорога",
+            },
+            "next_zone_label": "Лесная дорога",
+        },
+        source="test",
+    )
+    confirmed = session_state.confirm_group_enter(sess, "main", player_id=player_id, source="test")
+
+    assert confirmed is not None
+    assert session_state.get_player_map_knowledge(sess, player_id)["mine_entrance"]["knowledge_kind"] == "visited"
 
     session_state.start_group_travel(
         sess,

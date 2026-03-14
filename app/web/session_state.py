@@ -1,14 +1,16 @@
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any
 
 from sqlalchemy.orm.attributes import flag_modified
 
 from app.db.models import Session
+from app.web.map_registry import STATIC_MAP_NODES, get_static_node
 from app.web.utils import as_int
 
 
 DEFAULT_GROUP_ID = "main"
+_MAP_KNOWLEDGE_KIND_ORDER = {"known": 1, "discovered": 2, "visited": 3}
 
 
 def _ensure_settings(sess: Session) -> dict:
@@ -92,7 +94,7 @@ def _get_last_seen_map(sess: Session) -> dict[str, str]:
 
 def _touch_last_seen(sess: Session, player_id: uuid.UUID) -> None:
     m = dict(_get_last_seen_map(sess))
-    m[str(player_id)] = datetime.utcnow().isoformat()
+    m[str(player_id)] = datetime.now(timezone.utc).isoformat()
     settings_set(sess, "last_seen", m)
 
 
@@ -616,6 +618,188 @@ def _normalize_group_travel_resolution(raw: Any) -> dict[str, Any] | None:
     if details:
         summary["details"] = details
     return summary
+
+
+def _normalize_map_knowledge_kind(raw: Any) -> str:
+    kind = str(raw or "known").strip().lower()
+    if kind not in _MAP_KNOWLEDGE_KIND_ORDER:
+        return "known"
+    return kind
+
+
+def _normalize_player_map_knowledge_record(node_id: str, raw: Any) -> dict[str, Any] | None:
+    normalized_node_id = str(node_id or "").strip()
+    if not normalized_node_id:
+        return None
+    if isinstance(raw, str):
+        raw = {"knowledge_kind": raw}
+    if not isinstance(raw, dict):
+        return None
+    knowledge_kind = _normalize_map_knowledge_kind(raw.get("knowledge_kind"))
+    source = str(raw.get("source") or "manual").strip() or "manual"
+    discovered_order = max(0, as_int(raw.get("discovered_order"), 0))
+    discovered_at = str(raw.get("discovered_at") or "").strip()
+    record: dict[str, Any] = {
+        "node_id": normalized_node_id[:120],
+        "knowledge_kind": knowledge_kind,
+        "source": source[:40],
+    }
+    if discovered_order > 0:
+        record["discovered_order"] = discovered_order
+    if discovered_at:
+        record["discovered_at"] = discovered_at[:80]
+    return record
+
+
+def _raw_player_map_knowledge(sess: Session) -> dict[str, dict[str, Any]]:
+    raw = settings_get(sess, "player_map_knowledge", {}) or {}
+    out: dict[str, dict[str, Any]] = {}
+    if not isinstance(raw, dict):
+        return out
+    for player_id, records in raw.items():
+        pid = str(player_id or "").strip()
+        if not pid or not isinstance(records, dict):
+            continue
+        player_records: dict[str, Any] = {}
+        for node_id, value in records.items():
+            normalized = _normalize_player_map_knowledge_record(str(node_id), value)
+            if normalized:
+                player_records[normalized["node_id"]] = normalized
+        if player_records:
+            out[pid] = player_records
+    return out
+
+
+def _persist_player_map_knowledge(sess: Session, knowledge_map: dict[str, dict[str, Any]]) -> None:
+    payload: dict[str, dict[str, Any]] = {}
+    for player_id, records in knowledge_map.items():
+        pid = str(player_id or "").strip()
+        if not pid or not isinstance(records, dict):
+            continue
+        normalized_records: dict[str, Any] = {}
+        for node_id, value in records.items():
+            normalized = _normalize_player_map_knowledge_record(str(node_id), value)
+            if normalized:
+                normalized_records[normalized["node_id"]] = normalized
+        if normalized_records:
+            payload[pid] = normalized_records
+    settings_set(sess, "player_map_knowledge", payload)
+
+
+def _default_known_static_node_ids_for_position(position: dict[str, Any] | None) -> list[str]:
+    pos = _normalize_map_position(position)
+    if not pos:
+        return []
+    known_node_ids: list[str] = []
+    current_node_id = str(pos.get("node_id") or "").strip()
+    current_static = get_static_node(current_node_id)
+    if current_static:
+        known_node_ids.append(str(current_static.get("node_id") or ""))
+        current_area_label = str(current_static.get("area_label") or "").strip().lower()
+        for node in STATIC_MAP_NODES:
+            if (
+                node.get("node_type") == "landmark"
+                and str(node.get("area_label") or "").strip().lower() == current_area_label
+            ):
+                landmark_node_id = str(node.get("node_id") or "").strip()
+                if landmark_node_id and landmark_node_id not in known_node_ids:
+                    known_node_ids.append(landmark_node_id)
+                    break
+    return [node_id for node_id in known_node_ids if node_id]
+
+
+def grant_player_map_knowledge(
+    sess: Session,
+    player_id: uuid.UUID | str,
+    node_id: str,
+    *,
+    knowledge_kind: str = "known",
+    source: str = "manual",
+) -> dict[str, Any] | None:
+    pid = str(player_id or "").strip()
+    normalized_node_id = str(node_id or "").strip()
+    if not pid or not normalized_node_id:
+        return None
+    normalized_kind = _normalize_map_knowledge_kind(knowledge_kind)
+    knowledge_map = _raw_player_map_knowledge(sess)
+    player_records = dict(knowledge_map.get(pid) or {})
+    existing = _normalize_player_map_knowledge_record(normalized_node_id, player_records.get(normalized_node_id))
+    next_order = max([as_int(record.get("discovered_order"), 0) for record in player_records.values()] or [0]) + 1
+    if existing:
+        existing_rank = _MAP_KNOWLEDGE_KIND_ORDER.get(existing["knowledge_kind"], 1)
+        next_rank = _MAP_KNOWLEDGE_KIND_ORDER.get(normalized_kind, 1)
+        if next_rank >= existing_rank:
+            existing["knowledge_kind"] = normalized_kind
+        existing["source"] = str(source or existing.get("source") or "manual")[:40] or "manual"
+        if "discovered_order" not in existing:
+            existing["discovered_order"] = next_order
+        if "discovered_at" not in existing:
+            existing["discovered_at"] = datetime.now(timezone.utc).isoformat()
+        player_records[normalized_node_id] = existing
+    else:
+        player_records[normalized_node_id] = {
+            "node_id": normalized_node_id[:120],
+            "knowledge_kind": normalized_kind,
+            "source": str(source or "manual")[:40] or "manual",
+            "discovered_order": next_order,
+            "discovered_at": datetime.now(timezone.utc).isoformat(),
+        }
+    knowledge_map[pid] = player_records
+    _persist_player_map_knowledge(sess, knowledge_map)
+    return dict(player_records[normalized_node_id])
+
+
+def get_player_map_knowledge(sess: Session, player_id: uuid.UUID | str) -> dict[str, dict[str, Any]]:
+    pid = str(player_id or "").strip()
+    if not pid:
+        return {}
+    knowledge_map = _raw_player_map_knowledge(sess)
+    player_records = dict(knowledge_map.get(pid) or {})
+    if not player_records:
+        current_position = _get_player_map_position(sess, pid)
+        for node_id in _default_known_static_node_ids_for_position(current_position if isinstance(current_position, dict) else None):
+            grant_player_map_knowledge(sess, pid, node_id, knowledge_kind="known", source="seed")
+        knowledge_map = _raw_player_map_knowledge(sess)
+        player_records = dict(knowledge_map.get(pid) or {})
+    return {
+        node_id: dict(record)
+        for node_id, record in player_records.items()
+        if _normalize_player_map_knowledge_record(node_id, record)
+    }
+
+
+def get_player_known_node_ids(sess: Session, player_id: uuid.UUID | str) -> list[str]:
+    knowledge = get_player_map_knowledge(sess, player_id)
+    return sorted(knowledge.keys())
+
+
+def has_player_map_knowledge(
+    sess: Session,
+    player_id: uuid.UUID | str,
+    node_id: str,
+    *,
+    minimum_kind: str = "known",
+) -> bool:
+    normalized_node_id = str(node_id or "").strip()
+    if not normalized_node_id:
+        return False
+    knowledge = get_player_map_knowledge(sess, player_id)
+    record = knowledge.get(normalized_node_id)
+    if not record:
+        return False
+    current_rank = _MAP_KNOWLEDGE_KIND_ORDER.get(_normalize_map_knowledge_kind(record.get("knowledge_kind")), 0)
+    required_rank = _MAP_KNOWLEDGE_KIND_ORDER.get(_normalize_map_knowledge_kind(minimum_kind), 0)
+    return current_rank >= required_rank
+
+
+def maybe_mark_player_node_visited(
+    sess: Session,
+    player_id: uuid.UUID | str,
+    node_id: str,
+    *,
+    source: str = "travel",
+) -> dict[str, Any] | None:
+    return grant_player_map_knowledge(sess, player_id, node_id, knowledge_kind="visited", source=source)
 
 
 def create_group_wait_state(
@@ -1413,7 +1597,13 @@ def resume_group_travel(sess: Session, group_id: str) -> dict[str, Any] | None:
     return dict(group)
 
 
-def confirm_group_enter(sess: Session, group_id: str, *, source: str = "manual") -> dict[str, Any] | None:
+def confirm_group_enter(
+    sess: Session,
+    group_id: str,
+    *,
+    player_id: uuid.UUID | str | None = None,
+    source: str = "manual",
+) -> dict[str, Any] | None:
     groups = _get_group_states(sess)
     group_key = str(group_id or "").strip()
     group = groups.get(group_key)
@@ -1429,6 +1619,7 @@ def confirm_group_enter(sess: Session, group_id: str, *, source: str = "manual")
     target_label = str((route_summary or {}).get("target_label") or "").strip()
     if pause_reason != "target_requires_enter" or not next_map_position or not next_zone_label:
         return None
+    target_node_id = str((route_summary or {}).get("target_node_id") or next_map_position.get("node_id") or "").strip()
     group["current_map_position"] = next_map_position
     group["area_label"] = next_zone_label[:80]
     _set_group_last_travel_resolution(
@@ -1442,10 +1633,18 @@ def confirm_group_enter(sess: Session, group_id: str, *, source: str = "manual")
     _clear_group_activity_state(group, status="idle")
     _persist_group_states(sess, groups)
     _sync_group_position_mirrors(sess, group)
+    if player_id and target_node_id and get_static_node(target_node_id):
+        maybe_mark_player_node_visited(sess, player_id, target_node_id, source=source)
     return dict(group)
 
 
-def inspect_group_travel_target(sess: Session, group_id: str, *, source: str = "manual") -> dict[str, Any] | None:
+def inspect_group_travel_target(
+    sess: Session,
+    group_id: str,
+    *,
+    player_id: uuid.UUID | str | None = None,
+    source: str = "manual",
+) -> dict[str, Any] | None:
     groups = _get_group_states(sess)
     group_key = str(group_id or "").strip()
     group = groups.get(group_key)
@@ -1459,6 +1658,7 @@ def inspect_group_travel_target(sess: Session, group_id: str, *, source: str = "
     if pause_reason != "point_of_interest_reached" or not route_summary:
         return None
     target_label = str(route_summary.get("target_label") or "")
+    target_node_id = str(route_summary.get("target_node_id") or "").strip()
     _set_group_last_travel_resolution(
         group,
         resolution_kind="inspect_target",
@@ -1470,6 +1670,8 @@ def inspect_group_travel_target(sess: Session, group_id: str, *, source: str = "
     _clear_group_activity_state(group, status="idle")
     _persist_group_states(sess, groups)
     _sync_group_position_mirrors(sess, group)
+    if player_id and target_node_id and get_static_node(target_node_id):
+        grant_player_map_knowledge(sess, player_id, target_node_id, knowledge_kind="discovered", source=source)
     return dict(group)
 
 
@@ -1626,7 +1828,13 @@ def advance_group_travel(
     return dict(group)
 
 
-def complete_group_travel(sess: Session, group_id: str) -> dict[str, Any] | None:
+def complete_group_travel(
+    sess: Session,
+    group_id: str,
+    *,
+    player_id: uuid.UUID | str | None = None,
+    source: str = "manual",
+) -> dict[str, Any] | None:
     groups = _get_group_states(sess)
     group_key = str(group_id or "").strip()
     group = groups.get(group_key)
@@ -1640,6 +1848,7 @@ def complete_group_travel(sess: Session, group_id: str) -> dict[str, Any] | None
     route_summary = _normalize_group_route_summary(travel_state.get("route_summary"))
     next_map_position = _normalize_map_position((route_summary or {}).get("next_map_position"))
     next_zone_label = str((route_summary or {}).get("next_zone_label") or "").strip()
+    target_node_id = str((route_summary or {}).get("target_node_id") or (next_map_position or {}).get("node_id") or "").strip()
     if not next_map_position or not next_zone_label:
         return None
     group["current_map_position"] = next_map_position
@@ -1647,6 +1856,8 @@ def complete_group_travel(sess: Session, group_id: str) -> dict[str, Any] | None
     _clear_group_activity_state(group, status="idle")
     _persist_group_states(sess, groups)
     _sync_group_position_mirrors(sess, group)
+    if player_id and target_node_id and get_static_node(target_node_id):
+        maybe_mark_player_node_visited(sess, player_id, target_node_id, source=source)
     return dict(group)
 
 

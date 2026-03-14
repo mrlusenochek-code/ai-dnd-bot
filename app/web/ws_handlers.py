@@ -66,6 +66,7 @@ from app.web.session_state import (
     complete_group_travel,
     confirm_group_enter,
     evaluate_group_travel_pause,
+    get_player_known_node_ids,
     get_group_movement_mode,
     get_group_travel_activity,
     inspect_group_travel_target,
@@ -93,6 +94,7 @@ from app.web.session_state import (
 from app.web.session_lock import get_session_lock
 from app.web.state_builder import broadcast_state, _broadcast_state_unlocked, send_state_to_ws, _maybe_restore_combat_state
 from app.web.map_targeting import resolve_action_target_node, resolve_group_target_route, validate_group_target_transition
+from app.web.map_registry import resolve_static_map_node
 from app.web.combat_bridge import (
     _append_combat_patch_lines,
     _build_combat_start_preamble_lines,
@@ -1749,6 +1751,7 @@ def _resolve_group_action_target(
     sess,
     *,
     actor_group_id: str,
+    actor_player_id: uuid.UUID | str,
     payload: dict[str, Any],
     enter: bool,
 ) -> dict[str, Any] | None:
@@ -1765,6 +1768,8 @@ def _resolve_group_action_target(
         current_area_label=current_zone_label,
         action_kind="enter" if enter else "move",
         target_node=direct_target,
+        known_node_ids=get_player_known_node_ids(sess, actor_player_id),
+        require_known_static=True,
     )
 
 
@@ -1849,13 +1854,13 @@ def _handle_group_action_request(
         has_active_travel = isinstance(current_travel, dict) and bool(current_travel.get("active"))
         is_paused_travel = has_active_travel and bool(current_travel.get("paused"))
         if action == "group_confirm_enter":
-            updated = confirm_group_enter(sess, actor_group_key, source=source)
+            updated = confirm_group_enter(sess, actor_group_key, player_id=actor_player_id, source=source)
             if not updated:
                 return True, "Нечего подтверждать: группе нужен paused travel с требованием enter.", None
             label = str(updated.get("last_travel_resolution", {}).get("target_label") or updated.get("area_label") or "цель")
             return True, None, f"Группа {actor_group_key} подтверждает вход в {label}."
         if action == "group_inspect_target":
-            updated = inspect_group_travel_target(sess, actor_group_key, source=source)
+            updated = inspect_group_travel_target(sess, actor_group_key, player_id=actor_player_id, source=source)
             if not updated:
                 return True, "Нечего осматривать: группе нужен paused travel у точки интереса.", None
             label = str(updated.get("last_travel_resolution", {}).get("target_label") or "цель")
@@ -1899,7 +1904,7 @@ def _handle_group_action_request(
                 if pause_reason == "target_requires_enter":
                     return True, "Путешествие приостановлено: цель требует явного входа. Сначала возобновите движение группы.", None
                 return True, "Путешествие группы приостановлено. Сначала возобновите движение группы.", None
-            updated = complete_group_travel(sess, actor_group_key)
+            updated = complete_group_travel(sess, actor_group_key, player_id=actor_player_id, source=source)
             if not updated:
                 return True, "У группы нет активного путешествия для завершения.", None
             label = str((current_travel or {}).get("route_summary", {}).get("target_label") or updated.get("area_label") or "цель")
@@ -1918,10 +1923,16 @@ def _handle_group_action_request(
         target_node = _resolve_group_action_target(
             sess,
             actor_group_id=actor_group_key,
+            actor_player_id=actor_player_id,
             payload=payload,
             enter=action == "group_enter",
         )
         if not target_node:
+            direct_target = payload.get("target_node") or payload.get("target")
+            target_hint = str(payload.get("target_hint") or payload.get("target_label") or "").strip()
+            static_match = direct_target if isinstance(direct_target, dict) else resolve_static_map_node(direct_target or target_hint)
+            if isinstance(static_match, dict) and static_match.get("node_id"):
+                return True, "Группа пока не знает эту точку карты.", None
             return True, "Нужно указать цель движения группы.", None
         route_summary = resolve_group_target_route(
             current_map_position=_get_group_states(sess).get(actor_group_key, {}).get("current_map_position"),

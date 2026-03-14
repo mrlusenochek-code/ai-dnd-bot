@@ -102,6 +102,7 @@ def test_build_state_includes_legacy_and_structured_positions(monkeypatch) -> No
     monkeypatch.setattr(state_builder, "_get_pc_positions", lambda _sess: {str(player_id): "Старый подвал"})
     monkeypatch.setattr(state_builder, "_get_map_positions", lambda _sess: {str(player_id): structured_position})
     monkeypatch.setattr(state_builder, "_get_player_group_id", lambda _sess, _player_id, _player_ids=None: "main")
+    monkeypatch.setattr(state_builder, "get_player_known_node_ids", lambda _sess, _player_id: [])
     monkeypatch.setattr(state_builder, "snapshot_combat_state", lambda _session_id: None)
 
     db = _FakeDb([[player], [char], [], []])
@@ -152,6 +153,7 @@ def test_build_state_includes_legacy_and_structured_positions(monkeypatch) -> No
             "group_map_position": structured_position,
             "zone": "Старый подвал",
             "map_position": structured_position,
+            "known_node_ids": [],
         }
     ]
 
@@ -208,6 +210,7 @@ def test_build_state_exports_current_player_group_id(monkeypatch) -> None:
     monkeypatch.setattr(state_builder, "_get_pc_positions", lambda _sess: {str(player_id): "camp"})
     monkeypatch.setattr(state_builder, "_get_map_positions", lambda _sess: {str(player_id): group_state["main"]["current_map_position"]})
     monkeypatch.setattr(state_builder, "_get_player_group_id", lambda _sess, _player_id, _player_ids=None: "main")
+    monkeypatch.setattr(state_builder, "get_player_known_node_ids", lambda _sess, _player_id: ["start_trakt"])
     monkeypatch.setattr(state_builder, "snapshot_combat_state", lambda _session_id: None)
 
     db = _FakeDb([[player], [], [], []])
@@ -358,6 +361,7 @@ def test_build_state_exports_group_activity_summaries(monkeypatch) -> None:
     monkeypatch.setattr(state_builder, "_get_pc_positions", lambda _sess: {str(player_id): "camp"})
     monkeypatch.setattr(state_builder, "_get_map_positions", lambda _sess: {str(player_id): group_position})
     monkeypatch.setattr(state_builder, "_get_player_group_id", lambda _sess, _player_id, _player_ids=None: "main")
+    monkeypatch.setattr(state_builder, "get_player_known_node_ids", lambda _sess, _player_id: ["camp", "north-gate"])
     monkeypatch.setattr(state_builder, "snapshot_combat_state", lambda _session_id: None)
 
     db = _FakeDb([[player], [], [], []])
@@ -460,6 +464,7 @@ def test_build_state_exports_group_activity_summaries(monkeypatch) -> None:
             "source": "test",
         },
     }
+    assert payload["players"][0]["known_node_ids"] == ["camp", "north-gate"]
     assert payload["game"]["groups"]["main"]["travel_summary"] == {
         "active": True,
         "phase": "in_transit",

@@ -76,6 +76,8 @@ def test_resolve_action_target_node_prefers_static_registry_for_move_text() -> N
         },
         current_area_label="Стартовый тракт",
         action_kind="move",
+        known_node_ids={"fortress_gate"},
+        require_known_static=True,
     )
 
     assert target == {
@@ -93,6 +95,8 @@ def test_resolve_action_target_node_prefers_static_registry_for_enter_text() -> 
         target_text="шахта",
         current_area_label="Лесная дорога",
         action_kind="enter",
+        known_node_ids={"mine_entrance"},
+        require_known_static=True,
     )
 
     assert target == {
@@ -120,6 +124,25 @@ def test_resolve_action_target_node_falls_back_to_heuristic_if_registry_has_no_m
         "zone_label": "улица у таверны",
         "area_label": "улица у таверны",
     }
+
+
+def test_resolve_action_target_node_blocks_unknown_static_target_in_strict_known_mode() -> None:
+    target = resolve_action_target_node(
+        action_text="иду к воротам крепости",
+        current_map_position={
+            "v": 1,
+            "map_level": "region",
+            "node_type": "zone",
+            "node_id": "start_trakt",
+            "label": "Стартовый тракт",
+        },
+        current_area_label="Стартовый тракт",
+        action_kind="move",
+        known_node_ids={"start_trakt"},
+        require_known_static=True,
+    )
+
+    assert target is None
 
 
 def test_validate_group_target_transition_allows_move_zone_and_landmark() -> None:
