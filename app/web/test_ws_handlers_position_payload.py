@@ -71,7 +71,7 @@ def test_build_player_action_position_payload_uses_position_context_helper(monke
     assert payload["map_position_before"]["node_id"] == "old-tavern-cellar"
 
 
-def test_infer_action_position_update_returns_zone_wrapper_map_position() -> None:
+def test_infer_action_position_update_returns_zone_move_via_canonical_transition() -> None:
     current_position = {
         "v": 1,
         "map_level": "district",
@@ -93,6 +93,31 @@ def test_infer_action_position_update_returns_zone_wrapper_map_position() -> Non
         "node_type": "zone",
         "node_id": "улица у таверны",
         "label": "улица у таверны",
+    }
+
+
+def test_infer_action_position_update_returns_landmark_node_for_landmark_move() -> None:
+    current_position = {
+        "v": 1,
+        "map_level": "region",
+        "node_type": "zone",
+        "node_id": "центр города",
+        "label": "центр города",
+    }
+
+    next_zone, next_map_position = ws_handlers._infer_action_position_update(
+        current_position,
+        "центр города",
+        "иду к воротам",
+    )
+
+    assert next_zone == "ворота"
+    assert next_map_position == {
+        "v": 1,
+        "map_level": "landmark",
+        "node_type": "landmark",
+        "node_id": "ворота",
+        "label": "ворота",
     }
 
 
@@ -156,8 +181,44 @@ def test_apply_player_action_position_update_preserves_narrative_zone_inference(
     assert payload["zone_after"] == "замок"
     assert payload["map_position_after"] == {
         "v": 1,
-        "map_level": "region",
-        "node_type": "zone",
+        "map_level": "interior",
+        "node_type": "interior_entry",
         "node_id": "замок",
         "label": "замок",
     }
+
+
+def test_apply_player_action_position_update_emits_structured_landmark_payload() -> None:
+    player_id = uuid.uuid4()
+    sess = SimpleNamespace(
+        settings={
+            "map_positions": {
+                str(player_id): {
+                    "map_level": "region",
+                    "node_type": "zone",
+                    "node_id": "центр города",
+                    "label": "центр города",
+                }
+            }
+        }
+    )
+
+    payload = ws_handlers._apply_player_action_position_update(sess, player_id, "иду к воротам")
+
+    assert payload["zone_before"] == "центр города"
+    assert payload["zone_after"] == "ворота"
+    assert payload["map_position_before"] == {
+        "v": 1,
+        "map_level": "region",
+        "node_type": "zone",
+        "node_id": "центр города",
+        "label": "центр города",
+    }
+    assert payload["map_position_after"] == {
+        "v": 1,
+        "map_level": "landmark",
+        "node_type": "landmark",
+        "node_id": "ворота",
+        "label": "ворота",
+    }
+    assert sess.settings["pc_positions"][str(player_id)] == "ворота"

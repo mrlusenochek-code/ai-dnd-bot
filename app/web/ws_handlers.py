@@ -47,6 +47,7 @@ from app.web.gameplay_helpers import (
 from app.web.session_state import (
     settings_get,
     settings_set,
+    _apply_map_position_transition,
     _default_map_position,
     _get_ready_map,
     _set_ready,
@@ -178,9 +179,54 @@ def _infer_action_position_update(
 ) -> tuple[str, dict[str, Any]]:
     zone_before = str(current_zone_label or "стартовая локация").strip() or "стартовая локация"
     next_zone_label = infer_zone_from_action(text, zone_before)
-    # Until a real map movement layer exists, movement writes land on a canonical zone wrapper.
-    next_map_position = _default_map_position(next_zone_label)
-    return next_zone_label, next_map_position
+    target_node = _infer_action_target_node(text, next_zone_label)
+    next_map_position, resolved_zone_label, ok, _error = _apply_map_position_transition(
+        current_map_position,
+        target_node,
+        "player_action",
+    )
+    if ok and next_map_position:
+        return resolved_zone_label, next_map_position
+    return next_zone_label, _default_map_position(next_zone_label)
+
+
+def _infer_action_target_node(text: str, inferred_zone_label: str) -> dict[str, Any]:
+    src = str(text or "").strip().lower()
+    zone_label = str(inferred_zone_label or "стартовая локация").strip() or "стартовая локация"
+
+    if any(token in src for token in ("захожу", "вхожу", "войти", "внутрь", "внутри")):
+        return {
+            "map_level": "interior",
+            "node_type": "interior_entry",
+            "node_id": zone_label,
+            "label": zone_label,
+            "zone_label": zone_label,
+        }
+
+    landmark_patterns = (
+        ("ворот", "ворота"),
+        ("подвал", "подвал"),
+        ("фонтан", "фонтан"),
+        ("башн", "башня"),
+        ("двер", "дверь"),
+    )
+    for stem, label in landmark_patterns:
+        if stem in src:
+            return {
+                "map_level": "landmark",
+                "node_type": "landmark",
+                "node_id": label,
+                "label": label,
+                "zone_label": label,
+            }
+
+    return {
+        "map_level": "region",
+        "node_type": "zone",
+        "node_id": zone_label,
+        "label": zone_label,
+        "zone_label": zone_label,
+    }
 
 
 def _apply_player_action_position_update(

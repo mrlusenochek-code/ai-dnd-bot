@@ -31,6 +31,68 @@ def test_set_player_map_position_stores_structured_and_legacy_label() -> None:
     assert sess.settings["pc_positions"][str(player_id)] == "Старый подвал"
 
 
+def test_apply_map_position_transition_moves_between_zones() -> None:
+    current = {
+        "map_level": "region",
+        "node_type": "zone",
+        "node_id": "таверна",
+        "label": "таверна",
+    }
+
+    next_position, next_zone, ok, error = session_state._apply_map_position_transition(
+        current,
+        {
+            "node_type": "zone",
+            "node_id": "улица у таверны",
+            "label": "улица у таверны",
+            "zone_label": "улица у таверны",
+        },
+        "test_move",
+    )
+
+    assert ok is True
+    assert error is None
+    assert next_zone == "улица у таверны"
+    assert next_position == {
+        "v": 1,
+        "map_level": "region",
+        "node_type": "zone",
+        "node_id": "улица у таверны",
+        "label": "улица у таверны",
+    }
+
+
+def test_apply_map_position_transition_moves_to_landmark_and_keeps_legacy_zone_label() -> None:
+    current = {
+        "map_level": "region",
+        "node_type": "zone",
+        "node_id": "центр города",
+        "label": "центр города",
+    }
+
+    next_position, next_zone, ok, error = session_state._apply_map_position_transition(
+        current,
+        {
+            "node_type": "landmark",
+            "node_id": "ворота",
+            "label": "Северные ворота",
+            "zone_label": "Северные ворота",
+        },
+        "test_move",
+    )
+
+    assert ok is True
+    assert error is None
+    assert next_zone == "Северные ворота"
+    assert next_position == {
+        "v": 1,
+        "map_level": "landmark",
+        "node_type": "landmark",
+        "node_id": "ворота",
+        "label": "Северные ворота",
+    }
+
+
 def test_get_pc_positions_prefers_structured_map_positions() -> None:
     player_id = uuid.uuid4()
     sess = SimpleNamespace(

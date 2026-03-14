@@ -104,6 +104,15 @@ def _default_map_position(zone_label: str = "стартовая локация")
     }
 
 
+def _default_map_level_for_node_type(node_type: str) -> str:
+    normalized = str(node_type or "").strip().lower()
+    if normalized == "landmark":
+        return "landmark"
+    if normalized in {"building", "interior_entry"}:
+        return "interior"
+    return "region"
+
+
 def _normalize_map_position(raw: Any) -> dict[str, Any] | None:
     if isinstance(raw, str):
         return _default_map_position(raw)
@@ -116,10 +125,12 @@ def _normalize_map_position(raw: Any) -> dict[str, Any] | None:
     node_id = str(raw.get("node_id") or "").strip()
     label = str(raw.get("label") or "").strip()
 
-    if not map_level:
-        map_level = "region"
     if not node_type:
         node_type = "zone"
+    if node_type not in {"zone", "landmark", "building", "interior_entry"}:
+        node_type = "zone"
+    if not map_level:
+        map_level = _default_map_level_for_node_type(node_type)
     if not node_id and label:
         node_id = label
     if not label and node_id:
@@ -135,6 +146,52 @@ def _normalize_map_position(raw: Any) -> dict[str, Any] | None:
         "node_id": node_id[:120],
         "label": label[:80] or node_id[:80],
     }
+
+
+def _normalize_map_target_node(raw: Any) -> dict[str, Any] | None:
+    if isinstance(raw, str):
+        pos = _default_map_position(raw)
+        return {**pos, "zone_label": pos["label"]}
+
+    pos = _normalize_map_position(raw)
+    if not pos:
+        return None
+
+    zone_label = ""
+    if isinstance(raw, dict):
+        zone_label = str(raw.get("zone_label") or "").strip()
+    if not zone_label:
+        zone_label = str(pos.get("label") or pos.get("node_id") or "").strip()
+    if not zone_label:
+        return None
+
+    return {
+        **pos,
+        "zone_label": zone_label[:80],
+    }
+
+
+def _apply_map_position_transition(
+    current_map_position: Any,
+    target_node: Any,
+    movement_reason: str | None = None,
+) -> tuple[dict[str, Any] | None, str, bool, str | None]:
+    current_pos = _normalize_map_position(current_map_position)
+    current_zone = _format_map_position_label(current_pos)
+    target = _normalize_map_target_node(target_node)
+    if not target:
+        return current_pos, current_zone, False, "invalid_target_node"
+
+    next_position = {
+        "v": 1,
+        "map_level": str(target.get("map_level") or "region"),
+        "node_type": str(target.get("node_type") or "zone"),
+        "node_id": str(target.get("node_id") or "")[:120],
+        "label": str(target.get("label") or "")[:80],
+    }
+    next_zone = str(target.get("zone_label") or _format_map_position_label(next_position)).strip() or current_zone
+    _ = movement_reason
+    return next_position, next_zone[:80], True, None
 
 
 def _format_map_position_label(pos: Any) -> str:
