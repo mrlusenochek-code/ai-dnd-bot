@@ -1375,10 +1375,10 @@ def test_get_current_group_node_context_returns_node_summary_and_contextual_acti
             "detail_summary": "Здесь легко пополнить припасы, переждать дорогу и собрать слухи о ближних тропах.",
         },
         "contextual_actions": [
-            {"action_key": "navigate", "label": "Продолжить путь", "action_type": "action"},
-            {"action_key": "inspect", "label": "Осмотреться", "action_type": "action"},
-            {"action_key": "wait", "label": "Подождать", "action_type": "action"},
-            {"action_key": "rest_hint", "label": "Есть место для передышки", "action_type": "hint"},
+            {"action_id": "navigate", "action_key": "navigate", "label": "Продолжить путь", "action_type": "action", "action_kind": "navigate", "status": "available", "available": True, "exhausted": False},
+            {"action_id": "inspect", "action_key": "inspect", "label": "Осмотреться", "action_type": "action", "action_kind": "inspect", "status": "available", "available": True, "exhausted": False},
+            {"action_id": "wait", "action_key": "wait", "label": "Подождать", "action_type": "action", "action_kind": "wait", "status": "available", "available": True, "exhausted": False},
+            {"action_id": "rest_hint", "action_key": "rest_hint", "label": "Есть место для передышки", "action_type": "hint", "action_kind": "rest_hint", "status": "available", "available": False, "exhausted": False},
         ],
         "available_services": [
             {
@@ -1552,9 +1552,14 @@ def test_get_current_group_node_context_adds_enter_for_paused_target_requires_en
 
     assert context is not None
     assert context["contextual_actions"][0] == {
+        "action_id": "enter",
         "action_key": "enter",
         "label": "Войти",
         "action_type": "action",
+        "action_kind": "enter",
+        "status": "available",
+        "available": True,
+        "exhausted": False,
     }
 
 
@@ -1693,6 +1698,157 @@ def test_execute_current_group_context_action_rejects_unavailable_and_hint_only_
     assert hint_error == "Это contextual действие доступно только как подсказка."
     assert unavailable_updated is None
     assert unavailable_error == "Это contextual действие сейчас недоступно."
+
+
+def test_resolve_group_context_action_stores_canonical_result_and_updates_route_access() -> None:
+    player_id = uuid.uuid4()
+    sess = SimpleNamespace(settings={})
+    session_state._initialize_default_group(
+        sess,
+        [player_id],
+        {
+            "map_level": "region",
+            "node_type": "zone",
+            "node_id": "forest_road",
+            "label": "Лесная дорога",
+        },
+    )
+    session_state.set_group_route_access_state(
+        sess,
+        "main",
+        "forest_road->ruined_settlement:move",
+        access_state="blocked",
+        summary="Старая дорога завалена.",
+        block_reason="fallen_trees",
+        source="test",
+    )
+
+    resolved, error = session_state.resolve_group_context_action(
+        sess,
+        "main",
+        action_id="clear_old_road",
+        player_id=player_id,
+        source="test",
+    )
+
+    assert error is None
+    assert resolved is not None
+    assert resolved["last_context_action_result"]["result_type"] == "route_cleared"
+    assert resolved["last_context_action_result"]["action_id"] == "clear_old_road"
+    assert session_state.get_current_group_last_context_action_result(sess, player_id=player_id) == resolved["last_context_action_result"]
+    assert session_state.get_group_route_access_state(sess, "main", "forest_road->ruined_settlement:move")["access_state"] == "cleared"
+    assert session_state.get_current_group_context_action_states(sess, player_id=player_id) == [
+        {
+            "action_id": "clear_old_road",
+            "status": "completed",
+            "result_type": "route_cleared",
+            "summary": "Группа убирает завал с лесной дороги и открывает устойчивый проход к разрушенному посёлку.",
+            "source": "test",
+            "updated_at": resolved["context_action_states"]["clear_old_road"]["updated_at"],
+        }
+    ]
+
+
+def test_repeated_one_shot_context_action_returns_already_completed_and_context_marks_exhausted() -> None:
+    player_id = uuid.uuid4()
+    sess = SimpleNamespace(settings={})
+    session_state._initialize_default_group(
+        sess,
+        [player_id],
+        {
+            "map_level": "region",
+            "node_type": "zone",
+            "node_id": "chapel_village",
+            "label": "Часовенное село",
+        },
+    )
+
+    first, first_error = session_state.resolve_group_context_action(
+        sess,
+        "main",
+        action_id="listen_chapel_watch",
+        player_id=player_id,
+        source="test",
+    )
+    repeated, repeated_error = session_state.resolve_group_context_action(
+        sess,
+        "main",
+        action_id="listen_chapel_watch",
+        player_id=player_id,
+        source="test",
+    )
+    context = session_state.get_current_group_node_context(sess, player_id=player_id)
+
+    assert first_error is None
+    assert first is not None
+    assert first["last_context_action_result"]["result_type"] == "local_clue_found"
+    assert repeated_error is None
+    assert repeated is not None
+    assert repeated["last_context_action_result"]["result_type"] == "already_completed"
+    authored_action = next(action for action in context["contextual_actions"] if action["action_id"] == "listen_chapel_watch")
+    assert authored_action["status"] == "completed"
+    assert authored_action["available"] is False
+    assert authored_action["exhausted"] is True
+
+
+def test_context_action_can_keep_route_blocked_and_no_effect_is_explicit() -> None:
+    player_id = uuid.uuid4()
+    sess = SimpleNamespace(settings={})
+    session_state._initialize_default_group(
+        sess,
+        [player_id],
+        {
+            "map_level": "region",
+            "node_type": "zone",
+            "node_id": "ruined_settlement",
+            "label": "Разрушенный посёлок",
+        },
+    )
+
+    blocked, blocked_error = session_state.resolve_group_context_action(
+        sess,
+        "main",
+        action_id="shore_up_mine_path",
+        player_id=player_id,
+        source="test",
+    )
+
+    assert blocked_error is None
+    assert blocked is not None
+    assert blocked["last_context_action_result"]["result_type"] == "route_still_blocked"
+    assert session_state.get_group_route_access_state(sess, "main", "ruined_settlement->mine_entrance:enter")["access_state"] == "blocked"
+
+    no_effect_sess = SimpleNamespace(settings={})
+    session_state._initialize_default_group(
+        no_effect_sess,
+        [player_id],
+        {
+            "map_level": "region",
+            "node_type": "zone",
+            "node_id": "forest_road",
+            "label": "Лесная дорога",
+        },
+    )
+    session_state.set_group_route_access_state(
+        no_effect_sess,
+        "main",
+        "forest_road->ruined_settlement:move",
+        access_state="open",
+        summary="Маршрут уже открыт.",
+        source="test",
+    )
+
+    no_effect, no_effect_error = session_state.resolve_group_context_action(
+        no_effect_sess,
+        "main",
+        action_id="clear_old_road",
+        player_id=player_id,
+        source="test",
+    )
+
+    assert no_effect_error is None
+    assert no_effect is not None
+    assert no_effect["last_context_action_result"]["result_type"] == "no_effect"
 
 
 def test_pause_resume_and_evaluate_group_travel_preserve_mode_and_activity() -> None:

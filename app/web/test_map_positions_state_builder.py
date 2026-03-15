@@ -112,7 +112,9 @@ def test_build_state_includes_legacy_and_structured_positions(monkeypatch) -> No
     monkeypatch.setattr(state_builder, "get_current_group_travel_event", lambda _sess, player_id=None: None)
     monkeypatch.setattr(state_builder, "get_current_group_last_camp_result", lambda _sess, player_id=None: None)
     monkeypatch.setattr(state_builder, "get_current_group_last_scout_result", lambda _sess, player_id=None: None)
+    monkeypatch.setattr(state_builder, "get_current_group_last_context_action_result", lambda _sess, player_id=None: None)
     monkeypatch.setattr(state_builder, "get_current_group_route_access_states", lambda _sess, player_id=None: [])
+    monkeypatch.setattr(state_builder, "get_current_group_context_action_states", lambda _sess, player_id=None: [])
     monkeypatch.setattr(state_builder, "get_current_group_last_travel_event_outcome", lambda _sess, player_id=None: None)
     monkeypatch.setattr(state_builder, "get_current_group_navigation_options", lambda _sess, player_id=None: [])
     monkeypatch.setattr(state_builder, "snapshot_combat_state", lambda _session_id: None)
@@ -139,6 +141,8 @@ def test_build_state_includes_legacy_and_structured_positions(monkeypatch) -> No
             "last_camp_result_summary": None,
             "route_access_states": None,
             "last_scout_result_summary": None,
+            "last_context_action_result_summary": None,
+            "context_action_states": None,
             "movement_intent_summary": None,
             "travel_state": None,
             "travel_summary": None,
@@ -158,7 +162,9 @@ def test_build_state_includes_legacy_and_structured_positions(monkeypatch) -> No
     assert payload["game"]["current_group_travel_event"] is None
     assert payload["game"]["current_group_last_camp_result"] is None
     assert payload["game"]["current_group_last_scout_result"] is None
+    assert payload["game"]["current_group_last_context_action_result"] is None
     assert payload["game"]["current_group_route_access_states"] == []
+    assert payload["game"]["current_group_context_action_states"] == []
     assert payload["game"]["current_group_last_travel_event_outcome"] is None
     assert payload["game"]["current_group_navigation_options"] == []
     assert payload["session"]["current_group_id"] is None
@@ -256,11 +262,11 @@ def test_build_state_exports_current_player_group_id(monkeypatch) -> None:
                 "safe_rest_hint": True,
             },
             "contextual_actions": [
-                {"action_key": "navigate", "label": "Продолжить путь", "action_type": "action"},
-                {"action_key": "inspect", "label": "Осмотреться", "action_type": "action"},
-                {"action_key": "wait", "label": "Подождать", "action_type": "action"},
-                {"action_key": "camp", "label": "Разбить лагерь", "action_type": "action"},
-                {"action_key": "rest_hint", "label": "Есть место для передышки", "action_type": "hint"},
+                {"action_id": "navigate", "action_key": "navigate", "label": "Продолжить путь", "action_type": "action", "action_kind": "navigate", "status": "available", "available": True, "exhausted": False},
+                {"action_id": "inspect", "action_key": "inspect", "label": "Осмотреться", "action_type": "action", "action_kind": "inspect", "status": "available", "available": True, "exhausted": False},
+                {"action_id": "wait", "action_key": "wait", "label": "Подождать", "action_type": "action", "action_kind": "wait", "status": "available", "available": True, "exhausted": False},
+                {"action_id": "camp", "action_key": "camp", "label": "Разбить лагерь", "action_type": "action", "action_kind": "camp", "status": "available", "available": True, "exhausted": False},
+                {"action_id": "rest_hint", "action_key": "rest_hint", "label": "Есть место для передышки", "action_type": "hint", "action_kind": "rest_hint", "status": "available", "available": False, "exhausted": False},
             ],
             "available_services": [
                 {
@@ -393,6 +399,23 @@ def test_build_state_exports_current_player_group_id(monkeypatch) -> None:
     )
     monkeypatch.setattr(
         state_builder,
+        "get_current_group_last_context_action_result",
+        lambda _sess, player_id=None: {
+            "result_id": "ctx-out-1",
+            "action_id": "clear_old_road",
+            "action_label": "Расчистить старую дорогу",
+            "result_type": "route_cleared",
+            "summary": "Разобрать завал и вернуть проход к разрушенному посёлку.",
+            "result_summary": "Группа убирает завал с лесной дороги и открывает устойчивый проход к разрушенному посёлку.",
+            "node_id": "start_trakt",
+            "node_label": "Стартовый тракт",
+            "applied_effects": ["route_access:cleared"],
+            "source": "test",
+            "resolved_at": "2026-03-14T00:09:00+00:00",
+        },
+    )
+    monkeypatch.setattr(
+        state_builder,
         "get_current_group_route_access_states",
         lambda _sess, player_id=None: [
             {
@@ -403,6 +426,20 @@ def test_build_state_exports_current_player_group_id(monkeypatch) -> None:
                 "block_reason": "blocked_path",
                 "source": "test",
                 "updated_at": "2026-03-15T00:09:00+00:00",
+            }
+        ],
+    )
+    monkeypatch.setattr(
+        state_builder,
+        "get_current_group_context_action_states",
+        lambda _sess, player_id=None: [
+            {
+                "action_id": "clear_old_road",
+                "status": "completed",
+                "result_type": "route_cleared",
+                "summary": "Группа убирает завал с лесной дороги и открывает устойчивый проход к разрушенному посёлку.",
+                "source": "test",
+                "updated_at": "2026-03-15T00:09:30+00:00",
             }
         ],
     )
@@ -464,11 +501,11 @@ def test_build_state_exports_current_player_group_id(monkeypatch) -> None:
             "safe_rest_hint": True,
         },
         "contextual_actions": [
-            {"action_key": "navigate", "label": "Продолжить путь", "action_type": "action"},
-            {"action_key": "inspect", "label": "Осмотреться", "action_type": "action"},
-            {"action_key": "wait", "label": "Подождать", "action_type": "action"},
-            {"action_key": "camp", "label": "Разбить лагерь", "action_type": "action"},
-            {"action_key": "rest_hint", "label": "Есть место для передышки", "action_type": "hint"},
+            {"action_id": "navigate", "action_key": "navigate", "label": "Продолжить путь", "action_type": "action", "action_kind": "navigate", "status": "available", "available": True, "exhausted": False},
+            {"action_id": "inspect", "action_key": "inspect", "label": "Осмотреться", "action_type": "action", "action_kind": "inspect", "status": "available", "available": True, "exhausted": False},
+            {"action_id": "wait", "action_key": "wait", "label": "Подождать", "action_type": "action", "action_kind": "wait", "status": "available", "available": True, "exhausted": False},
+            {"action_id": "camp", "action_key": "camp", "label": "Разбить лагерь", "action_type": "action", "action_kind": "camp", "status": "available", "available": True, "exhausted": False},
+            {"action_id": "rest_hint", "action_key": "rest_hint", "label": "Есть место для передышки", "action_type": "hint", "action_kind": "rest_hint", "status": "available", "available": False, "exhausted": False},
         ],
         "available_services": [
             {
@@ -570,6 +607,19 @@ def test_build_state_exports_current_player_group_id(monkeypatch) -> None:
         "source": "test",
         "resolved_at": "2026-03-14T00:08:00+00:00",
     }
+    assert payload["game"]["current_group_last_context_action_result"] == {
+        "result_id": "ctx-out-1",
+        "action_id": "clear_old_road",
+        "action_label": "Расчистить старую дорогу",
+        "result_type": "route_cleared",
+        "summary": "Разобрать завал и вернуть проход к разрушенному посёлку.",
+        "result_summary": "Группа убирает завал с лесной дороги и открывает устойчивый проход к разрушенному посёлку.",
+        "node_id": "start_trakt",
+        "node_label": "Стартовый тракт",
+        "applied_effects": ["route_access:cleared"],
+        "source": "test",
+        "resolved_at": "2026-03-14T00:09:00+00:00",
+    }
     assert payload["game"]["current_group_route_access_states"] == [
         {
             "route_id": "start_trakt->craft_town:move",
@@ -579,6 +629,16 @@ def test_build_state_exports_current_player_group_id(monkeypatch) -> None:
             "block_reason": "blocked_path",
             "source": "test",
             "updated_at": "2026-03-15T00:09:00+00:00",
+        }
+    ]
+    assert payload["game"]["current_group_context_action_states"] == [
+        {
+            "action_id": "clear_old_road",
+            "status": "completed",
+            "result_type": "route_cleared",
+            "summary": "Группа убирает завал с лесной дороги и открывает устойчивый проход к разрушенному посёлку.",
+            "source": "test",
+            "updated_at": "2026-03-15T00:09:30+00:00",
         }
     ]
     assert payload["game"]["current_group_last_travel_event_outcome"] == {
@@ -685,6 +745,29 @@ def test_build_state_exports_group_activity_summaries(monkeypatch) -> None:
                 "reveal_applied": False,
                 "source": "test",
                 "resolved_at": "2026-03-14T00:07:00+00:00",
+            },
+            "last_context_action_result": {
+                "result_id": "ctx-out-2",
+                "action_id": "clear_old_road",
+                "action_label": "Расчистить старую дорогу",
+                "result_type": "route_cleared",
+                "summary": "Разобрать завал и вернуть проход к северным воротам.",
+                "result_summary": "Группа очищает локальный завал и фиксирует новый проходимый подход.",
+                "node_id": "camp",
+                "node_label": "camp",
+                "applied_effects": ["route_access:cleared"],
+                "source": "test",
+                "resolved_at": "2026-03-14T00:07:30+00:00",
+            },
+            "context_action_states": {
+                "clear_old_road": {
+                    "action_id": "clear_old_road",
+                    "status": "completed",
+                    "result_type": "route_cleared",
+                    "summary": "Группа очищает локальный завал и фиксирует новый проходимый подход.",
+                    "source": "test",
+                    "updated_at": "2026-03-14T00:07:31+00:00",
+                }
             },
             "route_access_states": {
                 "camp->north-gate:move": {
@@ -832,7 +915,9 @@ def test_build_state_exports_group_activity_summaries(monkeypatch) -> None:
     monkeypatch.setattr(state_builder, "get_current_group_travel_event", lambda _sess, player_id=None: None)
     monkeypatch.setattr(state_builder, "get_current_group_last_camp_result", lambda _sess, player_id=None: None)
     monkeypatch.setattr(state_builder, "get_current_group_last_scout_result", lambda _sess, player_id=None: None)
+    monkeypatch.setattr(state_builder, "get_current_group_last_context_action_result", lambda _sess, player_id=None: None)
     monkeypatch.setattr(state_builder, "get_current_group_route_access_states", lambda _sess, player_id=None: [])
+    monkeypatch.setattr(state_builder, "get_current_group_context_action_states", lambda _sess, player_id=None: [])
     monkeypatch.setattr(state_builder, "get_current_group_last_travel_event_outcome", lambda _sess, player_id=None: None)
     monkeypatch.setattr(state_builder, "get_current_group_navigation_options", lambda _sess, player_id=None: [])
     monkeypatch.setattr(state_builder, "snapshot_combat_state", lambda _session_id: None)
@@ -883,6 +968,29 @@ def test_build_state_exports_group_activity_summaries(monkeypatch) -> None:
         "source": "test",
         "resolved_at": "2026-03-14T00:07:00+00:00",
     }
+    assert payload["game"]["groups"]["main"]["last_context_action_result_summary"] == {
+        "result_id": "ctx-out-2",
+        "action_id": "clear_old_road",
+        "action_label": "Расчистить старую дорогу",
+        "result_type": "route_cleared",
+        "summary": "Разобрать завал и вернуть проход к северным воротам.",
+        "result_summary": "Группа очищает локальный завал и фиксирует новый проходимый подход.",
+        "node_id": "camp",
+        "node_label": "camp",
+        "applied_effects": ["route_access:cleared"],
+        "source": "test",
+        "resolved_at": "2026-03-14T00:07:30+00:00",
+    }
+    assert payload["game"]["groups"]["main"]["context_action_states"] == [
+        {
+            "action_id": "clear_old_road",
+            "status": "completed",
+            "result_type": "route_cleared",
+            "summary": "Группа очищает локальный завал и фиксирует новый проходимый подход.",
+            "source": "test",
+            "updated_at": "2026-03-14T00:07:31+00:00",
+        }
+    ]
     assert payload["game"]["groups"]["main"]["route_access_states"] == [
         {
             "route_id": "camp->north-gate:move",

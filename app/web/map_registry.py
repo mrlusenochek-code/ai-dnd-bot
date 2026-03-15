@@ -491,6 +491,52 @@ STATIC_MAP_SCOUT_DISCOVERIES: tuple[dict[str, Any], ...] = (
 )
 
 
+STATIC_MAP_CONTEXT_ACTION_EFFECTS: tuple[dict[str, Any], ...] = (
+    {
+        "node_id": "forest_road",
+        "action_id": "clear_old_road",
+        "label": "Расчистить старую дорогу",
+        "action_kind": "route_access",
+        "one_shot": True,
+        "route_id": "forest_road->ruined_settlement:move",
+        "effect_type": "clear_route",
+        "result_type": "route_cleared",
+        "summary": "Разобрать завал и вернуть проход к разрушенному посёлку.",
+        "result_summary": "Группа убирает завал с лесной дороги и открывает устойчивый проход к разрушенному посёлку.",
+        "applied_effects": ["route_access:cleared", "route_target:ruined_settlement"],
+    },
+    {
+        "node_id": "ruined_settlement",
+        "action_id": "shore_up_mine_path",
+        "label": "Проверить завал у шахты",
+        "action_kind": "route_access",
+        "one_shot": False,
+        "route_id": "ruined_settlement->mine_entrance:enter",
+        "effect_type": "keep_route_blocked",
+        "result_type": "route_still_blocked",
+        "summary": "Осмотреть завал у шахтного входа и понять, держится ли проход.",
+        "result_summary": "Осмотр подтверждает, что шахтный подход всё ещё нестабилен и остаётся заблокированным.",
+        "block_reason": "mine_collapse",
+        "applied_effects": ["route_access:blocked", "route_target:mine_entrance"],
+    },
+    {
+        "node_id": "chapel_village",
+        "action_id": "listen_chapel_watch",
+        "label": "Поговорить с дозорными у часовни",
+        "action_kind": "clue",
+        "effect_type": "clue",
+        "one_shot": True,
+        "result_type": "local_clue_found",
+        "summary": "Собрать короткую местную подсказку у часовни.",
+        "result_summary": "Местные дозорные делятся краткой полезной наводкой о ближайшей дороге и безопасном ночлеге.",
+        "discovered_notes": [
+            "Дозорные советуют держаться освящённой дороги и не сворачивать к руинам после заката."
+        ],
+        "applied_effects": ["local_clue:chapel_watch"],
+    },
+)
+
+
 def _normalized_text(value: Any) -> str:
     return str(value or "").strip().lower()
 
@@ -682,6 +728,53 @@ def get_static_node_scout_discoveries(
     return discoveries
 
 
+def get_static_node_context_action_effects(
+    *,
+    node_id: str | None = None,
+    current_map_position: dict[str, Any] | None = None,
+) -> list[dict[str, Any]]:
+    resolved_node_id = _normalized_text(node_id)
+    if not resolved_node_id and isinstance(current_map_position, dict):
+        resolved_node_id = _normalized_text(current_map_position.get("node_id"))
+    if not resolved_node_id:
+        return []
+    effects: list[dict[str, Any]] = []
+    for item in STATIC_MAP_CONTEXT_ACTION_EFFECTS:
+        if _normalized_text(item.get("node_id")) != resolved_node_id:
+            continue
+        effect = {
+            "node_id": resolved_node_id,
+            "action_id": str(item.get("action_id") or "").strip().lower(),
+            "label": str(item.get("label") or "").strip(),
+            "action_kind": str(item.get("action_kind") or "action").strip().lower() or "action",
+            "effect_type": str(item.get("effect_type") or "").strip().lower(),
+            "result_type": str(item.get("result_type") or "no_effect").strip().lower() or "no_effect",
+            "summary": str(item.get("summary") or "").strip(),
+            "result_summary": str(item.get("result_summary") or "").strip(),
+            "source": "registry",
+            "one_shot": bool(item.get("one_shot")),
+            "applied_effects": [
+                str(effect_note).strip()
+                for effect_note in (item.get("applied_effects") or [])
+                if str(effect_note or "").strip()
+            ],
+            "discovered_notes": [
+                str(note).strip()
+                for note in (item.get("discovered_notes") or [])
+                if str(note or "").strip()
+            ],
+        }
+        route_id = str(item.get("route_id") or "").strip().lower()
+        if route_id:
+            effect["route_id"] = route_id
+        block_reason = str(item.get("block_reason") or "").strip()
+        if block_reason:
+            effect["block_reason"] = block_reason
+        if effect["action_id"] and effect["label"]:
+            effects.append(effect)
+    return effects
+
+
 def get_static_node(node_id: str | None) -> dict[str, Any] | None:
     normalized_id = _normalized_text(node_id)
     if not normalized_id:
@@ -869,31 +962,70 @@ def get_current_node_context_actions(
     zone_band = _normalized_text(context.get("zone_band"))
     settlement_kind = _normalized_text(context.get("settlement_kind"))
     safe_rest_hint = bool(context.get("safe_rest_hint"))
+    authored_effects = get_static_node_context_action_effects(
+        node_id=node_id,
+        current_map_position=current_map_position,
+    )
 
     actions: list[dict[str, Any]] = []
 
-    def _add(action_key: str, label: str, action_type: str = "action") -> None:
+    def _add(
+        action_key: str,
+        label: str,
+        action_type: str = "action",
+        *,
+        action_id: str | None = None,
+        action_kind: str | None = None,
+    ) -> None:
         if any(existing.get("action_key") == action_key for existing in actions):
             return
-        actions.append({"action_key": action_key, "label": label, "action_type": action_type})
+        resolved_action_id = str(action_id or action_key).strip().lower() or action_key
+        actions.append(
+            {
+                "action_id": resolved_action_id,
+                "action_key": action_key,
+                "label": label,
+                "action_type": action_type,
+                "action_kind": str(action_kind or action_type).strip().lower() or action_type,
+            }
+        )
 
     if node_type == "interior_entry":
-        _add("enter", "Войти")
-        _add("inspect", "Осмотреть вход")
-        _add("wait", "Подождать")
+        _add("enter", "Войти", action_kind="enter")
+        _add("inspect", "Осмотреть вход", action_kind="inspect")
+        _add("wait", "Подождать", action_kind="wait")
         return actions
 
-    _add("navigate", "Продолжить путь")
-    _add("inspect", "Осмотреться")
-    _add("wait", "Подождать")
+    _add("navigate", "Продолжить путь", action_kind="navigate")
+    _add("inspect", "Осмотреться", action_kind="inspect")
+    _add("wait", "Подождать", action_kind="wait")
 
     if settlement_kind in {"town", "village", "hamlet"} or safe_rest_hint:
-        _add("rest_hint", "Есть место для передышки", "hint")
+        _add("rest_hint", "Есть место для передышки", "hint", action_kind="rest_hint")
 
     if node_type in {"zone", "landmark"} and (
         settlement_kind in {"roadside", "wilds", "ruins"} or zone_band in {"border", "danger"}
     ):
-        _add("camp", "Разбить лагерь")
+        _add("camp", "Разбить лагерь", action_kind="camp")
+
+    for effect in authored_effects:
+        action_id = str(effect.get("action_id") or "").strip().lower()
+        label = str(effect.get("label") or "").strip()
+        if not action_id or not label:
+            continue
+        if any(existing.get("action_id") == action_id for existing in actions):
+            continue
+        actions.append(
+            {
+                "action_id": action_id,
+                "action_key": action_id,
+                "label": label,
+                "action_type": "action",
+                "action_kind": str(effect.get("action_kind") or "action"),
+                "source": "registry",
+                "one_shot": bool(effect.get("one_shot")),
+            }
+        )
 
     return actions
 

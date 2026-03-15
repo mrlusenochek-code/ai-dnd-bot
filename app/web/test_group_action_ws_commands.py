@@ -49,12 +49,12 @@ def test_parse_group_command_supports_wait_camp_rest_scout_move_navigate_context
     assert (action_move, payload_move) == ("group_move", {"target_hint": "к воротам"})
     assert (action_navigate, payload_navigate) == ("group_navigate", {"target_node_id": "fortress_gate"})
     assert (action_go, payload_go) == ("group_navigate", {"target_node_id": "mine_entrance"})
-    assert (action_do_inspect, payload_do_inspect) == ("group_context_action", {"action_key": "inspect"})
+    assert (action_do_inspect, payload_do_inspect) == ("group_context_action", {"action_key": "inspect", "action_id": "inspect"})
     assert (action_do_navigate, payload_do_navigate) == (
         "group_context_action",
-        {"action_key": "navigate", "target_node_id": "fortress_gate"},
+        {"action_key": "navigate", "action_id": "navigate", "target_node_id": "fortress_gate"},
     )
-    assert (action_do_camp, payload_do_camp) == ("group_context_action", {"action_key": "camp"})
+    assert (action_do_camp, payload_do_camp) == ("group_context_action", {"action_key": "camp", "action_id": "camp"})
     assert (action_service, payload_service) == ("group_service", {"service_key": "safe_rest"})
     assert (action_use_service, payload_use_service) == ("group_service", {"service_key": "shrine_aid"})
     assert (action_enter, payload_enter) == ("group_enter", {"target_hint": "замок"})
@@ -261,7 +261,7 @@ def test_handle_group_context_action_wait_camp_inspect_and_navigate() -> None:
         sess,
         action="group_context_action",
         actor_player_id=player_id,
-        payload={"action_key": "wait", "reason": "держим точку"},
+        payload={"action_id": "wait", "reason": "держим точку"},
         source="test",
     )
     assert handled_wait is True
@@ -274,7 +274,7 @@ def test_handle_group_context_action_wait_camp_inspect_and_navigate() -> None:
         sess,
         action="group_context_action",
         actor_player_id=player_id,
-        payload={"action_key": "camp", "reason": "ночлег"},
+        payload={"action_id": "camp", "reason": "ночлег"},
         source="test",
     )
     assert handled_camp is True
@@ -287,7 +287,7 @@ def test_handle_group_context_action_wait_camp_inspect_and_navigate() -> None:
         sess,
         action="group_context_action",
         actor_player_id=player_id,
-        payload={"action_key": "inspect"},
+        payload={"action_id": "inspect"},
         source="test",
     )
     assert handled_inspect is True
@@ -298,7 +298,7 @@ def test_handle_group_context_action_wait_camp_inspect_and_navigate() -> None:
         sess,
         action="group_context_action",
         actor_player_id=player_id,
-        payload={"action_key": "navigate", "target_node_id": "fortress_gate"},
+        payload={"action_id": "navigate", "target_node_id": "fortress_gate"},
         source="test",
     )
     assert handled_navigate is True
@@ -337,7 +337,7 @@ def test_handle_group_context_action_enter_and_errors_cleanly() -> None:
         sess,
         action="group_context_action",
         actor_player_id=player_id,
-        payload={"action_key": "enter"},
+        payload={"action_id": "enter"},
         source="test",
     )
     assert handled_enter is True
@@ -359,14 +359,14 @@ def test_handle_group_context_action_enter_and_errors_cleanly() -> None:
         hint_sess,
         action="group_context_action",
         actor_player_id=player_id,
-        payload={"action_key": "rest_hint"},
+        payload={"action_id": "rest_hint"},
         source="test",
     )
     invalid_handled, invalid_err, invalid_msg = ws_handlers._handle_group_action_request(
         hint_sess,
         action="group_context_action",
         actor_player_id=player_id,
-        payload={"action_key": "unknown_action"},
+        payload={"action_id": "unknown_action"},
         source="test",
     )
 
@@ -386,7 +386,7 @@ def test_handle_group_context_action_enter_and_errors_cleanly() -> None:
         navigate_sess,
         action="group_context_action",
         actor_player_id=player_id,
-        payload={"action_key": "navigate", "target_node_id": "watchtower"},
+        payload={"action_id": "navigate", "target_node_id": "watchtower"},
         source="test",
     )
 
@@ -399,6 +399,101 @@ def test_handle_group_context_action_enter_and_errors_cleanly() -> None:
     assert unavailable_handled is True
     assert unavailable_err == "Эта navigation цель сейчас недоступна из текущей точки."
     assert unavailable_msg is None
+
+
+def test_handle_group_context_action_supports_authored_action_and_alias_payload() -> None:
+    player_id = uuid.uuid4()
+    sess = SimpleNamespace(settings={})
+    session_state._initialize_default_group(
+        sess,
+        [player_id],
+        {
+            "map_level": "region",
+            "node_type": "zone",
+            "node_id": "forest_road",
+            "label": "Лесная дорога",
+        },
+    )
+    session_state.set_group_route_access_state(
+        sess,
+        "main",
+        "forest_road->ruined_settlement:move",
+        access_state="blocked",
+        summary="Старая дорога завалена.",
+        block_reason="fallen_trees",
+        source="test",
+    )
+
+    handled, err, msg = ws_handlers._handle_group_action_request(
+        sess,
+        action="group_context_action",
+        actor_player_id=player_id,
+        payload={"action_id": "clear_old_road"},
+        source="test",
+    )
+
+    assert handled is True
+    assert err is None
+    assert "открывает устойчивый проход" in str(msg)
+    assert session_state.get_group_route_access_state(sess, "main", "forest_road->ruined_settlement:move")["access_state"] == "cleared"
+
+
+def test_handle_group_context_action_wrong_node_or_exhausted_action_returns_clean_result() -> None:
+    player_id = uuid.uuid4()
+    wrong_node_sess = SimpleNamespace(settings={})
+    session_state._initialize_default_group(
+        wrong_node_sess,
+        [player_id],
+        {
+            "map_level": "region",
+            "node_type": "zone",
+            "node_id": "craft_town",
+            "label": "Озёрный городок",
+        },
+    )
+
+    handled_wrong, err_wrong, msg_wrong = ws_handlers._handle_group_action_request(
+        wrong_node_sess,
+        action="group_context_action",
+        actor_player_id=player_id,
+        payload={"action_id": "clear_old_road"},
+        source="test",
+    )
+
+    assert handled_wrong is True
+    assert err_wrong == "Это contextual действие сейчас недоступно."
+    assert msg_wrong is None
+
+    exhausted_sess = SimpleNamespace(settings={})
+    session_state._initialize_default_group(
+        exhausted_sess,
+        [player_id],
+        {
+            "map_level": "region",
+            "node_type": "zone",
+            "node_id": "chapel_village",
+            "label": "Часовенное село",
+        },
+    )
+    session_state.resolve_group_context_action(
+        exhausted_sess,
+        "main",
+        action_id="listen_chapel_watch",
+        player_id=player_id,
+        source="test",
+    )
+
+    handled_repeat, err_repeat, msg_repeat = ws_handlers._handle_group_action_request(
+        exhausted_sess,
+        action="group_context_action",
+        actor_player_id=player_id,
+        payload={"action_id": "listen_chapel_watch"},
+        source="test",
+    )
+
+    assert handled_repeat is True
+    assert err_repeat is None
+    assert "уже было выполнено" in str(msg_repeat)
 
 
 def test_handle_group_service_executes_and_errors_cleanly() -> None:

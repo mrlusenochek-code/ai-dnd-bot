@@ -1700,7 +1700,8 @@ def _parse_group_command(cmdline: str) -> tuple[str | None, dict[str, Any]]:
         if lowered.startswith(prefix):
             payload = txt[len(prefix):].strip()
             action_key, _, action_arg = payload.partition(" ")
-            parsed_payload: dict[str, Any] = {"action_key": action_key.strip()}
+            parsed_action_id = action_key.strip()
+            parsed_payload: dict[str, Any] = {"action_key": parsed_action_id, "action_id": parsed_action_id}
             if str(action_key or "").strip().lower() == "navigate" and action_arg.strip():
                 parsed_payload["target_node_id"] = action_arg.strip()
             return "group_context_action", parsed_payload
@@ -2042,7 +2043,7 @@ def _handle_group_action_request(
                 return True, None, f"Группа {actor_group_key} входит в {label}."
             return True, None, f"Группа {actor_group_key} движется к {label}."
         if action == "group_context_action":
-            action_key = str(payload.get("action_key") or "").strip().lower()
+            action_key = str(payload.get("action_id") or payload.get("action_key") or "").strip().lower()
             updated, error = execute_current_group_context_action(
                 sess,
                 action_key=action_key,
@@ -2078,6 +2079,9 @@ def _handle_group_action_request(
                 return True, None, f"Группа {actor_group_key} разбила лагерь."
             if action_key == "wait":
                 return True, None, f"Группа {actor_group_key} ждёт."
+            result = (updated or {}).get("last_context_action_result") if isinstance(updated, dict) else None
+            if isinstance(result, dict):
+                return True, None, str(result.get("result_summary") or result.get("summary") or f"Группа {actor_group_key} выполняет действие {action_key}.")
             return True, None, f"Группа {actor_group_key} выполняет действие {action_key}."
         if action == "group_service":
             service_key = str(payload.get("service_key") or "").strip().lower()

@@ -214,22 +214,38 @@ def test_get_static_node_context_builds_zone_landmark_and_interior_summaries() -
 
 def test_get_current_node_context_actions_uses_metadata_honestly() -> None:
     assert get_current_node_context_actions(node_id="craft_town") == [
-        {"action_key": "navigate", "label": "Продолжить путь", "action_type": "action"},
-        {"action_key": "inspect", "label": "Осмотреться", "action_type": "action"},
-        {"action_key": "wait", "label": "Подождать", "action_type": "action"},
-        {"action_key": "rest_hint", "label": "Есть место для передышки", "action_type": "hint"},
+        {"action_id": "navigate", "action_key": "navigate", "label": "Продолжить путь", "action_type": "action", "action_kind": "navigate"},
+        {"action_id": "inspect", "action_key": "inspect", "label": "Осмотреться", "action_type": "action", "action_kind": "inspect"},
+        {"action_id": "wait", "action_key": "wait", "label": "Подождать", "action_type": "action", "action_kind": "wait"},
+        {"action_id": "rest_hint", "action_key": "rest_hint", "label": "Есть место для передышки", "action_type": "hint", "action_kind": "rest_hint"},
     ]
     assert get_current_node_context_actions(node_id="mine_entrance") == [
-        {"action_key": "enter", "label": "Войти", "action_type": "action"},
-        {"action_key": "inspect", "label": "Осмотреть вход", "action_type": "action"},
-        {"action_key": "wait", "label": "Подождать", "action_type": "action"},
+        {"action_id": "enter", "action_key": "enter", "label": "Войти", "action_type": "action", "action_kind": "enter"},
+        {"action_id": "inspect", "action_key": "inspect", "label": "Осмотреть вход", "action_type": "action", "action_kind": "inspect"},
+        {"action_id": "wait", "action_key": "wait", "label": "Подождать", "action_type": "action", "action_kind": "wait"},
     ]
     assert get_current_node_context_actions(node_id="marsh_edge") == [
-        {"action_key": "navigate", "label": "Продолжить путь", "action_type": "action"},
-        {"action_key": "inspect", "label": "Осмотреться", "action_type": "action"},
-        {"action_key": "wait", "label": "Подождать", "action_type": "action"},
-        {"action_key": "camp", "label": "Разбить лагерь", "action_type": "action"},
+        {"action_id": "navigate", "action_key": "navigate", "label": "Продолжить путь", "action_type": "action", "action_kind": "navigate"},
+        {"action_id": "inspect", "action_key": "inspect", "label": "Осмотреться", "action_type": "action", "action_kind": "inspect"},
+        {"action_id": "wait", "action_key": "wait", "label": "Подождать", "action_type": "action", "action_kind": "wait"},
+        {"action_id": "camp", "action_key": "camp", "label": "Разбить лагерь", "action_type": "action", "action_kind": "camp"},
     ]
+
+
+def test_get_current_node_context_actions_exposes_authored_action_ids() -> None:
+    actions = get_current_node_context_actions(node_id="forest_road")
+
+    assert any(action["action_id"] == "clear_old_road" for action in actions)
+    authored_action = next(action for action in actions if action["action_id"] == "clear_old_road")
+    assert authored_action == {
+        "action_id": "clear_old_road",
+        "action_key": "clear_old_road",
+        "label": "Расчистить старую дорогу",
+        "action_type": "action",
+        "action_kind": "route_access",
+        "source": "registry",
+        "one_shot": True,
+    }
 
 
 def test_static_node_detail_and_inspect_result_expose_handcrafted_content() -> None:

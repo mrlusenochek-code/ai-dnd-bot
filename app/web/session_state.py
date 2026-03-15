@@ -10,6 +10,7 @@ from app.web.map_registry import (
     build_static_route_id,
     get_current_node_context_actions,
     get_obvious_linked_static_node_ids,
+    get_static_node_context_action_effects,
     get_static_node_scout_discoveries,
     get_static_navigation_options,
     get_static_node_detail,
@@ -530,6 +531,86 @@ def _normalize_group_last_scout_result(raw: Any) -> dict[str, Any] | None:
     if resolved_at:
         result["resolved_at"] = resolved_at[:80]
     return result
+
+
+def _normalize_group_last_context_action_result(raw: Any) -> dict[str, Any] | None:
+    if not isinstance(raw, dict):
+        return None
+    result_id = str(raw.get("result_id") or "").strip()
+    action_id = str(raw.get("action_id") or "").strip().lower()
+    action_label = str(raw.get("action_label") or action_id).strip()
+    result_type = str(raw.get("result_type") or "").strip().lower()
+    if result_type not in {"route_cleared", "route_still_blocked", "local_clue_found", "no_effect", "already_completed"}:
+        return None
+    summary = str(raw.get("summary") or "").strip()
+    result_summary = str(raw.get("result_summary") or "").strip()
+    node_id = str(raw.get("node_id") or "").strip()
+    node_label = str(raw.get("node_label") or node_id).strip()
+    source = str(raw.get("source") or "context_action").strip() or "context_action"
+    resolved_at = str(raw.get("resolved_at") or "").strip()
+    if not result_id or not action_id or not action_label or not summary or not result_summary or not node_id or not node_label:
+        return None
+    applied_effects = [
+        str(item).strip()[:120]
+        for item in (raw.get("applied_effects") or [])
+        if str(item or "").strip()
+    ] if isinstance(raw.get("applied_effects"), list) else []
+    result: dict[str, Any] = {
+        "result_id": result_id[:80],
+        "action_id": action_id[:80],
+        "action_label": action_label[:120],
+        "result_type": result_type[:40],
+        "summary": summary[:400],
+        "result_summary": result_summary[:400],
+        "node_id": node_id[:120],
+        "node_label": node_label[:120],
+        "applied_effects": applied_effects,
+        "source": source[:40],
+    }
+    if resolved_at:
+        result["resolved_at"] = resolved_at[:80]
+    return result
+
+
+def _normalize_group_context_action_state(raw: Any) -> dict[str, Any] | None:
+    if not isinstance(raw, dict):
+        return None
+    action_id = str(raw.get("action_id") or "").strip().lower()
+    status = str(raw.get("status") or "").strip().lower()
+    if status not in {"available", "completed", "resolved"}:
+        return None
+    result_type = str(raw.get("result_type") or "").strip().lower()
+    if result_type and result_type not in {"route_cleared", "route_still_blocked", "local_clue_found", "no_effect", "already_completed"}:
+        return None
+    summary = str(raw.get("summary") or "").strip()
+    source = str(raw.get("source") or "context_action").strip() or "context_action"
+    updated_at = str(raw.get("updated_at") or "").strip()
+    if not action_id or not summary:
+        return None
+    state: dict[str, Any] = {
+        "action_id": action_id[:80],
+        "status": status[:40],
+        "summary": summary[:240],
+        "source": source[:40],
+    }
+    if result_type:
+        state["result_type"] = result_type[:40]
+    if updated_at:
+        state["updated_at"] = updated_at[:80]
+    return state
+
+
+def _normalize_group_context_action_state_map(raw: Any) -> dict[str, dict[str, Any]]:
+    if not isinstance(raw, dict):
+        return {}
+    normalized: dict[str, dict[str, Any]] = {}
+    for action_id, value in raw.items():
+        candidate = value if isinstance(value, dict) else {"action_id": action_id, "status": value, "summary": str(value or action_id)}
+        merged = {"action_id": action_id, **candidate} if isinstance(candidate, dict) else candidate
+        state = _normalize_group_context_action_state(merged)
+        if state:
+            normalized[state["action_id"]] = state
+    return normalized
 
 
 def _normalize_group_route_access_state(raw: Any) -> dict[str, Any] | None:
@@ -1485,20 +1566,70 @@ def get_current_group_node_context(
     if not node_context:
         return None
     contextual_actions = get_current_node_context_actions(current_map_position=current_map_position)
+    action_states = _normalize_group_context_action_state_map(group.get("context_action_states"))
+    authored_effects = {
+        str(effect.get("action_id") or "").strip().lower(): effect
+        for effect in get_static_node_context_action_effects(current_map_position=current_map_position)
+        if isinstance(effect, dict) and str(effect.get("action_id") or "").strip()
+    }
+    annotated_actions: list[dict[str, Any]] = []
+    for action in contextual_actions:
+        if not isinstance(action, dict):
+            continue
+        annotated = dict(action)
+        action_id = str(annotated.get("action_id") or annotated.get("action_key") or "").strip().lower()
+        state = action_states.get(action_id)
+        effect = authored_effects.get(action_id)
+        if action_id:
+            annotated["action_id"] = action_id
+        if effect:
+            annotated["source"] = str(effect.get("source") or annotated.get("source") or "registry")
+            annotated["one_shot"] = bool(effect.get("one_shot"))
+        status = "available"
+        if state and str(state.get("status") or "").strip().lower() == "completed":
+            status = "completed"
+        annotated["status"] = status
+        annotated["available"] = status == "available" and str(annotated.get("action_type") or "action").strip().lower() == "action"
+        annotated["exhausted"] = status == "completed"
+        annotated_actions.append(annotated)
     travel_state = _group_travel_state_summary(group)
     if isinstance(travel_state, dict) and travel_state.get("active") is True and travel_state.get("paused") is True:
         pause_reason = str(travel_state.get("pause_reason") or "").strip().lower()
         if pause_reason == "target_requires_enter" and not any(
-            action.get("action_key") == "enter" for action in contextual_actions if isinstance(action, dict)
+            action.get("action_key") == "enter" for action in annotated_actions if isinstance(action, dict)
         ):
-            contextual_actions.insert(0, {"action_key": "enter", "label": "Войти", "action_type": "action"})
+            annotated_actions.insert(
+                0,
+                {
+                    "action_id": "enter",
+                    "action_key": "enter",
+                    "label": "Войти",
+                    "action_type": "action",
+                    "action_kind": "enter",
+                    "status": "available",
+                    "available": True,
+                    "exhausted": False,
+                },
+            )
         if pause_reason == "point_of_interest_reached" and not any(
-            action.get("action_key") == "inspect" for action in contextual_actions if isinstance(action, dict)
+            action.get("action_key") == "inspect" for action in annotated_actions if isinstance(action, dict)
         ):
-            contextual_actions.insert(0, {"action_key": "inspect", "label": "Осмотреться", "action_type": "action"})
+            annotated_actions.insert(
+                0,
+                {
+                    "action_id": "inspect",
+                    "action_key": "inspect",
+                    "label": "Осмотреться",
+                    "action_type": "action",
+                    "action_kind": "inspect",
+                    "status": "available",
+                    "available": True,
+                    "exhausted": False,
+                },
+            )
     return {
         "node_summary": node_context,
-        "contextual_actions": contextual_actions,
+        "contextual_actions": annotated_actions,
         "available_services": get_current_group_node_services(sess, player_id=resolved_player_id or None, group_id=resolved_group_id),
         "service_actions": (
             [{"action_key": "use_service", "label": "Воспользоваться услугой", "action_type": "action"}]
@@ -1916,6 +2047,250 @@ def _set_group_last_scout_result(
         return None
     group["last_scout_result"] = normalized
     return normalized
+
+
+def _set_group_last_context_action_result(
+    group: dict[str, Any],
+    result: dict[str, Any] | None,
+) -> dict[str, Any] | None:
+    normalized = _normalize_group_last_context_action_result(result)
+    if not normalized:
+        group.pop("last_context_action_result", None)
+        return None
+    group["last_context_action_result"] = normalized
+    return normalized
+
+
+def _set_group_context_action_state(
+    group: dict[str, Any],
+    action_id: str,
+    state: dict[str, Any] | None,
+) -> dict[str, Any] | None:
+    normalized_action_id = str(action_id or "").strip().lower()
+    if not normalized_action_id:
+        return None
+    action_states = _normalize_group_context_action_state_map(group.get("context_action_states"))
+    normalized_state = _normalize_group_context_action_state(state)
+    if not normalized_state:
+        action_states.pop(normalized_action_id, None)
+    else:
+        action_states[normalized_action_id] = normalized_state
+    if action_states:
+        group["context_action_states"] = action_states
+    else:
+        group.pop("context_action_states", None)
+    return normalized_state
+
+
+def build_group_context_action_result(
+    *,
+    action_effect: dict[str, Any] | None,
+    node_context: dict[str, Any] | None = None,
+    prior_action_state: dict[str, Any] | None = None,
+    route_access_state: dict[str, Any] | None = None,
+    source: str = "context_action",
+) -> dict[str, Any] | None:
+    effect = dict(action_effect or {})
+    action_id = str(effect.get("action_id") or "").strip().lower()
+    action_label = str(effect.get("label") or action_id).strip()
+    if not action_id or not action_label:
+        return None
+    node_summary = dict((node_context or {}).get("node_summary") or {})
+    node_id = str(node_summary.get("node_id") or effect.get("node_id") or "").strip()
+    node_label = str(node_summary.get("label") or node_id).strip()
+    if not node_id or not node_label:
+        return None
+    previous = _normalize_group_context_action_state(prior_action_state)
+    one_shot = bool(effect.get("one_shot"))
+    if one_shot and previous and str(previous.get("status") or "").strip().lower() == "completed":
+        return _normalize_group_last_context_action_result(
+            {
+                "result_id": uuid.uuid4().hex[:12],
+                "action_id": action_id,
+                "action_label": action_label,
+                "result_type": "already_completed",
+                "summary": f"Действие {action_label} у {node_label} уже завершено.",
+                "result_summary": "Это одноразовое действие уже было выполнено для текущей группы и больше не меняет ситуацию.",
+                "node_id": node_id,
+                "node_label": node_label,
+                "applied_effects": ["context_action:already_completed"],
+                "source": source,
+                "resolved_at": datetime.now(timezone.utc).isoformat(),
+            }
+        )
+
+    effect_type = str(effect.get("effect_type") or "").strip().lower()
+    route_state = _normalize_group_route_access_state(route_access_state)
+    applied_effects = [
+        str(item).strip()
+        for item in (effect.get("applied_effects") or [])
+        if str(item or "").strip()
+    ]
+    discovered_notes = [
+        str(note).strip()
+        for note in (effect.get("discovered_notes") or [])
+        if str(note or "").strip()
+    ]
+    result_type = str(effect.get("result_type") or "no_effect").strip().lower() or "no_effect"
+    summary = str(effect.get("summary") or f"Группа выполняет действие {action_label}.").strip()
+    result_summary = str(effect.get("result_summary") or "Действие не даёт заметного изменения.").strip()
+
+    if effect_type == "clear_route":
+        if route_state and str(route_state.get("access_state") or "").strip().lower() in {"open", "cleared"}:
+            result_type = "no_effect"
+            summary = f"Маршрут после действия {action_label} у {node_label} уже остаётся проходимым."
+            result_summary = "Проход уже открыт для этой группы, поэтому повторная расчистка не меняет локальное состояние."
+            applied_effects = ["route_access:unchanged"]
+        else:
+            result_type = "route_cleared"
+    elif effect_type == "keep_route_blocked":
+        result_type = "route_still_blocked"
+    elif effect_type == "clue":
+        result_type = "local_clue_found"
+    else:
+        result_type = "no_effect"
+
+    if result_type == "local_clue_found" and not discovered_notes:
+        detail_hint = str(node_summary.get("detail_summary") or "").strip()
+        if detail_hint:
+            discovered_notes = [detail_hint]
+
+    return _normalize_group_last_context_action_result(
+        {
+            "result_id": uuid.uuid4().hex[:12],
+            "action_id": action_id,
+            "action_label": action_label,
+            "result_type": result_type,
+            "summary": summary,
+            "result_summary": result_summary,
+            "node_id": node_id,
+            "node_label": node_label,
+            "applied_effects": applied_effects + [f"discovered_note:{note[:40]}" for note in discovered_notes],
+            "source": source,
+            "resolved_at": datetime.now(timezone.utc).isoformat(),
+        }
+    )
+
+
+def get_current_group_last_context_action_result(
+    sess: Session,
+    *,
+    player_id: uuid.UUID | str | None = None,
+    group_id: str | None = None,
+) -> dict[str, Any] | None:
+    resolved_group_id = str(group_id or "").strip()
+    resolved_player_id = str(player_id or "").strip()
+    if not resolved_group_id and resolved_player_id:
+        resolved_group_id = str(_get_player_group_id(sess, resolved_player_id) or "").strip()
+    if not resolved_group_id:
+        return None
+    group = _get_group_states(sess).get(resolved_group_id)
+    if not isinstance(group, dict):
+        return None
+    return _normalize_group_last_context_action_result(group.get("last_context_action_result"))
+
+
+def get_current_group_context_action_states(
+    sess: Session,
+    *,
+    player_id: uuid.UUID | str | None = None,
+    group_id: str | None = None,
+) -> list[dict[str, Any]]:
+    resolved_group_id = str(group_id or "").strip()
+    resolved_player_id = str(player_id or "").strip()
+    if not resolved_group_id and resolved_player_id:
+        resolved_group_id = str(_get_player_group_id(sess, resolved_player_id) or "").strip()
+    if not resolved_group_id:
+        return []
+    group = _get_group_states(sess).get(resolved_group_id)
+    if not isinstance(group, dict):
+        return []
+    action_states = _normalize_group_context_action_state_map(group.get("context_action_states"))
+    return [dict(action_states[key]) for key in sorted(action_states.keys())]
+
+
+def resolve_group_context_action(
+    sess: Session,
+    group_id: str,
+    *,
+    action_id: str,
+    player_id: uuid.UUID | str | None = None,
+    source: str = "context_action",
+) -> tuple[dict[str, Any] | None, str | None]:
+    groups = _get_group_states(sess)
+    group_key = str(group_id or "").strip()
+    normalized_action_id = str(action_id or "").strip().lower()
+    group = groups.get(group_key)
+    if not group:
+        return None, "Группа не найдена."
+    if not normalized_action_id:
+        return None, "Нужно указать action_id для contextual action."
+    current_map_position = _normalize_map_position(group.get("current_map_position"))
+    if not current_map_position:
+        return None, "Не удалось определить текущую позицию группы."
+    available_effects = {
+        str(effect.get("action_id") or "").strip().lower(): effect
+        for effect in get_static_node_context_action_effects(current_map_position=current_map_position)
+        if isinstance(effect, dict) and str(effect.get("action_id") or "").strip()
+    }
+    action_effect = available_effects.get(normalized_action_id)
+    if not action_effect:
+        return None, "Это contextual действие недоступно в текущем узле."
+    prior_action_state = (_normalize_group_context_action_state_map(group.get("context_action_states"))).get(normalized_action_id)
+    route_id = str(action_effect.get("route_id") or "").strip().lower()
+    route_access_state = get_effective_group_route_access_state(sess, group_key, route_id=route_id) if route_id else None
+    node_context = get_current_group_node_context(sess, player_id=player_id, group_id=group_key)
+    result = build_group_context_action_result(
+        action_effect=action_effect,
+        node_context=node_context,
+        prior_action_state=prior_action_state,
+        route_access_state=route_access_state,
+        source=source,
+    )
+    if not result:
+        return None, "Не удалось подготовить результат contextual действия."
+    result_type = str(result.get("result_type") or "").strip().lower()
+    if route_id and result_type == "route_cleared":
+        set_group_route_access_state(
+            sess,
+            group_key,
+            route_id,
+            access_state="cleared",
+            summary="Маршрут открыт локальным действием группы.",
+            source=source,
+        )
+        groups = _get_group_states(sess)
+        group = groups.get(group_key)
+    elif route_id and result_type == "route_still_blocked":
+        set_group_route_access_state(
+            sess,
+            group_key,
+            route_id,
+            access_state="blocked",
+            summary="Локальное действие подтверждает, что маршрут всё ещё заблокирован.",
+            block_reason=str(action_effect.get("block_reason") or "context_action_blocked").strip() or "context_action_blocked",
+            source=source,
+        )
+        groups = _get_group_states(sess)
+        group = groups.get(group_key)
+    if not group:
+        return None, "Группа не найдена."
+    _set_group_last_context_action_result(group, result)
+    _set_group_context_action_state(
+        group,
+        normalized_action_id,
+        {
+            "action_id": normalized_action_id,
+            "status": "completed" if bool(action_effect.get("one_shot")) else "resolved",
+            "result_type": result_type,
+            "summary": str(result.get("result_summary") or result.get("summary") or ""),
+            "source": source,
+            "updated_at": datetime.now(timezone.utc).isoformat(),
+        },
+    )
+    _persist_group_states(sess, groups)
+    _sync_group_position_mirrors(sess, group)
+    return dict(group), None
 
 
 def build_group_scout_result(
@@ -2498,7 +2873,8 @@ def execute_current_group_context_action(
         (
             dict(item)
             for item in context.get("contextual_actions") or []
-            if isinstance(item, dict) and str(item.get("action_key") or "").strip().lower() == normalized_action_key
+            if isinstance(item, dict)
+            and str(item.get("action_id") or item.get("action_key") or "").strip().lower() == normalized_action_key
         ),
         None,
     )
@@ -2557,7 +2933,13 @@ def execute_current_group_context_action(
             return updated, None
         return None, "Не удалось осмотреть текущее место группы."
 
-    return None, "Это contextual действие пока не поддерживается."
+    return resolve_group_context_action(
+        sess,
+        resolved_group_id,
+        action_id=normalized_action_key,
+        player_id=resolved_player_id or None,
+        source=source,
+    )
 
 
 def create_group_wait_state(
@@ -2727,6 +3109,17 @@ def _group_route_access_states_summary(group: dict[str, Any]) -> list[dict[str, 
 
 def _group_last_scout_result_summary(group: dict[str, Any]) -> dict[str, Any] | None:
     return _normalize_group_last_scout_result(group.get("last_scout_result"))
+
+
+def _group_last_context_action_result_summary(group: dict[str, Any]) -> dict[str, Any] | None:
+    return _normalize_group_last_context_action_result(group.get("last_context_action_result"))
+
+
+def _group_context_action_states_summary(group: dict[str, Any]) -> list[dict[str, Any]] | None:
+    action_states = _normalize_group_context_action_state_map(group.get("context_action_states"))
+    if not action_states:
+        return None
+    return [dict(action_states[key]) for key in sorted(action_states.keys())]
 
 
 def _group_movement_mode(group: dict[str, Any]) -> str:
@@ -2914,6 +3307,12 @@ def _normalize_group_state(
     last_scout_result = _normalize_group_last_scout_result(raw.get("last_scout_result"))
     if last_scout_result:
         normalized["last_scout_result"] = last_scout_result
+    last_context_action_result = _normalize_group_last_context_action_result(raw.get("last_context_action_result"))
+    if last_context_action_result:
+        normalized["last_context_action_result"] = last_context_action_result
+    context_action_states = _normalize_group_context_action_state_map(raw.get("context_action_states"))
+    if context_action_states:
+        normalized["context_action_states"] = context_action_states
     if movement_intent:
         normalized["movement_intent"] = movement_intent
     if travel_state:
