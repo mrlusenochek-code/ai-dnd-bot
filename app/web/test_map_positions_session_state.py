@@ -3274,3 +3274,133 @@ def test_group_route_plan_to_node_returns_current_reachable_blocked_and_unreveal
     assert unrevealed_plan["target_revealed"] is False
     assert unknown_plan is not None
     assert unknown_plan["plan_status"] == "unknown"
+
+
+def test_group_journey_target_set_advance_and_clear_are_canonical() -> None:
+    player_id = uuid.uuid4()
+    sess = SimpleNamespace(settings={})
+    session_state._initialize_default_group(
+        sess,
+        [player_id],
+        {"map_level": "region", "node_type": "zone", "node_id": "start_trakt", "label": "Стартовый тракт"},
+    )
+    for node_id in ("craft_town", "fortress_gate"):
+        session_state.grant_player_map_knowledge(sess, player_id, node_id, knowledge_kind="known", source="test")
+        session_state.reveal_player_map_node(sess, player_id, node_id, source="test")
+
+    planned, planned_error = session_state.set_group_journey_target(
+        sess,
+        "main",
+        "fortress_gate",
+        player_id=player_id,
+        source="test",
+    )
+
+    assert planned_error is None
+    assert planned is not None
+    assert planned["active_journey"]["journey_status"] == "planned"
+    assert planned["active_journey"]["target_node_id"] == "fortress_gate"
+    assert planned["active_journey"]["next_route_id"] == "start_trakt->fortress_gate:move"
+    assert planned["last_journey_result"]["result_type"] == "journey_planned"
+
+    advanced, advanced_error = session_state.advance_group_journey(
+        sess,
+        "main",
+        player_id=player_id,
+        source="test",
+    )
+
+    assert advanced_error is None
+    assert advanced is not None
+    assert advanced["current_map_position"]["node_id"] == "fortress_gate"
+    assert advanced["active_journey"]["journey_status"] == "arrived"
+    assert advanced["last_journey_result"]["result_type"] == "journey_arrived"
+    assert advanced["last_arrival_result"]["node_id"] == "fortress_gate"
+    assert advanced["node_visit_states"]["fortress_gate"]["visit_count"] == 1
+    assert advanced["route_traversal_states"]["start_trakt->fortress_gate:move"]["traversal_count"] == 1
+    assert session_state.get_current_group_journey_state(sess, player_id=player_id)["journey_status"] == "arrived"
+    assert session_state.get_current_group_last_journey_result(sess, player_id=player_id)["result_type"] == "journey_arrived"
+
+    cleared = session_state.clear_group_journey(sess, "main", source="test")
+
+    assert cleared is not None
+    assert "active_journey" not in cleared
+    assert cleared["last_journey_result"]["result_type"] == "journey_cleared"
+
+
+def test_group_journey_rejects_current_location_and_unrevealed_targets_and_blocks_mid_journey() -> None:
+    player_id = uuid.uuid4()
+    sess = SimpleNamespace(settings={})
+    session_state._initialize_default_group(
+        sess,
+        [player_id],
+        {"map_level": "region", "node_type": "zone", "node_id": "start_trakt", "label": "Стартовый тракт"},
+    )
+    same_place, same_place_error = session_state.set_group_journey_target(
+        sess,
+        "main",
+        "start_trakt",
+        player_id=player_id,
+        source="test",
+    )
+    session_state.grant_player_map_knowledge(sess, player_id, "watchtower", knowledge_kind="known", source="test")
+    unrevealed, unrevealed_error = session_state.set_group_journey_target(
+        sess,
+        "main",
+        "watchtower",
+        player_id=player_id,
+        source="test",
+    )
+
+    assert same_place is not None
+    assert same_place_error == "Группа уже находится в точке Стартовый тракт."
+    assert "active_journey" not in same_place
+    assert unrevealed is not None
+    assert unrevealed_error == "Точка Сторожевая башня ещё не раскрыта для текущей группы."
+    assert "active_journey" not in unrevealed
+
+    for node_id in ("craft_town", "fortress_gate"):
+        session_state.grant_player_map_knowledge(sess, player_id, node_id, knowledge_kind="known", source="test")
+        session_state.reveal_player_map_node(sess, player_id, node_id, source="test")
+    planned, planned_error = session_state.set_group_journey_target(
+        sess,
+        "main",
+        "craft_town",
+        player_id=player_id,
+        source="test",
+    )
+    assert planned_error is None
+    assert planned is not None
+
+    session_state.set_group_route_access_state(
+        sess,
+        "main",
+        "start_trakt->craft_town:move",
+        access_state="blocked",
+        summary="Путь перекрыт.",
+        block_reason="blocked_path",
+        source="test",
+    )
+    session_state.set_group_route_access_state(
+        sess,
+        "main",
+        "fortress_gate->craft_town:move",
+        access_state="blocked",
+        summary="Обход к городку тоже закрыт.",
+        block_reason="fortress_lockdown",
+        source="test",
+    )
+
+    blocked, blocked_error = session_state.advance_group_journey(
+        sess,
+        "main",
+        player_id=player_id,
+        source="test",
+    )
+
+    assert blocked is not None
+    assert blocked_error == "Путь к Озёрный городок упирается в заблокированный маршрут."
+    assert blocked["active_journey"]["journey_status"] == "blocked"
+    assert blocked["last_journey_result"]["result_type"] == "journey_blocked"
+    assert session_state.get_current_group_last_arrival_result(sess, player_id=player_id) is None
+    assert session_state.get_current_group_route_traversal_states(sess, player_id=player_id) == []

@@ -36,6 +36,8 @@ from app.web.session_state import (
     _group_route_access_states_summary,
     _group_last_scout_result_summary,
     _group_last_context_action_result_summary,
+    _group_active_journey_summary,
+    _group_last_journey_result_summary,
     _group_context_action_states_summary,
     _group_node_states_summary,
     _group_last_travel_event_outcome_summary,
@@ -79,6 +81,8 @@ from app.web.session_state import (
     get_current_group_current_node_visit_state,
     get_current_group_node_visit_states,
     get_current_group_route_traversal_states,
+    get_current_group_journey_state,
+    get_current_group_last_journey_result,
     get_current_group_route_planning,
     get_current_group_navigation_options,
     get_current_group_context_action_states,
@@ -383,6 +387,8 @@ async def build_state(db: AsyncSession, sess: Session) -> dict:
             "route_access_states": _group_route_access_states_summary(group),
             "last_scout_result_summary": _group_last_scout_result_summary(group),
             "last_context_action_result_summary": _group_last_context_action_result_summary(group),
+            "active_journey_summary": _group_active_journey_summary(group),
+            "last_journey_result_summary": _group_last_journey_result_summary(group),
             "context_action_states": _group_context_action_states_summary(group),
             "node_states": _group_node_states_summary(group),
             "last_service_result_summary": _group_last_service_result_summary(group),
@@ -511,6 +517,16 @@ async def build_state(db: AsyncSession, sess: Session) -> dict:
         if sess.current_player_id
         else []
     )
+    current_group_active_journey = (
+        get_current_group_journey_state(sess, player_id=sess.current_player_id)
+        if sess.current_player_id
+        else None
+    )
+    current_group_last_journey_result = (
+        get_current_group_last_journey_result(sess, player_id=sess.current_player_id)
+        if sess.current_player_id
+        else None
+    )
     current_group_route_planning = (
         get_current_group_route_planning(sess, player_id=sess.current_player_id)
         if sess.current_player_id
@@ -571,6 +587,8 @@ async def build_state(db: AsyncSession, sess: Session) -> dict:
             "current_group_current_node_visit_state": current_group_current_node_visit_state,
             "current_group_node_visit_states": current_group_node_visit_states,
             "current_group_route_traversal_states": current_group_route_traversal_states,
+            "current_group_active_journey": current_group_active_journey,
+            "current_group_last_journey_result": current_group_last_journey_result,
             "current_group_route_planning": current_group_route_planning,
             "current_group_reachable_destinations": list(current_group_route_planning.get("reachable_destinations") or []),
             "current_group_route_frontiers": list(current_group_route_planning.get("route_frontiers") or []),

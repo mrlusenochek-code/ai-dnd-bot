@@ -71,8 +71,13 @@ from app.web.session_state import (
     execute_group_navigation_option,
     get_current_group_map_intel,
     get_current_group_recent_map_intel,
+    get_current_group_journey_state,
+    get_current_group_last_journey_result,
     get_current_group_route_planning,
     get_group_route_plan_to_node,
+    set_group_journey_target,
+    advance_group_journey,
+    clear_group_journey,
     get_current_group_node_visit_states,
     get_current_group_route_traversal_states,
     get_player_known_node_ids,
@@ -1700,7 +1705,13 @@ def _parse_group_command(cmdline: str) -> tuple[str | None, dict[str, Any]]:
 
     for prefix in ("group go ", "group_go "):
         if lowered.startswith(prefix):
-            return "group_navigate", {"target_node_id": txt[len(prefix):].strip()}
+            return "group_journey_set", {"target_node_id": txt[len(prefix):].strip()}
+
+    if lowered in {"group continue", "group_continue"}:
+        return "group_journey_advance", {}
+
+    if lowered in {"group journey", "group_journey"}:
+        return "group_journey_status", {}
 
     for prefix in ("group do ", "group_do ", "group action ", "group_action "):
         if lowered.startswith(prefix):
@@ -1860,6 +1871,9 @@ def _handle_group_action_request(
         "group_service",
         "group_service_use",
         "group_map_intel",
+        "group_journey_set",
+        "group_journey_advance",
+        "group_journey_status",
         "group_route_planning",
         "group_route_plan_to",
         "group_visit_history",
@@ -1946,6 +1960,55 @@ def _handle_group_action_request(
         count = len(all_entries)
         return True, None, f"Журнал разведки группы {actor_group_key}: {count} записей. Последняя запись: {title}."
 
+    if action == "group_journey_status":
+        if not actor_group_key:
+            return True, "Группа игрока не найдена.", None
+        journey = get_current_group_journey_state(sess, player_id=actor_player_id, group_id=actor_group_key)
+        if not journey:
+            return True, None, f"У группы {actor_group_key} сейчас нет активного путешествия."
+        return True, None, (
+            f"Путешествие группы {actor_group_key}: "
+            f"{journey.get('journey_status')} к {journey.get('target_node_label')}, "
+            f"{journey.get('completed_step_count')}/{journey.get('total_step_count')} шагов."
+        )
+
+    if action == "group_journey_set":
+        if not actor_group_key:
+            return True, "Группа игрока не найдена.", None
+        updated, error = set_group_journey_target(
+            sess,
+            actor_group_key,
+            str(payload.get("target_node_id") or ""),
+            player_id=actor_player_id,
+            source=source,
+        )
+        if error:
+            return True, error, None
+        result = (updated or {}).get("last_journey_result") or get_current_group_last_journey_result(
+            sess,
+            player_id=actor_player_id,
+            group_id=actor_group_key,
+        ) or {}
+        return True, None, str(result.get("result_summary") or f"Путешествие группы {actor_group_key} запланировано.")
+
+    if action == "group_journey_advance":
+        if not actor_group_key:
+            return True, "Группа игрока не найдена.", None
+        updated, error = advance_group_journey(
+            sess,
+            actor_group_key,
+            player_id=actor_player_id,
+            source=source,
+        )
+        if error:
+            return True, error, None
+        result = (updated or {}).get("last_journey_result") or get_current_group_last_journey_result(
+            sess,
+            player_id=actor_player_id,
+            group_id=actor_group_key,
+        ) or {}
+        return True, None, str(result.get("result_summary") or f"Путешествие группы {actor_group_key} продвинулось.")
+
     if action == "group_visit_history":
         if not actor_group_key:
             return True, "Группа игрока не найдена.", None
@@ -2029,6 +2092,9 @@ def _handle_group_action_request(
         "group_service",
         "group_service_use",
         "group_map_intel",
+        "group_journey_set",
+        "group_journey_advance",
+        "group_journey_status",
         "group_route_planning",
         "group_route_plan_to",
         "group_visit_history",
@@ -2129,6 +2195,15 @@ def _handle_group_action_request(
                 return True, "У группы нет активного путешествия для прерывания.", None
             return True, None, f"Группа {actor_group_key} прервала движение."
         if action == "group_stop":
+            journey = get_current_group_journey_state(sess, player_id=actor_player_id, group_id=actor_group_key)
+            if journey:
+                if has_active_travel:
+                    interrupt_group_travel(sess, actor_group_key)
+                clear_group_movement_intent(sess, actor_group_key)
+                cleared = clear_group_journey(sess, actor_group_key, source=source)
+                if not cleared:
+                    return True, "Не удалось остановить путешествие группы.", None
+                return True, None, f"Путешествие группы {actor_group_key} остановлено."
             cleared = interrupt_group_travel(sess, actor_group_key) if has_active_travel else clear_group_movement_intent(sess, actor_group_key)
             if not cleared:
                 return True, "Не удалось остановить движение группы.", None
@@ -6152,6 +6227,9 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                     "group_service",
                     "group_service_use",
                     "group_map_intel",
+                    "group_journey_set",
+                    "group_journey_advance",
+                    "group_journey_status",
                     "group_route_planning",
                     "group_route_plan_to",
                     "group_visit_history",

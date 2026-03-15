@@ -2050,6 +2050,100 @@ def _normalize_group_route_frontier_item(raw: Any) -> dict[str, Any] | None:
     }
 
 
+def _normalize_group_active_journey(raw: Any) -> dict[str, Any] | None:
+    if not isinstance(raw, dict):
+        return None
+    journey_id = str(raw.get("journey_id") or "").strip()
+    target_node_id = str(raw.get("target_node_id") or "").strip().lower()
+    target_node_label = str(raw.get("target_node_label") or target_node_id).strip()
+    journey_status = str(raw.get("journey_status") or "").strip().lower()
+    if journey_status not in {"planned", "in_progress", "blocked", "arrived", "cleared"}:
+        return None
+    path_node_ids = [
+        str(item).strip().lower()[:120]
+        for item in (raw.get("path_node_ids") or [])
+        if str(item or "").strip()
+    ] if isinstance(raw.get("path_node_ids"), list) else []
+    path_route_ids = [
+        str(item).strip().lower()[:160]
+        for item in (raw.get("path_route_ids") or [])
+        if str(item or "").strip()
+    ] if isinstance(raw.get("path_route_ids"), list) else []
+    next_node_id = str(raw.get("next_node_id") or "").strip().lower()
+    next_route_id = str(raw.get("next_route_id") or "").strip().lower()
+    completed_step_count = max(0, as_int(raw.get("completed_step_count"), 0))
+    total_step_count = max(0, as_int(raw.get("total_step_count"), 0))
+    source = str(raw.get("source") or "journey").strip() or "journey"
+    created_at = str(raw.get("created_at") or "").strip()
+    updated_at = str(raw.get("updated_at") or "").strip()
+    if not journey_id or not target_node_id or not target_node_label:
+        return None
+    normalized: dict[str, Any] = {
+        "journey_id": journey_id[:80],
+        "target_node_id": target_node_id[:120],
+        "target_node_label": target_node_label[:120],
+        "journey_status": journey_status[:40],
+        "path_node_ids": path_node_ids,
+        "path_route_ids": path_route_ids,
+        "next_node_id": next_node_id[:120],
+        "next_route_id": next_route_id[:160],
+        "completed_step_count": completed_step_count,
+        "total_step_count": total_step_count,
+        "source": source[:40],
+    }
+    if created_at:
+        normalized["created_at"] = created_at[:80]
+    if updated_at:
+        normalized["updated_at"] = updated_at[:80]
+    return normalized
+
+
+def _normalize_group_last_journey_result(raw: Any) -> dict[str, Any] | None:
+    if not isinstance(raw, dict):
+        return None
+    result_id = str(raw.get("result_id") or "").strip()
+    result_type = str(raw.get("result_type") or "").strip().lower()
+    if result_type not in {
+        "journey_planned",
+        "journey_advanced",
+        "journey_arrived",
+        "journey_blocked",
+        "journey_cleared",
+        "journey_unavailable",
+    }:
+        return None
+    summary = str(raw.get("summary") or "").strip()
+    result_summary = str(raw.get("result_summary") or summary).strip()
+    journey_id = str(raw.get("journey_id") or "").strip()
+    target_node_id = str(raw.get("target_node_id") or "").strip().lower()
+    target_node_label = str(raw.get("target_node_label") or target_node_id).strip()
+    next_node_id = str(raw.get("next_node_id") or "").strip().lower()
+    next_route_id = str(raw.get("next_route_id") or "").strip().lower()
+    completed_step_count = max(0, as_int(raw.get("completed_step_count"), 0))
+    total_step_count = max(0, as_int(raw.get("total_step_count"), 0))
+    source = str(raw.get("source") or "journey").strip() or "journey"
+    resolved_at = str(raw.get("resolved_at") or "").strip()
+    if not result_id or not summary or not result_summary or not journey_id or not target_node_id or not target_node_label:
+        return None
+    normalized: dict[str, Any] = {
+        "result_id": result_id[:80],
+        "result_type": result_type[:40],
+        "summary": summary[:400],
+        "result_summary": result_summary[:400],
+        "journey_id": journey_id[:80],
+        "target_node_id": target_node_id[:120],
+        "target_node_label": target_node_label[:120],
+        "next_node_id": next_node_id[:120],
+        "next_route_id": next_route_id[:160],
+        "completed_step_count": completed_step_count,
+        "total_step_count": total_step_count,
+        "source": source[:40],
+    }
+    if resolved_at:
+        normalized["resolved_at"] = resolved_at[:80]
+    return normalized
+
+
 def _get_group_player_ids(group: dict[str, Any] | None) -> list[str]:
     if not isinstance(group, dict):
         return []
@@ -2352,6 +2446,414 @@ def get_current_group_route_planning(
     if not resolved_group_id:
         return {"reachable_destinations": [], "route_frontiers": []}
     return build_group_route_plan(sess, resolved_group_id)
+
+
+def _build_group_journey_result(
+    *,
+    result_type: str,
+    summary: str,
+    result_summary: str,
+    journey_state: dict[str, Any] | None,
+    source: str = "journey",
+) -> dict[str, Any] | None:
+    journey = _normalize_group_active_journey(journey_state)
+    if not journey:
+        return None
+    return _normalize_group_last_journey_result(
+        {
+            "result_id": f"journey-{uuid.uuid4().hex[:12]}",
+            "result_type": result_type,
+            "summary": summary,
+            "result_summary": result_summary,
+            "journey_id": journey.get("journey_id"),
+            "target_node_id": journey.get("target_node_id"),
+            "target_node_label": journey.get("target_node_label"),
+            "next_node_id": journey.get("next_node_id"),
+            "next_route_id": journey.get("next_route_id"),
+            "completed_step_count": journey.get("completed_step_count"),
+            "total_step_count": journey.get("total_step_count"),
+            "source": source,
+            "resolved_at": datetime.now(timezone.utc).isoformat(),
+        }
+    )
+
+
+def build_group_journey_state(
+    *,
+    plan: dict[str, Any] | None,
+    target_node_id: str,
+    target_node_label: str,
+    journey_status: str = "planned",
+    journey_id: str | None = None,
+    completed_step_count: int = 0,
+    total_step_count: int | None = None,
+    source: str = "journey",
+    created_at: str | None = None,
+) -> dict[str, Any] | None:
+    normalized_plan = _normalize_group_route_plan_item(plan) if isinstance(plan, dict) else None
+    normalized_target_node_id = str(target_node_id or "").strip().lower()
+    normalized_target_node_label = str(target_node_label or normalized_target_node_id).strip()
+    normalized_status = str(journey_status or "").strip().lower() or "planned"
+    if normalized_status not in {"planned", "in_progress", "blocked", "arrived", "cleared"}:
+        return None
+    path_node_ids = list((normalized_plan or {}).get("path_node_ids") or [])
+    path_route_ids = list((normalized_plan or {}).get("path_route_ids") or [])
+    if not normalized_target_node_id or not normalized_target_node_label:
+        return None
+    next_node_id = path_node_ids[1] if len(path_node_ids) > 1 else ""
+    next_route_id = path_route_ids[0] if path_route_ids else str((normalized_plan or {}).get("blocked_route_id") or "").strip().lower()
+    computed_total_step_count = max(completed_step_count, completed_step_count + max(0, as_int((normalized_plan or {}).get("step_count"), 0)))
+    if total_step_count is not None:
+        computed_total_step_count = max(completed_step_count, int(total_step_count))
+    return _normalize_group_active_journey(
+        {
+            "journey_id": str(journey_id or f"journey-{uuid.uuid4().hex[:12]}"),
+            "target_node_id": normalized_target_node_id,
+            "target_node_label": normalized_target_node_label,
+            "journey_status": normalized_status,
+            "path_node_ids": path_node_ids or [normalized_target_node_id],
+            "path_route_ids": path_route_ids,
+            "next_node_id": next_node_id,
+            "next_route_id": next_route_id,
+            "completed_step_count": max(0, int(completed_step_count)),
+            "total_step_count": max(0, computed_total_step_count),
+            "source": source,
+            "created_at": str(created_at or datetime.now(timezone.utc).isoformat()),
+            "updated_at": datetime.now(timezone.utc).isoformat(),
+        }
+    )
+
+
+def get_current_group_journey_state(
+    sess: Session,
+    *,
+    player_id: uuid.UUID | str | None = None,
+    group_id: str | None = None,
+) -> dict[str, Any] | None:
+    resolved_group_id = str(group_id or "").strip()
+    resolved_player_id = str(player_id or "").strip()
+    if not resolved_group_id and resolved_player_id:
+        resolved_group_id = str(_get_player_group_id(sess, resolved_player_id) or "").strip()
+    if not resolved_group_id:
+        return None
+    group = _get_group_states(sess).get(resolved_group_id)
+    if not isinstance(group, dict):
+        return None
+    return _normalize_group_active_journey(group.get("active_journey"))
+
+
+def get_current_group_last_journey_result(
+    sess: Session,
+    *,
+    player_id: uuid.UUID | str | None = None,
+    group_id: str | None = None,
+) -> dict[str, Any] | None:
+    resolved_group_id = str(group_id or "").strip()
+    resolved_player_id = str(player_id or "").strip()
+    if not resolved_group_id and resolved_player_id:
+        resolved_group_id = str(_get_player_group_id(sess, resolved_player_id) or "").strip()
+    if not resolved_group_id:
+        return None
+    group = _get_group_states(sess).get(resolved_group_id)
+    if not isinstance(group, dict):
+        return None
+    return _normalize_group_last_journey_result(group.get("last_journey_result"))
+
+
+def get_group_journey_remaining_plan(sess: Session, group_id: str) -> dict[str, Any] | None:
+    journey = get_current_group_journey_state(sess, group_id=group_id)
+    if not journey:
+        return None
+    return get_group_route_plan_to_node(sess, group_id, str(journey.get("target_node_id") or ""))
+
+
+def set_group_journey_target(
+    sess: Session,
+    group_id: str,
+    target_node_id: str,
+    *,
+    player_id: uuid.UUID | str | None = None,
+    source: str = "journey",
+) -> tuple[dict[str, Any] | None, str | None]:
+    groups = _get_group_states(sess)
+    group_key = str(group_id or "").strip()
+    normalized_target_node_id = str(target_node_id or "").strip().lower()
+    group = groups.get(group_key)
+    if not isinstance(group, dict):
+        return None, "Группа не найдена."
+    if not normalized_target_node_id:
+        return None, "Нужно указать target_node_id для journey."
+    plan = get_group_route_plan_to_node(sess, group_key, normalized_target_node_id)
+    if not plan:
+        return None, "Не удалось построить маршрут до этой точки."
+    plan_status = str(plan.get("plan_status") or "").strip()
+    target_node_label = str(plan.get("target_node_label") or normalized_target_node_id).strip()
+    if plan_status != "reachable":
+        group.pop("active_journey", None)
+        unavailable_journey = build_group_journey_state(
+            plan=plan,
+            target_node_id=normalized_target_node_id,
+            target_node_label=target_node_label,
+            journey_status="cleared",
+            source=source,
+        )
+        if unavailable_journey:
+            group["last_journey_result"] = _build_group_journey_result(
+                result_type="journey_unavailable",
+                summary=f"Путь к {target_node_label} сейчас недоступен для планируемого путешествия.",
+                result_summary=str(plan.get("summary") or f"Группа не может начать путь к {target_node_label}."),
+                journey_state=unavailable_journey,
+                source=source,
+            )
+        _persist_group_states(sess, groups)
+        _sync_group_position_mirrors(sess, group)
+        if plan_status == "current_location":
+            return dict(group), f"Группа уже находится в точке {target_node_label}."
+        if plan_status == "blocked":
+            return dict(group), str(plan.get("summary") or f"Путь к {target_node_label} заблокирован.")
+        if plan_status == "unrevealed":
+            return dict(group), f"Точка {target_node_label} ещё не раскрыта для текущей группы."
+        return dict(group), str(plan.get("summary") or f"Путь к {target_node_label} сейчас недоступен.")
+    active_journey = build_group_journey_state(
+        plan=plan,
+        target_node_id=normalized_target_node_id,
+        target_node_label=target_node_label,
+        journey_status="planned",
+        source=source,
+    )
+    if not active_journey:
+        return None, "Не удалось создать состояние journey."
+    group["active_journey"] = active_journey
+    group["last_journey_result"] = _build_group_journey_result(
+        result_type="journey_planned",
+        summary=f"Группа намечает путь к {target_node_label}.",
+        result_summary=f"Маршрут к {target_node_label} сохранён как активное путешествие.",
+        journey_state=active_journey,
+        source=source,
+    )
+    _persist_group_states(sess, groups)
+    _sync_group_position_mirrors(sess, group)
+    return dict(group), None
+
+
+def clear_group_journey(
+    sess: Session,
+    group_id: str,
+    *,
+    source: str = "journey",
+) -> dict[str, Any] | None:
+    groups = _get_group_states(sess)
+    group_key = str(group_id or "").strip()
+    group = groups.get(group_key)
+    if not isinstance(group, dict):
+        return None
+    journey = _normalize_group_active_journey(group.get("active_journey"))
+    if not journey:
+        return None
+    cleared_journey = build_group_journey_state(
+        plan={
+            "target_node_id": journey.get("target_node_id"),
+            "target_node_label": journey.get("target_node_label"),
+            "plan_status": "current_location" if journey.get("journey_status") == "arrived" else "unknown",
+            "path_node_ids": list(journey.get("path_node_ids") or []),
+            "path_route_ids": list(journey.get("path_route_ids") or []),
+            "step_count": max(0, as_int(journey.get("total_step_count"), 0) - as_int(journey.get("completed_step_count"), 0)),
+            "reachable": False,
+            "summary": f"Путешествие к {journey.get('target_node_label')} очищено.",
+        },
+        target_node_id=str(journey.get("target_node_id") or ""),
+        target_node_label=str(journey.get("target_node_label") or ""),
+        journey_status="cleared",
+        journey_id=str(journey.get("journey_id") or ""),
+        completed_step_count=max(0, as_int(journey.get("completed_step_count"), 0)),
+        total_step_count=max(0, as_int(journey.get("total_step_count"), 0)),
+        source=source,
+        created_at=str(journey.get("created_at") or ""),
+    )
+    group.pop("active_journey", None)
+    if cleared_journey:
+        group["last_journey_result"] = _build_group_journey_result(
+            result_type="journey_cleared",
+            summary=f"Путешествие к {journey.get('target_node_label')} остановлено.",
+            result_summary=f"Активный маршрут к {journey.get('target_node_label')} очищен.",
+            journey_state=cleared_journey,
+            source=source,
+        )
+    _persist_group_states(sess, groups)
+    _sync_group_position_mirrors(sess, group)
+    return dict(group)
+
+
+def advance_group_journey(
+    sess: Session,
+    group_id: str,
+    *,
+    player_id: uuid.UUID | str | None = None,
+    source: str = "journey",
+) -> tuple[dict[str, Any] | None, str | None]:
+    groups = _get_group_states(sess)
+    group_key = str(group_id or "").strip()
+    group = groups.get(group_key)
+    if not isinstance(group, dict):
+        return None, "Группа не найдена."
+    journey = _normalize_group_active_journey(group.get("active_journey"))
+    if not journey:
+        return None, "У группы нет активного путешествия."
+    current_plan = get_group_journey_remaining_plan(sess, group_key)
+    target_node_label = str(journey.get("target_node_label") or journey.get("target_node_id") or "цель").strip()
+    if not current_plan:
+        return None, "Не удалось восстановить оставшийся план путешествия."
+    plan_status = str(current_plan.get("plan_status") or "").strip()
+    if plan_status == "current_location":
+        arrived_journey = build_group_journey_state(
+            plan=current_plan,
+            target_node_id=str(journey.get("target_node_id") or ""),
+            target_node_label=target_node_label,
+            journey_status="arrived",
+            journey_id=str(journey.get("journey_id") or ""),
+            completed_step_count=max(as_int(journey.get("completed_step_count"), 0), as_int(journey.get("total_step_count"), 0)),
+            total_step_count=max(as_int(journey.get("total_step_count"), 0), as_int(journey.get("completed_step_count"), 0)),
+            source=source,
+            created_at=str(journey.get("created_at") or ""),
+        )
+        if arrived_journey:
+            group["active_journey"] = arrived_journey
+            group["last_journey_result"] = _build_group_journey_result(
+                result_type="journey_arrived",
+                summary=f"Группа уже достигла {target_node_label}.",
+                result_summary=f"Путешествие к {target_node_label} отмечено как завершённое.",
+                journey_state=arrived_journey,
+                source=source,
+            )
+            _persist_group_states(sess, groups)
+            _sync_group_position_mirrors(sess, group)
+        return dict(group), None
+    if plan_status != "reachable":
+        blocked_journey = build_group_journey_state(
+            plan=current_plan,
+            target_node_id=str(journey.get("target_node_id") or ""),
+            target_node_label=target_node_label,
+            journey_status="blocked",
+            journey_id=str(journey.get("journey_id") or ""),
+            completed_step_count=max(0, as_int(journey.get("completed_step_count"), 0)),
+            total_step_count=max(as_int(journey.get("total_step_count"), 0), as_int(journey.get("completed_step_count"), 0)),
+            source=source,
+            created_at=str(journey.get("created_at") or ""),
+        )
+        if blocked_journey:
+            group["active_journey"] = blocked_journey
+            group["last_journey_result"] = _build_group_journey_result(
+                result_type="journey_blocked",
+                summary=f"Путь к {target_node_label} больше не проходим.",
+                result_summary=str(current_plan.get("summary") or f"Оставшийся путь к {target_node_label} сейчас заблокирован."),
+                journey_state=blocked_journey,
+                source=source,
+            )
+            _persist_group_states(sess, groups)
+            _sync_group_position_mirrors(sess, group)
+        return dict(group), str(current_plan.get("summary") or f"Оставшийся путь к {target_node_label} сейчас недоступен.")
+    next_node_id = str(current_plan.get("next_node_id") or "").strip().lower()
+    if not next_node_id:
+        path_node_ids = list(current_plan.get("path_node_ids") or [])
+        next_node_id = str(path_node_ids[1] if len(path_node_ids) > 1 else "").strip().lower()
+    if not next_node_id:
+        return None, "Не удалось определить следующий шаг активного путешествия."
+    updated, error = execute_group_navigation_option(
+        sess,
+        target_node_id=next_node_id,
+        player_id=player_id,
+        group_id=group_key,
+        source=source,
+    )
+    if error:
+        return None, error
+    active_travel = evaluate_group_travel_pause(sess, group_key) or updated
+    current_travel_state = _group_travel_state_summary((active_travel or {}))
+    pause_reason = str((current_travel_state or {}).get("pause_reason") or "").strip().lower()
+    if current_travel_state and current_travel_state.get("active") is True:
+        if current_travel_state.get("paused") is True and pause_reason == "target_requires_enter":
+            updated = confirm_group_enter(sess, group_key, player_id=player_id, source=source)
+        elif current_travel_state.get("paused") is not True:
+            updated = complete_group_travel(sess, group_key, player_id=player_id, source=source)
+    if not isinstance(updated, dict):
+        return None, "Не удалось завершить следующий шаг путешествия."
+    refreshed_groups = _get_group_states(sess)
+    refreshed_group = refreshed_groups.get(group_key)
+    if not isinstance(refreshed_group, dict):
+        return updated, None
+    remaining_plan = get_group_route_plan_to_node(sess, group_key, str(journey.get("target_node_id") or ""))
+    if remaining_plan and str(remaining_plan.get("plan_status") or "") == "current_location":
+        arrived_journey = build_group_journey_state(
+            plan=remaining_plan,
+            target_node_id=str(journey.get("target_node_id") or ""),
+            target_node_label=target_node_label,
+            journey_status="arrived",
+            journey_id=str(journey.get("journey_id") or ""),
+            completed_step_count=max(0, as_int(journey.get("completed_step_count"), 0) + 1),
+            total_step_count=max(as_int(journey.get("total_step_count"), 0), as_int(journey.get("completed_step_count"), 0) + 1),
+            source=source,
+            created_at=str(journey.get("created_at") or ""),
+        )
+        if arrived_journey:
+            refreshed_group["active_journey"] = arrived_journey
+            refreshed_group["last_journey_result"] = _build_group_journey_result(
+                result_type="journey_arrived",
+                summary=f"Группа достигает {target_node_label}.",
+                result_summary=f"Путешествие к {target_node_label} завершено.",
+                journey_state=arrived_journey,
+                source=source,
+            )
+            _persist_group_states(sess, refreshed_groups)
+            _sync_group_position_mirrors(sess, refreshed_group)
+        return dict(refreshed_group), None
+    if remaining_plan and str(remaining_plan.get("plan_status") or "") == "reachable":
+        completed_step_count = max(0, as_int(journey.get("completed_step_count"), 0) + 1)
+        in_progress_journey = build_group_journey_state(
+            plan=remaining_plan,
+            target_node_id=str(journey.get("target_node_id") or ""),
+            target_node_label=target_node_label,
+            journey_status="in_progress",
+            journey_id=str(journey.get("journey_id") or ""),
+            completed_step_count=completed_step_count,
+            total_step_count=max(as_int(journey.get("total_step_count"), 0), completed_step_count + as_int(remaining_plan.get("step_count"), 0)),
+            source=source,
+            created_at=str(journey.get("created_at") or ""),
+        )
+        if in_progress_journey:
+            refreshed_group["active_journey"] = in_progress_journey
+            refreshed_group["last_journey_result"] = _build_group_journey_result(
+                result_type="journey_advanced",
+                summary=f"Группа продвигается к {target_node_label}.",
+                result_summary=f"Путешествие к {target_node_label} продвинулось на один переход.",
+                journey_state=in_progress_journey,
+                source=source,
+            )
+            _persist_group_states(sess, refreshed_groups)
+            _sync_group_position_mirrors(sess, refreshed_group)
+        return dict(refreshed_group), None
+    blocked_journey = build_group_journey_state(
+        plan=remaining_plan or current_plan,
+        target_node_id=str(journey.get("target_node_id") or ""),
+        target_node_label=target_node_label,
+        journey_status="blocked",
+        journey_id=str(journey.get("journey_id") or ""),
+        completed_step_count=max(0, as_int(journey.get("completed_step_count"), 0) + 1),
+        total_step_count=max(as_int(journey.get("total_step_count"), 0), as_int(journey.get("completed_step_count"), 0) + 1),
+        source=source,
+        created_at=str(journey.get("created_at") or ""),
+    )
+    if blocked_journey:
+        refreshed_group["active_journey"] = blocked_journey
+        refreshed_group["last_journey_result"] = _build_group_journey_result(
+            result_type="journey_blocked",
+            summary=f"Путешествие к {target_node_label} упирается в новый блок.",
+            result_summary=str((remaining_plan or current_plan).get("summary") or f"Оставшийся путь к {target_node_label} сейчас недоступен."),
+            journey_state=blocked_journey,
+            source=source,
+        )
+        _persist_group_states(sess, refreshed_groups)
+        _sync_group_position_mirrors(sess, refreshed_group)
+    return dict(refreshed_group), None
 
 
 def get_current_group_navigation_options(
@@ -4862,6 +5364,14 @@ def _group_last_context_action_result_summary(group: dict[str, Any]) -> dict[str
     return _normalize_group_last_context_action_result(group.get("last_context_action_result"))
 
 
+def _group_active_journey_summary(group: dict[str, Any]) -> dict[str, Any] | None:
+    return _normalize_group_active_journey(group.get("active_journey"))
+
+
+def _group_last_journey_result_summary(group: dict[str, Any]) -> dict[str, Any] | None:
+    return _normalize_group_last_journey_result(group.get("last_journey_result"))
+
+
 def _group_context_action_states_summary(group: dict[str, Any]) -> list[dict[str, Any]] | None:
     action_states = _normalize_group_context_action_state_map(group.get("context_action_states"))
     if not action_states:
@@ -5089,6 +5599,12 @@ def _normalize_group_state(
     node_states = _normalize_group_node_state_map(raw.get("node_states"))
     if node_states:
         normalized["node_states"] = node_states
+    active_journey = _normalize_group_active_journey(raw.get("active_journey"))
+    if active_journey:
+        normalized["active_journey"] = active_journey
+    last_journey_result = _normalize_group_last_journey_result(raw.get("last_journey_result"))
+    if last_journey_result:
+        normalized["last_journey_result"] = last_journey_result
     last_arrival_result = _normalize_group_last_arrival_result(raw.get("last_arrival_result"))
     if last_arrival_result:
         normalized["last_arrival_result"] = last_arrival_result

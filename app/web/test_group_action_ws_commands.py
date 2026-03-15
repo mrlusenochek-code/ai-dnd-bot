@@ -17,6 +17,8 @@ def test_parse_group_command_supports_wait_camp_rest_scout_move_navigate_context
     action_move, payload_move = ws_handlers._parse_group_command("group move к воротам")
     action_navigate, payload_navigate = ws_handlers._parse_group_command("group navigate fortress_gate")
     action_go, payload_go = ws_handlers._parse_group_command("group go mine_entrance")
+    action_continue, payload_continue = ws_handlers._parse_group_command("group continue")
+    action_journey, payload_journey = ws_handlers._parse_group_command("group journey")
     action_do_inspect, payload_do_inspect = ws_handlers._parse_group_command("group do inspect")
     action_do_navigate, payload_do_navigate = ws_handlers._parse_group_command("group action navigate fortress_gate")
     action_do_camp, payload_do_camp = ws_handlers._parse_group_command("group action camp")
@@ -55,7 +57,9 @@ def test_parse_group_command_supports_wait_camp_rest_scout_move_navigate_context
     assert (action_search, payload_search) == ("group_scout", {})
     assert (action_move, payload_move) == ("group_move", {"target_hint": "к воротам"})
     assert (action_navigate, payload_navigate) == ("group_navigate", {"target_node_id": "fortress_gate"})
-    assert (action_go, payload_go) == ("group_navigate", {"target_node_id": "mine_entrance"})
+    assert (action_go, payload_go) == ("group_journey_set", {"target_node_id": "mine_entrance"})
+    assert (action_continue, payload_continue) == ("group_journey_advance", {})
+    assert (action_journey, payload_journey) == ("group_journey_status", {})
     assert (action_do_inspect, payload_do_inspect) == ("group_context_action", {"action_key": "inspect", "action_id": "inspect"})
     assert (action_do_navigate, payload_do_navigate) == (
         "group_context_action",
@@ -783,6 +787,151 @@ def test_handle_group_route_planning_and_target_lookup_return_clean_summaries() 
     assert handled_unrevealed is True
     assert err_unrevealed is None
     assert msg_unrevealed == "Точка Сторожевая башня ещё не раскрыта для текущей группы."
+
+
+def test_handle_group_journey_set_advance_status_and_stop() -> None:
+    player_id = uuid.uuid4()
+    sess = SimpleNamespace(settings={})
+    session_state._initialize_default_group(
+        sess,
+        [player_id],
+        {
+            "map_level": "region",
+            "node_type": "zone",
+            "node_id": "start_trakt",
+            "label": "Стартовый тракт",
+        },
+    )
+    for node_id in ("craft_town", "fortress_gate"):
+        session_state.grant_player_map_knowledge(sess, player_id, node_id, knowledge_kind="known", source="test")
+        session_state.reveal_player_map_node(sess, player_id, node_id, source="test")
+
+    handled_set, err_set, msg_set = ws_handlers._handle_group_action_request(
+        sess,
+        action="group_journey_set",
+        actor_player_id=player_id,
+        payload={"target_node_id": "fortress_gate"},
+        source="test",
+    )
+    handled_status, err_status, msg_status = ws_handlers._handle_group_action_request(
+        sess,
+        action="group_journey_status",
+        actor_player_id=player_id,
+        payload={},
+        source="test",
+    )
+    handled_advance, err_advance, msg_advance = ws_handlers._handle_group_action_request(
+        sess,
+        action="group_journey_advance",
+        actor_player_id=player_id,
+        payload={},
+        source="test",
+    )
+    arrived_group = session_state._get_group_states(sess)["main"]
+    handled_stop, err_stop, msg_stop = ws_handlers._handle_group_action_request(
+        sess,
+        action="group_stop",
+        actor_player_id=player_id,
+        payload={},
+        source="test",
+    )
+    handled_status_empty, err_status_empty, msg_status_empty = ws_handlers._handle_group_action_request(
+        sess,
+        action="group_journey_status",
+        actor_player_id=player_id,
+        payload={},
+        source="test",
+    )
+
+    assert handled_set is True
+    assert err_set is None
+    assert "активное путешествие" in str(msg_set)
+    assert handled_status is True
+    assert err_status is None
+    assert "Путешествие группы main: planned к Ворота крепости" in str(msg_status)
+    assert handled_advance is True
+    assert err_advance is None
+    assert msg_advance == "Путешествие к Ворота крепости завершено."
+    assert arrived_group["current_map_position"]["node_id"] == "fortress_gate"
+    assert arrived_group["active_journey"]["journey_status"] == "arrived"
+    assert handled_stop is True
+    assert err_stop is None
+    assert msg_stop == "Путешествие группы main остановлено."
+    assert "active_journey" not in session_state._get_group_states(sess)["main"]
+    assert handled_status_empty is True
+    assert err_status_empty is None
+    assert msg_status_empty == "У группы main сейчас нет активного путешествия."
+
+
+def test_handle_group_journey_reports_unavailable_and_blocked_mid_route_cleanly() -> None:
+    player_id = uuid.uuid4()
+    sess = SimpleNamespace(settings={})
+    session_state._initialize_default_group(
+        sess,
+        [player_id],
+        {
+            "map_level": "region",
+            "node_type": "zone",
+            "node_id": "start_trakt",
+            "label": "Стартовый тракт",
+        },
+    )
+    session_state.grant_player_map_knowledge(sess, player_id, "watchtower", knowledge_kind="known", source="test")
+    handled_unavailable, err_unavailable, msg_unavailable = ws_handlers._handle_group_action_request(
+        sess,
+        action="group_journey_set",
+        actor_player_id=player_id,
+        payload={"target_node_id": "watchtower"},
+        source="test",
+    )
+    assert handled_unavailable is True
+    assert err_unavailable == "Точка Сторожевая башня ещё не раскрыта для текущей группы."
+    assert msg_unavailable is None
+
+    for node_id in ("craft_town", "fortress_gate"):
+        session_state.grant_player_map_knowledge(sess, player_id, node_id, knowledge_kind="known", source="test")
+        session_state.reveal_player_map_node(sess, player_id, node_id, source="test")
+    handled_set, err_set, _msg_set = ws_handlers._handle_group_action_request(
+        sess,
+        action="group_journey_set",
+        actor_player_id=player_id,
+        payload={"target_node_id": "craft_town"},
+        source="test",
+    )
+    assert handled_set is True
+    assert err_set is None
+    session_state.set_group_route_access_state(
+        sess,
+        "main",
+        "start_trakt->craft_town:move",
+        access_state="blocked",
+        summary="Путь перекрыт.",
+        block_reason="blocked_path",
+        source="test",
+    )
+    session_state.set_group_route_access_state(
+        sess,
+        "main",
+        "fortress_gate->craft_town:move",
+        access_state="blocked",
+        summary="Обход к городку тоже закрыт.",
+        block_reason="fortress_lockdown",
+        source="test",
+    )
+
+    handled_blocked, err_blocked, msg_blocked = ws_handlers._handle_group_action_request(
+        sess,
+        action="group_journey_advance",
+        actor_player_id=player_id,
+        payload={},
+        source="test",
+    )
+
+    assert handled_blocked is True
+    assert err_blocked == "Путь к Озёрный городок упирается в заблокированный маршрут."
+    assert msg_blocked is None
+    blocked_group = session_state._get_group_states(sess)["main"]
+    assert blocked_group["active_journey"]["journey_status"] == "blocked"
 
 
 def test_handle_group_move_pause_resume_enter_arrive_interrupt_and_stop_requests_update_group_state() -> None:
