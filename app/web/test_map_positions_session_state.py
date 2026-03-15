@@ -4757,6 +4757,114 @@ def test_group_region_residency_tracks_current_region_and_same_region_refresh_wi
     assert session_state.get_current_group_last_region_entry_result(sess, player_id=player_id)["result_type"] == "first_region_entry"
 
 
+def test_group_region_onboarding_applies_anchor_reveal_and_repeat_is_idempotent() -> None:
+    player_id = uuid.uuid4()
+    sess = SimpleNamespace(settings={})
+    session_state._initialize_default_group(
+        sess,
+        [player_id],
+        {"map_level": "region", "node_type": "zone", "node_id": "start_trakt", "label": "Стартовый тракт"},
+    )
+
+    current_region = session_state.get_current_group_current_region_state(sess, player_id=player_id)
+    onboarding = session_state.get_current_group_last_region_onboarding_result(sess, player_id=player_id)
+
+    assert current_region["region_id"] == "starter_frontier"
+    assert onboarding["result_type"] == "anchor_reveal_applied"
+    assert onboarding["region_id"] == "starter_frontier"
+    assert onboarding["anchor_node_id"] == "start_trakt"
+    assert onboarding["revealed_node_ids"] == ["craft_town", "fortress_gate"]
+    assert onboarding["revealed_route_ids"] == ["start_trakt->craft_town:move", "start_trakt->fortress_gate:move"]
+    assert onboarding["onboarding_applied"] is True
+    assert set(session_state.get_player_revealed_node_ids(sess, player_id)) >= {"start_trakt", "craft_town", "fortress_gate"}
+
+    map_intel = session_state.get_current_group_map_intel(sess, player_id=player_id)
+    assert any(entry["source_kind"] == "region_onboarding" and entry["source_id"] == "starter_frontier" for entry in map_intel)
+
+    repeated = session_state.resolve_group_region_onboarding(
+        sess,
+        "main",
+        current_region_state=current_region,
+        source="test",
+    )
+    assert repeated["result_type"] == "repeat_region_onboarding"
+    assert repeated["revealed_node_ids"] == ["craft_town", "fortress_gate"]
+    assert repeated["onboarding_applied"] is False
+    assert len(session_state.get_current_group_region_onboarding_states(sess, player_id=player_id)) == 1
+
+
+def test_group_region_onboarding_supports_quiet_and_unavailable_results() -> None:
+    player_id = uuid.uuid4()
+    quiet_sess = SimpleNamespace(settings={})
+    session_state._initialize_default_group(
+        quiet_sess,
+        [player_id],
+        {"map_level": "region", "node_type": "watch", "node_id": "western_road_watch", "label": "Западный дозор"},
+    )
+
+    current_region = session_state.resolve_group_region_residency(quiet_sess, "main", source="test", persist_result=True)
+    quiet_result = session_state.get_current_group_last_region_onboarding_result(quiet_sess, player_id=player_id)
+    assert current_region["region_id"] == "western_road"
+    assert quiet_result["result_type"] == "quiet_region_onboarding"
+    assert quiet_result["revealed_node_ids"] == []
+    assert quiet_result["revealed_route_ids"] == []
+
+    unavailable_sess = SimpleNamespace(settings={})
+    session_state._initialize_default_group(unavailable_sess, [player_id], "Таверна")
+    unavailable = session_state.resolve_group_region_onboarding(unavailable_sess, "main", source="test")
+    assert unavailable["result_type"] == "region_onboarding_unavailable"
+    assert unavailable["region_id"] == "unknown_region"
+
+
+def test_group_region_transition_triggers_region_onboarding_without_fake_reapply_on_same_region_refresh() -> None:
+    player_id = uuid.uuid4()
+    sess = SimpleNamespace(settings={})
+    session_state._initialize_default_group(
+        sess,
+        [player_id],
+        {"map_level": "region", "node_type": "zone", "node_id": "forest_settlement", "label": "Лесной посёлок"},
+    )
+    session_state.get_current_group_current_region_state(sess, player_id=player_id)
+    session_state.add_group_node_state_flag(
+        sess,
+        "main",
+        "forest_settlement",
+        state_flag="forest_supplies_secured",
+        summary="Лесной набор уже готов.",
+        source="test",
+    )
+
+    updated, error = session_state.resolve_group_region_transition(
+        sess,
+        "main",
+        "forest_settlement_northwatch",
+        player_id=player_id,
+        source="region_transition",
+    )
+
+    assert error is None
+    assert updated is not None
+    onboarding = session_state.get_current_group_last_region_onboarding_result(sess, player_id=player_id)
+    assert onboarding["region_id"] == "northwatch_frontier"
+    assert onboarding["result_type"] == "anchor_reveal_applied"
+    assert onboarding["anchor_node_id"] == "northwatch_outpost"
+    assert onboarding["revealed_route_ids"] == ["forest_settlement->old_fortress_edge:move"]
+    assert any(entry["region_id"] == "northwatch_frontier" for entry in session_state.get_current_group_region_onboarding_states(sess, player_id=player_id))
+
+    group_states = session_state._get_group_states(sess)
+    group = group_states["main"]
+    group["current_map_position"] = session_state._normalize_map_position(
+        {"map_level": "region", "node_type": "landmark", "node_id": "old_fortress_edge", "label": "Край старой крепости"}
+    )
+    group["area_label"] = "Край старой крепости"
+    session_state._persist_group_states(sess, group_states)
+
+    session_state.get_current_group_current_region_state(sess, player_id=player_id)
+    repeated = session_state.resolve_group_region_onboarding(sess, "main", source="test")
+    assert repeated["result_type"] == "repeat_region_onboarding"
+    assert len(session_state.get_current_group_region_onboarding_states(sess, player_id=player_id)) == 2
+
+
 def test_group_region_transition_updates_region_residency_history() -> None:
     player_id = uuid.uuid4()
     sess = SimpleNamespace(settings={})
@@ -4793,6 +4901,7 @@ def test_group_region_transition_updates_region_residency_history() -> None:
     discovered_regions = session_state.get_current_group_discovered_regions(sess, player_id=player_id)
     assert [item["region_id"] for item in discovered_regions] == ["starter_frontier", "northwatch_frontier"]
     assert session_state.get_current_group_last_region_entry_result(sess, player_id=player_id)["result_type"] == "region_transition_entry"
+    assert session_state.get_current_group_last_region_onboarding_result(sess, player_id=player_id)["region_id"] == "northwatch_frontier"
 
 
 def test_failed_region_transition_does_not_create_fake_discovered_region() -> None:
@@ -4817,3 +4926,4 @@ def test_failed_region_transition_does_not_create_fake_discovered_region() -> No
     assert updated is not None
     discovered_regions = session_state.get_current_group_discovered_regions(sess, player_id=player_id)
     assert [item["region_id"] for item in discovered_regions] == ["starter_frontier"]
+    assert session_state.get_current_group_last_region_onboarding_result(sess, player_id=player_id)["region_id"] == "starter_frontier"

@@ -90,7 +90,9 @@ from app.web.session_state import (
     get_current_group_current_region_state,
     get_current_group_discovered_regions,
     get_current_group_last_region_entry_result,
+    get_current_group_last_region_onboarding_result,
     get_current_group_last_region_transition_result,
+    get_current_group_region_onboarding_states,
     get_current_group_region_transition_state,
     resolve_group_region_transition,
     set_group_journey_target,
@@ -1788,6 +1790,9 @@ def _parse_group_command(cmdline: str) -> tuple[str | None, dict[str, Any]]:
     if lowered in {"group regions", "group_regions"}:
         return "group_discovered_regions", {}
 
+    if lowered in {"group arrival-region", "group_arrival_region", "group region-entry", "group_region_entry"}:
+        return "group_region_onboarding", {}
+
     if lowered in {"group transition", "group_region_transition_status"}:
         return "group_region_transition_status", {}
 
@@ -1931,6 +1936,7 @@ def _handle_group_action_request(
         "group_region_gateways",
         "group_region_status",
         "group_discovered_regions",
+        "group_region_onboarding",
         "group_region_transition",
         "group_region_transition_status",
         "group_exploration_leads",
@@ -2177,6 +2183,30 @@ def _handle_group_action_request(
             f"Открытые регионы группы {actor_group_key}: {len(regions)}. "
             f"Текущий регион: {current_region_label or str(regions[-1].get('region_label') or 'регион')}."
         )
+
+    if action == "group_region_onboarding":
+        if not actor_group_key:
+            return True, "Группа игрока не найдена.", None
+        result = get_current_group_last_region_onboarding_result(
+            sess,
+            player_id=actor_player_id,
+            group_id=actor_group_key,
+        )
+        states = get_current_group_region_onboarding_states(
+            sess,
+            player_id=actor_player_id,
+            group_id=actor_group_key,
+        )
+        if not result and not states:
+            return True, None, f"У группы {actor_group_key} пока нет region onboarding результата."
+        latest_state = states[-1] if states else {}
+        region_label = str((result or {}).get("region_label") or latest_state.get("region_label") or "регион")
+        result_type = str((result or {}).get("result_type") or latest_state.get("status") or "unknown")
+        summary = str((result or {}).get("result_summary") or (result or {}).get("summary") or latest_state.get("summary") or "").strip()
+        response = f"Region onboarding группы {actor_group_key}: {region_label} ({result_type})."
+        if summary:
+            response = f"{response} {summary}"
+        return True, None, response
 
     if action == "group_region_transition_status":
         if not actor_group_key:

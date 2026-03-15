@@ -952,6 +952,42 @@ STATIC_MAP_REGION_IDENTITIES: tuple[dict[str, Any], ...] = (
     },
 )
 
+STATIC_MAP_REGION_ONBOARDING: tuple[dict[str, Any], ...] = (
+    {
+        "region_id": "starter_frontier",
+        "region_label": "Стартовое пограничье",
+        "anchor_node_id": "start_trakt",
+        "starter_reveal_node_ids": ("craft_town", "fortress_gate"),
+        "starter_reveal_route_ids": (
+            "start_trakt->craft_town:move",
+            "start_trakt->fortress_gate:move",
+        ),
+        "intel_title": "Опорные пути стартового пограничья",
+        "intel_summary": "При первом входе в стартовое пограничье группа быстро закрепляет основные безопасные выходы от стартового тракта.",
+        "onboarding_note": "Стартовый тракт сразу открывает ближайшие безопасные опорные точки региона.",
+    },
+    {
+        "region_id": "northwatch_frontier",
+        "region_label": "Северный рубеж",
+        "anchor_node_id": "northwatch_outpost",
+        "starter_reveal_node_ids": (),
+        "starter_reveal_route_ids": ("forest_settlement->old_fortress_edge:move",),
+        "intel_title": "Северный рубеж отмечен как новый якорь",
+        "intel_summary": "Северный рубеж закрепляется как первый ориентир за пределом стартового региона.",
+        "onboarding_note": "Северный рубеж пока даёт только якорную точку входа и заметку о новом frontier-участке.",
+    },
+    {
+        "region_id": "deep_marsh",
+        "region_label": "Глубокие болота",
+        "anchor_node_id": "deep_marsh_threshold",
+        "starter_reveal_node_ids": (),
+        "starter_reveal_route_ids": ("marsh_edge->forgotten_shrine:move",),
+        "intel_title": "Порог глубоких болот",
+        "intel_summary": "Вход в глубокие болота помечает первый надёжный ориентир перед дальнейшим болотным продвижением.",
+        "onboarding_note": "Глубокие болота пока раскрываются только как узкий опасный порог с одним заметным ходом.",
+    },
+)
+
 
 def _normalized_text(value: Any) -> str:
     return str(value or "").strip().lower()
@@ -1545,6 +1581,45 @@ def get_static_region_identity(
             "region_label": region_label,
             "node_ids": sorted(node_ids),
         }
+    return None
+
+
+def get_static_region_onboarding(region_id: str | None = None) -> dict[str, Any] | None:
+    resolved_region_id = _normalized_text(region_id)
+    if not resolved_region_id:
+        return None
+    for item in STATIC_MAP_REGION_ONBOARDING:
+        if _normalized_text(item.get("region_id")) != resolved_region_id:
+            continue
+        return {
+            "region_id": resolved_region_id,
+            "region_label": str(item.get("region_label") or resolved_region_id).strip(),
+            "anchor_node_id": _normalized_text(item.get("anchor_node_id")),
+            "starter_reveal_node_ids": [
+                str(node_id).strip()
+                for node_id in (item.get("starter_reveal_node_ids") or [])
+                if str(node_id or "").strip() and get_static_node(str(node_id)) is not None
+            ],
+            "starter_reveal_route_ids": [
+                str(route_id).strip()
+                for route_id in (item.get("starter_reveal_route_ids") or [])
+                if str(route_id or "").strip()
+            ],
+            "intel_title": str(item.get("intel_title") or "").strip(),
+            "intel_summary": str(item.get("intel_summary") or "").strip(),
+            "onboarding_note": str(item.get("onboarding_note") or "").strip(),
+        }
+    return None
+
+
+def get_static_region_anchor_onboarding(anchor_node_id: str | None = None) -> dict[str, Any] | None:
+    resolved_anchor_node_id = _normalized_text(anchor_node_id)
+    if not resolved_anchor_node_id:
+        return None
+    for item in STATIC_MAP_REGION_ONBOARDING:
+        if _normalized_text(item.get("anchor_node_id")) != resolved_anchor_node_id:
+            continue
+        return get_static_region_onboarding(_normalized_text(item.get("region_id")))
     return None
 
 

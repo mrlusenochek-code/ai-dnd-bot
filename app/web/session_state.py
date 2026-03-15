@@ -29,6 +29,8 @@ from app.web.map_registry import (
     get_static_node_services,
     get_static_region_gateways,
     get_static_region_identity,
+    get_static_region_onboarding,
+    get_static_region_anchor_onboarding,
 )
 from app.web.utils import as_int
 
@@ -1163,6 +1165,108 @@ def _normalize_group_last_region_entry_result(raw: Any) -> dict[str, Any] | None
     return result
 
 
+def _normalize_group_last_region_onboarding_result(raw: Any) -> dict[str, Any] | None:
+    if not isinstance(raw, dict):
+        return None
+    result_id = str(raw.get("result_id") or "").strip()
+    result_type = str(raw.get("result_type") or "").strip().lower()
+    summary = str(raw.get("summary") or "").strip()
+    result_summary = str(raw.get("result_summary") or summary).strip()
+    region_id = str(raw.get("region_id") or "").strip().lower()
+    region_label = str(raw.get("region_label") or region_id).strip()
+    anchor_node_id = str(raw.get("anchor_node_id") or "").strip().lower()
+    revealed_node_ids = [
+        str(item).strip().lower()
+        for item in (raw.get("revealed_node_ids") or [])
+        if str(item or "").strip()
+    ]
+    revealed_route_ids = [
+        str(item).strip().lower()
+        for item in (raw.get("revealed_route_ids") or [])
+        if str(item or "").strip()
+    ]
+    source = str(raw.get("source") or "region_onboarding").strip() or "region_onboarding"
+    resolved_at = str(raw.get("resolved_at") or "").strip()
+    if result_type not in {
+        "first_region_onboarding",
+        "repeat_region_onboarding",
+        "anchor_reveal_applied",
+        "quiet_region_onboarding",
+        "region_onboarding_unavailable",
+    }:
+        return None
+    if not result_id or not summary or not result_summary or not region_id or not region_label or not anchor_node_id:
+        return None
+    result: dict[str, Any] = {
+        "result_id": result_id[:120],
+        "result_type": result_type[:60],
+        "summary": summary[:400],
+        "result_summary": result_summary[:400],
+        "region_id": region_id[:120],
+        "region_label": region_label[:160],
+        "anchor_node_id": anchor_node_id[:120],
+        "revealed_node_ids": revealed_node_ids,
+        "revealed_route_ids": revealed_route_ids,
+        "onboarding_applied": bool(raw.get("onboarding_applied")),
+        "source": source[:40],
+    }
+    if resolved_at:
+        result["resolved_at"] = resolved_at[:80]
+    return result
+
+
+def _normalize_group_region_onboarding_state(raw: Any) -> dict[str, Any] | None:
+    if not isinstance(raw, dict):
+        return None
+    region_id = str(raw.get("region_id") or "").strip().lower()
+    region_label = str(raw.get("region_label") or region_id).strip()
+    status = str(raw.get("status") or "").strip().lower()
+    summary = str(raw.get("summary") or "").strip()
+    updated_at = str(raw.get("updated_at") or "").strip()
+    revealed_node_ids = [
+        str(item).strip().lower()
+        for item in (raw.get("revealed_node_ids") or [])
+        if str(item or "").strip()
+    ]
+    revealed_route_ids = [
+        str(item).strip().lower()
+        for item in (raw.get("revealed_route_ids") or [])
+        if str(item or "").strip()
+    ]
+    if status not in {"applied", "repeat", "quiet", "unavailable"}:
+        return None
+    if not region_id or not region_label or not summary:
+        return None
+    state: dict[str, Any] = {
+        "region_id": region_id[:120],
+        "region_label": region_label[:160],
+        "status": status[:40],
+        "summary": summary[:240],
+        "revealed_node_ids": revealed_node_ids,
+        "revealed_route_ids": revealed_route_ids,
+    }
+    if updated_at:
+        state["updated_at"] = updated_at[:80]
+    return state
+
+
+def _normalize_group_region_onboarding_state_map(raw: Any) -> dict[str, dict[str, Any]]:
+    if not isinstance(raw, dict):
+        return {}
+    normalized: dict[str, dict[str, Any]] = {}
+    for region_id, value in raw.items():
+        candidate = (
+            value
+            if isinstance(value, dict)
+            else {"region_id": region_id, "region_label": str(value or region_id), "status": "quiet", "summary": str(value or region_id)}
+        )
+        merged = {"region_id": region_id, **candidate} if isinstance(candidate, dict) else candidate
+        state = _normalize_group_region_onboarding_state(merged)
+        if state:
+            normalized[state["region_id"]] = state
+    return normalized
+
+
 def _normalize_group_route_traversal_state(raw: Any) -> dict[str, Any] | None:
     if not isinstance(raw, dict):
         return None
@@ -2199,6 +2303,12 @@ def resolve_group_region_residency(
     group["last_region_entry_result"] = result
     _persist_group_states(sess, groups)
     _sync_group_position_mirrors(sess, group)
+    resolve_group_region_onboarding(
+        sess,
+        normalized_group_id,
+        current_region_state=current_region_state,
+        source=source,
+    )
     return current_region_state
 
 
@@ -2287,6 +2397,223 @@ def get_current_group_last_region_entry_result(
     if not isinstance(group, dict):
         return None
     return _normalize_group_last_region_entry_result(group.get("last_region_entry_result"))
+
+
+def build_group_region_onboarding_result(
+    *,
+    result_type: str,
+    summary: str,
+    result_summary: str,
+    region_id: str,
+    region_label: str,
+    anchor_node_id: str,
+    revealed_node_ids: list[str] | None = None,
+    revealed_route_ids: list[str] | None = None,
+    onboarding_applied: bool = False,
+    source: str = "region_onboarding",
+) -> dict[str, Any] | None:
+    return _normalize_group_last_region_onboarding_result(
+        {
+            "result_id": f"region-onboarding:{region_id}:{datetime.now(timezone.utc).isoformat()}",
+            "result_type": result_type,
+            "summary": summary,
+            "result_summary": result_summary,
+            "region_id": region_id,
+            "region_label": region_label,
+            "anchor_node_id": anchor_node_id,
+            "revealed_node_ids": list(revealed_node_ids or []),
+            "revealed_route_ids": list(revealed_route_ids or []),
+            "onboarding_applied": onboarding_applied,
+            "source": source,
+            "resolved_at": datetime.now(timezone.utc).isoformat(),
+        }
+    )
+
+
+def resolve_group_region_onboarding(
+    sess: Session,
+    group_id: str,
+    *,
+    current_region_state: dict[str, Any] | None = None,
+    source: str = "region_onboarding",
+) -> dict[str, Any] | None:
+    normalized_group_id = str(group_id or "").strip()
+    if not normalized_group_id:
+        return None
+    groups = _get_group_states(sess)
+    group = groups.get(normalized_group_id)
+    if not isinstance(group, dict):
+        return None
+    current_region = _normalize_group_current_region_state(current_region_state or group.get("current_region_state"))
+    if not current_region:
+        result = build_group_region_onboarding_result(
+            result_type="region_onboarding_unavailable",
+            summary="Не удалось определить текущий регион для onboarding.",
+            result_summary="Для region onboarding нужен установленный current_region_state.",
+            region_id="unknown_region",
+            region_label="Неизвестный регион",
+            anchor_node_id=str((_normalize_map_position(group.get("current_map_position")) or {}).get("node_id") or "unknown_anchor"),
+            source=source,
+        )
+        if result:
+            group["last_region_onboarding_result"] = result
+            _persist_group_states(sess, groups)
+            _sync_group_position_mirrors(sess, group)
+        return result
+    region_id = str(current_region.get("region_id") or "").strip().lower()
+    region_label = str(current_region.get("region_label") or region_id).strip()
+    anchor_node_id = str(current_region.get("current_node_id") or "").strip().lower()
+    onboarding_definition = (
+        get_static_region_onboarding(region_id)
+        or get_static_region_anchor_onboarding(anchor_node_id)
+        or {}
+    )
+    onboarding_state_map = _normalize_group_region_onboarding_state_map(group.get("region_onboarding_states"))
+    existing_state = onboarding_state_map.get(region_id)
+    group_player_ids = [str(pid).strip() for pid in (group.get("player_ids") or []) if str(pid).strip()]
+
+    if existing_state:
+        result = build_group_region_onboarding_result(
+            result_type="repeat_region_onboarding",
+            summary=f"Region onboarding для {region_label} уже был применён ранее.",
+            result_summary="Повторный вход в уже onboarded регион не переоткрывает starter slice и остаётся идемпотентным.",
+            region_id=region_id,
+            region_label=region_label,
+            anchor_node_id=anchor_node_id,
+            revealed_node_ids=list(existing_state.get("revealed_node_ids") or []),
+            revealed_route_ids=list(existing_state.get("revealed_route_ids") or []),
+            onboarding_applied=False,
+            source=source,
+        )
+        if result:
+            group["last_region_onboarding_result"] = result
+            _persist_group_states(sess, groups)
+            _sync_group_position_mirrors(sess, group)
+        return result
+
+    starter_reveal_node_ids = [
+        str(node_id).strip().lower()
+        for node_id in (onboarding_definition.get("starter_reveal_node_ids") or [])
+        if str(node_id or "").strip()
+    ]
+    starter_reveal_route_ids = [
+        str(route_id).strip().lower()
+        for route_id in (onboarding_definition.get("starter_reveal_route_ids") or [])
+        if str(route_id or "").strip()
+    ]
+    newly_revealed_node_ids: list[str] = []
+    for node_id in starter_reveal_node_ids:
+        newly_revealed = False
+        for pid in group_player_ids:
+            if not is_player_node_revealed(sess, pid, node_id):
+                reveal_player_map_node(sess, pid, node_id, source=source)
+                newly_revealed = True
+            else:
+                reveal_player_map_node(sess, pid, node_id, source=source)
+        if newly_revealed and node_id not in newly_revealed_node_ids:
+            newly_revealed_node_ids.append(node_id)
+    revealed_node_ids = list(starter_reveal_node_ids)
+    revealed_route_ids = list(starter_reveal_route_ids)
+
+    onboarding_applied = bool(newly_revealed_node_ids or revealed_route_ids)
+    if onboarding_definition:
+        result_type = "anchor_reveal_applied" if onboarding_applied else "first_region_onboarding"
+        summary = str(onboarding_definition.get("onboarding_note") or "").strip() or f"Группа закрепляет стартовый срез региона {region_label}."
+        result_summary = summary
+    else:
+        result_type = "quiet_region_onboarding"
+        summary = f"Для региона {region_label} пока нет отдельного starter onboarding package."
+        result_summary = summary
+    result = build_group_region_onboarding_result(
+        result_type=result_type,
+        summary=summary,
+        result_summary=result_summary,
+        region_id=region_id,
+        region_label=region_label,
+        anchor_node_id=anchor_node_id,
+        revealed_node_ids=revealed_node_ids,
+        revealed_route_ids=revealed_route_ids,
+        onboarding_applied=onboarding_applied,
+        source=source,
+    )
+    if not result:
+        return None
+    state = _normalize_group_region_onboarding_state(
+        {
+            "region_id": region_id,
+            "region_label": region_label,
+            "status": "applied" if onboarding_definition else "quiet",
+            "summary": summary,
+            "revealed_node_ids": revealed_node_ids,
+            "revealed_route_ids": revealed_route_ids,
+            "updated_at": result.get("resolved_at"),
+        }
+    )
+    if not state:
+        return None
+    if onboarding_definition:
+        intel_title = str(onboarding_definition.get("intel_title") or "").strip()
+        intel_summary = str(onboarding_definition.get("intel_summary") or summary).strip()
+        if intel_title and intel_summary:
+            intel_entry = build_group_map_intel_entry(
+                entry_type="guidance",
+                title=intel_title,
+                summary=intel_summary,
+                result_summary=intel_summary,
+                source_kind="region_onboarding",
+                source_id=region_id,
+                node_id=anchor_node_id,
+                node_label=str((get_static_node(anchor_node_id) or {}).get("label") or region_label),
+                related_node_ids=revealed_node_ids,
+                related_route_ids=revealed_route_ids,
+                tags=["region", "onboarding", region_id],
+                dedupe_key=f"region_onboarding:{region_id}",
+            )
+            if intel_entry:
+                _add_group_map_intel_entry_to_group(group, intel_entry)
+    onboarding_state_map[region_id] = state
+    group["region_onboarding_states"] = onboarding_state_map
+    group["last_region_onboarding_result"] = result
+    _persist_group_states(sess, groups)
+    _sync_group_position_mirrors(sess, group)
+    return result
+
+
+def get_current_group_last_region_onboarding_result(
+    sess: Session,
+    *,
+    player_id: uuid.UUID | str | None = None,
+    group_id: str | None = None,
+) -> dict[str, Any] | None:
+    resolved_group_id = str(group_id or "").strip()
+    resolved_player_id = str(player_id or "").strip()
+    if not resolved_group_id and resolved_player_id:
+        resolved_group_id = str(_get_player_group_id(sess, resolved_player_id) or "").strip()
+    if not resolved_group_id:
+        return None
+    group = _get_group_states(sess).get(resolved_group_id)
+    if not isinstance(group, dict):
+        return None
+    return _normalize_group_last_region_onboarding_result(group.get("last_region_onboarding_result"))
+
+
+def get_current_group_region_onboarding_states(
+    sess: Session,
+    *,
+    player_id: uuid.UUID | str | None = None,
+    group_id: str | None = None,
+) -> list[dict[str, Any]]:
+    resolved_group_id = str(group_id or "").strip()
+    resolved_player_id = str(player_id or "").strip()
+    if not resolved_group_id and resolved_player_id:
+        resolved_group_id = str(_get_player_group_id(sess, resolved_player_id) or "").strip()
+    if not resolved_group_id:
+        return []
+    group = _get_group_states(sess).get(resolved_group_id)
+    if not isinstance(group, dict):
+        return []
+    state_map = _normalize_group_region_onboarding_state_map(group.get("region_onboarding_states"))
+    return [dict(state_map[key]) for key in sorted(state_map.keys())]
 
 
 def set_group_node_state(
@@ -6270,7 +6597,7 @@ def _normalize_group_map_intel_entry(raw: Any) -> dict[str, Any] | None:
     summary = str(raw.get("summary") or "").strip()
     result_summary = str(raw.get("result_summary") or "").strip()
     source_kind = str(raw.get("source_kind") or "").strip().lower()
-    if source_kind not in {"scout", "service", "context_action", "travel_event", "destination_event"}:
+    if source_kind not in {"scout", "service", "context_action", "travel_event", "destination_event", "region_onboarding"}:
         return None
     source_id = str(raw.get("source_id") or "").strip()
     node_id = str(raw.get("node_id") or "").strip()
@@ -8750,6 +9077,12 @@ def _normalize_group_state(
     last_region_entry_result = _normalize_group_last_region_entry_result(raw.get("last_region_entry_result"))
     if last_region_entry_result:
         normalized["last_region_entry_result"] = last_region_entry_result
+    last_region_onboarding_result = _normalize_group_last_region_onboarding_result(raw.get("last_region_onboarding_result"))
+    if last_region_onboarding_result:
+        normalized["last_region_onboarding_result"] = last_region_onboarding_result
+    region_onboarding_states = _normalize_group_region_onboarding_state_map(raw.get("region_onboarding_states"))
+    if region_onboarding_states:
+        normalized["region_onboarding_states"] = region_onboarding_states
     active_journey = _normalize_group_active_journey(raw.get("active_journey"))
     if active_journey:
         normalized["active_journey"] = active_journey

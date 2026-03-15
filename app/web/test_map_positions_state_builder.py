@@ -149,6 +149,8 @@ def test_build_state_includes_legacy_and_structured_positions(monkeypatch) -> No
     monkeypatch.setattr(state_builder, "get_current_group_current_region_state", lambda _sess, player_id=None: None)
     monkeypatch.setattr(state_builder, "get_current_group_discovered_regions", lambda _sess, player_id=None: [])
     monkeypatch.setattr(state_builder, "get_current_group_last_region_entry_result", lambda _sess, player_id=None: None)
+    monkeypatch.setattr(state_builder, "get_current_group_last_region_onboarding_result", lambda _sess, player_id=None: None)
+    monkeypatch.setattr(state_builder, "get_current_group_region_onboarding_states", lambda _sess, player_id=None: [])
     monkeypatch.setattr(state_builder, "get_current_group_last_region_transition_result", lambda _sess, player_id=None: None)
     monkeypatch.setattr(state_builder, "get_current_group_region_transition_state", lambda _sess, player_id=None: None)
     monkeypatch.setattr(
@@ -251,6 +253,8 @@ def test_build_state_includes_legacy_and_structured_positions(monkeypatch) -> No
     assert payload["game"]["current_group_current_region_state"] is None
     assert payload["game"]["current_group_discovered_regions"] == []
     assert payload["game"]["current_group_last_region_entry_result"] is None
+    assert payload["game"]["current_group_last_region_onboarding_result"] is None
+    assert payload["game"]["current_group_region_onboarding_states"] == []
     assert payload["game"]["current_group_last_region_transition_result"] is None
     assert payload["game"]["current_group_region_transition_state"] is None
     assert payload["game"]["current_group_navigation_options"] == []
@@ -462,6 +466,39 @@ def test_build_state_exports_region_residency_payloads(monkeypatch) -> None:
             "resolved_at": "2025-01-02T00:00:00+00:00",
         },
     )
+    monkeypatch.setattr(
+        state_builder,
+        "get_current_group_last_region_onboarding_result",
+        lambda _sess, player_id=None: {
+            "result_id": "region-onboarding-2",
+            "result_type": "anchor_reveal_applied",
+            "summary": "Северный рубеж раскрывает ближайшие дозорные тропы вокруг заставы.",
+            "result_summary": "Северный рубеж раскрывает ближайшие дозорные тропы вокруг заставы.",
+            "region_id": "northwatch_frontier",
+            "region_label": "Северный рубеж",
+            "anchor_node_id": "northwatch_outpost",
+            "revealed_node_ids": ["old_fortress_edge"],
+            "revealed_route_ids": ["forest_settlement->old_fortress_edge:move"],
+            "onboarding_applied": True,
+            "source": "region_transition",
+            "resolved_at": "2025-01-02T00:00:00+00:00",
+        },
+    )
+    monkeypatch.setattr(
+        state_builder,
+        "get_current_group_region_onboarding_states",
+        lambda _sess, player_id=None: [
+            {
+                "region_id": "northwatch_frontier",
+                "region_label": "Северный рубеж",
+                "status": "applied",
+                "summary": "Северный рубеж раскрывает ближайшие дозорные тропы вокруг заставы.",
+                "revealed_node_ids": ["old_fortress_edge"],
+                "revealed_route_ids": ["forest_settlement->old_fortress_edge:move"],
+                "updated_at": "2025-01-02T00:00:00+00:00",
+            }
+        ],
+    )
     monkeypatch.setattr(state_builder, "get_current_group_last_region_transition_result", lambda _sess, player_id=None: None)
     monkeypatch.setattr(state_builder, "get_current_group_region_transition_state", lambda _sess, player_id=None: None)
     monkeypatch.setattr(state_builder, "get_current_group_navigation_options", lambda _sess, player_id=None: [])
@@ -492,6 +529,8 @@ def test_build_state_exports_region_residency_payloads(monkeypatch) -> None:
         "northwatch_frontier",
     ]
     assert payload["game"]["current_group_last_region_entry_result"]["result_type"] == "region_transition_entry"
+    assert payload["game"]["current_group_last_region_onboarding_result"]["result_type"] == "anchor_reveal_applied"
+    assert payload["game"]["current_group_region_onboarding_states"][0]["region_id"] == "northwatch_frontier"
 
 
 def test_build_state_exports_current_player_group_id(monkeypatch) -> None:
@@ -1352,6 +1391,39 @@ def test_build_state_exports_current_player_group_id(monkeypatch) -> None:
     )
     monkeypatch.setattr(
         state_builder,
+        "get_current_group_last_region_onboarding_result",
+        lambda _sess, player_id=None: {
+            "result_id": "region-onboarding-1",
+            "result_type": "anchor_reveal_applied",
+            "summary": "Стартовое пограничье открывает опорные пути вокруг стартового тракта.",
+            "result_summary": "Стартовое пограничье открывает опорные пути вокруг стартового тракта.",
+            "region_id": "starter_frontier",
+            "region_label": "Стартовое пограничье",
+            "anchor_node_id": "start_trakt",
+            "revealed_node_ids": ["craft_town", "fortress_gate"],
+            "revealed_route_ids": ["start_trakt->craft_town:move", "start_trakt->fortress_gate:move"],
+            "onboarding_applied": True,
+            "source": "region_residency",
+            "resolved_at": "2025-01-01T00:00:00+00:00",
+        },
+    )
+    monkeypatch.setattr(
+        state_builder,
+        "get_current_group_region_onboarding_states",
+        lambda _sess, player_id=None: [
+            {
+                "region_id": "starter_frontier",
+                "region_label": "Стартовое пограничье",
+                "status": "applied",
+                "summary": "Стартовое пограничье открывает опорные пути вокруг стартового тракта.",
+                "revealed_node_ids": ["craft_town", "fortress_gate"],
+                "revealed_route_ids": ["start_trakt->craft_town:move", "start_trakt->fortress_gate:move"],
+                "updated_at": "2025-01-01T00:00:00+00:00",
+            }
+        ],
+    )
+    monkeypatch.setattr(
+        state_builder,
         "get_current_group_last_region_transition_result",
         lambda _sess, player_id=None: {
             "result_id": "transition-1",
@@ -2029,6 +2101,31 @@ def test_build_state_exports_current_player_group_id(monkeypatch) -> None:
         "source": "region_residency",
         "resolved_at": "2025-01-01T00:00:00+00:00",
     }
+    assert payload["game"]["current_group_last_region_onboarding_result"] == {
+        "result_id": "region-onboarding-1",
+        "result_type": "anchor_reveal_applied",
+        "summary": "Стартовое пограничье открывает опорные пути вокруг стартового тракта.",
+        "result_summary": "Стартовое пограничье открывает опорные пути вокруг стартового тракта.",
+        "region_id": "starter_frontier",
+        "region_label": "Стартовое пограничье",
+        "anchor_node_id": "start_trakt",
+        "revealed_node_ids": ["craft_town", "fortress_gate"],
+        "revealed_route_ids": ["start_trakt->craft_town:move", "start_trakt->fortress_gate:move"],
+        "onboarding_applied": True,
+        "source": "region_residency",
+        "resolved_at": "2025-01-01T00:00:00+00:00",
+    }
+    assert payload["game"]["current_group_region_onboarding_states"] == [
+        {
+            "region_id": "starter_frontier",
+            "region_label": "Стартовое пограничье",
+            "status": "applied",
+            "summary": "Стартовое пограничье открывает опорные пути вокруг стартового тракта.",
+            "revealed_node_ids": ["craft_town", "fortress_gate"],
+            "revealed_route_ids": ["start_trakt->craft_town:move", "start_trakt->fortress_gate:move"],
+            "updated_at": "2025-01-01T00:00:00+00:00",
+        }
+    ]
     assert payload["game"]["current_group_last_region_transition_result"] == {
         "result_id": "transition-1",
         "gateway_id": "forest_settlement_northwatch",

@@ -47,6 +47,8 @@ def test_parse_group_command_supports_wait_camp_rest_scout_move_navigate_context
     action_gateways, payload_gateways = ws_handlers._parse_group_command("group gateways")
     action_here, payload_here = ws_handlers._parse_group_command("group here")
     action_regions, payload_regions = ws_handlers._parse_group_command("group regions")
+    action_arrival_region, payload_arrival_region = ws_handlers._parse_group_command("group arrival-region")
+    action_region_entry, payload_region_entry = ws_handlers._parse_group_command("group region-entry")
     action_exit, payload_exit = ws_handlers._parse_group_command("group exit forest_settlement_northwatch")
     action_cross, payload_cross = ws_handlers._parse_group_command("group cross fortress_gate_western_road")
     action_transition, payload_transition = ws_handlers._parse_group_command("group transition")
@@ -110,6 +112,8 @@ def test_parse_group_command_supports_wait_camp_rest_scout_move_navigate_context
     assert (action_gateways, payload_gateways) == ("group_region_gateways", {})
     assert (action_here, payload_here) == ("group_region_status", {})
     assert (action_regions, payload_regions) == ("group_discovered_regions", {})
+    assert (action_arrival_region, payload_arrival_region) == ("group_region_onboarding", {})
+    assert (action_region_entry, payload_region_entry) == ("group_region_onboarding", {})
     assert (action_exit, payload_exit) == ("group_region_transition", {"gateway_id": "forest_settlement_northwatch"})
     assert (action_cross, payload_cross) == ("group_region_transition", {"gateway_id": "fortress_gate_western_road"})
     assert (action_transition, payload_transition) == ("group_region_transition_status", {})
@@ -1350,6 +1354,57 @@ def test_handle_group_region_status_and_discovered_regions_surface() -> None:
     assert err_regions is None
     assert "Открытые регионы группы main: 1." in str(msg_regions)
     assert "Стартовое пограничье" in str(msg_regions)
+
+
+def test_handle_group_region_onboarding_surface() -> None:
+    player_id = uuid.uuid4()
+    empty_sess = SimpleNamespace(settings={})
+    session_state._initialize_default_group(
+        empty_sess,
+        [player_id],
+        {
+            "map_level": "region",
+            "node_type": "zone",
+            "node_id": "forest_settlement",
+            "label": "Лесной посёлок",
+        },
+    )
+
+    handled_empty, err_empty, msg_empty = ws_handlers._handle_group_action_request(
+        empty_sess,
+        action="group_region_onboarding",
+        actor_player_id=player_id,
+        payload={},
+        source="test",
+    )
+    assert handled_empty is True
+    assert err_empty is None
+    assert "пока нет region onboarding результата" in str(msg_empty)
+
+    sess = SimpleNamespace(settings={})
+    session_state._initialize_default_group(
+        sess,
+        [player_id],
+        {
+            "map_level": "region",
+            "node_type": "zone",
+            "node_id": "start_trakt",
+            "label": "Стартовый тракт",
+        },
+    )
+    session_state.get_current_group_current_region_state(sess, player_id=player_id)
+
+    handled, err, msg = ws_handlers._handle_group_action_request(
+        sess,
+        action="group_region_onboarding",
+        actor_player_id=player_id,
+        payload={},
+        source="test",
+    )
+    assert handled is True
+    assert err is None
+    assert "Region onboarding группы main" in str(msg)
+    assert "Стартовое пограничье" in str(msg)
 
 
 def test_handle_group_journey_set_advance_status_and_stop() -> None:
