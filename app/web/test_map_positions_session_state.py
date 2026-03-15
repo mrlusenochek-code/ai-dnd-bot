@@ -2843,3 +2843,179 @@ def test_resolve_group_travel_event_guidance_updates_only_target_knowledge() -> 
     assert updated["last_travel_event_outcome"]["outcome_type"] == "guidance_note"
     assert session_state.has_player_map_knowledge(sess, player_id, "craft_town") is True
     assert session_state.is_player_node_revealed(sess, player_id, "craft_town") is False
+
+
+def test_group_map_intel_storage_recent_and_group_scope() -> None:
+    player_id = uuid.uuid4()
+    other_player_id = uuid.uuid4()
+    sess = SimpleNamespace(settings={})
+    session_state._initialize_default_group(sess, [player_id], "Таверна")
+    groups = session_state._get_group_states(sess)
+    groups["scout"] = {
+        "group_id": "scout",
+        "player_ids": [str(other_player_id)],
+        "current_map_position": {
+            "v": 1,
+            "map_level": "region",
+            "node_type": "zone",
+            "node_id": "forest_road",
+            "label": "Лесная дорога",
+        },
+        "area_label": "Лесная дорога",
+        "status": "idle",
+        "movement_mode": "normal",
+    }
+    session_state._persist_group_states(sess, groups)
+
+    first = session_state.add_group_map_intel_entry(
+        sess,
+        "main",
+        session_state.build_group_map_intel_entry(
+            entry_type="guidance",
+            title="Дорожная наводка",
+            summary="Группа получает наводку.",
+            result_summary="Местные указывают безопасный береговой ориентир.",
+            source_kind="service",
+            source_id="craft_town_local_guidance",
+            node_id="craft_town",
+            node_label="Озёрный городок",
+            related_node_ids=["watchtower"],
+            related_route_ids=[],
+            tags=["guidance", "craft_town"],
+            dedupe_key="service|craft_town_local_guidance|guidance",
+        ),
+    )
+    second = session_state.add_group_map_intel_entry(
+        sess,
+        "main",
+        session_state.build_group_map_intel_entry(
+            entry_type="warning",
+            title="Предупреждение на дороге",
+            summary="Группа отмечает риск.",
+            result_summary="Лесная дорога к руинам пока остаётся рискованной.",
+            source_kind="travel_event",
+            source_id="evt-warning",
+            node_id="forest_road",
+            node_label="Лесная дорога",
+            related_node_ids=[],
+            related_route_ids=["forest_road->ruined_settlement:move"],
+            tags=["warning", "road"],
+            dedupe_key="travel_event|ominous_quiet|warning",
+        ),
+    )
+
+    assert first is not None
+    assert second is not None
+    assert [entry["entry_type"] for entry in session_state.get_current_group_map_intel(sess, player_id=player_id)] == ["guidance", "warning"]
+    assert [entry["entry_type"] for entry in session_state.get_current_group_recent_map_intel(sess, player_id=player_id, limit=1)] == ["warning"]
+    assert session_state.get_current_group_map_intel(sess, group_id="scout") == []
+
+
+def test_group_map_intel_dedupe_keeps_single_entry_per_dedupe_key() -> None:
+    player_id = uuid.uuid4()
+    sess = SimpleNamespace(settings={})
+    session_state._initialize_default_group(sess, [player_id], "Таверна")
+
+    first = session_state.add_group_map_intel_entry(
+        sess,
+        "main",
+        session_state.build_group_map_intel_entry(
+            entry_type="clue",
+            title="Локальная зацепка",
+            summary="Группа находит зацепку.",
+            result_summary="У часовни уже отмечена короткая дорожная наводка.",
+            source_kind="context_action",
+            source_id="listen_chapel_watch",
+            node_id="chapel_village",
+            node_label="Часовенное село",
+            related_node_ids=[],
+            related_route_ids=[],
+            tags=["clue", "chapel"],
+            dedupe_key="context_action|listen_chapel_watch|clue",
+        ),
+    )
+    duplicate = session_state.add_group_map_intel_entry(
+        sess,
+        "main",
+        session_state.build_group_map_intel_entry(
+            entry_type="clue",
+            title="Локальная зацепка",
+            summary="Повтор той же зацепки.",
+            result_summary="У часовни уже отмечена короткая дорожная наводка.",
+            source_kind="context_action",
+            source_id="listen_chapel_watch",
+            node_id="chapel_village",
+            node_label="Часовенное село",
+            related_node_ids=[],
+            related_route_ids=[],
+            tags=["clue", "chapel"],
+            dedupe_key="context_action|listen_chapel_watch|clue",
+        ),
+    )
+
+    assert first is not None
+    assert duplicate == first
+    assert len(session_state.get_current_group_map_intel(sess, player_id=player_id)) == 1
+
+
+def test_existing_outcomes_write_map_intel_entries() -> None:
+    player_id = uuid.uuid4()
+    sess = SimpleNamespace(settings={})
+
+    session_state._initialize_default_group(
+        sess,
+        [player_id],
+        {"map_level": "region", "node_type": "zone", "node_id": "start_trakt", "label": "Стартовый тракт"},
+    )
+    session_state.resolve_group_scout(sess, "main", player_id=player_id, source="test")
+    scout_entries = session_state.get_current_group_map_intel(sess, player_id=player_id)
+    assert scout_entries[-1]["source_kind"] == "scout"
+    assert scout_entries[-1]["entry_type"] == "route_hint"
+
+    session_state._initialize_default_group(
+        sess,
+        [player_id],
+        {"map_level": "region", "node_type": "zone", "node_id": "craft_town", "label": "Озёрный городок"},
+    )
+    session_state.resolve_group_service(sess, "main", service_id="craft_town_local_guidance", player_id=player_id, source="test")
+    service_entries = session_state.get_current_group_map_intel(sess, player_id=player_id)
+    assert service_entries[-1]["source_kind"] == "service"
+    assert service_entries[-1]["entry_type"] == "guidance"
+
+    session_state._initialize_default_group(
+        sess,
+        [player_id],
+        {"map_level": "region", "node_type": "zone", "node_id": "chapel_village", "label": "Часовенное село"},
+    )
+    session_state.resolve_group_context_action(sess, "main", action_id="listen_chapel_watch", player_id=player_id, source="test")
+    action_entries = session_state.get_current_group_map_intel(sess, player_id=player_id)
+    assert action_entries[-1]["source_kind"] == "context_action"
+    assert action_entries[-1]["entry_type"] == "clue"
+
+    outcome = session_state.build_group_travel_event_outcome(
+        {
+            "event_id": "evt-route",
+            "event_key": "tracks_or_signs",
+            "event_type": "roadside_hook",
+            "summary": "На дороге замечены следы и старые знаки.",
+            "route_snapshot": {
+                "allowed": True,
+                "route_id": "start_trakt->craft_town:move",
+                "route_kind": "zone_move",
+                "action_kind": "move",
+                "target_label": "Озёрный городок",
+                "target_node_id": "craft_town",
+                "target_node_type": "zone",
+            },
+            "source": "travel",
+            "active": True,
+            "resolved": False,
+        },
+        resolution="resolve",
+        source="test",
+    )
+    assert outcome is not None
+    session_state.apply_group_travel_event_outcome(sess, "main", outcome, player_id=player_id, source="test")
+    event_entries = session_state.get_current_group_map_intel(sess, player_id=player_id)
+    assert event_entries[-1]["source_kind"] == "travel_event"
+    assert event_entries[-1]["entry_type"] == "route_hint"

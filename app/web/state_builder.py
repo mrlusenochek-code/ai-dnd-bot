@@ -43,6 +43,7 @@ from app.web.session_state import (
     _group_last_travel_resolution_summary,
     _group_last_service_result_summary,
     _group_service_states_summary,
+    _group_map_intel_count,
     _group_movement_mode,
     _group_movement_intent_summary,
     _group_travel_state_summary,
@@ -70,6 +71,8 @@ from app.web.session_state import (
     get_current_group_node_context,
     get_current_group_node_services,
     get_current_group_service_states,
+    get_current_group_map_intel,
+    get_current_group_recent_map_intel,
     get_current_group_navigation_options,
     get_current_group_context_action_states,
     get_player_known_node_ids,
@@ -377,6 +380,7 @@ async def build_state(db: AsyncSession, sess: Session) -> dict:
             "node_states": _group_node_states_summary(group),
             "last_service_result_summary": _group_last_service_result_summary(group),
             "service_states": _group_service_states_summary(group),
+            "map_intel_count": _group_map_intel_count(group),
             "movement_intent_summary": _group_movement_intent_summary(group),
             "travel_state": _group_travel_state_summary(group),
             "travel_summary": _group_travel_summary(group),
@@ -468,6 +472,16 @@ async def build_state(db: AsyncSession, sess: Session) -> dict:
         if sess.current_player_id
         else None
     )
+    current_group_map_intel = (
+        get_current_group_map_intel(sess, player_id=sess.current_player_id)
+        if sess.current_player_id
+        else []
+    )
+    current_group_recent_map_intel = (
+        get_current_group_recent_map_intel(sess, player_id=sess.current_player_id)
+        if sess.current_player_id
+        else []
+    )
 
     return {
         "type": "state",
@@ -517,6 +531,8 @@ async def build_state(db: AsyncSession, sess: Session) -> dict:
             "current_group_node_states": current_group_node_states,
             "current_group_current_node_state": current_group_current_node_state,
             "current_group_last_travel_event_outcome": current_group_last_travel_event_outcome,
+            "current_group_map_intel": current_group_map_intel,
+            "current_group_recent_map_intel": current_group_recent_map_intel,
             "current_group_navigation_options": current_group_navigation_options,
             "groups": groups_payload,
             "pc_positions": pc_positions,

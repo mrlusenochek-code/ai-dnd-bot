@@ -22,6 +22,8 @@ def test_parse_group_command_supports_wait_camp_rest_scout_move_navigate_context
     action_do_camp, payload_do_camp = ws_handlers._parse_group_command("group action camp")
     action_service, payload_service = ws_handlers._parse_group_command("group service craft_town:safe_rest")
     action_use_service, payload_use_service = ws_handlers._parse_group_command("group use chapel_village_shrine_aid")
+    action_intel, payload_intel = ws_handlers._parse_group_command("group intel")
+    action_journal, payload_journal = ws_handlers._parse_group_command("group journal")
     action_enter, payload_enter = ws_handlers._parse_group_command("group enter замок")
     action_mode, payload_mode = ws_handlers._parse_group_command("group mode cautious")
     action_activity, payload_activity = ws_handlers._parse_group_command("group activity navigate")
@@ -57,6 +59,8 @@ def test_parse_group_command_supports_wait_camp_rest_scout_move_navigate_context
     assert (action_do_camp, payload_do_camp) == ("group_context_action", {"action_key": "camp", "action_id": "camp"})
     assert (action_service, payload_service) == ("group_service_use", {"service_id": "craft_town:safe_rest", "service_key": "craft_town:safe_rest"})
     assert (action_use_service, payload_use_service) == ("group_service_use", {"service_id": "chapel_village_shrine_aid", "service_key": "chapel_village_shrine_aid"})
+    assert (action_intel, payload_intel) == ("group_map_intel", {})
+    assert (action_journal, payload_journal) == ("group_map_intel", {})
     assert (action_enter, payload_enter) == ("group_enter", {"target_hint": "замок"})
     assert (action_mode, payload_mode) == ("group_set_mode", {"movement_mode": "cautious"})
     assert (action_activity, payload_activity) == ("group_set_activity", {"activity": "navigate"})
@@ -586,6 +590,50 @@ def test_handle_group_service_use_supports_authored_result_and_already_used() ->
     assert handled_repeat is True
     assert err_repeat is None
     assert "уже была использована" in str(msg_repeat)
+
+
+def test_handle_group_map_intel_returns_empty_and_recent_journal_summary() -> None:
+    player_id = uuid.uuid4()
+    empty_sess = SimpleNamespace(settings={})
+    session_state._initialize_default_group(empty_sess, [player_id], "Таверна")
+
+    handled_empty, err_empty, msg_empty = ws_handlers._handle_group_action_request(
+        empty_sess,
+        action="group_map_intel",
+        actor_player_id=player_id,
+        payload={},
+        source="test",
+    )
+
+    assert handled_empty is True
+    assert err_empty is None
+    assert "пока нет записей" in str(msg_empty)
+
+    sess = SimpleNamespace(settings={})
+    session_state._initialize_default_group(
+        sess,
+        [player_id],
+        {
+            "map_level": "region",
+            "node_type": "zone",
+            "node_id": "start_trakt",
+            "label": "Стартовый тракт",
+        },
+    )
+    session_state.resolve_group_scout(sess, "main", player_id=player_id, source="test")
+
+    handled_filled, err_filled, msg_filled = ws_handlers._handle_group_action_request(
+        sess,
+        action="group_map_intel",
+        actor_player_id=player_id,
+        payload={},
+        source="test",
+    )
+
+    assert handled_filled is True
+    assert err_filled is None
+    assert "Журнал разведки группы main" in str(msg_filled)
+    assert "Последняя запись" in str(msg_filled)
 
 
 def test_handle_group_move_pause_resume_enter_arrive_interrupt_and_stop_requests_update_group_state() -> None:

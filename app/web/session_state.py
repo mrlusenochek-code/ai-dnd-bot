@@ -1976,6 +1976,398 @@ def _normalize_group_service_state_map(raw: Any) -> dict[str, dict[str, Any]]:
     return normalized
 
 
+def _normalize_group_map_intel_entry(raw: Any) -> dict[str, Any] | None:
+    if not isinstance(raw, dict):
+        return None
+    entry_id = str(raw.get("entry_id") or "").strip()
+    entry_type = str(raw.get("entry_type") or "").strip().lower()
+    if entry_type not in {"clue", "guidance", "route_hint", "warning", "landmark_note", "travel_note"}:
+        return None
+    title = str(raw.get("title") or "").strip()
+    summary = str(raw.get("summary") or "").strip()
+    result_summary = str(raw.get("result_summary") or "").strip()
+    source_kind = str(raw.get("source_kind") or "").strip().lower()
+    if source_kind not in {"scout", "service", "context_action", "travel_event"}:
+        return None
+    source_id = str(raw.get("source_id") or "").strip()
+    node_id = str(raw.get("node_id") or "").strip()
+    node_label = str(raw.get("node_label") or node_id).strip()
+    dedupe_key = str(raw.get("dedupe_key") or "").strip().lower()
+    discovered_at = str(raw.get("discovered_at") or "").strip()
+    if not entry_id or not title or not summary or not result_summary or not source_id or not node_id or not node_label or not dedupe_key:
+        return None
+    related_node_ids = [
+        str(item).strip()[:120]
+        for item in (raw.get("related_node_ids") or [])
+        if str(item or "").strip()
+    ] if isinstance(raw.get("related_node_ids"), list) else []
+    related_route_ids = [
+        str(item).strip()[:120]
+        for item in (raw.get("related_route_ids") or [])
+        if str(item or "").strip()
+    ] if isinstance(raw.get("related_route_ids"), list) else []
+    tags = [
+        str(item).strip().lower()[:40]
+        for item in (raw.get("tags") or [])
+        if str(item or "").strip()
+    ] if isinstance(raw.get("tags"), list) else []
+    entry: dict[str, Any] = {
+        "entry_id": entry_id[:80],
+        "entry_type": entry_type[:40],
+        "title": title[:160],
+        "summary": summary[:400],
+        "result_summary": result_summary[:400],
+        "source_kind": source_kind[:40],
+        "source_id": source_id[:120],
+        "node_id": node_id[:120],
+        "node_label": node_label[:120],
+        "related_node_ids": related_node_ids,
+        "related_route_ids": related_route_ids,
+        "tags": tags,
+        "dedupe_key": dedupe_key[:240],
+    }
+    if discovered_at:
+        entry["discovered_at"] = discovered_at[:80]
+    return entry
+
+
+def _normalize_group_map_intel_entries(raw: Any) -> list[dict[str, Any]]:
+    if not isinstance(raw, list):
+        return []
+    entries: list[dict[str, Any]] = []
+    seen_ids: set[str] = set()
+    for item in raw:
+        entry = _normalize_group_map_intel_entry(item)
+        if not entry:
+            continue
+        entry_id = str(entry.get("entry_id") or "").strip().lower()
+        if entry_id in seen_ids:
+            continue
+        seen_ids.add(entry_id)
+        entries.append(entry)
+    return entries
+
+
+def build_group_map_intel_entry(
+    *,
+    entry_type: str,
+    title: str,
+    summary: str,
+    result_summary: str,
+    source_kind: str,
+    source_id: str,
+    node_id: str,
+    node_label: str,
+    related_node_ids: list[str] | set[str] | None = None,
+    related_route_ids: list[str] | set[str] | None = None,
+    tags: list[str] | set[str] | None = None,
+    dedupe_key: str,
+    discovered_at: str | None = None,
+) -> dict[str, Any] | None:
+    return _normalize_group_map_intel_entry(
+        {
+            "entry_id": uuid.uuid4().hex[:12],
+            "entry_type": entry_type,
+            "title": title,
+            "summary": summary,
+            "result_summary": result_summary,
+            "source_kind": source_kind,
+            "source_id": source_id,
+            "node_id": node_id,
+            "node_label": node_label,
+            "related_node_ids": list(related_node_ids or []),
+            "related_route_ids": list(related_route_ids or []),
+            "tags": list(tags or []),
+            "dedupe_key": dedupe_key,
+            "discovered_at": discovered_at or datetime.now(timezone.utc).isoformat(),
+        }
+    )
+
+
+def _add_group_map_intel_entry_to_group(
+    group: dict[str, Any],
+    entry: dict[str, Any] | None,
+) -> dict[str, Any] | None:
+    normalized_entry = _normalize_group_map_intel_entry(entry)
+    if not normalized_entry:
+        return None
+    entries = _normalize_group_map_intel_entries(group.get("map_intel_entries"))
+    dedupe_key = str(normalized_entry.get("dedupe_key") or "").strip().lower()
+    existing = next(
+        (
+            dict(item)
+            for item in entries
+            if str(item.get("dedupe_key") or "").strip().lower() == dedupe_key
+        ),
+        None,
+    )
+    if existing:
+        group["map_intel_entries"] = entries
+        return existing
+    entries.append(normalized_entry)
+    group["map_intel_entries"] = entries
+    return dict(normalized_entry)
+
+
+def add_group_map_intel_entry(
+    sess: Session,
+    group_id: str,
+    entry: dict[str, Any] | None,
+) -> dict[str, Any] | None:
+    normalized_group_id = str(group_id or "").strip()
+    if not normalized_group_id:
+        return None
+    groups = _get_group_states(sess)
+    group = groups.get(normalized_group_id)
+    if not isinstance(group, dict):
+        return None
+    stored = _add_group_map_intel_entry_to_group(group, entry)
+    if not stored:
+        return None
+    _persist_group_states(sess, groups)
+    _sync_group_position_mirrors(sess, group)
+    return stored
+
+
+def get_current_group_map_intel(
+    sess: Session,
+    *,
+    player_id: uuid.UUID | str | None = None,
+    group_id: str | None = None,
+) -> list[dict[str, Any]]:
+    resolved_group_id = str(group_id or "").strip()
+    resolved_player_id = str(player_id or "").strip()
+    if not resolved_group_id and resolved_player_id:
+        resolved_group_id = str(_get_player_group_id(sess, resolved_player_id) or "").strip()
+    if not resolved_group_id:
+        return []
+    group = _get_group_states(sess).get(resolved_group_id)
+    if not isinstance(group, dict):
+        return []
+    return [dict(item) for item in _normalize_group_map_intel_entries(group.get("map_intel_entries"))]
+
+
+def get_current_group_recent_map_intel(
+    sess: Session,
+    *,
+    player_id: uuid.UUID | str | None = None,
+    group_id: str | None = None,
+    limit: int = 5,
+) -> list[dict[str, Any]]:
+    entries = get_current_group_map_intel(sess, player_id=player_id, group_id=group_id)
+    resolved_limit = max(0, int(limit or 0))
+    if resolved_limit <= 0:
+        return []
+    return entries[-resolved_limit:]
+
+
+def _build_map_intel_tags(
+    *,
+    entry_type: str,
+    node_id: str,
+    related_node_ids: list[str] | set[str] | None = None,
+) -> list[str]:
+    tags: list[str] = []
+    for candidate in [entry_type, node_id, *(related_node_ids or [])]:
+        tag = str(candidate or "").strip().lower()
+        if tag and tag not in tags:
+            tags.append(tag)
+    return tags[:8]
+
+
+def _build_map_intel_entry_from_scout_result(result: dict[str, Any] | None) -> dict[str, Any] | None:
+    normalized = _normalize_group_last_scout_result(result)
+    if not normalized:
+        return None
+    result_type = str(normalized.get("result_type") or "").strip().lower()
+    if result_type == "no_new_findings":
+        return None
+    node_id = str(normalized.get("node_id") or "").strip()
+    node_label = str(normalized.get("node_label") or node_id).strip()
+    related_node_ids = list(normalized.get("discovered_node_ids") or [])
+    related_route_ids = list(normalized.get("discovered_route_ids") or [])
+    discovered_notes = [str(note).strip() for note in (normalized.get("discovered_notes") or []) if str(note or "").strip()]
+    entry_type = "route_hint"
+    title = f"Разведка у {node_label}"
+    if result_type == "landmark_revealed":
+        entry_type = "landmark_note"
+        title = f"Ориентир у {node_label}"
+    elif result_type == "hidden_path_revealed":
+        entry_type = "route_hint"
+        title = f"Скрытый проход у {node_label}"
+    elif result_type == "local_clue_found":
+        entry_type = "clue"
+        title = f"Локальная зацепка у {node_label}"
+    primary_note = discovered_notes[0] if discovered_notes else str(normalized.get("result_summary") or normalized.get("summary") or "").strip()
+    dedupe_parts = [
+        "scout",
+        node_id,
+        result_type,
+        ",".join(sorted(str(item).strip().lower() for item in related_node_ids if str(item).strip())),
+        ",".join(sorted(str(item).strip().lower() for item in related_route_ids if str(item).strip())),
+        primary_note.lower(),
+    ]
+    return build_group_map_intel_entry(
+        entry_type=entry_type,
+        title=title,
+        summary=str(normalized.get("summary") or ""),
+        result_summary=primary_note or str(normalized.get("result_summary") or ""),
+        source_kind="scout",
+        source_id=str(normalized.get("result_id") or ""),
+        node_id=node_id,
+        node_label=node_label,
+        related_node_ids=related_node_ids,
+        related_route_ids=related_route_ids,
+        tags=_build_map_intel_tags(entry_type=entry_type, node_id=node_id, related_node_ids=related_node_ids),
+        dedupe_key="|".join(part for part in dedupe_parts if part),
+        discovered_at=str(normalized.get("resolved_at") or ""),
+    )
+
+
+def _build_map_intel_entry_from_service_result(
+    result: dict[str, Any] | None,
+) -> dict[str, Any] | None:
+    normalized = _normalize_group_last_service_result(result)
+    if not normalized:
+        return None
+    result_type = str(normalized.get("result_type") or "").strip().lower()
+    discovered_notes = [str(note).strip() for note in (normalized.get("discovered_notes") or []) if str(note or "").strip()]
+    if result_type == "guidance_received":
+        entry_type = "guidance"
+    elif result_type in {"supplies_secured", "lodging_received"} and discovered_notes:
+        entry_type = "travel_note"
+    else:
+        return None
+    node_id = str(normalized.get("node_id") or "").strip()
+    node_label = str(normalized.get("node_label") or node_id).strip()
+    primary_note = discovered_notes[0] if discovered_notes else str(normalized.get("result_summary") or normalized.get("summary") or "").strip()
+    related_node_ids = [
+        effect.split(":", 1)[1]
+        for effect in (normalized.get("applied_effects") or [])
+        if isinstance(effect, str) and effect.startswith("node_revealed:")
+    ]
+    dedupe_parts = [
+        "service",
+        str(normalized.get("service_id") or ""),
+        result_type,
+        primary_note.lower(),
+    ]
+    return build_group_map_intel_entry(
+        entry_type=entry_type,
+        title=f"Услуга у {node_label}",
+        summary=str(normalized.get("summary") or ""),
+        result_summary=primary_note or str(normalized.get("result_summary") or ""),
+        source_kind="service",
+        source_id=str(normalized.get("service_id") or normalized.get("result_id") or ""),
+        node_id=node_id,
+        node_label=node_label,
+        related_node_ids=related_node_ids,
+        related_route_ids=[],
+        tags=_build_map_intel_tags(entry_type=entry_type, node_id=node_id, related_node_ids=related_node_ids),
+        dedupe_key="|".join(part for part in dedupe_parts if part),
+        discovered_at=str(normalized.get("resolved_at") or ""),
+    )
+
+
+def _build_map_intel_entry_from_context_action_result(
+    result: dict[str, Any] | None,
+    *,
+    action_effect: dict[str, Any] | None = None,
+) -> dict[str, Any] | None:
+    normalized = _normalize_group_last_context_action_result(result)
+    if not normalized:
+        return None
+    result_type = str(normalized.get("result_type") or "").strip().lower()
+    effect = dict(action_effect or {})
+    discovered_notes = [
+        str(note).strip()
+        for note in (effect.get("discovered_notes") or [])
+        if str(note or "").strip()
+    ]
+    if result_type == "local_clue_found":
+        entry_type = "clue"
+        title = f"Локальная находка у {normalized.get('node_label')}"
+        result_summary = discovered_notes[0] if discovered_notes else str(normalized.get("result_summary") or normalized.get("summary") or "").strip()
+    elif result_type == "route_cleared" and discovered_notes:
+        entry_type = "route_hint"
+        title = f"Проход открыт у {normalized.get('node_label')}"
+        result_summary = discovered_notes[0]
+    elif result_type == "route_still_blocked" and discovered_notes:
+        entry_type = "warning"
+        title = f"Предупреждение у {normalized.get('node_label')}"
+        result_summary = discovered_notes[0]
+    else:
+        return None
+    route_id = str(effect.get("route_id") or "").strip().lower()
+    dedupe_parts = [
+        "context_action",
+        str(normalized.get("action_id") or ""),
+        result_type,
+        route_id,
+        result_summary.lower(),
+    ]
+    return build_group_map_intel_entry(
+        entry_type=entry_type,
+        title=title,
+        summary=str(normalized.get("summary") or ""),
+        result_summary=result_summary,
+        source_kind="context_action",
+        source_id=str(normalized.get("action_id") or normalized.get("result_id") or ""),
+        node_id=str(normalized.get("node_id") or ""),
+        node_label=str(normalized.get("node_label") or normalized.get("node_id") or ""),
+        related_node_ids=[],
+        related_route_ids=[route_id] if route_id else [],
+        tags=_build_map_intel_tags(entry_type=entry_type, node_id=str(normalized.get("node_id") or "")),
+        dedupe_key="|".join(part for part in dedupe_parts if part),
+        discovered_at=str(normalized.get("resolved_at") or ""),
+    )
+
+
+def _build_map_intel_entry_from_travel_event_outcome(
+    outcome: dict[str, Any] | None,
+) -> dict[str, Any] | None:
+    normalized = _normalize_group_travel_event_outcome(outcome)
+    if not normalized:
+        return None
+    outcome_type = str(normalized.get("outcome_type") or "").strip().lower()
+    entry_type_by_outcome = {
+        "finding_note": "travel_note",
+        "route_hint": "route_hint",
+        "guidance_note": "guidance",
+        "warning_note": "warning",
+    }
+    entry_type = entry_type_by_outcome.get(outcome_type)
+    if not entry_type:
+        return None
+    route_snapshot = _normalize_group_route_summary(normalized.get("route_snapshot")) or {}
+    related_node_ids = [str(route_snapshot.get("target_node_id") or "").strip()] if str(route_snapshot.get("target_node_id") or "").strip() else []
+    related_route_ids = [str(route_snapshot.get("route_id") or "").strip().lower()] if str(route_snapshot.get("route_id") or "").strip() else []
+    node_label = str(route_snapshot.get("target_label") or normalized.get("event_key") or "путь").strip()
+    dedupe_parts = [
+        "travel_event",
+        str(normalized.get("event_key") or ""),
+        outcome_type,
+        ",".join(related_node_ids),
+        ",".join(related_route_ids),
+        str(normalized.get("result_summary") or "").strip().lower(),
+    ]
+    return build_group_map_intel_entry(
+        entry_type=entry_type,
+        title=f"Дорожная заметка: {node_label}",
+        summary=str(normalized.get("summary") or ""),
+        result_summary=str(normalized.get("result_summary") or normalized.get("summary") or ""),
+        source_kind="travel_event",
+        source_id=str(normalized.get("outcome_id") or normalized.get("event_key") or ""),
+        node_id=str(route_snapshot.get("target_node_id") or normalized.get("event_key") or "travel_event"),
+        node_label=node_label,
+        related_node_ids=related_node_ids,
+        related_route_ids=related_route_ids,
+        tags=_build_map_intel_tags(entry_type=entry_type, node_id=str(route_snapshot.get("target_node_id") or normalized.get("event_key") or "")),
+        dedupe_key="|".join(part for part in dedupe_parts if part),
+        discovered_at=str(normalized.get("resolved_at") or ""),
+    )
+
+
 def _set_group_last_service_result(group: dict[str, Any], service_result: dict[str, Any] | None) -> dict[str, Any] | None:
     normalized = _normalize_group_last_service_result(service_result)
     if not normalized:
@@ -2345,6 +2737,9 @@ def resolve_group_service(
         )
         if result:
             _set_group_last_service_result(group, result)
+            intel_entry = _build_map_intel_entry_from_service_result(result)
+            if intel_entry:
+                _add_group_map_intel_entry_to_group(group, intel_entry)
             _persist_group_states(sess, groups)
             _sync_group_position_mirrors(sess, group)
             return dict(group), None
@@ -2411,6 +2806,9 @@ def resolve_group_service(
         if not isinstance(group, dict):
             return None, "Группа игрока не найдена."
     _set_group_last_service_result(group, service_result)
+    intel_entry = _build_map_intel_entry_from_service_result(service_result)
+    if intel_entry:
+        _add_group_map_intel_entry_to_group(group, intel_entry)
     _set_group_service_state(
         group,
         normalized_service_id,
@@ -2861,6 +3259,9 @@ def resolve_group_context_action(
     if not group:
         return None, "Группа не найдена."
     _set_group_last_context_action_result(group, result)
+    intel_entry = _build_map_intel_entry_from_context_action_result(result, action_effect=action_effect)
+    if intel_entry:
+        _add_group_map_intel_entry_to_group(group, intel_entry)
     _set_group_context_action_state(
         group,
         normalized_action_id,
@@ -3232,6 +3633,9 @@ def apply_group_travel_event_outcome(
             grant_player_map_knowledge(sess, resolved_player_id, target_node_id, knowledge_kind="known", source=source)
         if outcome_type == "route_hint":
             reveal_player_map_node(sess, resolved_player_id, target_node_id, source=source)
+    intel_entry = _build_map_intel_entry_from_travel_event_outcome(normalized_outcome)
+    if intel_entry:
+        _add_group_map_intel_entry_to_group(group, intel_entry)
     _persist_group_states(sess, groups)
     _sync_group_position_mirrors(sess, group)
     return dict(group)
@@ -3334,6 +3738,9 @@ def resolve_group_scout(
             for discovered_node_id in result.get("discovered_node_ids") or []:
                 reveal_player_map_node(sess, pid, str(discovered_node_id), source=source)
     _set_group_last_scout_result(group, result)
+    intel_entry = _build_map_intel_entry_from_scout_result(result)
+    if intel_entry:
+        _add_group_map_intel_entry_to_group(group, intel_entry)
     _persist_group_states(sess, groups)
     _sync_group_position_mirrors(sess, group)
     return dict(group), None
@@ -3721,6 +4128,10 @@ def _group_service_states_summary(group: dict[str, Any]) -> list[dict[str, Any]]
     return [dict(service_states[key]) for key in sorted(service_states.keys())]
 
 
+def _group_map_intel_count(group: dict[str, Any]) -> int:
+    return len(_normalize_group_map_intel_entries(group.get("map_intel_entries")))
+
+
 def _group_movement_mode(group: dict[str, Any]) -> str:
     return _normalize_group_movement_mode(group.get("movement_mode"))
 
@@ -3931,6 +4342,9 @@ def _normalize_group_state(
     service_states = _normalize_group_service_state_map(raw.get("service_states"))
     if service_states:
         normalized["service_states"] = service_states
+    map_intel_entries = _normalize_group_map_intel_entries(raw.get("map_intel_entries"))
+    if map_intel_entries:
+        normalized["map_intel_entries"] = map_intel_entries
     travel_event = _normalize_group_travel_event(raw.get("travel_event"))
     if travel_event:
         normalized["travel_event"] = travel_event

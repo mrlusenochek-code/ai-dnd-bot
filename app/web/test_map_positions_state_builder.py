@@ -121,6 +121,8 @@ def test_build_state_includes_legacy_and_structured_positions(monkeypatch) -> No
     monkeypatch.setattr(state_builder, "get_current_group_node_states", lambda _sess, player_id=None: [])
     monkeypatch.setattr(state_builder, "get_current_group_current_node_state", lambda _sess, player_id=None: None)
     monkeypatch.setattr(state_builder, "get_current_group_last_travel_event_outcome", lambda _sess, player_id=None: None)
+    monkeypatch.setattr(state_builder, "get_current_group_map_intel", lambda _sess, player_id=None: [])
+    monkeypatch.setattr(state_builder, "get_current_group_recent_map_intel", lambda _sess, player_id=None: [])
     monkeypatch.setattr(state_builder, "get_current_group_navigation_options", lambda _sess, player_id=None: [])
     monkeypatch.setattr(state_builder, "snapshot_combat_state", lambda _session_id: None)
 
@@ -151,6 +153,7 @@ def test_build_state_includes_legacy_and_structured_positions(monkeypatch) -> No
             "node_states": None,
             "last_service_result_summary": None,
             "service_states": None,
+            "map_intel_count": 0,
             "movement_intent_summary": None,
             "travel_state": None,
             "travel_summary": None,
@@ -177,6 +180,8 @@ def test_build_state_includes_legacy_and_structured_positions(monkeypatch) -> No
     assert payload["game"]["current_group_node_states"] == []
     assert payload["game"]["current_group_current_node_state"] is None
     assert payload["game"]["current_group_last_travel_event_outcome"] is None
+    assert payload["game"]["current_group_map_intel"] == []
+    assert payload["game"]["current_group_recent_map_intel"] == []
     assert payload["game"]["current_group_navigation_options"] == []
     assert payload["session"]["current_group_id"] is None
     assert payload["players"] == [
@@ -530,6 +535,50 @@ def test_build_state_exports_current_player_group_id(monkeypatch) -> None:
     )
     monkeypatch.setattr(
         state_builder,
+        "get_current_group_map_intel",
+        lambda _sess, player_id=None: [
+            {
+                "entry_id": "intel-1",
+                "entry_type": "route_hint",
+                "title": "Разведка у Стартового тракта",
+                "summary": "Разведка у Стартового тракта приносит новый маршрутный результат.",
+                "result_summary": "С тракта замечается надёжный боковой путь к озёрному городку.",
+                "source_kind": "scout",
+                "source_id": "scout-out-1",
+                "node_id": "start_trakt",
+                "node_label": "Стартовый тракт",
+                "related_node_ids": ["craft_town"],
+                "related_route_ids": ["start_trakt->craft_town"],
+                "tags": ["route_hint", "start_trakt", "craft_town"],
+                "dedupe_key": "scout|start_trakt|route_revealed|craft_town|start_trakt->craft_town|route",
+                "discovered_at": "2026-03-14T00:08:00+00:00",
+            }
+        ],
+    )
+    monkeypatch.setattr(
+        state_builder,
+        "get_current_group_recent_map_intel",
+        lambda _sess, player_id=None: [
+            {
+                "entry_id": "intel-1",
+                "entry_type": "route_hint",
+                "title": "Разведка у Стартового тракта",
+                "summary": "Разведка у Стартового тракта приносит новый маршрутный результат.",
+                "result_summary": "С тракта замечается надёжный боковой путь к озёрному городку.",
+                "source_kind": "scout",
+                "source_id": "scout-out-1",
+                "node_id": "start_trakt",
+                "node_label": "Стартовый тракт",
+                "related_node_ids": ["craft_town"],
+                "related_route_ids": ["start_trakt->craft_town"],
+                "tags": ["route_hint", "start_trakt", "craft_town"],
+                "dedupe_key": "scout|start_trakt|route_revealed|craft_town|start_trakt->craft_town|route",
+                "discovered_at": "2026-03-14T00:08:00+00:00",
+            }
+        ],
+    )
+    monkeypatch.setattr(
+        state_builder,
         "get_current_group_navigation_options",
         lambda _sess, player_id=None: [
             {
@@ -769,6 +818,25 @@ def test_build_state_exports_current_player_group_id(monkeypatch) -> None:
         "source": "travel",
         "resolved_at": "2026-03-14T00:10:00+00:00",
     }
+    assert payload["game"]["current_group_map_intel"] == [
+        {
+            "entry_id": "intel-1",
+            "entry_type": "route_hint",
+            "title": "Разведка у Стартового тракта",
+            "summary": "Разведка у Стартового тракта приносит новый маршрутный результат.",
+            "result_summary": "С тракта замечается надёжный боковой путь к озёрному городку.",
+            "source_kind": "scout",
+            "source_id": "scout-out-1",
+            "node_id": "start_trakt",
+            "node_label": "Стартовый тракт",
+            "related_node_ids": ["craft_town"],
+            "related_route_ids": ["start_trakt->craft_town"],
+            "tags": ["route_hint", "start_trakt", "craft_town"],
+            "dedupe_key": "scout|start_trakt|route_revealed|craft_town|start_trakt->craft_town|route",
+            "discovered_at": "2026-03-14T00:08:00+00:00",
+        }
+    ]
+    assert payload["game"]["current_group_recent_map_intel"] == payload["game"]["current_group_map_intel"]
     assert payload["game"]["current_group_navigation_options"] == [
         {
             "route_id": "start_trakt->fortress_gate:move",
@@ -790,6 +858,7 @@ def test_build_state_exports_current_player_group_id(monkeypatch) -> None:
             "blocked": False,
         }
     ]
+    assert payload["game"]["groups"]["main"]["map_intel_count"] == 0
 
 
 def test_build_state_exports_group_activity_summaries(monkeypatch) -> None:
@@ -905,6 +974,24 @@ def test_build_state_exports_group_activity_summaries(monkeypatch) -> None:
                     "updated_at": "2026-03-15T00:06:00+00:00",
                 }
             },
+            "map_intel_entries": [
+                {
+                    "entry_id": "intel-camp-1",
+                    "entry_type": "clue",
+                    "title": "Лагерная заметка",
+                    "summary": "Лагерь остаётся удобной точкой сбора.",
+                    "result_summary": "Лагерь остаётся удобной точкой сбора перед выходом.",
+                    "source_kind": "scout",
+                    "source_id": "scout-out-2",
+                    "node_id": "camp",
+                    "node_label": "camp",
+                    "related_node_ids": [],
+                    "related_route_ids": [],
+                    "tags": ["clue", "camp"],
+                    "dedupe_key": "scout|camp|local_clue",
+                    "discovered_at": "2026-03-14T00:07:00+00:00",
+                }
+            ],
             "movement_intent": {
                 "target_label": "Северные ворота",
                 "target_node": {
@@ -1139,6 +1226,7 @@ def test_build_state_exports_group_activity_summaries(monkeypatch) -> None:
             "updated_at": "2026-03-15T00:06:00+00:00",
         }
     ]
+    assert payload["game"]["groups"]["main"]["map_intel_count"] == 1
     assert payload["game"]["groups"]["main"]["movement_intent_summary"] == {
         "target_label": "Северные ворота",
         "target_node": {

@@ -69,6 +69,8 @@ from app.web.session_state import (
     execute_current_group_context_action,
     execute_current_group_service,
     execute_group_navigation_option,
+    get_current_group_map_intel,
+    get_current_group_recent_map_intel,
     get_player_known_node_ids,
     get_current_group_travel_event,
     get_group_movement_mode,
@@ -1759,6 +1761,9 @@ def _parse_group_command(cmdline: str) -> tuple[str | None, dict[str, Any]]:
     if lowered in {"group stop", "group_stop"}:
         return "group_stop", {}
 
+    if lowered in {"group intel", "group_intel", "group journal", "group_journal"}:
+        return "group_map_intel", {}
+
     for prefix in ("group split ", "group_split "):
         if lowered.startswith(prefix):
             payload = txt[len(prefix):].strip()
@@ -1840,6 +1845,7 @@ def _handle_group_action_request(
         "group_context_action",
         "group_service",
         "group_service_use",
+        "group_map_intel",
         "group_enter",
         "group_stop",
         "group_event_resolve",
@@ -1903,6 +1909,26 @@ def _handle_group_action_request(
         scout_result = (updated or {}).get("last_scout_result") or {}
         return True, None, str(scout_result.get("result_summary") or f"Группа {actor_group_key} провела разведку.")
 
+    if action == "group_map_intel":
+        if not actor_group_key:
+            return True, "Группа игрока не найдена.", None
+        recent_entries = get_current_group_recent_map_intel(
+            sess,
+            player_id=actor_player_id,
+            group_id=actor_group_key,
+        )
+        all_entries = get_current_group_map_intel(
+            sess,
+            player_id=actor_player_id,
+            group_id=actor_group_key,
+        )
+        if not all_entries:
+            return True, None, f"У группы {actor_group_key} пока нет записей в журнале разведки."
+        latest = recent_entries[-1] if recent_entries else all_entries[-1]
+        title = str((latest or {}).get("title") or "журнал разведки")
+        count = len(all_entries)
+        return True, None, f"Журнал разведки группы {actor_group_key}: {count} записей. Последняя запись: {title}."
+
     if action in {"group_camp_resolve", "group_rest"}:
         if not actor_group_key:
             return True, "Группа игрока не найдена.", None
@@ -1927,6 +1953,7 @@ def _handle_group_action_request(
         "group_context_action",
         "group_service",
         "group_service_use",
+        "group_map_intel",
         "group_enter",
         "group_stop",
         "group_event_resolve",
@@ -6046,6 +6073,7 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                     "group_context_action",
                     "group_service",
                     "group_service_use",
+                    "group_map_intel",
                     "group_enter",
                     "group_stop",
                     "group_event_resolve",
