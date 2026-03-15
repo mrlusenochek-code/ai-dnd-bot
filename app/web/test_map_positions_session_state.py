@@ -1375,10 +1375,11 @@ def test_get_current_group_node_context_returns_node_summary_and_contextual_acti
             "detail_summary": "Здесь легко пополнить припасы, переждать дорогу и собрать слухи о ближних тропах.",
         },
         "contextual_actions": [
-            {"action_id": "navigate", "action_key": "navigate", "label": "Продолжить путь", "action_type": "action", "action_kind": "navigate", "status": "available", "available": True, "exhausted": False},
-            {"action_id": "inspect", "action_key": "inspect", "label": "Осмотреться", "action_type": "action", "action_kind": "inspect", "status": "available", "available": True, "exhausted": False},
-            {"action_id": "wait", "action_key": "wait", "label": "Подождать", "action_type": "action", "action_kind": "wait", "status": "available", "available": True, "exhausted": False},
-            {"action_id": "rest_hint", "action_key": "rest_hint", "label": "Есть место для передышки", "action_type": "hint", "action_kind": "rest_hint", "status": "available", "available": False, "exhausted": False},
+            {"action_id": "navigate", "action_key": "navigate", "label": "Продолжить путь", "action_type": "action", "action_kind": "navigate", "interaction_kind": "context_action", "interaction_id": "navigate", "availability_status": "available", "status": "available", "available": True, "unavailable_reason": "", "unlock_hint": "", "satisfied_requirements": [], "missing_requirements": [], "source": "interaction_gating", "exhausted": False},
+            {"action_id": "inspect", "action_key": "inspect", "label": "Осмотреться", "action_type": "action", "action_kind": "inspect", "interaction_kind": "context_action", "interaction_id": "inspect", "availability_status": "available", "status": "available", "available": True, "unavailable_reason": "", "unlock_hint": "", "satisfied_requirements": [], "missing_requirements": [], "source": "interaction_gating", "exhausted": False},
+            {"action_id": "wait", "action_key": "wait", "label": "Подождать", "action_type": "action", "action_kind": "wait", "interaction_kind": "context_action", "interaction_id": "wait", "availability_status": "available", "status": "available", "available": True, "unavailable_reason": "", "unlock_hint": "", "satisfied_requirements": [], "missing_requirements": [], "source": "interaction_gating", "exhausted": False},
+            {"action_id": "rest_hint", "action_key": "rest_hint", "label": "Есть место для передышки", "action_type": "hint", "action_kind": "rest_hint", "interaction_kind": "context_action", "interaction_id": "rest_hint", "availability_status": "unavailable", "status": "unavailable", "available": False, "unavailable_reason": "informational_only", "unlock_hint": "", "satisfied_requirements": [], "missing_requirements": [], "source": "interaction_gating", "exhausted": False},
+            {"action_id": "trace_watchtower_bearing", "action_key": "trace_watchtower_bearing", "label": "Сверить береговой ориентир", "action_type": "action", "action_kind": "clue", "interaction_kind": "context_action", "interaction_id": "trace_watchtower_bearing", "availability_status": "locked", "status": "locked", "available": False, "unavailable_reason": "requires_node_state_flag", "unlock_hint": "Сначала получить береговую наводку при первом прибытии в городок.", "satisfied_requirements": [], "missing_requirements": ["node_state:craft_arrival_notice_taken", "first_visit_only"], "source": "registry", "one_shot": False, "exhausted": False},
         ],
         "available_services": [
             {
@@ -1389,8 +1390,15 @@ def test_get_current_group_node_context_returns_node_summary_and_contextual_acti
                 "service_kind": "rest",
                 "summary": "Можно перевести дух и переждать путь в сравнительно безопасных условиях.",
                 "source": "registry",
+                "interaction_kind": "service",
+                "interaction_id": "craft_town:safe_rest",
+                "availability_status": "available",
                 "available": True,
                 "status": "available",
+                "unavailable_reason": "",
+                "unlock_hint": "",
+                "satisfied_requirements": [],
+                "missing_requirements": [],
                 "service_hints": ["припасы", "постоялый двор", "ремесленные мастерские"],
             },
             {
@@ -1401,8 +1409,15 @@ def test_get_current_group_node_context_returns_node_summary_and_contextual_acti
                 "service_kind": "supplies",
                 "summary": "Здесь можно пополнить базовые дорожные запасы перед выходом.",
                 "source": "registry",
+                "interaction_kind": "service",
+                "interaction_id": "craft_town:resupply",
+                "availability_status": "available",
                 "available": True,
                 "status": "available",
+                "unavailable_reason": "",
+                "unlock_hint": "",
+                "satisfied_requirements": [],
+                "missing_requirements": [],
                 "service_hints": ["припасы", "постоялый двор", "ремесленные мастерские"],
             },
             {
@@ -1413,8 +1428,15 @@ def test_get_current_group_node_context_returns_node_summary_and_contextual_acti
                 "service_kind": "guidance",
                 "summary": "Здесь можно получить ориентиры, слухи и безопасные подсказки по ближайшим дорогам.",
                 "source": "registry",
-                "available": True,
-                "status": "available",
+                "interaction_kind": "service",
+                "interaction_id": "craft_town_local_guidance",
+                "availability_status": "locked",
+                "unavailable_reason": "requires_destination_event_id",
+                "unlock_hint": "Сначала получить местную наводку при прибытии в городок.",
+                "satisfied_requirements": [],
+                "missing_requirements": ["destination_event:craft_town_arrival_notice", "destination_event_result:settlement_notice"],
+                "status": "locked",
+                "available": False,
                 "one_shot": True,
                 "service_hints": ["припасы", "постоялый двор", "ремесленные мастерские"],
             },
@@ -1426,8 +1448,15 @@ def test_get_current_group_node_context_returns_node_summary_and_contextual_acti
                 "service_kind": "aid",
                 "summary": "На месте можно получить перевязку, уход или базовую помощь после дороги.",
                 "source": "registry",
+                "interaction_kind": "service",
+                "interaction_id": "craft_town:healing_aid",
+                "availability_status": "available",
                 "available": True,
                 "status": "available",
+                "unavailable_reason": "",
+                "unlock_hint": "",
+                "satisfied_requirements": [],
+                "missing_requirements": [],
                 "service_hints": ["припасы", "постоялый двор", "ремесленные мастерские"],
             },
         ],
@@ -1497,6 +1526,7 @@ def test_get_current_group_node_services_and_execute_service_store_result() -> N
         "local_guidance",
         "healing_aid",
     ]
+    assert next(service for service in services if service["service_key"] == "local_guidance")["availability_status"] == "locked"
     assert error is None
     assert updated is not None
     assert session_state.get_current_group_last_service_result(sess, player_id=player_id) == {
@@ -1567,6 +1597,15 @@ def test_resolve_group_service_can_reveal_and_update_node_state_with_already_use
             "label": "Озёрный городок",
         },
     )
+    session_state.record_group_node_visit(
+        sess,
+        "main",
+        "craft_town",
+        node_label="Озёрный городок",
+        result_type="settlement_arrival",
+        summary="Группа прибыла в городок.",
+    )
+    session_state.resolve_group_destination_event(sess, "main", source="test")
 
     resolved, error = session_state.resolve_group_service(
         sess,
@@ -1587,9 +1626,12 @@ def test_resolve_group_service_can_reveal_and_update_node_state_with_already_use
     assert error is None
     assert resolved is not None
     assert resolved["last_service_result"]["result_type"] == "guidance_received"
-    assert resolved["last_service_result"]["reveal_applied"] is True
+    assert resolved["last_service_result"]["reveal_applied"] is False
     assert session_state.is_player_node_revealed(sess, player_id, "watchtower") is True
-    assert session_state.get_group_node_state(sess, "main", "craft_town")["state_flags"] == ["craft_guidance_taken"]
+    assert set(session_state.get_group_node_state(sess, "main", "craft_town")["state_flags"]) == {
+        "craft_arrival_notice_taken",
+        "craft_guidance_taken",
+    }
     assert repeated_error is None
     assert repeated is not None
     assert repeated["last_service_result"]["result_type"] == "already_used"
@@ -1635,10 +1677,186 @@ def test_get_current_group_node_context_adds_enter_for_paused_target_requires_en
         "label": "Войти",
         "action_type": "action",
         "action_kind": "enter",
+        "interaction_kind": "context_action",
+        "interaction_id": "enter",
+        "availability_status": "available",
         "status": "available",
         "available": True,
+        "unavailable_reason": "",
+        "unlock_hint": "",
+        "satisfied_requirements": [],
+        "missing_requirements": [],
+        "source": "interaction_gating",
         "exhausted": False,
     }
+
+
+def test_local_interaction_gating_uses_node_state_destination_event_and_visit_history() -> None:
+    player_id = uuid.uuid4()
+    sess = SimpleNamespace(settings={})
+    session_state._initialize_default_group(
+        sess,
+        [player_id],
+        {
+            "map_level": "region",
+            "node_type": "zone",
+            "node_id": "craft_town",
+            "label": "Озёрный городок",
+        },
+    )
+
+    actions_before = session_state.get_current_group_context_action_availability(sess, player_id=player_id)
+    services_before = session_state.get_current_group_service_availability(sess, player_id=player_id)
+
+    gated_action_before = next(item for item in actions_before if item["action_id"] == "trace_watchtower_bearing")
+    gated_service_before = next(item for item in services_before if item["service_id"] == "craft_town_local_guidance")
+    assert gated_action_before["availability_status"] == "locked"
+    assert gated_service_before["availability_status"] == "locked"
+
+    session_state.record_group_node_visit(
+        sess,
+        "main",
+        "craft_town",
+        node_label="Озёрный городок",
+        result_type="settlement_arrival",
+        summary="Группа впервые прибыла в городок.",
+    )
+    session_state.resolve_group_destination_event(sess, "main", source="test")
+
+    actions_after = session_state.get_current_group_context_action_availability(sess, player_id=player_id)
+    services_after = session_state.get_current_group_service_availability(sess, player_id=player_id)
+
+    gated_action_after = next(item for item in actions_after if item["action_id"] == "trace_watchtower_bearing")
+    gated_service_after = next(item for item in services_after if item["service_id"] == "craft_town_local_guidance")
+    assert gated_action_after["availability_status"] == "available"
+    assert "node_state:craft_arrival_notice_taken" in gated_action_after["satisfied_requirements"]
+    assert gated_service_after["availability_status"] == "available"
+    assert "destination_event:craft_town_arrival_notice" in gated_service_after["satisfied_requirements"]
+
+
+def test_local_interaction_gating_honors_return_visit_and_min_visit_count() -> None:
+    player_id = uuid.uuid4()
+    sess = SimpleNamespace(settings={})
+    session_state._initialize_default_group(
+        sess,
+        [player_id],
+        {
+            "map_level": "region",
+            "node_type": "zone",
+            "node_id": "chapel_village",
+            "label": "Часовенное село",
+        },
+    )
+    first_visit_actions = session_state.get_current_group_context_action_availability(sess, player_id=player_id)
+    first_visit_services = session_state.get_current_group_service_availability(sess, player_id=player_id)
+    assert next(item for item in first_visit_actions if item["action_id"] == "listen_chapel_watch")["availability_status"] == "locked"
+    assert next(item for item in first_visit_services if item["service_id"] == "chapel_village_shrine_aid")["availability_status"] == "locked"
+
+    session_state.record_group_node_visit(
+        sess,
+        "main",
+        "chapel_village",
+        node_label="Часовенное село",
+        result_type="settlement_arrival",
+        summary="Первый визит.",
+    )
+    session_state.record_group_node_visit(
+        sess,
+        "main",
+        "chapel_village",
+        node_label="Часовенное село",
+        result_type="return_arrival",
+        summary="Повторный визит.",
+    )
+
+    return_visit_actions = session_state.get_current_group_context_action_availability(sess, player_id=player_id)
+    return_visit_services = session_state.get_current_group_service_availability(sess, player_id=player_id)
+    assert next(item for item in return_visit_actions if item["action_id"] == "listen_chapel_watch")["availability_status"] == "available"
+    assert next(item for item in return_visit_services if item["service_id"] == "chapel_village_shrine_aid")["availability_status"] == "available"
+
+    session_state._set_group_map_position(
+        sess,
+        "main",
+        {"map_level": "region", "node_type": "zone", "node_id": "forest_settlement", "label": "Лесной посёлок"},
+    )
+    forest_services_before = session_state.get_current_group_service_availability(sess, player_id=player_id)
+    assert next(item for item in forest_services_before if item["service_id"] == "forest_settlement_resupply")["availability_status"] == "locked"
+    session_state.record_group_node_visit(
+        sess,
+        "main",
+        "forest_settlement",
+        node_label="Лесной посёлок",
+        result_type="first_arrival",
+        summary="Первый визит в лесной посёлок.",
+    )
+    session_state.record_group_node_visit(
+        sess,
+        "main",
+        "forest_settlement",
+        node_label="Лесной посёлок",
+        result_type="return_arrival",
+        summary="Второй визит в лесной посёлок.",
+    )
+    forest_services_after = session_state.get_current_group_service_availability(sess, player_id=player_id)
+    assert next(item for item in forest_services_after if item["service_id"] == "forest_settlement_resupply")["availability_status"] == "available"
+
+
+def test_local_interaction_gating_enforces_locked_execution_without_side_effects() -> None:
+    player_id = uuid.uuid4()
+    sess = SimpleNamespace(settings={})
+    session_state._initialize_default_group(
+        sess,
+        [player_id],
+        {
+            "map_level": "region",
+            "node_type": "zone",
+            "node_id": "craft_town",
+            "label": "Озёрный городок",
+        },
+    )
+
+    action_updated, action_error = session_state.execute_current_group_context_action(
+        sess,
+        action_key="trace_watchtower_bearing",
+        player_id=player_id,
+        source="test",
+    )
+    service_updated, service_error = session_state.execute_current_group_service(
+        sess,
+        player_id=player_id,
+        service_id="craft_town_local_guidance",
+        source="test",
+    )
+
+    assert action_updated is None
+    assert action_error == "Сначала получить береговую наводку при первом прибытии в городок."
+    assert service_updated is None
+    assert service_error == "Сначала получить местную наводку при прибытии в городок."
+    assert session_state.get_current_group_last_context_action_result(sess, player_id=player_id) is None
+    assert session_state.get_current_group_last_service_result(sess, player_id=player_id) is None
+
+
+def test_local_interaction_surface_groups_available_and_locked_entries() -> None:
+    player_id = uuid.uuid4()
+    sess = SimpleNamespace(settings={})
+    session_state._initialize_default_group(
+        sess,
+        [player_id],
+        {
+            "map_level": "region",
+            "node_type": "zone",
+            "node_id": "craft_town",
+            "label": "Озёрный городок",
+        },
+    )
+
+    surface = session_state.get_current_group_local_interaction_surface(sess, player_id=player_id)
+
+    assert surface is not None
+    assert surface["node_id"] == "craft_town"
+    assert any(item["interaction_id"] == "navigate" for item in surface["available_actions"])
+    assert any(item["interaction_id"] == "trace_watchtower_bearing" for item in surface["locked_actions"])
+    assert any(item["interaction_id"] == "craft_town_local_guidance" for item in surface["locked_services"])
 
 
 def test_execute_current_group_context_action_supports_wait_camp_inspect_enter_and_navigate() -> None:
@@ -1839,6 +2057,22 @@ def test_repeated_one_shot_context_action_returns_already_completed_and_context_
             "node_id": "chapel_village",
             "label": "Часовенное село",
         },
+    )
+    session_state.record_group_node_visit(
+        sess,
+        "main",
+        "chapel_village",
+        node_label="Часовенное село",
+        result_type="settlement_arrival",
+        summary="Первый визит.",
+    )
+    session_state.record_group_node_visit(
+        sess,
+        "main",
+        "chapel_village",
+        node_label="Часовенное село",
+        result_type="return_arrival",
+        summary="Повторный визит.",
     )
 
     first, first_error = session_state.resolve_group_context_action(
@@ -2983,6 +3217,15 @@ def test_existing_outcomes_write_map_intel_entries() -> None:
         [player_id],
         {"map_level": "region", "node_type": "zone", "node_id": "craft_town", "label": "Озёрный городок"},
     )
+    session_state.record_group_node_visit(
+        sess,
+        "main",
+        "craft_town",
+        node_label="Озёрный городок",
+        result_type="settlement_arrival",
+        summary="Группа прибыла в городок.",
+    )
+    session_state.resolve_group_destination_event(sess, "main", source="test")
     session_state.resolve_group_service(sess, "main", service_id="craft_town_local_guidance", player_id=player_id, source="test")
     service_entries = session_state.get_current_group_map_intel(sess, player_id=player_id)
     assert service_entries[-1]["source_kind"] == "service"
@@ -2992,6 +3235,22 @@ def test_existing_outcomes_write_map_intel_entries() -> None:
         sess,
         [player_id],
         {"map_level": "region", "node_type": "zone", "node_id": "chapel_village", "label": "Часовенное село"},
+    )
+    session_state.record_group_node_visit(
+        sess,
+        "main",
+        "chapel_village",
+        node_label="Часовенное село",
+        result_type="settlement_arrival",
+        summary="Первый визит.",
+    )
+    session_state.record_group_node_visit(
+        sess,
+        "main",
+        "chapel_village",
+        node_label="Часовенное село",
+        result_type="return_arrival",
+        summary="Повторный визит.",
     )
     session_state.resolve_group_context_action(sess, "main", action_id="listen_chapel_watch", player_id=player_id, source="test")
     action_entries = session_state.get_current_group_map_intel(sess, player_id=player_id)

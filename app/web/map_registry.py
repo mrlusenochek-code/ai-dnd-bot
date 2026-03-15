@@ -493,6 +493,21 @@ STATIC_MAP_SCOUT_DISCOVERIES: tuple[dict[str, Any], ...] = (
 
 STATIC_MAP_CONTEXT_ACTION_EFFECTS: tuple[dict[str, Any], ...] = (
     {
+        "node_id": "craft_town",
+        "action_id": "trace_watchtower_bearing",
+        "label": "Сверить береговой ориентир",
+        "action_kind": "clue",
+        "effect_type": "clue",
+        "one_shot": False,
+        "result_type": "local_clue_found",
+        "summary": "Сверить береговую наводку с местными отметками у воды.",
+        "result_summary": "Группа сопоставляет береговую наводку с местными отметками и уточняет, как держать сторожевую башню в ориентире.",
+        "discovered_notes": [
+            "Береговую башню лучше держать чуть севернее причала: так проще не потерять дорогу обратно к городку."
+        ],
+        "applied_effects": ["local_clue:watchtower_bearing"],
+    },
+    {
         "node_id": "forest_road",
         "action_id": "clear_old_road",
         "label": "Расчистить старую дорогу",
@@ -539,6 +554,23 @@ STATIC_MAP_CONTEXT_ACTION_EFFECTS: tuple[dict[str, Any], ...] = (
         "applied_effects": ["local_clue:chapel_watch"],
         "node_state_flags": ["chapel_watch_clue_taken"],
         "node_state_summary": "Дозорные у часовни уже поделились с группой своей короткой дорожной наводкой.",
+    },
+)
+
+
+STATIC_MAP_CONTEXT_ACTION_REQUIREMENTS: tuple[dict[str, Any], ...] = (
+    {
+        "node_id": "craft_town",
+        "action_id": "trace_watchtower_bearing",
+        "requires_node_state_flag": "craft_arrival_notice_taken",
+        "first_visit_only": True,
+        "unlock_hint": "Сначала получить береговую наводку при первом прибытии в городок.",
+    },
+    {
+        "node_id": "chapel_village",
+        "action_id": "listen_chapel_watch",
+        "return_visit_only": True,
+        "unlock_hint": "Дозорные разговорчивее при повторном визите, когда группа уже знакома селу.",
     },
 )
 
@@ -777,6 +809,29 @@ STATIC_MAP_SERVICE_EFFECTS: tuple[dict[str, Any], ...] = (
         "applied_effects": ["supplies_secured"],
         "node_state_flags": ["forest_supplies_secured"],
         "node_state_summary": "В лесном посёлке уже подготовлен и выдан дорожный набор для этой группы.",
+    },
+)
+
+
+STATIC_MAP_SERVICE_REQUIREMENTS: tuple[dict[str, Any], ...] = (
+    {
+        "node_id": "craft_town",
+        "service_id": "craft_town_local_guidance",
+        "requires_destination_event_id": "craft_town_arrival_notice",
+        "requires_destination_event_result_type": "settlement_notice",
+        "unlock_hint": "Сначала получить местную наводку при прибытии в городок.",
+    },
+    {
+        "node_id": "chapel_village",
+        "service_id": "chapel_village_shrine_aid",
+        "return_visit_only": True,
+        "unlock_hint": "Тихий кров при часовне предлагают охотнее тем, кто уже возвращался сюда.",
+    },
+    {
+        "node_id": "forest_settlement",
+        "service_id": "forest_settlement_resupply",
+        "min_visit_count": 2,
+        "unlock_hint": "Полный лесной набор выдают только после того, как группа уже показала повторный заход в посёлок.",
     },
 )
 
@@ -1029,6 +1084,48 @@ def get_static_node_context_action_effects(
     return effects
 
 
+def get_static_node_context_action_requirements(
+    *,
+    node_id: str | None = None,
+    current_map_position: dict[str, Any] | None = None,
+) -> list[dict[str, Any]]:
+    resolved_node_id = _normalized_text(node_id)
+    if not resolved_node_id and isinstance(current_map_position, dict):
+        resolved_node_id = _normalized_text(current_map_position.get("node_id"))
+    if not resolved_node_id:
+        return []
+    requirements: list[dict[str, Any]] = []
+    for item in STATIC_MAP_CONTEXT_ACTION_REQUIREMENTS:
+        if _normalized_text(item.get("node_id")) != resolved_node_id:
+            continue
+        action_id = _normalized_text(item.get("action_id"))
+        if not action_id:
+            continue
+        requirement: dict[str, Any] = {
+            "node_id": resolved_node_id,
+            "action_id": action_id,
+            "unlock_hint": str(item.get("unlock_hint") or "").strip(),
+        }
+        requires_node_state_flag = _normalized_text(item.get("requires_node_state_flag"))
+        if requires_node_state_flag:
+            requirement["requires_node_state_flag"] = requires_node_state_flag
+        requires_destination_event_id = _normalized_text(item.get("requires_destination_event_id"))
+        if requires_destination_event_id:
+            requirement["requires_destination_event_id"] = requires_destination_event_id
+        requires_destination_event_result_type = _normalized_text(item.get("requires_destination_event_result_type"))
+        if requires_destination_event_result_type:
+            requirement["requires_destination_event_result_type"] = requires_destination_event_result_type
+        if bool(item.get("first_visit_only")):
+            requirement["first_visit_only"] = True
+        if bool(item.get("return_visit_only")):
+            requirement["return_visit_only"] = True
+        min_visit_count = int(item.get("min_visit_count") or 0)
+        if min_visit_count > 0:
+            requirement["min_visit_count"] = min_visit_count
+        requirements.append(requirement)
+    return requirements
+
+
 def get_static_node_state_overlays(
     *,
     node_id: str | None = None,
@@ -1212,6 +1309,50 @@ def get_static_node_service_effects(
         if service_key and service_id:
             effects.append(effect)
     return effects
+
+
+def get_static_node_service_requirements(
+    *,
+    node_id: str | None = None,
+    current_map_position: dict[str, Any] | None = None,
+) -> list[dict[str, Any]]:
+    resolved_node_id = _normalized_text(node_id)
+    if not resolved_node_id and isinstance(current_map_position, dict):
+        resolved_node_id = _normalized_text(current_map_position.get("node_id"))
+    if not resolved_node_id:
+        return []
+    requirements: list[dict[str, Any]] = []
+    for item in STATIC_MAP_SERVICE_REQUIREMENTS:
+        if _normalized_text(item.get("node_id")) != resolved_node_id:
+            continue
+        service_id = _normalized_text(item.get("service_id"))
+        service_key = _normalized_text(item.get("service_key"))
+        if not service_id and not service_key:
+            continue
+        requirement: dict[str, Any] = {
+            "node_id": resolved_node_id,
+            "service_id": service_id,
+            "service_key": service_key,
+            "unlock_hint": str(item.get("unlock_hint") or "").strip(),
+        }
+        requires_node_state_flag = _normalized_text(item.get("requires_node_state_flag"))
+        if requires_node_state_flag:
+            requirement["requires_node_state_flag"] = requires_node_state_flag
+        requires_destination_event_id = _normalized_text(item.get("requires_destination_event_id"))
+        if requires_destination_event_id:
+            requirement["requires_destination_event_id"] = requires_destination_event_id
+        requires_destination_event_result_type = _normalized_text(item.get("requires_destination_event_result_type"))
+        if requires_destination_event_result_type:
+            requirement["requires_destination_event_result_type"] = requires_destination_event_result_type
+        if bool(item.get("first_visit_only")):
+            requirement["first_visit_only"] = True
+        if bool(item.get("return_visit_only")):
+            requirement["return_visit_only"] = True
+        min_visit_count = int(item.get("min_visit_count") or 0)
+        if min_visit_count > 0:
+            requirement["min_visit_count"] = min_visit_count
+        requirements.append(requirement)
+    return requirements
 
 
 def get_static_node(node_id: str | None) -> dict[str, Any] | None:

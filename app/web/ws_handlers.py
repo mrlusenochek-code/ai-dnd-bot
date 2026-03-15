@@ -81,6 +81,7 @@ from app.web.session_state import (
     get_group_route_plan_to_node,
     get_current_group_exploration_leads,
     get_current_group_primary_exploration_lead,
+    get_current_group_local_interaction_surface,
     set_group_journey_target,
     advance_group_journey,
     clear_group_journey,
@@ -1758,6 +1759,9 @@ def _parse_group_command(cmdline: str) -> tuple[str | None, dict[str, Any]]:
     if lowered in {"group local", "group_local", "group event", "group_destination_event"}:
         return "group_destination_event", {}
 
+    if lowered in {"group options", "group_options", "group interact", "group_interact"}:
+        return "group_local_interactions", {}
+
     if lowered in {"group arrive", "group_arrive"}:
         return "group_arrive", {}
 
@@ -1888,6 +1892,7 @@ def _handle_group_action_request(
         "group_map_intel",
         "group_node_entry",
         "group_destination_event",
+        "group_local_interactions",
         "group_exploration_leads",
         "group_journey_set",
         "group_journey_advance",
@@ -1999,6 +2004,26 @@ def _handle_group_action_request(
         title = str((result or {}).get("title") or (event_state or {}).get("event_id") or "local event")
         result_type = str((result or {}).get("result_type") or (event_state or {}).get("result_type") or "destination_event")
         return True, None, f"Destination event группы {actor_group_key}: {title} ({result_type})."
+
+    if action == "group_local_interactions":
+        if not actor_group_key:
+            return True, "Группа игрока не найдена.", None
+        surface = get_current_group_local_interaction_surface(
+            sess,
+            player_id=actor_player_id,
+            group_id=actor_group_key,
+        )
+        if not surface:
+            return True, None, f"У группы {actor_group_key} нет локальных взаимодействий в текущем узле."
+        available_actions = list(surface.get("available_actions") or [])
+        available_services = list(surface.get("available_services") or [])
+        locked_actions = list(surface.get("locked_actions") or [])
+        locked_services = list(surface.get("locked_services") or [])
+        return True, None, (
+            f"Локальные взаимодействия группы {actor_group_key}: "
+            f"{len(available_actions)} действий и {len(available_services)} услуг доступны, "
+            f"{len(locked_actions)} действий и {len(locked_services)} услуг ограничены."
+        )
 
     if action == "group_exploration_leads":
         if not actor_group_key:
@@ -2154,6 +2179,7 @@ def _handle_group_action_request(
         "group_map_intel",
         "group_node_entry",
         "group_destination_event",
+        "group_local_interactions",
         "group_exploration_leads",
         "group_journey_set",
         "group_journey_advance",

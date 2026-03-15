@@ -7,7 +7,9 @@ from app.web.map_registry import (
     get_static_node_detail,
     get_static_node_context,
     get_static_node_destination_events,
+    get_static_node_context_action_requirements,
     get_static_node_service_effects,
+    get_static_node_service_requirements,
     get_static_node_inspect_result,
     get_static_node_state_overlays,
     get_static_node_entry_overlays,
@@ -222,6 +224,7 @@ def test_get_current_node_context_actions_uses_metadata_honestly() -> None:
         {"action_id": "inspect", "action_key": "inspect", "label": "Осмотреться", "action_type": "action", "action_kind": "inspect"},
         {"action_id": "wait", "action_key": "wait", "label": "Подождать", "action_type": "action", "action_kind": "wait"},
         {"action_id": "rest_hint", "action_key": "rest_hint", "label": "Есть место для передышки", "action_type": "hint", "action_kind": "rest_hint"},
+        {"action_id": "trace_watchtower_bearing", "action_key": "trace_watchtower_bearing", "label": "Сверить береговой ориентир", "action_type": "action", "action_kind": "clue", "source": "registry", "one_shot": False},
     ]
     assert get_current_node_context_actions(node_id="mine_entrance") == [
         {"action_id": "enter", "action_key": "enter", "label": "Войти", "action_type": "action", "action_kind": "enter"},
@@ -250,6 +253,28 @@ def test_get_current_node_context_actions_exposes_authored_action_ids() -> None:
         "source": "registry",
         "one_shot": True,
     }
+
+
+def test_get_static_local_interaction_requirements_return_authored_gates() -> None:
+    assert get_static_node_context_action_requirements(node_id="craft_town") == [
+        {
+            "node_id": "craft_town",
+            "action_id": "trace_watchtower_bearing",
+            "unlock_hint": "Сначала получить береговую наводку при первом прибытии в городок.",
+            "requires_node_state_flag": "craft_arrival_notice_taken",
+            "first_visit_only": True,
+        }
+    ]
+    assert get_static_node_service_requirements(node_id="craft_town") == [
+        {
+            "node_id": "craft_town",
+            "service_id": "craft_town_local_guidance",
+            "service_key": "",
+            "unlock_hint": "Сначала получить местную наводку при прибытии в городок.",
+            "requires_destination_event_id": "craft_town_arrival_notice",
+            "requires_destination_event_result_type": "settlement_notice",
+        }
+    ]
 
 
 def test_get_static_node_state_overlays_returns_authored_notes_for_flags() -> None:

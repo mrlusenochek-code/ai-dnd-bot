@@ -37,6 +37,8 @@ def test_parse_group_command_supports_wait_camp_rest_scout_move_navigate_context
     action_arrival, payload_arrival = ws_handlers._parse_group_command("group arrival")
     action_local, payload_local = ws_handlers._parse_group_command("group local")
     action_event_read, payload_event_read = ws_handlers._parse_group_command("group event")
+    action_options, payload_options = ws_handlers._parse_group_command("group options")
+    action_interact, payload_interact = ws_handlers._parse_group_command("group interact")
     action_enter, payload_enter = ws_handlers._parse_group_command("group enter замок")
     action_mode, payload_mode = ws_handlers._parse_group_command("group mode cautious")
     action_activity, payload_activity = ws_handlers._parse_group_command("group activity navigate")
@@ -87,6 +89,8 @@ def test_parse_group_command_supports_wait_camp_rest_scout_move_navigate_context
     assert (action_arrival, payload_arrival) == ("group_node_entry", {})
     assert (action_local, payload_local) == ("group_destination_event", {})
     assert (action_event_read, payload_event_read) == ("group_destination_event", {})
+    assert (action_options, payload_options) == ("group_local_interactions", {})
+    assert (action_interact, payload_interact) == ("group_local_interactions", {})
     assert (action_enter, payload_enter) == ("group_enter", {"target_hint": "замок"})
     assert (action_mode, payload_mode) == ("group_set_mode", {"movement_mode": "cautious"})
     assert (action_activity, payload_activity) == ("group_set_activity", {"activity": "navigate"})
@@ -271,6 +275,53 @@ def test_handle_group_search_alias_uses_same_scout_flow() -> None:
     assert err is None
     assert "маршрут" in str(msg) or "развед" in str(msg)
     assert session_state._get_group_states(sess)["main"]["last_scout_result"]["result_type"] == "route_revealed"
+
+
+def test_handle_group_local_interactions_and_locked_local_execution() -> None:
+    player_id = uuid.uuid4()
+    sess = SimpleNamespace(settings={})
+    session_state._initialize_default_group(
+        sess,
+        [player_id],
+        {
+            "map_level": "region",
+            "node_type": "zone",
+            "node_id": "craft_town",
+            "label": "Озёрный городок",
+        },
+    )
+
+    handled_surface, err_surface, msg_surface = ws_handlers._handle_group_action_request(
+        sess,
+        action="group_local_interactions",
+        actor_player_id=player_id,
+        payload={},
+        source="test",
+    )
+    handled_action, err_action, msg_action = ws_handlers._handle_group_action_request(
+        sess,
+        action="group_context_action",
+        actor_player_id=player_id,
+        payload={"action_id": "trace_watchtower_bearing", "action_key": "trace_watchtower_bearing"},
+        source="test",
+    )
+    handled_service, err_service, msg_service = ws_handlers._handle_group_action_request(
+        sess,
+        action="group_service_use",
+        actor_player_id=player_id,
+        payload={"service_id": "craft_town_local_guidance", "service_key": "craft_town_local_guidance"},
+        source="test",
+    )
+
+    assert handled_surface is True
+    assert err_surface is None
+    assert "действий" in str(msg_surface)
+    assert handled_action is True
+    assert err_action == "Сначала получить береговую наводку при первом прибытии в городок."
+    assert msg_action is None
+    assert handled_service is True
+    assert err_service == "Сначала получить местную наводку при прибытии в городок."
+    assert msg_service is None
 
 
 def test_handle_group_context_action_wait_camp_inspect_and_navigate() -> None:
@@ -506,6 +557,22 @@ def test_handle_group_context_action_wrong_node_or_exhausted_action_returns_clea
             "label": "Часовенное село",
         },
     )
+    session_state.record_group_node_visit(
+        exhausted_sess,
+        "main",
+        "chapel_village",
+        node_label="Часовенное село",
+        result_type="settlement_arrival",
+        summary="Первый визит.",
+    )
+    session_state.record_group_node_visit(
+        exhausted_sess,
+        "main",
+        "chapel_village",
+        node_label="Часовенное село",
+        result_type="return_arrival",
+        summary="Повторный визит.",
+    )
     session_state.resolve_group_context_action(
         exhausted_sess,
         "main",
@@ -721,6 +788,15 @@ def test_handle_group_service_use_supports_authored_result_and_already_used() ->
             "label": "Озёрный городок",
         },
     )
+    session_state.record_group_node_visit(
+        sess,
+        "main",
+        "craft_town",
+        node_label="Озёрный городок",
+        result_type="settlement_arrival",
+        summary="Группа прибыла в городок.",
+    )
+    session_state.resolve_group_destination_event(sess, "main", source="test")
 
     handled_first, err_first, msg_first = ws_handlers._handle_group_action_request(
         sess,
@@ -741,7 +817,10 @@ def test_handle_group_service_use_supports_authored_result_and_already_used() ->
     assert err_first is None
     assert "сторожевой башни" in str(msg_first)
     assert session_state.is_player_node_revealed(sess, player_id, "watchtower") is True
-    assert session_state.get_group_node_state(sess, "main", "craft_town")["state_flags"] == ["craft_guidance_taken"]
+    assert set(session_state.get_group_node_state(sess, "main", "craft_town")["state_flags"]) == {
+        "craft_arrival_notice_taken",
+        "craft_guidance_taken",
+    }
     assert handled_repeat is True
     assert err_repeat is None
     assert "уже была использована" in str(msg_repeat)

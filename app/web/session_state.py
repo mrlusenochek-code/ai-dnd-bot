@@ -12,9 +12,11 @@ from app.web.map_registry import (
     get_current_node_context_actions,
     get_obvious_linked_static_node_ids,
     get_static_node_context_action_effects,
+    get_static_node_context_action_requirements,
     get_static_node_destination_events,
     get_static_node_entry_overlays,
     get_static_node_service_effects,
+    get_static_node_service_requirements,
     get_static_node_state_overlays,
     get_static_node_scout_discoveries,
     get_static_navigation_options,
@@ -3892,6 +3894,312 @@ def get_current_group_primary_exploration_lead(
     return get_group_primary_exploration_lead(sess, resolved_group_id)
 
 
+def build_group_interaction_gate_result(
+    *,
+    interaction_kind: str,
+    interaction_id: str,
+    label: str,
+    requirements: dict[str, Any] | None = None,
+    state_flags: list[str] | set[str] | None = None,
+    destination_event_state: dict[str, Any] | None = None,
+    visit_count: int = 0,
+    completed: bool = False,
+    interaction_type: str = "action",
+    unlock_hint: str | None = None,
+    source: str = "interaction_gating",
+) -> dict[str, Any] | None:
+    normalized_kind = str(interaction_kind or "").strip().lower()
+    normalized_id = str(interaction_id or "").strip().lower()
+    normalized_label = str(label or interaction_id).strip()
+    normalized_type = str(interaction_type or "action").strip().lower() or "action"
+    if normalized_kind not in {"context_action", "service"} or not normalized_id or not normalized_label:
+        return None
+    requirement_map = dict(requirements or {})
+    destination_state = _normalize_group_destination_event_state(destination_event_state)
+    available = True
+    availability_status = "available"
+    unavailable_reason = ""
+    missing_requirements: list[str] = []
+    satisfied_requirements: list[str] = []
+    resolved_unlock_hint = str(unlock_hint or requirement_map.get("unlock_hint") or "").strip()
+    available_state_flags = {
+        str(flag or "").strip().lower()
+        for flag in (state_flags or [])
+        if str(flag or "").strip()
+    }
+    resolved_visit_count = max(0, int(visit_count or 0))
+
+    def _requirement_met(key: str, met: bool, *, missing_value: str = "", satisfied_value: str = "") -> None:
+        nonlocal available, availability_status, unavailable_reason
+        if met:
+            if satisfied_value:
+                satisfied_requirements.append(satisfied_value)
+            return
+        available = False
+        availability_status = "locked"
+        if missing_value:
+            missing_requirements.append(missing_value)
+        if not unavailable_reason:
+            unavailable_reason = key
+
+    if completed:
+        availability_status = "completed"
+        available = False
+        unavailable_reason = "already_completed" if normalized_kind == "context_action" else "already_used"
+    elif normalized_type != "action":
+        availability_status = "unavailable"
+        available = False
+        unavailable_reason = "informational_only"
+    else:
+        required_flag = str(requirement_map.get("requires_node_state_flag") or "").strip().lower()
+        if required_flag:
+            _requirement_met(
+                "requires_node_state_flag",
+                required_flag in available_state_flags,
+                missing_value=f"node_state:{required_flag}",
+                satisfied_value=f"node_state:{required_flag}",
+            )
+        required_event_id = str(requirement_map.get("requires_destination_event_id") or "").strip().lower()
+        if required_event_id:
+            actual_event_id = str((destination_state or {}).get("event_id") or "").strip().lower()
+            _requirement_met(
+                "requires_destination_event_id",
+                actual_event_id == required_event_id,
+                missing_value=f"destination_event:{required_event_id}",
+                satisfied_value=f"destination_event:{required_event_id}",
+            )
+        required_event_type = str(requirement_map.get("requires_destination_event_result_type") or "").strip().lower()
+        if required_event_type:
+            actual_event_type = str((destination_state or {}).get("result_type") or "").strip().lower()
+            _requirement_met(
+                "requires_destination_event_result_type",
+                actual_event_type == required_event_type,
+                missing_value=f"destination_event_result:{required_event_type}",
+                satisfied_value=f"destination_event_result:{required_event_type}",
+            )
+        if bool(requirement_map.get("first_visit_only")):
+            _requirement_met(
+                "first_visit_only",
+                resolved_visit_count == 1,
+                missing_value="first_visit_only",
+                satisfied_value="first_visit_only",
+            )
+        if bool(requirement_map.get("return_visit_only")):
+            _requirement_met(
+                "return_visit_only",
+                resolved_visit_count >= 2,
+                missing_value="return_visit_only",
+                satisfied_value="return_visit_only",
+            )
+        min_visit_count = max(0, as_int(requirement_map.get("min_visit_count"), 0))
+        if min_visit_count > 0:
+            _requirement_met(
+                "min_visit_count",
+                resolved_visit_count >= min_visit_count,
+                missing_value=f"min_visit_count:{min_visit_count}",
+                satisfied_value=f"min_visit_count:{min_visit_count}",
+            )
+
+    result = {
+        "interaction_kind": normalized_kind,
+        "interaction_id": normalized_id,
+        "label": normalized_label[:160],
+        "availability_status": availability_status,
+        "available": available,
+        "unavailable_reason": unavailable_reason[:120],
+        "unlock_hint": resolved_unlock_hint[:240],
+        "satisfied_requirements": satisfied_requirements,
+        "missing_requirements": missing_requirements,
+        "source": str(source or "interaction_gating")[:40] or "interaction_gating",
+    }
+    return result
+
+
+def _get_current_group_local_interaction_context(
+    sess: Session,
+    group_id: str,
+) -> dict[str, Any] | None:
+    resolved_group_id = str(group_id or "").strip()
+    if not resolved_group_id:
+        return None
+    group = _get_group_states(sess).get(resolved_group_id)
+    if not isinstance(group, dict):
+        return None
+    current_map_position = _normalize_map_position(group.get("current_map_position"))
+    current_node_id = str((current_map_position or {}).get("node_id") or "").strip().lower()
+    if not current_map_position or not current_node_id:
+        return None
+    current_node_state = (_normalize_group_node_state_map(group.get("node_states"))).get(current_node_id)
+    current_visit_state = (_normalize_group_node_visit_state_map(group.get("node_visit_states"))).get(current_node_id)
+    current_destination_event_state = (_normalize_group_destination_event_state_map(group.get("destination_event_states"))).get(current_node_id)
+    return {
+        "group": group,
+        "current_map_position": current_map_position,
+        "current_node_id": current_node_id,
+        "node_state_flags": list((current_node_state or {}).get("state_flags") or []),
+        "visit_count": max(0, as_int((current_visit_state or {}).get("visit_count"), 0)),
+        "destination_event_state": current_destination_event_state,
+        "context_action_states": _normalize_group_context_action_state_map(group.get("context_action_states")),
+        "service_states": _normalize_group_service_state_map(group.get("service_states")),
+    }
+
+
+def get_current_group_context_action_availability(
+    sess: Session,
+    *,
+    player_id: uuid.UUID | str | None = None,
+    group_id: str | None = None,
+) -> list[dict[str, Any]]:
+    resolved_group_id = str(group_id or "").strip()
+    resolved_player_id = str(player_id or "").strip()
+    if not resolved_group_id and resolved_player_id:
+        resolved_group_id = str(_get_player_group_id(sess, resolved_player_id) or "").strip()
+    context = _get_current_group_local_interaction_context(sess, resolved_group_id)
+    if not context:
+        return []
+    current_map_position = dict(context.get("current_map_position") or {})
+    action_states = dict(context.get("context_action_states") or {})
+    requirement_map = {
+        str(item.get("action_id") or "").strip().lower(): dict(item)
+        for item in get_static_node_context_action_requirements(current_map_position=current_map_position)
+        if isinstance(item, dict) and str(item.get("action_id") or "").strip()
+    }
+    effect_map = {
+        str(item.get("action_id") or "").strip().lower(): dict(item)
+        for item in get_static_node_context_action_effects(current_map_position=current_map_position)
+        if isinstance(item, dict) and str(item.get("action_id") or "").strip()
+    }
+    availability: list[dict[str, Any]] = []
+    for action in get_current_node_context_actions(current_map_position=current_map_position):
+        if not isinstance(action, dict):
+            continue
+        annotated = dict(action)
+        action_id = str(annotated.get("action_id") or annotated.get("action_key") or "").strip().lower()
+        action_state = action_states.get(action_id) or {}
+        completed = str(action_state.get("status") or "").strip().lower() == "completed"
+        gate = build_group_interaction_gate_result(
+            interaction_kind="context_action",
+            interaction_id=action_id,
+            label=str(annotated.get("label") or action_id),
+            requirements=requirement_map.get(action_id),
+            state_flags=context.get("node_state_flags"),
+            destination_event_state=context.get("destination_event_state"),
+            visit_count=int(context.get("visit_count") or 0),
+            completed=completed,
+            interaction_type=str(annotated.get("action_type") or "action"),
+            unlock_hint=str((requirement_map.get(action_id) or {}).get("unlock_hint") or ""),
+        )
+        if not gate:
+            continue
+        availability_status = str(gate.get("availability_status") or "available").strip().lower()
+        annotated.update(gate)
+        if action_id:
+            annotated["action_id"] = action_id
+        effect = effect_map.get(action_id)
+        if effect:
+            annotated["source"] = str(effect.get("source") or annotated.get("source") or "registry")
+            annotated["one_shot"] = bool(effect.get("one_shot"))
+        annotated["status"] = availability_status
+        annotated["available"] = bool(gate.get("available"))
+        annotated["exhausted"] = availability_status == "completed"
+        availability.append(annotated)
+    return availability
+
+
+def get_current_group_service_availability(
+    sess: Session,
+    *,
+    player_id: uuid.UUID | str | None = None,
+    group_id: str | None = None,
+) -> list[dict[str, Any]]:
+    resolved_group_id = str(group_id or "").strip()
+    resolved_player_id = str(player_id or "").strip()
+    if not resolved_group_id and resolved_player_id:
+        resolved_group_id = str(_get_player_group_id(sess, resolved_player_id) or "").strip()
+    context = _get_current_group_local_interaction_context(sess, resolved_group_id)
+    if not context:
+        return []
+    current_map_position = dict(context.get("current_map_position") or {})
+    service_states = dict(context.get("service_states") or {})
+    requirement_map: dict[str, dict[str, Any]] = {}
+    for item in get_static_node_service_requirements(current_map_position=current_map_position):
+        if not isinstance(item, dict):
+            continue
+        service_id = str(item.get("service_id") or item.get("service_key") or "").strip().lower()
+        if service_id:
+            requirement_map[service_id] = dict(item)
+    availability: list[dict[str, Any]] = []
+    for service in get_static_node_services(current_map_position=current_map_position):
+        if not isinstance(service, dict):
+            continue
+        annotated = dict(service)
+        service_id = str(annotated.get("service_id") or annotated.get("service_key") or "").strip().lower()
+        service_state = service_states.get(service_id) or {}
+        completed = str(service_state.get("status") or "").strip().lower() == "completed"
+        requirements = requirement_map.get(service_id) or requirement_map.get(str(annotated.get("service_key") or "").strip().lower()) or {}
+        gate = build_group_interaction_gate_result(
+            interaction_kind="service",
+            interaction_id=service_id,
+            label=str(annotated.get("label") or service_id),
+            requirements=requirements,
+            state_flags=context.get("node_state_flags"),
+            destination_event_state=context.get("destination_event_state"),
+            visit_count=int(context.get("visit_count") or 0),
+            completed=completed,
+            interaction_type="action",
+            unlock_hint=str(requirements.get("unlock_hint") or ""),
+        )
+        if not gate:
+            continue
+        availability_status = str(gate.get("availability_status") or "available").strip().lower()
+        annotated.update(gate)
+        annotated["service_id"] = service_id or annotated.get("service_id") or annotated.get("service_key")
+        annotated["source"] = str(service.get("source") or annotated.get("source") or "registry")
+        annotated["status"] = availability_status
+        annotated["available"] = bool(gate.get("available"))
+        if availability_status == "completed" and not annotated.get("unavailable_reason"):
+            annotated["unavailable_reason"] = "already_used"
+        availability.append(annotated)
+    return availability
+
+
+def get_current_group_local_interaction_surface(
+    sess: Session,
+    *,
+    player_id: uuid.UUID | str | None = None,
+    group_id: str | None = None,
+) -> dict[str, Any] | None:
+    resolved_group_id = str(group_id or "").strip()
+    resolved_player_id = str(player_id or "").strip()
+    if not resolved_group_id and resolved_player_id:
+        resolved_group_id = str(_get_player_group_id(sess, resolved_player_id) or "").strip()
+    context = _get_current_group_local_interaction_context(sess, resolved_group_id)
+    if not context:
+        return None
+    current_map_position = dict(context.get("current_map_position") or {})
+    node_id = str(current_map_position.get("node_id") or "").strip().lower()
+    node_label = str(current_map_position.get("label") or node_id).strip()
+    actions = get_current_group_context_action_availability(sess, group_id=resolved_group_id)
+    services = get_current_group_service_availability(sess, group_id=resolved_group_id)
+    available_actions = [dict(item) for item in actions if str(item.get("availability_status") or "") == "available"]
+    locked_actions = [dict(item) for item in actions if str(item.get("availability_status") or "") != "available"]
+    available_services = [dict(item) for item in services if str(item.get("availability_status") or "") == "available"]
+    locked_services = [dict(item) for item in services if str(item.get("availability_status") or "") != "available"]
+    summary = (
+        f"У {node_label} доступно {len(available_actions)} действий и {len(available_services)} услуг; "
+        f"ограничено {len(locked_actions)} действий и {len(locked_services)} услуг."
+    )
+    return {
+        "node_id": node_id,
+        "node_label": node_label,
+        "available_actions": available_actions,
+        "locked_actions": locked_actions,
+        "available_services": available_services,
+        "locked_services": locked_services,
+        "summary": summary,
+    }
+
+
 def get_current_group_navigation_options(
     sess: Session,
     *,
@@ -4047,33 +4355,11 @@ def get_current_group_node_context(
     node_state_flags = list((current_node_state or {}).get("state_flags") or [])
     state_notes = _build_effective_node_state_notes(current_node_id, node_state_flags, note_kind="context_note") if current_node_id else []
     current_visit_state = get_current_group_current_node_visit_state(sess, group_id=resolved_group_id) if current_node_id else None
-    contextual_actions = get_current_node_context_actions(current_map_position=current_map_position)
-    action_states = _normalize_group_context_action_state_map(group.get("context_action_states"))
-    authored_effects = {
-        str(effect.get("action_id") or "").strip().lower(): effect
-        for effect in get_static_node_context_action_effects(current_map_position=current_map_position)
-        if isinstance(effect, dict) and str(effect.get("action_id") or "").strip()
-    }
-    annotated_actions: list[dict[str, Any]] = []
-    for action in contextual_actions:
-        if not isinstance(action, dict):
-            continue
-        annotated = dict(action)
-        action_id = str(annotated.get("action_id") or annotated.get("action_key") or "").strip().lower()
-        state = action_states.get(action_id)
-        effect = authored_effects.get(action_id)
-        if action_id:
-            annotated["action_id"] = action_id
-        if effect:
-            annotated["source"] = str(effect.get("source") or annotated.get("source") or "registry")
-            annotated["one_shot"] = bool(effect.get("one_shot"))
-        status = "available"
-        if state and str(state.get("status") or "").strip().lower() == "completed":
-            status = "completed"
-        annotated["status"] = status
-        annotated["available"] = status == "available" and str(annotated.get("action_type") or "action").strip().lower() == "action"
-        annotated["exhausted"] = status == "completed"
-        annotated_actions.append(annotated)
+    annotated_actions = get_current_group_context_action_availability(
+        sess,
+        player_id=resolved_player_id or None,
+        group_id=resolved_group_id,
+    )
     travel_state = _group_travel_state_summary(group)
     if isinstance(travel_state, dict) and travel_state.get("active") is True and travel_state.get("paused") is True:
         pause_reason = str(travel_state.get("pause_reason") or "").strip().lower()
@@ -4088,8 +4374,16 @@ def get_current_group_node_context(
                     "label": "Войти",
                     "action_type": "action",
                     "action_kind": "enter",
+                    "interaction_kind": "context_action",
+                    "interaction_id": "enter",
+                    "availability_status": "available",
                     "status": "available",
                     "available": True,
+                    "unavailable_reason": "",
+                    "unlock_hint": "",
+                    "satisfied_requirements": [],
+                    "missing_requirements": [],
+                    "source": "interaction_gating",
                     "exhausted": False,
                 },
             )
@@ -4104,18 +4398,26 @@ def get_current_group_node_context(
                     "label": "Осмотреться",
                     "action_type": "action",
                     "action_kind": "inspect",
+                    "interaction_kind": "context_action",
+                    "interaction_id": "inspect",
+                    "availability_status": "available",
                     "status": "available",
                     "available": True,
+                    "unavailable_reason": "",
+                    "unlock_hint": "",
+                    "satisfied_requirements": [],
+                    "missing_requirements": [],
+                    "source": "interaction_gating",
                     "exhausted": False,
                 },
             )
     payload = {
         "node_summary": node_context,
         "contextual_actions": annotated_actions,
-        "available_services": get_current_group_node_services(sess, player_id=resolved_player_id or None, group_id=resolved_group_id),
+        "available_services": get_current_group_service_availability(sess, player_id=resolved_player_id or None, group_id=resolved_group_id),
         "service_actions": (
             [{"action_key": "use_service", "label": "Воспользоваться услугой", "action_type": "action"}]
-            if get_current_group_node_services(sess, player_id=resolved_player_id or None, group_id=resolved_group_id)
+            if get_current_group_service_availability(sess, player_id=resolved_player_id or None, group_id=resolved_group_id)
             else []
         ),
     }
@@ -4781,34 +5083,11 @@ def get_current_group_node_services(
     group = _get_group_states(sess).get(resolved_group_id)
     if not isinstance(group, dict):
         return []
-    current_map_position = _normalize_map_position(group.get("current_map_position"))
-    if not current_map_position:
-        return []
-    services = get_static_node_services(current_map_position=current_map_position)
-    service_states = _normalize_group_service_state_map(group.get("service_states"))
-    annotated: list[dict[str, Any]] = []
-    for service in services:
-        if not isinstance(service, dict):
-            continue
-        annotated_service = dict(service)
-        service_id = str(annotated_service.get("service_id") or annotated_service.get("service_key") or "").strip().lower()
-        state = service_states.get(service_id)
-        status = "available"
-        available = True
-        unavailable_reason = None
-        if state and str(state.get("status") or "").strip().lower() == "completed":
-            status = "completed"
-            available = False
-            unavailable_reason = "already_used"
-        elif state and str(state.get("status") or "").strip().lower() == "resolved" and bool(annotated_service.get("one_shot")):
-            status = "resolved"
-        annotated_service["service_id"] = service_id or annotated_service.get("service_id") or annotated_service.get("service_key")
-        annotated_service["status"] = status
-        annotated_service["available"] = available
-        if unavailable_reason:
-            annotated_service["unavailable_reason"] = unavailable_reason
-        annotated.append(annotated_service)
-    return annotated
+    return get_current_group_service_availability(
+        sess,
+        player_id=resolved_player_id or None,
+        group_id=resolved_group_id,
+    )
 
 
 def get_current_group_last_inspect_result(
@@ -5067,6 +5346,13 @@ def resolve_group_service(
     )
     if not service:
         return None, "Эта услуга сейчас недоступна в текущем месте."
+    availability_status = str(service.get("availability_status") or service.get("status") or "").strip().lower()
+    unavailable_reason = str(service.get("unavailable_reason") or "").strip()
+    unlock_hint = str(service.get("unlock_hint") or "").strip()
+    if availability_status == "locked":
+        return None, unlock_hint or unavailable_reason or "Эта услуга пока заблокирована в текущем месте."
+    if availability_status == "unavailable" and str(unavailable_reason).strip().lower() != "already_used":
+        return None, unlock_hint or unavailable_reason or "Эта услуга сейчас недоступна в текущем месте."
     if service.get("available") is False and str(service.get("unavailable_reason") or "").strip().lower() == "already_used":
         service_state = (_normalize_group_service_state_map(group.get("service_states"))).get(normalized_service_id)
         result = build_group_service_result(
@@ -5559,6 +5845,27 @@ def resolve_group_context_action(
     action_effect = available_effects.get(normalized_action_id)
     if not action_effect:
         return None, "Это contextual действие недоступно в текущем узле."
+    available_actions = get_current_group_context_action_availability(
+        sess,
+        player_id=player_id,
+        group_id=group_key,
+    )
+    action_surface = next(
+        (
+            dict(item)
+            for item in available_actions
+            if str(item.get("action_id") or item.get("action_key") or "").strip().lower() == normalized_action_id
+        ),
+        None,
+    )
+    if action_surface:
+        availability_status = str(action_surface.get("availability_status") or action_surface.get("status") or "").strip().lower()
+        unavailable_reason = str(action_surface.get("unavailable_reason") or "").strip()
+        unlock_hint = str(action_surface.get("unlock_hint") or "").strip()
+        if availability_status == "locked":
+            return None, unlock_hint or unavailable_reason or "Это contextual действие пока заблокировано."
+        if availability_status == "unavailable":
+            return None, unlock_hint or unavailable_reason or "Это contextual действие сейчас недоступно."
     prior_action_state = (_normalize_group_context_action_state_map(group.get("context_action_states"))).get(normalized_action_id)
     route_id = str(action_effect.get("route_id") or "").strip().lower()
     route_access_state = get_effective_group_route_access_state(sess, group_key, route_id=route_id) if route_id else None
@@ -6233,6 +6540,11 @@ def execute_current_group_context_action(
         return None, "Это contextual действие сейчас недоступно."
     if str(available_action.get("action_type") or "action").strip().lower() != "action":
         return None, "Это contextual действие доступно только как подсказка."
+    availability_status = str(available_action.get("availability_status") or available_action.get("status") or "").strip().lower()
+    if availability_status == "locked":
+        return None, str(available_action.get("unlock_hint") or available_action.get("unavailable_reason") or "Это contextual действие пока заблокировано.")
+    if availability_status == "unavailable":
+        return None, str(available_action.get("unlock_hint") or available_action.get("unavailable_reason") or "Это contextual действие сейчас недоступно.")
 
     if normalized_action_key == "navigate":
         return execute_group_navigation_option(

@@ -140,6 +140,7 @@ def test_build_state_includes_legacy_and_structured_positions(monkeypatch) -> No
     monkeypatch.setattr(state_builder, "get_current_group_last_journey_result", lambda _sess, player_id=None: None)
     monkeypatch.setattr(state_builder, "get_current_group_exploration_leads", lambda _sess, player_id=None: [])
     monkeypatch.setattr(state_builder, "get_current_group_primary_exploration_lead", lambda _sess, player_id=None: None)
+    monkeypatch.setattr(state_builder, "get_current_group_local_interaction_surface", lambda _sess, player_id=None: None)
     monkeypatch.setattr(
         state_builder,
         "get_current_group_route_planning",
@@ -229,6 +230,7 @@ def test_build_state_includes_legacy_and_structured_positions(monkeypatch) -> No
     assert payload["game"]["current_group_route_frontiers"] == []
     assert payload["game"]["current_group_exploration_leads"] == []
     assert payload["game"]["current_group_primary_exploration_lead"] is None
+    assert payload["game"]["current_group_local_interaction_surface"] is None
     assert payload["game"]["current_group_navigation_options"] == []
     assert payload["session"]["current_group_id"] is None
     assert payload["players"] == [
@@ -919,6 +921,37 @@ def test_build_state_exports_current_player_group_id(monkeypatch) -> None:
     )
     monkeypatch.setattr(
         state_builder,
+        "get_current_group_local_interaction_surface",
+        lambda _sess, player_id=None: {
+            "node_id": "start_trakt",
+            "node_label": "Стартовый тракт",
+            "available_actions": [
+                {
+                    "action_id": "navigate",
+                    "availability_status": "available",
+                    "available": True,
+                }
+            ],
+            "locked_actions": [
+                {
+                    "action_id": "rest_hint",
+                    "availability_status": "unavailable",
+                    "available": False,
+                }
+            ],
+            "available_services": [
+                {
+                    "service_id": "start_trakt:safe_rest",
+                    "availability_status": "available",
+                    "available": True,
+                }
+            ],
+            "locked_services": [],
+            "summary": "У Стартового тракта доступно 1 действий и 1 услуг; ограничено 1 действий и 0 услуг.",
+        },
+    )
+    monkeypatch.setattr(
+        state_builder,
         "get_current_group_route_planning",
         lambda _sess, player_id=None: {
             "reachable_destinations": [
@@ -1405,6 +1438,33 @@ def test_build_state_exports_current_player_group_id(monkeypatch) -> None:
         }
     ]
     assert payload["game"]["current_group_primary_exploration_lead"] == payload["game"]["current_group_exploration_leads"][0]
+    assert payload["game"]["current_group_local_interaction_surface"] == {
+        "node_id": "start_trakt",
+        "node_label": "Стартовый тракт",
+        "available_actions": [
+            {
+                "action_id": "navigate",
+                "availability_status": "available",
+                "available": True,
+            }
+        ],
+        "locked_actions": [
+            {
+                "action_id": "rest_hint",
+                "availability_status": "unavailable",
+                "available": False,
+            }
+        ],
+        "available_services": [
+            {
+                "service_id": "start_trakt:safe_rest",
+                "availability_status": "available",
+                "available": True,
+            }
+        ],
+        "locked_services": [],
+        "summary": "У Стартового тракта доступно 1 действий и 1 услуг; ограничено 1 действий и 0 услуг.",
+    }
     assert payload["game"]["current_group_navigation_options"] == [
         {
             "route_id": "start_trakt->fortress_gate:move",
