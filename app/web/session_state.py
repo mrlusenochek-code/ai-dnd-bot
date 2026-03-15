@@ -11,6 +11,7 @@ from app.web.map_registry import (
     get_current_node_context_actions,
     get_obvious_linked_static_node_ids,
     get_static_node_context_action_effects,
+    get_static_node_service_effects,
     get_static_node_state_overlays,
     get_static_node_scout_discoveries,
     get_static_navigation_options,
@@ -1885,32 +1886,94 @@ def _set_group_last_inspect_result(group: dict[str, Any], inspect_result: dict[s
 def _normalize_group_last_service_result(raw: Any) -> dict[str, Any] | None:
     if not isinstance(raw, dict):
         return None
-    service_key = str(raw.get("service_key") or "").strip().lower()
-    label = str(raw.get("label") or service_key).strip()
+    result_id = str(raw.get("result_id") or "").strip()
+    service_id = str(raw.get("service_id") or raw.get("service_key") or "").strip().lower()
+    service_key = str(raw.get("service_key") or service_id).strip().lower()
+    label = str(raw.get("service_label") or raw.get("label") or service_id).strip()
+    result_type = str(raw.get("result_type") or "").strip().lower()
+    if result_type not in {"lodging_received", "guidance_received", "supplies_secured", "service_unavailable", "already_used", "no_effect"}:
+        return None
     result_summary = str(raw.get("result_summary") or raw.get("summary") or "").strip()
     node_id = str(raw.get("node_id") or "").strip()
     node_label = str(raw.get("node_label") or node_id).strip()
-    if not service_key or not label or not result_summary or not node_id or not node_label:
+    if not result_id or not service_id or not label or not result_summary or not node_id or not node_label:
         return None
     result: dict[str, Any] = {
+        "result_id": result_id[:80],
+        "service_id": service_id[:120],
         "service_key": service_key[:80],
+        "service_label": label[:120],
         "label": label[:120],
+        "result_type": result_type[:40],
         "service_type": str(raw.get("service_type") or "service")[:40] or "service",
+        "service_kind": str(raw.get("service_kind") or raw.get("service_type") or "service")[:40] or "service",
         "summary": str(raw.get("summary") or result_summary)[:400] or result_summary[:400],
         "result_summary": result_summary[:400],
         "node_id": node_id[:120],
         "node_label": node_label[:120],
         "source": str(raw.get("source") or "service")[:40] or "service",
     }
+    applied_effects = raw.get("applied_effects")
+    if isinstance(applied_effects, list):
+        normalized_effects = [str(item).strip()[:120] for item in applied_effects if str(item or "").strip()]
+        if normalized_effects:
+            result["applied_effects"] = normalized_effects
+    discovered_notes = raw.get("discovered_notes")
+    if isinstance(discovered_notes, list):
+        normalized_notes = [str(item).strip()[:240] for item in discovered_notes if str(item or "").strip()]
+        if normalized_notes:
+            result["discovered_notes"] = normalized_notes
+    result["reveal_applied"] = bool(raw.get("reveal_applied"))
     service_hints = raw.get("service_hints")
     if isinstance(service_hints, list):
         normalized_hints = [str(item).strip()[:120] for item in service_hints if str(item or "").strip()]
         if normalized_hints:
             result["service_hints"] = normalized_hints
-    used_at = str(raw.get("used_at") or "").strip()
-    if used_at:
-        result["used_at"] = used_at
+    resolved_at = str(raw.get("resolved_at") or raw.get("used_at") or "").strip()
+    if resolved_at:
+        result["resolved_at"] = resolved_at[:80]
     return result
+
+
+def _normalize_group_service_state(raw: Any) -> dict[str, Any] | None:
+    if not isinstance(raw, dict):
+        return None
+    service_id = str(raw.get("service_id") or "").strip().lower()
+    status = str(raw.get("status") or "").strip().lower()
+    if status not in {"available", "completed", "resolved"}:
+        return None
+    result_type = str(raw.get("result_type") or "").strip().lower()
+    if result_type and result_type not in {"lodging_received", "guidance_received", "supplies_secured", "service_unavailable", "already_used", "no_effect"}:
+        return None
+    summary = str(raw.get("summary") or "").strip()
+    source = str(raw.get("source") or "service").strip() or "service"
+    updated_at = str(raw.get("updated_at") or "").strip()
+    if not service_id or not summary:
+        return None
+    state: dict[str, Any] = {
+        "service_id": service_id[:120],
+        "status": status[:40],
+        "summary": summary[:240],
+        "source": source[:40],
+    }
+    if result_type:
+        state["result_type"] = result_type[:40]
+    if updated_at:
+        state["updated_at"] = updated_at[:80]
+    return state
+
+
+def _normalize_group_service_state_map(raw: Any) -> dict[str, dict[str, Any]]:
+    if not isinstance(raw, dict):
+        return {}
+    normalized: dict[str, dict[str, Any]] = {}
+    for service_id, value in raw.items():
+        candidate = value if isinstance(value, dict) else {"service_id": service_id, "status": value, "summary": str(value or service_id)}
+        merged = {"service_id": service_id, **candidate} if isinstance(candidate, dict) else candidate
+        state = _normalize_group_service_state(merged)
+        if state:
+            normalized[state["service_id"]] = state
+    return normalized
 
 
 def _set_group_last_service_result(group: dict[str, Any], service_result: dict[str, Any] | None) -> dict[str, Any] | None:
@@ -1970,7 +2033,31 @@ def get_current_group_node_services(
     current_map_position = _normalize_map_position(group.get("current_map_position"))
     if not current_map_position:
         return []
-    return get_static_node_services(current_map_position=current_map_position)
+    services = get_static_node_services(current_map_position=current_map_position)
+    service_states = _normalize_group_service_state_map(group.get("service_states"))
+    annotated: list[dict[str, Any]] = []
+    for service in services:
+        if not isinstance(service, dict):
+            continue
+        annotated_service = dict(service)
+        service_id = str(annotated_service.get("service_id") or annotated_service.get("service_key") or "").strip().lower()
+        state = service_states.get(service_id)
+        status = "available"
+        available = True
+        unavailable_reason = None
+        if state and str(state.get("status") or "").strip().lower() == "completed":
+            status = "completed"
+            available = False
+            unavailable_reason = "already_used"
+        elif state and str(state.get("status") or "").strip().lower() == "resolved" and bool(annotated_service.get("one_shot")):
+            status = "resolved"
+        annotated_service["service_id"] = service_id or annotated_service.get("service_id") or annotated_service.get("service_key")
+        annotated_service["status"] = status
+        annotated_service["available"] = available
+        if unavailable_reason:
+            annotated_service["unavailable_reason"] = unavailable_reason
+        annotated.append(annotated_service)
+    return annotated
 
 
 def get_current_group_last_inspect_result(
@@ -2007,6 +2094,25 @@ def get_current_group_last_service_result(
     if not isinstance(group, dict):
         return None
     return _normalize_group_last_service_result(group.get("last_service_result"))
+
+
+def get_current_group_service_states(
+    sess: Session,
+    *,
+    player_id: uuid.UUID | str | None = None,
+    group_id: str | None = None,
+) -> list[dict[str, Any]]:
+    resolved_group_id = str(group_id or "").strip()
+    resolved_player_id = str(player_id or "").strip()
+    if not resolved_group_id and resolved_player_id:
+        resolved_group_id = str(_get_player_group_id(sess, resolved_player_id) or "").strip()
+    if not resolved_group_id:
+        return []
+    group = _get_group_states(sess).get(resolved_group_id)
+    if not isinstance(group, dict):
+        return []
+    service_states = _normalize_group_service_state_map(group.get("service_states"))
+    return [dict(service_states[key]) for key in sorted(service_states.keys())]
 
 
 def inspect_current_group_node(
@@ -2050,56 +2156,303 @@ def inspect_current_group_node(
     return dict(group)
 
 
+def build_group_service_result(
+    *,
+    service: dict[str, Any] | None,
+    service_effect: dict[str, Any] | None = None,
+    prior_service_state: dict[str, Any] | None = None,
+    fully_revealed_node_ids: list[str] | set[str] | None = None,
+    source: str = "service",
+) -> dict[str, Any] | None:
+    resolved_service = dict(service or {})
+    if not resolved_service:
+        return None
+    service_id = str(resolved_service.get("service_id") or resolved_service.get("service_key") or "").strip().lower()
+    service_key = str(resolved_service.get("service_key") or service_id).strip().lower()
+    service_label = str(resolved_service.get("label") or resolved_service.get("service_label") or service_id).strip()
+    node_id = str(resolved_service.get("node_id") or "").strip()
+    node_label = str(resolved_service.get("node_label") or node_id).strip()
+    if not service_id or not service_label or not node_id or not node_label:
+        return None
+    prior_state = _normalize_group_service_state(prior_service_state)
+    effect = dict(service_effect or {})
+    one_shot = bool(effect.get("one_shot") or resolved_service.get("one_shot"))
+    if one_shot and prior_state and str(prior_state.get("status") or "").strip().lower() == "completed":
+        return _normalize_group_last_service_result(
+            {
+                "result_id": uuid.uuid4().hex[:12],
+                "service_id": service_id,
+                "service_key": service_key,
+                "service_label": service_label,
+                "service_type": resolved_service.get("service_type"),
+                "service_kind": resolved_service.get("service_kind"),
+                "result_type": "already_used",
+                "summary": f"Услуга {service_label} у {node_label} уже использована.",
+                "result_summary": "Эта одноразовая услуга уже была использована текущей группой и больше не даёт нового эффекта.",
+                "node_id": node_id,
+                "node_label": node_label,
+                "applied_effects": ["service:already_used"],
+                "discovered_notes": [],
+                "reveal_applied": False,
+                "source": source,
+                "resolved_at": datetime.now(timezone.utc).isoformat(),
+            }
+        )
+
+    revealed_set = {
+        str(node_ref).strip().lower()
+        for node_ref in (fully_revealed_node_ids or [])
+        if str(node_ref or "").strip()
+    }
+    reveal_node_ids = [
+        str(node_ref).strip()
+        for node_ref in (effect.get("reveal_node_ids") or [])
+        if str(node_ref or "").strip()
+    ]
+    undiscovered_reveal_node_ids = [node_ref for node_ref in reveal_node_ids if node_ref.lower() not in revealed_set]
+    discovered_notes = [
+        str(note).strip()
+        for note in (effect.get("discovered_notes") or [])
+        if str(note or "").strip()
+    ]
+    applied_effects = [
+        str(item).strip()
+        for item in (effect.get("applied_effects") or [])
+        if str(item or "").strip()
+    ]
+    service_kind = str(effect.get("service_kind") or resolved_service.get("service_kind") or resolved_service.get("service_type") or "service").strip().lower()
+    result_type = str(effect.get("result_type") or "").strip().lower()
+    if not result_type:
+        if service_kind in {"rest", "lodging", "shrine"} or service_key in {"safe_rest", "shrine_aid"}:
+            result_type = "lodging_received"
+        elif service_kind in {"guidance"} or service_key == "local_guidance":
+            result_type = "guidance_received"
+        elif service_kind in {"supplies"} or service_key == "resupply":
+            result_type = "supplies_secured"
+        else:
+            result_type = "no_effect"
+    summary = str(effect.get("summary") or resolved_service.get("summary") or f"Группа использует услугу {service_label}.").strip()
+    result_summary = str(effect.get("result_summary") or resolved_service.get("result_summary") or resolved_service.get("summary") or "").strip()
+    reveal_applied = bool(undiscovered_reveal_node_ids)
+    has_node_state = any(str(flag or "").strip() for flag in (effect.get("node_state_flags") or []))
+    if not result_summary:
+        result_summary = summary
+    return _normalize_group_last_service_result(
+        {
+            "result_id": uuid.uuid4().hex[:12],
+            "service_id": service_id,
+            "service_key": service_key,
+            "service_label": service_label,
+            "service_type": resolved_service.get("service_type"),
+            "service_kind": service_kind,
+            "result_type": result_type,
+            "summary": summary,
+            "result_summary": result_summary,
+            "node_id": node_id,
+            "node_label": node_label,
+            "applied_effects": applied_effects,
+            "discovered_notes": discovered_notes,
+            "reveal_applied": reveal_applied,
+            "source": source,
+            "resolved_at": datetime.now(timezone.utc).isoformat(),
+            "service_hints": resolved_service.get("service_hints"),
+        }
+    )
+
+
+def _set_group_service_state(
+    group: dict[str, Any],
+    service_id: str,
+    state: dict[str, Any] | None,
+) -> dict[str, Any] | None:
+    normalized_service_id = str(service_id or "").strip().lower()
+    if not normalized_service_id:
+        return None
+    service_states = _normalize_group_service_state_map(group.get("service_states"))
+    normalized_state = _normalize_group_service_state(state)
+    if not normalized_state:
+        service_states.pop(normalized_service_id, None)
+    else:
+        service_states[normalized_service_id] = normalized_state
+    if service_states:
+        group["service_states"] = service_states
+    else:
+        group.pop("service_states", None)
+    return normalized_state
+
+
+def resolve_group_service(
+    sess: Session,
+    group_id: str,
+    *,
+    service_id: str,
+    player_id: uuid.UUID | str | None = None,
+    source: str = "service",
+) -> tuple[dict[str, Any] | None, str | None]:
+    normalized_service_id = str(service_id or "").strip().lower()
+    if not normalized_service_id:
+        return None, "Нужно указать service_id для услуги."
+    resolved_group_id = str(group_id or "").strip()
+    resolved_player_id = str(player_id or "").strip()
+    groups = _get_group_states(sess)
+    group = groups.get(resolved_group_id)
+    if not isinstance(group, dict):
+        return None, "Группа игрока не найдена."
+    current_map_position = _normalize_map_position(group.get("current_map_position"))
+    if not current_map_position:
+        return None, "Не удалось определить текущую позицию группы."
+    available_services = get_current_group_node_services(sess, player_id=resolved_player_id or None, group_id=resolved_group_id)
+    service = next(
+        (
+            dict(item)
+            for item in available_services
+            if isinstance(item, dict)
+            and (
+                str(item.get("service_id") or item.get("service_key") or "").strip().lower() == normalized_service_id
+                or str(item.get("service_key") or "").strip().lower() == normalized_service_id
+            )
+        ),
+        None,
+    )
+    if not service:
+        return None, "Эта услуга сейчас недоступна в текущем месте."
+    if service.get("available") is False and str(service.get("unavailable_reason") or "").strip().lower() == "already_used":
+        service_state = (_normalize_group_service_state_map(group.get("service_states"))).get(normalized_service_id)
+        result = build_group_service_result(
+            service={
+                **(get_static_node_service_result(
+                    service_id=normalized_service_id,
+                    current_map_position=current_map_position,
+                    source=source,
+                ) or {}),
+                **service,
+                "node_id": str(current_map_position.get("node_id") or ""),
+                "node_label": str(current_map_position.get("label") or current_map_position.get("node_id") or ""),
+            },
+            service_effect=next(
+                (
+                    effect
+                    for effect in get_static_node_service_effects(current_map_position=current_map_position)
+                    if (
+                        str(effect.get("service_id") or "").strip().lower() == normalized_service_id
+                        or str(effect.get("service_key") or "").strip().lower() == normalized_service_id
+                    )
+                ),
+                None,
+            ),
+            prior_service_state=service_state,
+            source=source,
+        )
+        if result:
+            _set_group_last_service_result(group, result)
+            _persist_group_states(sess, groups)
+            _sync_group_position_mirrors(sess, group)
+            return dict(group), None
+        return None, "Эта услуга уже использована текущей группой."
+    service_effect = next(
+        (
+            effect
+            for effect in get_static_node_service_effects(current_map_position=current_map_position)
+            if (
+                str(effect.get("service_id") or "").strip().lower() == normalized_service_id
+                or str(effect.get("service_key") or "").strip().lower() == normalized_service_id
+            )
+        ),
+        None,
+    )
+    service_state = (_normalize_group_service_state_map(group.get("service_states"))).get(normalized_service_id)
+    group_player_ids = [str(pid).strip() for pid in (group.get("player_ids") or []) if str(pid).strip()]
+    fully_revealed_node_ids = [
+        node_id
+        for node_id in {
+            str(node_ref).strip()
+            for pid in group_player_ids
+            for node_ref in get_player_revealed_node_ids(sess, pid)
+            if str(node_ref or "").strip()
+        }
+        if all(is_player_node_revealed(sess, pid, node_id) for pid in group_player_ids)
+    ]
+    service_result = build_group_service_result(
+        service={
+            **(get_static_node_service_result(
+                service_id=normalized_service_id,
+                current_map_position=current_map_position,
+                source=source,
+            ) or {}),
+            **service,
+            "node_id": str(current_map_position.get("node_id") or ""),
+            "node_label": str(current_map_position.get("label") or current_map_position.get("node_id") or ""),
+        },
+        service_effect=service_effect,
+        prior_service_state=service_state,
+        fully_revealed_node_ids=fully_revealed_node_ids,
+        source=source,
+    )
+    if not service_result:
+        return None, "Не удалось подготовить результат услуги."
+    if service_result.get("reveal_applied") is True and service_effect:
+        for pid in group_player_ids:
+            for revealed_node_id in service_effect.get("reveal_node_ids") or []:
+                reveal_player_map_node(sess, pid, str(revealed_node_id), source=source)
+    if service_effect and service_effect.get("node_state_flags"):
+        current_node_id = str(current_map_position.get("node_id") or "").strip().lower()
+        node_state_summary = str(service_effect.get("node_state_summary") or service_result.get("result_summary") or "").strip()
+        for flag in service_effect.get("node_state_flags") or []:
+            add_group_node_state_flag(
+                sess,
+                resolved_group_id,
+                current_node_id,
+                state_flag=str(flag),
+                summary=node_state_summary,
+                source=source,
+            )
+        groups = _get_group_states(sess)
+        group = groups.get(resolved_group_id)
+        if not isinstance(group, dict):
+            return None, "Группа игрока не найдена."
+    _set_group_last_service_result(group, service_result)
+    _set_group_service_state(
+        group,
+        normalized_service_id,
+        {
+            "service_id": normalized_service_id,
+            "status": "completed" if bool((service_effect or {}).get("one_shot") or service.get("one_shot")) else "resolved",
+            "result_type": service_result.get("result_type"),
+            "summary": str(service_result.get("result_summary") or service_result.get("summary") or ""),
+            "source": source,
+            "updated_at": datetime.now(timezone.utc).isoformat(),
+        },
+    )
+    _persist_group_states(sess, groups)
+    _sync_group_position_mirrors(sess, group)
+    return dict(group), None
+
+
 def execute_current_group_service(
     sess: Session,
     *,
-    service_key: str,
+    service_key: str | None = None,
+    service_id: str | None = None,
     player_id: uuid.UUID | str | None = None,
     group_id: str | None = None,
     source: str = "manual",
 ) -> tuple[dict[str, Any] | None, str | None]:
-    normalized_service_key = str(service_key or "").strip().lower()
-    if not normalized_service_key:
-        return None, "Нужно указать service_key для услуги."
+    normalized_service_id = str(service_id or service_key or "").strip().lower()
+    if not normalized_service_id:
+        return None, "Нужно указать service_id для услуги."
     resolved_group_id = str(group_id or "").strip()
     resolved_player_id = str(player_id or "").strip()
     if not resolved_group_id and resolved_player_id:
         resolved_group_id = str(_get_player_group_id(sess, resolved_player_id) or "").strip()
     if not resolved_group_id:
         return None, "Группа игрока не найдена."
-    available_services = get_current_group_node_services(sess, player_id=resolved_player_id or None, group_id=resolved_group_id)
-    service = next(
-        (
-            dict(item)
-            for item in available_services
-            if isinstance(item, dict) and str(item.get("service_key") or "").strip().lower() == normalized_service_key
-        ),
-        None,
-    )
-    if not service:
-        return None, "Эта услуга сейчас недоступна в текущем месте."
-    groups = _get_group_states(sess)
-    group = groups.get(resolved_group_id)
-    if not isinstance(group, dict):
-        return None, "Группа игрока не найдена."
-    current_map_position = _normalize_map_position(group.get("current_map_position"))
-    service_result = get_static_node_service_result(
-        service_key=normalized_service_key,
-        current_map_position=current_map_position,
+    return resolve_group_service(
+        sess,
+        resolved_group_id,
+        service_id=normalized_service_id,
+        player_id=resolved_player_id or None,
         source=source,
     )
-    if not service_result:
-        return None, "Не удалось подготовить результат услуги."
-    _set_group_last_service_result(
-        group,
-        {
-            **service_result,
-            "used_at": datetime.now(timezone.utc).isoformat(),
-        },
-    )
-    _persist_group_states(sess, groups)
-    _sync_group_position_mirrors(sess, group)
-    return dict(group), None
 
 
 def build_group_travel_event_candidates(
@@ -3361,6 +3714,13 @@ def _group_node_states_summary(group: dict[str, Any]) -> list[dict[str, Any]] | 
     return [dict(node_states[key]) for key in sorted(node_states.keys())]
 
 
+def _group_service_states_summary(group: dict[str, Any]) -> list[dict[str, Any]] | None:
+    service_states = _normalize_group_service_state_map(group.get("service_states"))
+    if not service_states:
+        return None
+    return [dict(service_states[key]) for key in sorted(service_states.keys())]
+
+
 def _group_movement_mode(group: dict[str, Any]) -> str:
     return _normalize_group_movement_mode(group.get("movement_mode"))
 
@@ -3568,6 +3928,9 @@ def _normalize_group_state(
     last_service_result = _normalize_group_last_service_result(raw.get("last_service_result"))
     if last_service_result:
         normalized["last_service_result"] = last_service_result
+    service_states = _normalize_group_service_state_map(raw.get("service_states"))
+    if service_states:
+        normalized["service_states"] = service_states
     travel_event = _normalize_group_travel_event(raw.get("travel_event"))
     if travel_event:
         normalized["travel_event"] = travel_event

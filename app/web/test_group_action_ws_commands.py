@@ -20,8 +20,8 @@ def test_parse_group_command_supports_wait_camp_rest_scout_move_navigate_context
     action_do_inspect, payload_do_inspect = ws_handlers._parse_group_command("group do inspect")
     action_do_navigate, payload_do_navigate = ws_handlers._parse_group_command("group action navigate fortress_gate")
     action_do_camp, payload_do_camp = ws_handlers._parse_group_command("group action camp")
-    action_service, payload_service = ws_handlers._parse_group_command("group service safe_rest")
-    action_use_service, payload_use_service = ws_handlers._parse_group_command("group use service shrine_aid")
+    action_service, payload_service = ws_handlers._parse_group_command("group service craft_town:safe_rest")
+    action_use_service, payload_use_service = ws_handlers._parse_group_command("group use chapel_village_shrine_aid")
     action_enter, payload_enter = ws_handlers._parse_group_command("group enter замок")
     action_mode, payload_mode = ws_handlers._parse_group_command("group mode cautious")
     action_activity, payload_activity = ws_handlers._parse_group_command("group activity navigate")
@@ -55,8 +55,8 @@ def test_parse_group_command_supports_wait_camp_rest_scout_move_navigate_context
         {"action_key": "navigate", "action_id": "navigate", "target_node_id": "fortress_gate"},
     )
     assert (action_do_camp, payload_do_camp) == ("group_context_action", {"action_key": "camp", "action_id": "camp"})
-    assert (action_service, payload_service) == ("group_service", {"service_key": "safe_rest"})
-    assert (action_use_service, payload_use_service) == ("group_service", {"service_key": "shrine_aid"})
+    assert (action_service, payload_service) == ("group_service_use", {"service_id": "craft_town:safe_rest", "service_key": "craft_town:safe_rest"})
+    assert (action_use_service, payload_use_service) == ("group_service_use", {"service_id": "chapel_village_shrine_aid", "service_key": "chapel_village_shrine_aid"})
     assert (action_enter, payload_enter) == ("group_enter", {"target_hint": "замок"})
     assert (action_mode, payload_mode) == ("group_set_mode", {"movement_mode": "cautious"})
     assert (action_activity, payload_activity) == ("group_set_activity", {"activity": "navigate"})
@@ -513,16 +513,16 @@ def test_handle_group_service_executes_and_errors_cleanly() -> None:
 
     handled_service, err_service, msg_service = ws_handlers._handle_group_action_request(
         craft_sess,
-        action="group_service",
+        action="group_service_use",
         actor_player_id=player_id,
-        payload={"service_key": "resupply"},
+        payload={"service_id": "craft_town:resupply"},
         source="test",
     )
 
     assert handled_service is True
     assert err_service is None
-    assert msg_service == "Группа main использует услугу: Пополнение припасов."
-    assert session_state.get_current_group_last_service_result(craft_sess, player_id=player_id)["service_key"] == "resupply"
+    assert "привести снаряжение в порядок" in str(msg_service)
+    assert session_state.get_current_group_last_service_result(craft_sess, player_id=player_id)["service_id"] == "craft_town:resupply"
 
     ruined_sess = SimpleNamespace(settings={})
     session_state._initialize_default_group(
@@ -538,15 +538,54 @@ def test_handle_group_service_executes_and_errors_cleanly() -> None:
 
     unavailable_handled, unavailable_err, unavailable_msg = ws_handlers._handle_group_action_request(
         ruined_sess,
-        action="group_service",
+        action="group_service_use",
         actor_player_id=player_id,
-        payload={"service_key": "safe_rest"},
+        payload={"service_id": "safe_rest"},
         source="test",
     )
 
     assert unavailable_handled is True
     assert unavailable_err == "Эта услуга сейчас недоступна в текущем месте."
     assert unavailable_msg is None
+
+
+def test_handle_group_service_use_supports_authored_result_and_already_used() -> None:
+    player_id = uuid.uuid4()
+    sess = SimpleNamespace(settings={})
+    session_state._initialize_default_group(
+        sess,
+        [player_id],
+        {
+            "map_level": "region",
+            "node_type": "zone",
+            "node_id": "craft_town",
+            "label": "Озёрный городок",
+        },
+    )
+
+    handled_first, err_first, msg_first = ws_handlers._handle_group_action_request(
+        sess,
+        action="group_service_use",
+        actor_player_id=player_id,
+        payload={"service_id": "craft_town_local_guidance"},
+        source="test",
+    )
+    handled_repeat, err_repeat, msg_repeat = ws_handlers._handle_group_action_request(
+        sess,
+        action="group_service_use",
+        actor_player_id=player_id,
+        payload={"service_id": "craft_town_local_guidance"},
+        source="test",
+    )
+
+    assert handled_first is True
+    assert err_first is None
+    assert "сторожевой башни" in str(msg_first)
+    assert session_state.is_player_node_revealed(sess, player_id, "watchtower") is True
+    assert session_state.get_group_node_state(sess, "main", "craft_town")["state_flags"] == ["craft_guidance_taken"]
+    assert handled_repeat is True
+    assert err_repeat is None
+    assert "уже была использована" in str(msg_repeat)
 
 
 def test_handle_group_move_pause_resume_enter_arrive_interrupt_and_stop_requests_update_group_state() -> None:

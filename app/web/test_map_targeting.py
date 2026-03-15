@@ -6,6 +6,7 @@ from app.web.map_registry import (
     get_obvious_linked_static_node_ids,
     get_static_node_detail,
     get_static_node_context,
+    get_static_node_service_effects,
     get_static_node_inspect_result,
     get_static_node_state_overlays,
     get_static_node_service_result,
@@ -297,43 +298,63 @@ def test_static_node_detail_and_inspect_result_expose_handcrafted_content() -> N
 def test_static_node_services_and_service_results_expose_handcrafted_service_surface() -> None:
     assert get_static_node_services(node_id="craft_town") == [
         {
+            "service_id": "craft_town:safe_rest",
             "service_key": "safe_rest",
             "label": "Безопасный отдых",
             "service_type": "rest",
+            "service_kind": "rest",
             "summary": "Можно перевести дух и переждать путь в сравнительно безопасных условиях.",
             "source": "registry",
+            "available": True,
+            "status": "available",
             "service_hints": ["припасы", "постоялый двор", "ремесленные мастерские"],
         },
         {
+            "service_id": "craft_town:resupply",
             "service_key": "resupply",
             "label": "Пополнение припасов",
             "service_type": "supplies",
+            "service_kind": "supplies",
             "summary": "Здесь можно пополнить базовые дорожные запасы перед выходом.",
             "source": "registry",
+            "available": True,
+            "status": "available",
             "service_hints": ["припасы", "постоялый двор", "ремесленные мастерские"],
         },
         {
+            "service_id": "craft_town_local_guidance",
             "service_key": "local_guidance",
             "label": "Местные указания",
             "service_type": "guidance",
+            "service_kind": "guidance",
             "summary": "Здесь можно получить ориентиры, слухи и безопасные подсказки по ближайшим дорогам.",
             "source": "registry",
+            "available": True,
+            "status": "available",
+            "one_shot": True,
             "service_hints": ["припасы", "постоялый двор", "ремесленные мастерские"],
         },
         {
+            "service_id": "craft_town:healing_aid",
             "service_key": "healing_aid",
             "label": "Помощь с ранами",
             "service_type": "aid",
+            "service_kind": "aid",
             "summary": "На месте можно получить перевязку, уход или базовую помощь после дороги.",
             "source": "registry",
+            "available": True,
+            "status": "available",
             "service_hints": ["припасы", "постоялый двор", "ремесленные мастерские"],
         },
     ]
     assert get_static_node_services(node_id="ruined_settlement") == []
     assert get_static_node_service_result(node_id="chapel_village", service_key="shrine_aid", source="test") == {
+        "service_id": "chapel_village_shrine_aid",
         "service_key": "shrine_aid",
+        "service_label": "Поддержка у святыни",
         "label": "Поддержка у святыни",
         "service_type": "shrine",
+        "service_kind": "shrine",
         "summary": "Здесь могут дать тихий приют, совет или скромную духовную помощь.",
         "node_id": "chapel_village",
         "node_label": "Часовенное село",
@@ -341,6 +362,24 @@ def test_static_node_services_and_service_results_expose_handcrafted_service_sur
         "result_summary": "У святыни можно получить благословение, тишину и скромную помощь в дороге.",
         "service_hints": ["убежище при часовне", "местные слухи"],
     }
+    assert get_static_node_service_effects(node_id="craft_town") == [
+        {
+            "node_id": "craft_town",
+            "service_key": "local_guidance",
+            "service_id": "craft_town_local_guidance",
+            "service_kind": "guidance",
+            "result_type": "guidance_received",
+            "summary": "Получить у местных проверенную дорожную наводку.",
+            "result_summary": "Городские проводники отмечают для группы надёжный береговой ориентир у сторожевой башни.",
+            "source": "registry",
+            "one_shot": True,
+            "discovered_notes": ["Местные советуют держаться берегового ориентира у сторожевой башни: там проще не потерять темп и не свернуть в пустые дворы."],
+            "reveal_node_ids": ["watchtower"],
+            "applied_effects": ["guidance_recorded", "node_revealed:watchtower"],
+            "node_state_flags": ["craft_guidance_taken"],
+            "node_state_summary": "В городке уже собраны местные указания по береговому ориентиру у сторожевой башни.",
+        }
+    ]
 
 
 def test_resolve_static_map_node_supports_labels_and_aliases() -> None:

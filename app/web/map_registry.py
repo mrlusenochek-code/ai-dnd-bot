@@ -563,6 +563,80 @@ STATIC_MAP_NODE_STATE_OVERLAYS: tuple[dict[str, Any], ...] = (
         "detail_note": "Разговор с дозорными оставил конкретную дорожную наводку, и местные уже не повторяют её как первую новость.",
         "service_note": "Местные советы уже собраны; теперь здесь скорее подтверждают прежнюю наводку, чем дают новую.",
     },
+    {
+        "node_id": "craft_town",
+        "state_flag": "craft_guidance_taken",
+        "context_note": "В городке уже получены местные указания, и проводники сразу понимают, что группа пришла не с пустыми руками.",
+        "detail_note": "У пристани и у ворот уже повторяют ту же собранную для группы дорожную наводку, а не начинают рассказ заново.",
+        "service_note": "Основная наводка уже выдана; теперь местные скорее подтверждают её, чем открывают новый маршрут.",
+    },
+    {
+        "node_id": "chapel_village",
+        "state_flag": "chapel_shelter_used",
+        "context_note": "У часовни уже отмечен двор, где группе однажды дали тихий кров.",
+        "detail_note": "Следы недавнего ночлега у часовни показывают, что это убежище уже использовали именно для этой группы.",
+        "service_note": "Этот спокойный кров уже отмечен за группой как использованный ранее.",
+    },
+    {
+        "node_id": "forest_settlement",
+        "state_flag": "forest_supplies_secured",
+        "context_note": "В посёлке уже собран и выдан один дорожный набор для этой группы.",
+        "detail_note": "У охотничьих сараев видно, что запас для выхода к руинам уже готовили и выдавали совсем недавно.",
+        "service_note": "Основной лесной набор уже собран; дальше здесь скорее пополняют мелочи, чем собирают новый комплект.",
+    },
+)
+
+
+STATIC_MAP_SERVICE_EFFECTS: tuple[dict[str, Any], ...] = (
+    {
+        "node_id": "craft_town",
+        "service_key": "local_guidance",
+        "service_id": "craft_town_local_guidance",
+        "service_kind": "guidance",
+        "one_shot": True,
+        "result_type": "guidance_received",
+        "summary": "Получить у местных проверенную дорожную наводку.",
+        "result_summary": "Городские проводники отмечают для группы надёжный береговой ориентир у сторожевой башни.",
+        "discovered_notes": [
+            "Местные советуют держаться берегового ориентира у сторожевой башни: там проще не потерять темп и не свернуть в пустые дворы."
+        ],
+        "reveal_node_ids": ["watchtower"],
+        "applied_effects": ["guidance_recorded", "node_revealed:watchtower"],
+        "node_state_flags": ["craft_guidance_taken"],
+        "node_state_summary": "В городке уже собраны местные указания по береговому ориентиру у сторожевой башни.",
+    },
+    {
+        "node_id": "chapel_village",
+        "service_key": "shrine_aid",
+        "service_id": "chapel_village_shrine_aid",
+        "service_kind": "shrine",
+        "one_shot": True,
+        "result_type": "lodging_received",
+        "summary": "Попросить тихий приют и помощь у часовни.",
+        "result_summary": "При часовне группе дают спокойный кров и короткую дорожную поддержку перед следующим переходом.",
+        "discovered_notes": [
+            "Служители часовни отмечают безопасный двор для ночлега и предупреждают, где не стоит задерживаться после заката."
+        ],
+        "applied_effects": ["lodging_received", "shrine_support_recorded"],
+        "node_state_flags": ["chapel_shelter_used"],
+        "node_state_summary": "При часовне уже отмечен использованный для группы безопасный ночлег.",
+    },
+    {
+        "node_id": "forest_settlement",
+        "service_key": "resupply",
+        "service_id": "forest_settlement_resupply",
+        "service_kind": "supplies",
+        "one_shot": True,
+        "result_type": "supplies_secured",
+        "summary": "Собрать лесные дорожные припасы перед выходом к руинам.",
+        "result_summary": "Посёлок собирает для группы крепкий набор лесных припасов и помечает, что помощь уже выдана.",
+        "discovered_notes": [
+            "Охотники советуют не тянуть с выходом после пополнения запасов: дальше дорога к руинам быстро становится пустой."
+        ],
+        "applied_effects": ["supplies_secured"],
+        "node_state_flags": ["forest_supplies_secured"],
+        "node_state_summary": "В лесном посёлке уже подготовлен и выдан дорожный набор для этой группы.",
+    },
 )
 
 
@@ -830,6 +904,8 @@ def get_static_node_state_overlays(
         for flag in (state_flags or [])
         if _normalized_text(flag)
     }
+    if not normalized_flags:
+        return []
     overlays: list[dict[str, Any]] = []
     for item in STATIC_MAP_NODE_STATE_OVERLAYS:
         if _normalized_text(item.get("node_id")) != resolved_node_id:
@@ -853,6 +929,59 @@ def get_static_node_state_overlays(
         if state_flag:
             overlays.append(overlay)
     return overlays
+
+
+def get_static_node_service_effects(
+    *,
+    node_id: str | None = None,
+    current_map_position: dict[str, Any] | None = None,
+) -> list[dict[str, Any]]:
+    resolved_node_id = _normalized_text(node_id)
+    if not resolved_node_id and isinstance(current_map_position, dict):
+        resolved_node_id = _normalized_text(current_map_position.get("node_id"))
+    if not resolved_node_id:
+        return []
+    effects: list[dict[str, Any]] = []
+    for item in STATIC_MAP_SERVICE_EFFECTS:
+        if _normalized_text(item.get("node_id")) != resolved_node_id:
+            continue
+        service_key = _normalized_text(item.get("service_key"))
+        service_id = str(item.get("service_id") or f"{resolved_node_id}:{service_key}").strip().lower()
+        effect: dict[str, Any] = {
+            "node_id": resolved_node_id,
+            "service_key": service_key,
+            "service_id": service_id,
+            "service_kind": str(item.get("service_kind") or service_key or "service").strip().lower(),
+            "result_type": str(item.get("result_type") or "no_effect").strip().lower(),
+            "summary": str(item.get("summary") or "").strip(),
+            "result_summary": str(item.get("result_summary") or "").strip(),
+            "source": "registry",
+            "one_shot": bool(item.get("one_shot")),
+            "discovered_notes": [
+                str(note).strip()
+                for note in (item.get("discovered_notes") or [])
+                if str(note or "").strip()
+            ],
+            "reveal_node_ids": [
+                str(node_ref).strip()
+                for node_ref in (item.get("reveal_node_ids") or [])
+                if str(node_ref or "").strip()
+            ],
+            "applied_effects": [
+                str(effect_note).strip()
+                for effect_note in (item.get("applied_effects") or [])
+                if str(effect_note or "").strip()
+            ],
+            "node_state_flags": [
+                str(flag).strip().lower()
+                for flag in (item.get("node_state_flags") or [])
+                if str(flag or "").strip()
+            ],
+            "node_state_summary": str(item.get("node_state_summary") or "").strip(),
+        }
+        if service_key and service_id:
+            effects.append(effect)
+    return effects
 
 
 def get_static_node(node_id: str | None) -> dict[str, Any] | None:
@@ -1120,7 +1249,13 @@ def get_static_node_services(
         resolved_node = get_static_node(current_map_position.get("node_id"))
     if not resolved_node:
         return []
+    resolved_node_id = str(resolved_node.get("node_id") or "").strip().lower()
     detail = get_static_node_detail(node_id=str(resolved_node.get("node_id") or ""))
+    authored_effects = {
+        str(effect.get("service_key") or "").strip().lower(): effect
+        for effect in get_static_node_service_effects(node_id=resolved_node_id)
+        if isinstance(effect, dict) and str(effect.get("service_key") or "").strip()
+    }
     service_defs = {
         "safe_rest": {
             "label": "Безопасный отдых",
@@ -1155,43 +1290,66 @@ def get_static_node_services(
         if not service_def:
             continue
         service = {
+            "service_id": str((authored_effects.get(service_key) or {}).get("service_id") or f"{resolved_node_id}:{service_key}"),
             "service_key": service_key,
             "label": service_def["label"],
             "service_type": service_def["service_type"],
+            "service_kind": str((authored_effects.get(service_key) or {}).get("service_kind") or service_def["service_type"]),
             "summary": service_def["summary"],
             "source": "registry",
+            "available": True,
+            "status": "available",
         }
         if detail and detail.get("service_hints"):
             service["service_hints"] = list(detail.get("service_hints") or [])
+        authored_effect = authored_effects.get(service_key)
+        if authored_effect and bool(authored_effect.get("one_shot")):
+            service["one_shot"] = True
         services.append(service)
     return services
 
 
 def get_static_node_service_result(
     *,
-    service_key: str,
+    service_id: str | None = None,
+    service_key: str | None = None,
     node_id: str | None = None,
     current_map_position: dict[str, Any] | None = None,
     source: str = "registry",
 ) -> dict[str, Any] | None:
     normalized_service_key = _normalized_text(service_key)
-    if not normalized_service_key:
+    normalized_service_id = _normalized_text(service_id)
+    if not normalized_service_key and not normalized_service_id:
         return None
     detail = get_static_node_detail(node_id=node_id, current_map_position=current_map_position)
     if not detail:
         return None
     available = {
-        str(item.get("service_key") or "").strip(): item
+        str(item.get("service_id") or item.get("service_key") or "").strip().lower(): item
         for item in get_static_node_services(node_id=node_id, current_map_position=current_map_position)
         if isinstance(item, dict)
     }
-    service = available.get(normalized_service_key)
+    service = available.get(normalized_service_id or normalized_service_key)
+    if not service and normalized_service_key:
+        service = next(
+            (
+                item
+                for item in available.values()
+                if str(item.get("service_key") or "").strip().lower() == normalized_service_key
+            ),
+            None,
+        )
     if not service:
         return None
+    resolved_service_id = str(service.get("service_id") or normalized_service_id or normalized_service_key)
+    resolved_service_key = str(service.get("service_key") or normalized_service_key or resolved_service_id)
     result = {
-        "service_key": normalized_service_key,
-        "label": str(service.get("label") or normalized_service_key),
+        "service_id": resolved_service_id,
+        "service_key": resolved_service_key,
+        "service_label": str(service.get("label") or resolved_service_key),
+        "label": str(service.get("label") or resolved_service_key),
         "service_type": str(service.get("service_type") or "service"),
+        "service_kind": str(service.get("service_kind") or service.get("service_type") or "service"),
         "summary": str(service.get("summary") or ""),
         "node_id": str(detail.get("node_id") or ""),
         "node_label": str(detail.get("label") or detail.get("node_id") or ""),
@@ -1204,7 +1362,7 @@ def get_static_node_service_result(
         "local_guidance": "Местные подскажут, какая дорога сейчас спокойнее и где не стоит задерживаться.",
         "shrine_aid": "У святыни можно получить благословение, тишину и скромную помощь в дороге.",
     }
-    result["result_summary"] = service_result_notes.get(normalized_service_key, result["summary"])
+    result["result_summary"] = service_result_notes.get(resolved_service_key, result["summary"])
     if detail.get("service_hints"):
         result["service_hints"] = list(detail.get("service_hints") or [])
     return result

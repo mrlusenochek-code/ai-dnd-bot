@@ -1706,9 +1706,10 @@ def _parse_group_command(cmdline: str) -> tuple[str | None, dict[str, Any]]:
                 parsed_payload["target_node_id"] = action_arg.strip()
             return "group_context_action", parsed_payload
 
-    for prefix in ("group use service ", "group_use_service ", "group service ", "group_service "):
+    for prefix in ("group use service ", "group_use_service ", "group service ", "group_service ", "group use ", "group_use "):
         if lowered.startswith(prefix):
-            return "group_service", {"service_key": txt[len(prefix):].strip()}
+            service_id = txt[len(prefix):].strip()
+            return "group_service_use", {"service_id": service_id, "service_key": service_id}
 
     for prefix in ("group enter ", "group_enter "):
         if lowered.startswith(prefix):
@@ -1838,6 +1839,7 @@ def _handle_group_action_request(
         "group_navigate",
         "group_context_action",
         "group_service",
+        "group_service_use",
         "group_enter",
         "group_stop",
         "group_event_resolve",
@@ -1924,6 +1926,7 @@ def _handle_group_action_request(
         "group_navigate",
         "group_context_action",
         "group_service",
+        "group_service_use",
         "group_enter",
         "group_stop",
         "group_event_resolve",
@@ -2083,11 +2086,11 @@ def _handle_group_action_request(
             if isinstance(result, dict):
                 return True, None, str(result.get("result_summary") or result.get("summary") or f"Группа {actor_group_key} выполняет действие {action_key}.")
             return True, None, f"Группа {actor_group_key} выполняет действие {action_key}."
-        if action == "group_service":
-            service_key = str(payload.get("service_key") or "").strip().lower()
+        if action in {"group_service", "group_service_use"}:
+            service_key = str(payload.get("service_id") or payload.get("service_key") or "").strip().lower()
             updated, error = execute_current_group_service(
                 sess,
-                service_key=service_key,
+                service_id=service_key,
                 player_id=actor_player_id,
                 group_id=actor_group_key,
                 source=source,
@@ -2095,10 +2098,14 @@ def _handle_group_action_request(
             if error:
                 return True, error, None
             label = str(
-                (updated or {}).get("last_service_result", {}).get("label")
+                (updated or {}).get("last_service_result", {}).get("service_label")
+                or (updated or {}).get("last_service_result", {}).get("label")
                 or service_key
                 or "услуга"
             )
+            result = (updated or {}).get("last_service_result") if isinstance(updated, dict) else None
+            if isinstance(result, dict):
+                return True, None, str(result.get("result_summary") or result.get("summary") or f"Группа {actor_group_key} использует услугу: {label}.")
             return True, None, f"Группа {actor_group_key} использует услугу: {label}."
 
         target_node = _resolve_group_action_target(
@@ -6038,6 +6045,7 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                     "group_move",
                     "group_context_action",
                     "group_service",
+                    "group_service_use",
                     "group_enter",
                     "group_stop",
                     "group_event_resolve",

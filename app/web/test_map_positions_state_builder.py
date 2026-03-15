@@ -109,6 +109,9 @@ def test_build_state_includes_legacy_and_structured_positions(monkeypatch) -> No
     monkeypatch.setattr(state_builder, "get_current_group_last_inspect_result", lambda _sess, player_id=None: None)
     monkeypatch.setattr(state_builder, "get_current_group_node_services", lambda _sess, player_id=None: [])
     monkeypatch.setattr(state_builder, "get_current_group_last_service_result", lambda _sess, player_id=None: None)
+    monkeypatch.setattr(state_builder, "get_current_group_service_states", lambda _sess, player_id=None: [])
+    monkeypatch.setattr(state_builder, "get_current_group_service_states", lambda _sess, player_id=None: [])
+    monkeypatch.setattr(state_builder, "get_current_group_service_states", lambda _sess, player_id=None: [])
     monkeypatch.setattr(state_builder, "get_current_group_travel_event", lambda _sess, player_id=None: None)
     monkeypatch.setattr(state_builder, "get_current_group_last_camp_result", lambda _sess, player_id=None: None)
     monkeypatch.setattr(state_builder, "get_current_group_last_scout_result", lambda _sess, player_id=None: None)
@@ -146,6 +149,8 @@ def test_build_state_includes_legacy_and_structured_positions(monkeypatch) -> No
             "last_context_action_result_summary": None,
             "context_action_states": None,
             "node_states": None,
+            "last_service_result_summary": None,
+            "service_states": None,
             "movement_intent_summary": None,
             "travel_state": None,
             "travel_summary": None,
@@ -162,6 +167,7 @@ def test_build_state_includes_legacy_and_structured_positions(monkeypatch) -> No
     assert payload["game"]["current_group_last_inspect_result"] is None
     assert payload["game"]["current_group_node_services"] == []
     assert payload["game"]["current_group_last_service_result"] is None
+    assert payload["game"]["current_group_service_states"] == []
     assert payload["game"]["current_group_travel_event"] is None
     assert payload["game"]["current_group_last_camp_result"] is None
     assert payload["game"]["current_group_last_scout_result"] is None
@@ -277,11 +283,15 @@ def test_build_state_exports_current_player_group_id(monkeypatch) -> None:
             ],
             "available_services": [
                 {
+                    "service_id": "start_trakt:safe_rest",
                     "service_key": "safe_rest",
                     "label": "Безопасный отдых",
                     "service_type": "rest",
+                    "service_kind": "rest",
                     "summary": "Можно перевести дух и переждать путь в сравнительно безопасных условиях.",
                     "source": "registry",
+                    "available": True,
+                    "status": "available",
                     "service_hints": ["можно переждать у дороги", "подходит для сбора перед выходом"],
                 }
             ],
@@ -327,11 +337,15 @@ def test_build_state_exports_current_player_group_id(monkeypatch) -> None:
         "get_current_group_node_services",
         lambda _sess, player_id=None: [
             {
+                "service_id": "start_trakt:safe_rest",
                 "service_key": "safe_rest",
                 "label": "Безопасный отдых",
                 "service_type": "rest",
+                "service_kind": "rest",
                 "summary": "Можно перевести дух и переждать путь в сравнительно безопасных условиях.",
                 "source": "registry",
+                "available": True,
+                "status": "available",
                 "service_hints": ["можно переждать у дороги", "подходит для сбора перед выходом"],
             }
         ],
@@ -340,17 +354,39 @@ def test_build_state_exports_current_player_group_id(monkeypatch) -> None:
         state_builder,
         "get_current_group_last_service_result",
         lambda _sess, player_id=None: {
+            "result_id": "service-out-1",
+            "service_id": "start_trakt:safe_rest",
             "service_key": "safe_rest",
+            "service_label": "Безопасный отдых",
             "label": "Безопасный отдых",
+            "result_type": "lodging_received",
             "service_type": "rest",
+            "service_kind": "rest",
             "summary": "Можно перевести дух и переждать путь в сравнительно безопасных условиях.",
             "result_summary": "Место подходит для короткой передышки без немедленной дорожной угрозы.",
             "node_id": "start_trakt",
             "node_label": "Стартовый тракт",
+            "applied_effects": ["lodging_received"],
+            "discovered_notes": [],
+            "reveal_applied": False,
             "source": "test",
             "service_hints": ["можно переждать у дороги", "подходит для сбора перед выходом"],
-            "used_at": "2026-03-14T00:05:00+00:00",
+            "resolved_at": "2026-03-14T00:05:00+00:00",
         },
+    )
+    monkeypatch.setattr(
+        state_builder,
+        "get_current_group_service_states",
+        lambda _sess, player_id=None: [
+            {
+                "service_id": "start_trakt:safe_rest",
+                "status": "resolved",
+                "result_type": "lodging_received",
+                "summary": "Место подходит для короткой передышки без немедленной дорожной угрозы.",
+                "source": "test",
+                "updated_at": "2026-03-14T00:05:10+00:00",
+            }
+        ],
     )
     monkeypatch.setattr(
         state_builder,
@@ -545,11 +581,15 @@ def test_build_state_exports_current_player_group_id(monkeypatch) -> None:
         ],
         "available_services": [
             {
+                "service_id": "start_trakt:safe_rest",
                 "service_key": "safe_rest",
                 "label": "Безопасный отдых",
                 "service_type": "rest",
+                "service_kind": "rest",
                 "summary": "Можно перевести дух и переждать путь в сравнительно безопасных условиях.",
                 "source": "registry",
+                "available": True,
+                "status": "available",
                 "service_hints": ["можно переждать у дороги", "подходит для сбора перед выходом"],
             }
         ],
@@ -583,26 +623,48 @@ def test_build_state_exports_current_player_group_id(monkeypatch) -> None:
     }
     assert payload["game"]["current_group_node_services"] == [
         {
+            "service_id": "start_trakt:safe_rest",
             "service_key": "safe_rest",
             "label": "Безопасный отдых",
             "service_type": "rest",
+            "service_kind": "rest",
             "summary": "Можно перевести дух и переждать путь в сравнительно безопасных условиях.",
             "source": "registry",
+            "available": True,
+            "status": "available",
             "service_hints": ["можно переждать у дороги", "подходит для сбора перед выходом"],
         }
     ]
     assert payload["game"]["current_group_last_service_result"] == {
+        "result_id": "service-out-1",
+        "service_id": "start_trakt:safe_rest",
         "service_key": "safe_rest",
+        "service_label": "Безопасный отдых",
         "label": "Безопасный отдых",
+        "result_type": "lodging_received",
         "service_type": "rest",
+        "service_kind": "rest",
         "summary": "Можно перевести дух и переждать путь в сравнительно безопасных условиях.",
         "result_summary": "Место подходит для короткой передышки без немедленной дорожной угрозы.",
         "node_id": "start_trakt",
         "node_label": "Стартовый тракт",
+        "applied_effects": ["lodging_received"],
+        "discovered_notes": [],
+        "reveal_applied": False,
         "source": "test",
         "service_hints": ["можно переждать у дороги", "подходит для сбора перед выходом"],
-        "used_at": "2026-03-14T00:05:00+00:00",
+        "resolved_at": "2026-03-14T00:05:00+00:00",
     }
+    assert payload["game"]["current_group_service_states"] == [
+        {
+            "service_id": "start_trakt:safe_rest",
+            "status": "resolved",
+            "result_type": "lodging_received",
+            "summary": "Место подходит для короткой передышки без немедленной дорожной угрозы.",
+            "source": "test",
+            "updated_at": "2026-03-14T00:05:10+00:00",
+        }
+    ]
     assert payload["game"]["current_group_travel_event"] == {
         "event_id": "evt-road",
         "event_key": "roadside_finding",
@@ -976,6 +1038,7 @@ def test_build_state_exports_group_activity_summaries(monkeypatch) -> None:
     monkeypatch.setattr(state_builder, "get_current_group_last_inspect_result", lambda _sess, player_id=None: None)
     monkeypatch.setattr(state_builder, "get_current_group_node_services", lambda _sess, player_id=None: [])
     monkeypatch.setattr(state_builder, "get_current_group_last_service_result", lambda _sess, player_id=None: None)
+    monkeypatch.setattr(state_builder, "get_current_group_service_states", lambda _sess, player_id=None: [])
     monkeypatch.setattr(state_builder, "get_current_group_travel_event", lambda _sess, player_id=None: None)
     monkeypatch.setattr(state_builder, "get_current_group_last_camp_result", lambda _sess, player_id=None: None)
     monkeypatch.setattr(state_builder, "get_current_group_last_scout_result", lambda _sess, player_id=None: None)

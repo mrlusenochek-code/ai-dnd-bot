@@ -1382,35 +1382,52 @@ def test_get_current_group_node_context_returns_node_summary_and_contextual_acti
         ],
         "available_services": [
             {
+                "service_id": "craft_town:safe_rest",
                 "service_key": "safe_rest",
                 "label": "Безопасный отдых",
                 "service_type": "rest",
+                "service_kind": "rest",
                 "summary": "Можно перевести дух и переждать путь в сравнительно безопасных условиях.",
                 "source": "registry",
+                "available": True,
+                "status": "available",
                 "service_hints": ["припасы", "постоялый двор", "ремесленные мастерские"],
             },
             {
+                "service_id": "craft_town:resupply",
                 "service_key": "resupply",
                 "label": "Пополнение припасов",
                 "service_type": "supplies",
+                "service_kind": "supplies",
                 "summary": "Здесь можно пополнить базовые дорожные запасы перед выходом.",
                 "source": "registry",
+                "available": True,
+                "status": "available",
                 "service_hints": ["припасы", "постоялый двор", "ремесленные мастерские"],
             },
             {
+                "service_id": "craft_town_local_guidance",
                 "service_key": "local_guidance",
                 "label": "Местные указания",
                 "service_type": "guidance",
+                "service_kind": "guidance",
                 "summary": "Здесь можно получить ориентиры, слухи и безопасные подсказки по ближайшим дорогам.",
                 "source": "registry",
+                "available": True,
+                "status": "available",
+                "one_shot": True,
                 "service_hints": ["припасы", "постоялый двор", "ремесленные мастерские"],
             },
             {
+                "service_id": "craft_town:healing_aid",
                 "service_key": "healing_aid",
                 "label": "Помощь с ранами",
                 "service_type": "aid",
+                "service_kind": "aid",
                 "summary": "На месте можно получить перевязку, уход или базовую помощь после дороги.",
                 "source": "registry",
+                "available": True,
+                "status": "available",
                 "service_hints": ["припасы", "постоялый двор", "ремесленные мастерские"],
             },
         ],
@@ -1470,7 +1487,7 @@ def test_get_current_group_node_services_and_execute_service_store_result() -> N
     updated, error = session_state.execute_current_group_service(
         sess,
         player_id=player_id,
-        service_key="resupply",
+        service_id="craft_town:resupply",
         source="test",
     )
 
@@ -1483,17 +1500,33 @@ def test_get_current_group_node_services_and_execute_service_store_result() -> N
     assert error is None
     assert updated is not None
     assert session_state.get_current_group_last_service_result(sess, player_id=player_id) == {
+        "result_id": updated["last_service_result"]["result_id"],
+        "service_id": "craft_town:resupply",
         "service_key": "resupply",
+        "service_label": "Пополнение припасов",
         "label": "Пополнение припасов",
+        "result_type": "supplies_secured",
         "service_type": "supplies",
+        "service_kind": "supplies",
         "summary": "Здесь можно пополнить базовые дорожные запасы перед выходом.",
         "result_summary": "Здесь можно собрать базовые припасы и привести снаряжение в порядок.",
         "node_id": "craft_town",
         "node_label": "Озёрный городок",
+        "reveal_applied": False,
         "source": "test",
         "service_hints": ["припасы", "постоялый двор", "ремесленные мастерские"],
-        "used_at": updated["last_service_result"]["used_at"],
+        "resolved_at": updated["last_service_result"]["resolved_at"],
     }
+    assert session_state.get_current_group_service_states(sess, player_id=player_id) == [
+        {
+            "service_id": "craft_town:resupply",
+            "status": "resolved",
+            "result_type": "supplies_secured",
+            "summary": "Здесь можно собрать базовые припасы и привести снаряжение в порядок.",
+            "source": "test",
+            "updated_at": updated["service_states"]["craft_town:resupply"]["updated_at"],
+        }
+    ]
 
 
 def test_execute_current_group_service_rejects_unavailable_service_cleanly() -> None:
@@ -1513,12 +1546,57 @@ def test_execute_current_group_service_rejects_unavailable_service_cleanly() -> 
     updated, error = session_state.execute_current_group_service(
         sess,
         player_id=player_id,
-        service_key="safe_rest",
+        service_id="safe_rest",
         source="test",
     )
 
     assert updated is None
     assert error == "Эта услуга сейчас недоступна в текущем месте."
+
+
+def test_resolve_group_service_can_reveal_and_update_node_state_with_already_used_repeat() -> None:
+    player_id = uuid.uuid4()
+    sess = SimpleNamespace(settings={})
+    session_state._initialize_default_group(
+        sess,
+        [player_id],
+        {
+            "map_level": "region",
+            "node_type": "zone",
+            "node_id": "craft_town",
+            "label": "Озёрный городок",
+        },
+    )
+
+    resolved, error = session_state.resolve_group_service(
+        sess,
+        "main",
+        service_id="craft_town_local_guidance",
+        player_id=player_id,
+        source="test",
+    )
+    repeated, repeated_error = session_state.resolve_group_service(
+        sess,
+        "main",
+        service_id="craft_town_local_guidance",
+        player_id=player_id,
+        source="test",
+    )
+    services_after = session_state.get_current_group_node_services(sess, player_id=player_id)
+
+    assert error is None
+    assert resolved is not None
+    assert resolved["last_service_result"]["result_type"] == "guidance_received"
+    assert resolved["last_service_result"]["reveal_applied"] is True
+    assert session_state.is_player_node_revealed(sess, player_id, "watchtower") is True
+    assert session_state.get_group_node_state(sess, "main", "craft_town")["state_flags"] == ["craft_guidance_taken"]
+    assert repeated_error is None
+    assert repeated is not None
+    assert repeated["last_service_result"]["result_type"] == "already_used"
+    used_service = next(service for service in services_after if service["service_id"] == "craft_town_local_guidance")
+    assert used_service["available"] is False
+    assert used_service["status"] == "completed"
+    assert used_service["unavailable_reason"] == "already_used"
 
 
 def test_get_current_group_node_context_adds_enter_for_paused_target_requires_enter() -> None:
