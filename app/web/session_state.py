@@ -11,6 +11,7 @@ from app.web.map_registry import (
     get_current_node_context_actions,
     get_obvious_linked_static_node_ids,
     get_static_node_context_action_effects,
+    get_static_node_state_overlays,
     get_static_node_scout_discoveries,
     get_static_navigation_options,
     get_static_node_detail,
@@ -653,6 +654,192 @@ def _normalize_group_route_access_state_map(raw: Any) -> dict[str, dict[str, Any
         if state:
             normalized[state["route_id"]] = state
     return normalized
+
+
+def _normalize_group_node_state(raw: Any) -> dict[str, Any] | None:
+    if not isinstance(raw, dict):
+        return None
+    node_id = str(raw.get("node_id") or "").strip().lower()
+    summary = str(raw.get("summary") or "").strip()
+    source = str(raw.get("source") or "node_state").strip() or "node_state"
+    updated_at = str(raw.get("updated_at") or "").strip()
+    if not node_id or not summary:
+        return None
+    state_flags = [
+        str(flag).strip().lower()[:80]
+        for flag in (raw.get("state_flags") or [])
+        if str(flag or "").strip()
+    ] if isinstance(raw.get("state_flags"), list) else []
+    deduped_flags: list[str] = []
+    for flag in state_flags:
+        if flag and flag not in deduped_flags:
+            deduped_flags.append(flag)
+    state: dict[str, Any] = {
+        "node_id": node_id[:120],
+        "state_flags": deduped_flags,
+        "summary": summary[:240],
+        "source": source[:40],
+    }
+    if updated_at:
+        state["updated_at"] = updated_at[:80]
+    return state
+
+
+def _normalize_group_node_state_map(raw: Any) -> dict[str, dict[str, Any]]:
+    if not isinstance(raw, dict):
+        return {}
+    normalized: dict[str, dict[str, Any]] = {}
+    for node_id, value in raw.items():
+        candidate = value if isinstance(value, dict) else {"node_id": node_id, "state_flags": [value], "summary": str(value or node_id)}
+        merged = {"node_id": node_id, **candidate} if isinstance(candidate, dict) else candidate
+        state = _normalize_group_node_state(merged)
+        if state:
+            normalized[state["node_id"]] = state
+    return normalized
+
+
+def _build_effective_node_state_notes(
+    node_id: str,
+    state_flags: list[str] | set[str] | None,
+    *,
+    note_kind: str,
+) -> list[str]:
+    notes: list[str] = []
+    for overlay in get_static_node_state_overlays(node_id=node_id, state_flags=state_flags):
+        note = str(overlay.get(note_kind) or "").strip()
+        if note and note not in notes:
+            notes.append(note)
+    return notes
+
+
+def get_group_node_state(
+    sess: Session,
+    group_id: str,
+    node_id: str,
+) -> dict[str, Any] | None:
+    normalized_group_id = str(group_id or "").strip()
+    normalized_node_id = str(node_id or "").strip().lower()
+    if not normalized_group_id or not normalized_node_id:
+        return None
+    group = _get_group_states(sess).get(normalized_group_id)
+    if not isinstance(group, dict):
+        return None
+    return _normalize_group_node_state((_normalize_group_node_state_map(group.get("node_states"))).get(normalized_node_id))
+
+
+def set_group_node_state(
+    sess: Session,
+    group_id: str,
+    node_id: str,
+    *,
+    state_flags: list[str] | None = None,
+    summary: str,
+    source: str = "node_state",
+) -> dict[str, Any] | None:
+    groups = _get_group_states(sess)
+    group_key = str(group_id or "").strip()
+    normalized_node_id = str(node_id or "").strip().lower()
+    group = groups.get(group_key)
+    if not group or not normalized_node_id:
+        return None
+    node_state = _normalize_group_node_state(
+        {
+            "node_id": normalized_node_id,
+            "state_flags": list(state_flags or []),
+            "summary": summary,
+            "source": source,
+            "updated_at": datetime.now(timezone.utc).isoformat(),
+        }
+    )
+    if not node_state:
+        return None
+    state_map = _normalize_group_node_state_map(group.get("node_states"))
+    state_map[node_state["node_id"]] = node_state
+    group["node_states"] = state_map
+    _persist_group_states(sess, groups)
+    _sync_group_position_mirrors(sess, group)
+    return node_state
+
+
+def add_group_node_state_flag(
+    sess: Session,
+    group_id: str,
+    node_id: str,
+    *,
+    state_flag: str,
+    summary: str,
+    source: str = "node_state",
+) -> dict[str, Any] | None:
+    normalized_flag = str(state_flag or "").strip().lower()
+    normalized_node_id = str(node_id or "").strip().lower()
+    if not normalized_flag or not normalized_node_id:
+        return None
+    existing = get_group_node_state(sess, group_id, normalized_node_id) or {
+        "node_id": normalized_node_id,
+        "state_flags": [],
+        "summary": summary,
+    }
+    next_flags = list(existing.get("state_flags") or [])
+    if normalized_flag not in next_flags:
+        next_flags.append(normalized_flag)
+    return set_group_node_state(
+        sess,
+        group_id,
+        normalized_node_id,
+        state_flags=next_flags,
+        summary=summary or str(existing.get("summary") or ""),
+        source=source,
+    )
+
+
+def has_group_node_state_flag(
+    sess: Session,
+    group_id: str,
+    node_id: str,
+    state_flag: str,
+) -> bool:
+    normalized_flag = str(state_flag or "").strip().lower()
+    state = get_group_node_state(sess, group_id, node_id)
+    return bool(state and normalized_flag in set(state.get("state_flags") or []))
+
+
+def get_current_group_node_states(
+    sess: Session,
+    *,
+    player_id: uuid.UUID | str | None = None,
+    group_id: str | None = None,
+) -> list[dict[str, Any]]:
+    resolved_group_id = str(group_id or "").strip()
+    resolved_player_id = str(player_id or "").strip()
+    if not resolved_group_id and resolved_player_id:
+        resolved_group_id = str(_get_player_group_id(sess, resolved_player_id) or "").strip()
+    if not resolved_group_id:
+        return []
+    group = _get_group_states(sess).get(resolved_group_id)
+    if not isinstance(group, dict):
+        return []
+    state_map = _normalize_group_node_state_map(group.get("node_states"))
+    return [dict(state_map[key]) for key in sorted(state_map.keys())]
+
+
+def get_current_group_current_node_state(
+    sess: Session,
+    *,
+    player_id: uuid.UUID | str | None = None,
+    group_id: str | None = None,
+) -> dict[str, Any] | None:
+    resolved_group_id = str(group_id or "").strip()
+    resolved_player_id = str(player_id or "").strip()
+    if not resolved_group_id and resolved_player_id:
+        resolved_group_id = str(_get_player_group_id(sess, resolved_player_id) or "").strip()
+    if not resolved_group_id:
+        return None
+    group = _get_group_states(sess).get(resolved_group_id)
+    current_map_position = _normalize_map_position((group or {}).get("current_map_position"))
+    current_node_id = str((current_map_position or {}).get("node_id") or "").strip().lower()
+    if not current_node_id:
+        return None
+    return get_group_node_state(sess, resolved_group_id, current_node_id)
 
 
 def _normalize_group_movement_mode(raw: Any) -> str:
@@ -1562,9 +1749,13 @@ def get_current_group_node_context(
     current_map_position = _normalize_map_position(group.get("current_map_position"))
     if not current_map_position:
         return None
+    current_node_id = str(current_map_position.get("node_id") or "").strip().lower()
     node_context = get_static_node_context(current_map_position=current_map_position)
     if not node_context:
         return None
+    current_node_state = get_group_node_state(sess, resolved_group_id, current_node_id) if current_node_id else None
+    node_state_flags = list((current_node_state or {}).get("state_flags") or [])
+    state_notes = _build_effective_node_state_notes(current_node_id, node_state_flags, note_kind="context_note") if current_node_id else []
     contextual_actions = get_current_node_context_actions(current_map_position=current_map_position)
     action_states = _normalize_group_context_action_state_map(group.get("context_action_states"))
     authored_effects = {
@@ -1627,7 +1818,7 @@ def get_current_group_node_context(
                     "exhausted": False,
                 },
             )
-    return {
+    payload = {
         "node_summary": node_context,
         "contextual_actions": annotated_actions,
         "available_services": get_current_group_node_services(sess, player_id=resolved_player_id or None, group_id=resolved_group_id),
@@ -1637,6 +1828,11 @@ def get_current_group_node_context(
             else []
         ),
     }
+    if node_state_flags:
+        payload["node_state_flags"] = node_state_flags
+    if state_notes:
+        payload["state_notes"] = state_notes
+    return payload
 
 
 def _normalize_group_last_inspect_result(raw: Any) -> dict[str, Any] | None:
@@ -1666,6 +1862,11 @@ def _normalize_group_last_inspect_result(raw: Any) -> dict[str, Any] | None:
         normalized_hints = [str(item).strip()[:120] for item in service_hints if str(item or "").strip()]
         if normalized_hints:
             result["service_hints"] = normalized_hints
+    state_notes = raw.get("state_notes")
+    if isinstance(state_notes, list):
+        normalized_state_notes = [str(item).strip()[:240] for item in state_notes if str(item or "").strip()]
+        if normalized_state_notes:
+            result["state_notes"] = normalized_state_notes
     inspected_at = str(raw.get("inspected_at") or "").strip()
     if inspected_at:
         result["inspected_at"] = inspected_at
@@ -1739,7 +1940,16 @@ def get_current_group_node_detail(
     current_map_position = _normalize_map_position(group.get("current_map_position"))
     if not current_map_position:
         return None
-    return get_static_node_detail(current_map_position=current_map_position)
+    detail = dict(get_static_node_detail(current_map_position=current_map_position) or {})
+    current_node_id = str(current_map_position.get("node_id") or "").strip().lower()
+    current_node_state = get_group_node_state(sess, resolved_group_id, current_node_id) if current_node_id else None
+    node_state_flags = list((current_node_state or {}).get("state_flags") or [])
+    state_notes = _build_effective_node_state_notes(current_node_id, node_state_flags, note_kind="detail_note") if current_node_id else []
+    if node_state_flags:
+        detail["node_state_flags"] = node_state_flags
+    if state_notes:
+        detail["state_notes"] = state_notes
+    return detail or None
 
 
 def get_current_group_node_services(
@@ -1821,10 +2031,13 @@ def inspect_current_group_node(
     inspect_result = get_static_node_inspect_result(current_map_position=current_map_position, source=source)
     if not current_map_position or not current_node_id or not inspect_result:
         return None
+    current_node_state = get_group_node_state(sess, resolved_group_id, current_node_id)
+    state_notes = _build_effective_node_state_notes(current_node_id, (current_node_state or {}).get("state_flags"), note_kind="detail_note")
     _set_group_last_inspect_result(
         group,
         {
             **inspect_result,
+            "state_notes": state_notes,
             "inspected_at": datetime.now(timezone.utc).isoformat(),
         },
     )
@@ -2271,6 +2484,25 @@ def resolve_group_context_action(
             block_reason=str(action_effect.get("block_reason") or "context_action_blocked").strip() or "context_action_blocked",
             source=source,
         )
+        groups = _get_group_states(sess)
+        group = groups.get(group_key)
+    node_state_flags = [
+        str(flag).strip().lower()
+        for flag in (action_effect.get("node_state_flags") or [])
+        if str(flag or "").strip()
+    ]
+    if group and node_state_flags:
+        node_state_summary = str(action_effect.get("node_state_summary") or result.get("result_summary") or result.get("summary") or "").strip()
+        current_node_id = str((_normalize_map_position(group.get("current_map_position")) or {}).get("node_id") or "").strip().lower()
+        for node_state_flag in node_state_flags:
+            add_group_node_state_flag(
+                sess,
+                group_key,
+                current_node_id,
+                state_flag=node_state_flag,
+                summary=node_state_summary,
+                source=source,
+            )
         groups = _get_group_states(sess)
         group = groups.get(group_key)
     if not group:
@@ -3122,6 +3354,13 @@ def _group_context_action_states_summary(group: dict[str, Any]) -> list[dict[str
     return [dict(action_states[key]) for key in sorted(action_states.keys())]
 
 
+def _group_node_states_summary(group: dict[str, Any]) -> list[dict[str, Any]] | None:
+    node_states = _normalize_group_node_state_map(group.get("node_states"))
+    if not node_states:
+        return None
+    return [dict(node_states[key]) for key in sorted(node_states.keys())]
+
+
 def _group_movement_mode(group: dict[str, Any]) -> str:
     return _normalize_group_movement_mode(group.get("movement_mode"))
 
@@ -3313,6 +3552,9 @@ def _normalize_group_state(
     context_action_states = _normalize_group_context_action_state_map(raw.get("context_action_states"))
     if context_action_states:
         normalized["context_action_states"] = context_action_states
+    node_states = _normalize_group_node_state_map(raw.get("node_states"))
+    if node_states:
+        normalized["node_states"] = node_states
     if movement_intent:
         normalized["movement_intent"] = movement_intent
     if travel_state:

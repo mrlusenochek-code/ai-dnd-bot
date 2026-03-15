@@ -115,6 +115,8 @@ def test_build_state_includes_legacy_and_structured_positions(monkeypatch) -> No
     monkeypatch.setattr(state_builder, "get_current_group_last_context_action_result", lambda _sess, player_id=None: None)
     monkeypatch.setattr(state_builder, "get_current_group_route_access_states", lambda _sess, player_id=None: [])
     monkeypatch.setattr(state_builder, "get_current_group_context_action_states", lambda _sess, player_id=None: [])
+    monkeypatch.setattr(state_builder, "get_current_group_node_states", lambda _sess, player_id=None: [])
+    monkeypatch.setattr(state_builder, "get_current_group_current_node_state", lambda _sess, player_id=None: None)
     monkeypatch.setattr(state_builder, "get_current_group_last_travel_event_outcome", lambda _sess, player_id=None: None)
     monkeypatch.setattr(state_builder, "get_current_group_navigation_options", lambda _sess, player_id=None: [])
     monkeypatch.setattr(state_builder, "snapshot_combat_state", lambda _session_id: None)
@@ -143,6 +145,7 @@ def test_build_state_includes_legacy_and_structured_positions(monkeypatch) -> No
             "last_scout_result_summary": None,
             "last_context_action_result_summary": None,
             "context_action_states": None,
+            "node_states": None,
             "movement_intent_summary": None,
             "travel_state": None,
             "travel_summary": None,
@@ -165,6 +168,8 @@ def test_build_state_includes_legacy_and_structured_positions(monkeypatch) -> No
     assert payload["game"]["current_group_last_context_action_result"] is None
     assert payload["game"]["current_group_route_access_states"] == []
     assert payload["game"]["current_group_context_action_states"] == []
+    assert payload["game"]["current_group_node_states"] == []
+    assert payload["game"]["current_group_current_node_state"] is None
     assert payload["game"]["current_group_last_travel_event_outcome"] is None
     assert payload["game"]["current_group_navigation_options"] == []
     assert payload["session"]["current_group_id"] is None
@@ -261,6 +266,8 @@ def test_build_state_exports_current_player_group_id(monkeypatch) -> None:
                 "environment_hint": "roadland",
                 "safe_rest_hint": True,
             },
+            "node_state_flags": ["old_road_cleared"],
+            "state_notes": ["У старой дороги видны следы недавней расчистки, и проход к руинам читается увереннее."],
             "contextual_actions": [
                 {"action_id": "navigate", "action_key": "navigate", "label": "Продолжить путь", "action_type": "action", "action_kind": "navigate", "status": "available", "available": True, "exhausted": False},
                 {"action_id": "inspect", "action_key": "inspect", "label": "Осмотреться", "action_type": "action", "action_kind": "inspect", "status": "available", "available": True, "exhausted": False},
@@ -295,6 +302,8 @@ def test_build_state_exports_current_player_group_id(monkeypatch) -> None:
             "inspect_summary": "По тракту удобно держать путь к воротам крепости и к озёрному городку.",
             "travel_note": "Хороший ориентир для сбора группы и спокойного перехода.",
             "service_hints": ["можно переждать у дороги", "подходит для сбора перед выходом"],
+            "node_state_flags": ["old_road_cleared"],
+            "state_notes": ["Сломанные ветви и свежие борозды в грязи показывают, что завал уже разбирали совсем недавно."],
         },
     )
     monkeypatch.setattr(
@@ -308,6 +317,7 @@ def test_build_state_exports_current_player_group_id(monkeypatch) -> None:
             "short_description": "Широкий тракт у стартового лагеря, где сходятся безопасные дороги региона.",
             "travel_note": "Хороший ориентир для сбора группы и спокойного перехода.",
             "service_hints": ["можно переждать у дороги", "подходит для сбора перед выходом"],
+            "state_notes": ["Сломанные ветви и свежие борозды в грязи показывают, что завал уже разбирали совсем недавно."],
             "source": "test",
             "inspected_at": "2026-03-14T00:00:00+00:00",
         },
@@ -445,6 +455,30 @@ def test_build_state_exports_current_player_group_id(monkeypatch) -> None:
     )
     monkeypatch.setattr(
         state_builder,
+        "get_current_group_node_states",
+        lambda _sess, player_id=None: [
+            {
+                "node_id": "start_trakt",
+                "state_flags": ["old_road_cleared"],
+                "summary": "На лесной дороге заметны следы недавней расчистки старого прохода.",
+                "source": "test",
+                "updated_at": "2026-03-15T00:09:45+00:00",
+            }
+        ],
+    )
+    monkeypatch.setattr(
+        state_builder,
+        "get_current_group_current_node_state",
+        lambda _sess, player_id=None: {
+            "node_id": "start_trakt",
+            "state_flags": ["old_road_cleared"],
+            "summary": "На лесной дороге заметны следы недавней расчистки старого прохода.",
+            "source": "test",
+            "updated_at": "2026-03-15T00:09:45+00:00",
+        },
+    )
+    monkeypatch.setattr(
+        state_builder,
         "get_current_group_last_travel_event_outcome",
         lambda _sess, player_id=None: {
             "outcome_id": "out-road",
@@ -500,6 +534,8 @@ def test_build_state_exports_current_player_group_id(monkeypatch) -> None:
             "environment_hint": "roadland",
             "safe_rest_hint": True,
         },
+        "node_state_flags": ["old_road_cleared"],
+        "state_notes": ["У старой дороги видны следы недавней расчистки, и проход к руинам читается увереннее."],
         "contextual_actions": [
             {"action_id": "navigate", "action_key": "navigate", "label": "Продолжить путь", "action_type": "action", "action_kind": "navigate", "status": "available", "available": True, "exhausted": False},
             {"action_id": "inspect", "action_key": "inspect", "label": "Осмотреться", "action_type": "action", "action_kind": "inspect", "status": "available", "available": True, "exhausted": False},
@@ -530,6 +566,8 @@ def test_build_state_exports_current_player_group_id(monkeypatch) -> None:
         "inspect_summary": "По тракту удобно держать путь к воротам крепости и к озёрному городку.",
         "travel_note": "Хороший ориентир для сбора группы и спокойного перехода.",
         "service_hints": ["можно переждать у дороги", "подходит для сбора перед выходом"],
+        "node_state_flags": ["old_road_cleared"],
+        "state_notes": ["Сломанные ветви и свежие борозды в грязи показывают, что завал уже разбирали совсем недавно."],
     }
     assert payload["game"]["current_group_last_inspect_result"] == {
         "node_id": "start_trakt",
@@ -539,6 +577,7 @@ def test_build_state_exports_current_player_group_id(monkeypatch) -> None:
         "short_description": "Широкий тракт у стартового лагеря, где сходятся безопасные дороги региона.",
         "travel_note": "Хороший ориентир для сбора группы и спокойного перехода.",
         "service_hints": ["можно переждать у дороги", "подходит для сбора перед выходом"],
+        "state_notes": ["Сломанные ветви и свежие борозды в грязи показывают, что завал уже разбирали совсем недавно."],
         "source": "test",
         "inspected_at": "2026-03-14T00:00:00+00:00",
     }
@@ -641,6 +680,22 @@ def test_build_state_exports_current_player_group_id(monkeypatch) -> None:
             "updated_at": "2026-03-15T00:09:30+00:00",
         }
     ]
+    assert payload["game"]["current_group_node_states"] == [
+        {
+            "node_id": "start_trakt",
+            "state_flags": ["old_road_cleared"],
+            "summary": "На лесной дороге заметны следы недавней расчистки старого прохода.",
+            "source": "test",
+            "updated_at": "2026-03-15T00:09:45+00:00",
+        }
+    ]
+    assert payload["game"]["current_group_current_node_state"] == {
+        "node_id": "start_trakt",
+        "state_flags": ["old_road_cleared"],
+        "summary": "На лесной дороге заметны следы недавней расчистки старого прохода.",
+        "source": "test",
+        "updated_at": "2026-03-15T00:09:45+00:00",
+    }
     assert payload["game"]["current_group_last_travel_event_outcome"] == {
         "outcome_id": "out-road",
         "event_key": "roadside_finding",
@@ -767,6 +822,15 @@ def test_build_state_exports_group_activity_summaries(monkeypatch) -> None:
                     "summary": "Группа очищает локальный завал и фиксирует новый проходимый подход.",
                     "source": "test",
                     "updated_at": "2026-03-14T00:07:31+00:00",
+                }
+            },
+            "node_states": {
+                "camp": {
+                    "node_id": "camp",
+                    "state_flags": ["camp_watch_checked"],
+                    "summary": "Лагерная точка уже осмотрена и отмечена для следующего сбора.",
+                    "source": "test",
+                    "updated_at": "2026-03-14T00:07:32+00:00",
                 }
             },
             "route_access_states": {
@@ -918,6 +982,8 @@ def test_build_state_exports_group_activity_summaries(monkeypatch) -> None:
     monkeypatch.setattr(state_builder, "get_current_group_last_context_action_result", lambda _sess, player_id=None: None)
     monkeypatch.setattr(state_builder, "get_current_group_route_access_states", lambda _sess, player_id=None: [])
     monkeypatch.setattr(state_builder, "get_current_group_context_action_states", lambda _sess, player_id=None: [])
+    monkeypatch.setattr(state_builder, "get_current_group_node_states", lambda _sess, player_id=None: [])
+    monkeypatch.setattr(state_builder, "get_current_group_current_node_state", lambda _sess, player_id=None: None)
     monkeypatch.setattr(state_builder, "get_current_group_last_travel_event_outcome", lambda _sess, player_id=None: None)
     monkeypatch.setattr(state_builder, "get_current_group_navigation_options", lambda _sess, player_id=None: [])
     monkeypatch.setattr(state_builder, "snapshot_combat_state", lambda _session_id: None)
@@ -989,6 +1055,15 @@ def test_build_state_exports_group_activity_summaries(monkeypatch) -> None:
             "summary": "Группа очищает локальный завал и фиксирует новый проходимый подход.",
             "source": "test",
             "updated_at": "2026-03-14T00:07:31+00:00",
+        }
+    ]
+    assert payload["game"]["groups"]["main"]["node_states"] == [
+        {
+            "node_id": "camp",
+            "state_flags": ["camp_watch_checked"],
+            "summary": "Лагерная точка уже осмотрена и отмечена для следующего сбора.",
+            "source": "test",
+            "updated_at": "2026-03-14T00:07:32+00:00",
         }
     ]
     assert payload["game"]["groups"]["main"]["route_access_states"] == [

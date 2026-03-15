@@ -1851,6 +1851,176 @@ def test_context_action_can_keep_route_blocked_and_no_effect_is_explicit() -> No
     assert no_effect["last_context_action_result"]["result_type"] == "no_effect"
 
 
+def test_group_node_state_storage_helpers_are_canonical_and_scoped_per_group() -> None:
+    left_id = uuid.uuid4()
+    right_id = uuid.uuid4()
+    sess = SimpleNamespace(settings={})
+    session_state._initialize_default_group(
+        sess,
+        [left_id, right_id],
+        {
+            "map_level": "region",
+            "node_type": "zone",
+            "node_id": "forest_road",
+            "label": "Лесная дорога",
+        },
+    )
+    split_request = session_state.request_group_split("main", [str(right_id)], new_group_id="scouts")
+    session_state.apply_group_split(sess, split_request)
+
+    stored = session_state.set_group_node_state(
+        sess,
+        "main",
+        "forest_road",
+        state_flags=["old_road_cleared"],
+        summary="Старая дорога расчищена.",
+        source="test",
+    )
+    added = session_state.add_group_node_state_flag(
+        sess,
+        "main",
+        "forest_road",
+        state_flag="watch_post_checked",
+        summary="Группа заодно проверила край дороги.",
+        source="test",
+    )
+
+    assert stored is not None
+    assert stored["node_id"] == "forest_road"
+    assert session_state.get_group_node_state(sess, "main", "forest_road") == {
+        "node_id": "forest_road",
+        "state_flags": ["old_road_cleared", "watch_post_checked"],
+        "summary": "Группа заодно проверила край дороги.",
+        "source": "test",
+        "updated_at": added["updated_at"],
+    }
+    assert session_state.has_group_node_state_flag(sess, "main", "forest_road", "old_road_cleared") is True
+    assert session_state.has_group_node_state_flag(sess, "main", "forest_road", "watch_post_checked") is True
+    assert session_state.get_group_node_state(sess, "scouts", "forest_road") is None
+
+
+def test_contextual_action_updates_node_state_and_keeps_layers_separate() -> None:
+    player_id = uuid.uuid4()
+    sess = SimpleNamespace(settings={})
+    session_state._initialize_default_group(
+        sess,
+        [player_id],
+        {
+            "map_level": "region",
+            "node_type": "zone",
+            "node_id": "forest_road",
+            "label": "Лесная дорога",
+        },
+    )
+    session_state.set_group_route_access_state(
+        sess,
+        "main",
+        "forest_road->ruined_settlement:move",
+        access_state="blocked",
+        summary="Старая дорога завалена.",
+        block_reason="fallen_trees",
+        source="test",
+    )
+
+    resolved, error = session_state.resolve_group_context_action(
+        sess,
+        "main",
+        action_id="clear_old_road",
+        player_id=player_id,
+        source="test",
+    )
+
+    assert error is None
+    assert resolved is not None
+    assert session_state.get_group_node_state(sess, "main", "forest_road") == {
+        "node_id": "forest_road",
+        "state_flags": ["old_road_cleared"],
+        "summary": "На лесной дороге заметны следы недавней расчистки старого прохода.",
+        "source": "test",
+        "updated_at": resolved["node_states"]["forest_road"]["updated_at"],
+    }
+    assert session_state.get_group_route_access_state(sess, "main", "forest_road->ruined_settlement:move")["access_state"] == "cleared"
+    assert resolved["context_action_states"]["clear_old_road"]["status"] == "completed"
+    repeated, repeated_error = session_state.resolve_group_context_action(
+        sess,
+        "main",
+        action_id="clear_old_road",
+        player_id=player_id,
+        source="test",
+    )
+    assert repeated_error is None
+    assert repeated is not None
+    assert repeated["last_context_action_result"]["result_type"] == "already_completed"
+    assert session_state.get_group_node_state(sess, "main", "forest_road")["state_flags"] == ["old_road_cleared"]
+
+
+def test_current_group_node_context_and_detail_reflect_node_state_overlays() -> None:
+    player_id = uuid.uuid4()
+    sess = SimpleNamespace(settings={})
+    session_state._initialize_default_group(
+        sess,
+        [player_id],
+        {
+            "map_level": "region",
+            "node_type": "zone",
+            "node_id": "chapel_village",
+            "label": "Часовенное село",
+        },
+    )
+    session_state.add_group_node_state_flag(
+        sess,
+        "main",
+        "chapel_village",
+        state_flag="chapel_watch_clue_taken",
+        summary="Дозорные уже поделились короткой наводкой.",
+        source="test",
+    )
+
+    context = session_state.get_current_group_node_context(sess, player_id=player_id)
+    detail = session_state.get_current_group_node_detail(sess, player_id=player_id)
+
+    assert context is not None
+    assert context["node_state_flags"] == ["chapel_watch_clue_taken"]
+    assert context["state_notes"] == [
+        "У часовни уже собраны местные подсказки, и дозорные узнают группу."
+    ]
+    assert detail is not None
+    assert detail["node_state_flags"] == ["chapel_watch_clue_taken"]
+    assert detail["state_notes"] == [
+        "Разговор с дозорными оставил конкретную дорожную наводку, и местные уже не повторяют её как первую новость."
+    ]
+
+
+def test_inspect_current_group_node_reflects_changed_node_condition() -> None:
+    player_id = uuid.uuid4()
+    sess = SimpleNamespace(settings={})
+    session_state._initialize_default_group(
+        sess,
+        [player_id],
+        {
+            "map_level": "region",
+            "node_type": "zone",
+            "node_id": "ruined_settlement",
+            "label": "Разрушенный посёлок",
+        },
+    )
+    session_state.add_group_node_state_flag(
+        sess,
+        "main",
+        "ruined_settlement",
+        state_flag="mine_path_shored",
+        summary="Подход к шахте укреплён, но ещё тревожит.",
+        source="test",
+    )
+
+    inspected = session_state.inspect_current_group_node(sess, player_id=player_id, source="test")
+
+    assert inspected is not None
+    assert inspected["last_inspect_result"]["state_notes"] == [
+        "У входа в шахту заметны новые подпорки и следы осмотра, но сам проход остаётся тревожно нестабильным."
+    ]
+
+
 def test_pause_resume_and_evaluate_group_travel_preserve_mode_and_activity() -> None:
     player_id = uuid.uuid4()
     sess = SimpleNamespace(settings={})

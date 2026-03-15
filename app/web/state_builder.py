@@ -37,6 +37,7 @@ from app.web.session_state import (
     _group_last_scout_result_summary,
     _group_last_context_action_result_summary,
     _group_context_action_states_summary,
+    _group_node_states_summary,
     _group_last_travel_event_outcome_summary,
     _group_travel_event_summary,
     _group_last_travel_resolution_summary,
@@ -59,6 +60,8 @@ from app.web.session_state import (
     get_current_group_last_scout_result,
     get_current_group_last_service_result,
     get_current_group_last_travel_event_outcome,
+    get_current_group_current_node_state,
+    get_current_group_node_states,
     get_current_group_route_access_states,
     get_current_group_travel_event,
     get_current_group_node_detail,
@@ -368,6 +371,7 @@ async def build_state(db: AsyncSession, sess: Session) -> dict:
             "last_scout_result_summary": _group_last_scout_result_summary(group),
             "last_context_action_result_summary": _group_last_context_action_result_summary(group),
             "context_action_states": _group_context_action_states_summary(group),
+            "node_states": _group_node_states_summary(group),
             "movement_intent_summary": _group_movement_intent_summary(group),
             "travel_state": _group_travel_state_summary(group),
             "travel_summary": _group_travel_summary(group),
@@ -439,6 +443,16 @@ async def build_state(db: AsyncSession, sess: Session) -> dict:
         if sess.current_player_id
         else []
     )
+    current_group_node_states = (
+        get_current_group_node_states(sess, player_id=sess.current_player_id)
+        if sess.current_player_id
+        else []
+    )
+    current_group_current_node_state = (
+        get_current_group_current_node_state(sess, player_id=sess.current_player_id)
+        if sess.current_player_id
+        else None
+    )
     current_group_last_travel_event_outcome = (
         get_current_group_last_travel_event_outcome(sess, player_id=sess.current_player_id)
         if sess.current_player_id
@@ -489,6 +503,8 @@ async def build_state(db: AsyncSession, sess: Session) -> dict:
             "current_group_last_context_action_result": current_group_last_context_action_result,
             "current_group_route_access_states": current_group_route_access_states,
             "current_group_context_action_states": current_group_context_action_states,
+            "current_group_node_states": current_group_node_states,
+            "current_group_current_node_state": current_group_current_node_state,
             "current_group_last_travel_event_outcome": current_group_last_travel_event_outcome,
             "current_group_navigation_options": current_group_navigation_options,
             "groups": groups_payload,

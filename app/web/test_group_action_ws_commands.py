@@ -436,6 +436,7 @@ def test_handle_group_context_action_supports_authored_action_and_alias_payload(
     assert err is None
     assert "открывает устойчивый проход" in str(msg)
     assert session_state.get_group_route_access_state(sess, "main", "forest_road->ruined_settlement:move")["access_state"] == "cleared"
+    assert session_state.get_group_node_state(sess, "main", "forest_road")["state_flags"] == ["old_road_cleared"]
 
 
 def test_handle_group_context_action_wrong_node_or_exhausted_action_returns_clean_result() -> None:

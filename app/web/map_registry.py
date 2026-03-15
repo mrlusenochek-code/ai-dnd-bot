@@ -504,6 +504,8 @@ STATIC_MAP_CONTEXT_ACTION_EFFECTS: tuple[dict[str, Any], ...] = (
         "summary": "Разобрать завал и вернуть проход к разрушенному посёлку.",
         "result_summary": "Группа убирает завал с лесной дороги и открывает устойчивый проход к разрушенному посёлку.",
         "applied_effects": ["route_access:cleared", "route_target:ruined_settlement"],
+        "node_state_flags": ["old_road_cleared"],
+        "node_state_summary": "На лесной дороге заметны следы недавней расчистки старого прохода.",
     },
     {
         "node_id": "ruined_settlement",
@@ -518,6 +520,8 @@ STATIC_MAP_CONTEXT_ACTION_EFFECTS: tuple[dict[str, Any], ...] = (
         "result_summary": "Осмотр подтверждает, что шахтный подход всё ещё нестабилен и остаётся заблокированным.",
         "block_reason": "mine_collapse",
         "applied_effects": ["route_access:blocked", "route_target:mine_entrance"],
+        "node_state_flags": ["mine_path_shored"],
+        "node_state_summary": "У шахтного подхода видны свежие подпорки и следы поспешного укрепления.",
     },
     {
         "node_id": "chapel_village",
@@ -533,6 +537,31 @@ STATIC_MAP_CONTEXT_ACTION_EFFECTS: tuple[dict[str, Any], ...] = (
             "Дозорные советуют держаться освящённой дороги и не сворачивать к руинам после заката."
         ],
         "applied_effects": ["local_clue:chapel_watch"],
+        "node_state_flags": ["chapel_watch_clue_taken"],
+        "node_state_summary": "Дозорные у часовни уже поделились с группой своей короткой дорожной наводкой.",
+    },
+)
+
+
+STATIC_MAP_NODE_STATE_OVERLAYS: tuple[dict[str, Any], ...] = (
+    {
+        "node_id": "forest_road",
+        "state_flag": "old_road_cleared",
+        "context_note": "У старой дороги видны следы недавней расчистки, и проход к руинам читается увереннее.",
+        "detail_note": "Сломанные ветви и свежие борозды в грязи показывают, что завал уже разбирали совсем недавно.",
+    },
+    {
+        "node_id": "ruined_settlement",
+        "state_flag": "mine_path_shored",
+        "context_note": "Подход к шахте отмечен свежими подпорками, но место всё равно выглядит ненадёжным.",
+        "detail_note": "У входа в шахту заметны новые подпорки и следы осмотра, но сам проход остаётся тревожно нестабильным.",
+    },
+    {
+        "node_id": "chapel_village",
+        "state_flag": "chapel_watch_clue_taken",
+        "context_note": "У часовни уже собраны местные подсказки, и дозорные узнают группу.",
+        "detail_note": "Разговор с дозорными оставил конкретную дорожную наводку, и местные уже не повторяют её как первую новость.",
+        "service_note": "Местные советы уже собраны; теперь здесь скорее подтверждают прежнюю наводку, чем дают новую.",
     },
 )
 
@@ -770,9 +799,60 @@ def get_static_node_context_action_effects(
         block_reason = str(item.get("block_reason") or "").strip()
         if block_reason:
             effect["block_reason"] = block_reason
+        node_state_flags = [
+            str(flag).strip().lower()
+            for flag in (item.get("node_state_flags") or [])
+            if str(flag or "").strip()
+        ]
+        if node_state_flags:
+            effect["node_state_flags"] = node_state_flags
+        node_state_summary = str(item.get("node_state_summary") or "").strip()
+        if node_state_summary:
+            effect["node_state_summary"] = node_state_summary
         if effect["action_id"] and effect["label"]:
             effects.append(effect)
     return effects
+
+
+def get_static_node_state_overlays(
+    *,
+    node_id: str | None = None,
+    current_map_position: dict[str, Any] | None = None,
+    state_flags: list[str] | set[str] | None = None,
+) -> list[dict[str, Any]]:
+    resolved_node_id = _normalized_text(node_id)
+    if not resolved_node_id and isinstance(current_map_position, dict):
+        resolved_node_id = _normalized_text(current_map_position.get("node_id"))
+    if not resolved_node_id:
+        return []
+    normalized_flags = {
+        _normalized_text(flag)
+        for flag in (state_flags or [])
+        if _normalized_text(flag)
+    }
+    overlays: list[dict[str, Any]] = []
+    for item in STATIC_MAP_NODE_STATE_OVERLAYS:
+        if _normalized_text(item.get("node_id")) != resolved_node_id:
+            continue
+        state_flag = _normalized_text(item.get("state_flag"))
+        if normalized_flags and state_flag not in normalized_flags:
+            continue
+        overlay: dict[str, Any] = {
+            "node_id": resolved_node_id,
+            "state_flag": state_flag,
+        }
+        context_note = str(item.get("context_note") or "").strip()
+        detail_note = str(item.get("detail_note") or "").strip()
+        service_note = str(item.get("service_note") or "").strip()
+        if context_note:
+            overlay["context_note"] = context_note
+        if detail_note:
+            overlay["detail_note"] = detail_note
+        if service_note:
+            overlay["service_note"] = service_note
+        if state_flag:
+            overlays.append(overlay)
+    return overlays
 
 
 def get_static_node(node_id: str | None) -> dict[str, Any] | None:

@@ -7,6 +7,7 @@ from app.web.map_registry import (
     get_static_node_detail,
     get_static_node_context,
     get_static_node_inspect_result,
+    get_static_node_state_overlays,
     get_static_node_service_result,
     get_static_node_services,
     get_static_navigation_options,
@@ -246,6 +247,17 @@ def test_get_current_node_context_actions_exposes_authored_action_ids() -> None:
         "source": "registry",
         "one_shot": True,
     }
+
+
+def test_get_static_node_state_overlays_returns_authored_notes_for_flags() -> None:
+    assert get_static_node_state_overlays(node_id="forest_road", state_flags=["old_road_cleared"]) == [
+        {
+            "node_id": "forest_road",
+            "state_flag": "old_road_cleared",
+            "context_note": "У старой дороги видны следы недавней расчистки, и проход к руинам читается увереннее.",
+            "detail_note": "Сломанные ветви и свежие борозды в грязи показывают, что завал уже разбирали совсем недавно.",
+        }
+    ]
 
 
 def test_static_node_detail_and_inspect_result_expose_handcrafted_content() -> None:
