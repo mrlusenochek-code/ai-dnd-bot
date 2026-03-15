@@ -142,6 +142,8 @@ def test_build_state_includes_legacy_and_structured_positions(monkeypatch) -> No
     monkeypatch.setattr(state_builder, "get_current_group_primary_exploration_lead", lambda _sess, player_id=None: None)
     monkeypatch.setattr(state_builder, "get_current_group_local_interaction_surface", lambda _sess, player_id=None: None)
     monkeypatch.setattr(state_builder, "get_current_group_current_node_progress", lambda _sess, player_id=None: None)
+    monkeypatch.setattr(state_builder, "get_current_group_region_exploration_summary", lambda _sess, player_id=None: None)
+    monkeypatch.setattr(state_builder, "get_current_group_region_frontier_summary", lambda _sess, player_id=None: None)
     monkeypatch.setattr(
         state_builder,
         "get_current_group_route_planning",
@@ -233,6 +235,8 @@ def test_build_state_includes_legacy_and_structured_positions(monkeypatch) -> No
     assert payload["game"]["current_group_primary_exploration_lead"] is None
     assert payload["game"]["current_group_local_interaction_surface"] is None
     assert payload["game"]["current_group_current_node_progress"] is None
+    assert payload["game"]["current_group_region_exploration_summary"] is None
+    assert payload["game"]["current_group_region_frontier_summary"] is None
     assert payload["game"]["current_group_navigation_options"] == []
     assert payload["session"]["current_group_id"] is None
     assert payload["players"] == [
@@ -977,6 +981,68 @@ def test_build_state_exports_current_player_group_id(monkeypatch) -> None:
     )
     monkeypatch.setattr(
         state_builder,
+        "get_current_group_region_exploration_summary",
+        lambda _sess, player_id=None: {
+            "region_id": "region",
+            "region_label": "Стартовый тракт",
+            "progression_status": "active_frontier",
+            "summary": "У группы остаются достижимые непосещённые точки, так что frontier региона ещё активен.",
+            "current_node_id": "start_trakt",
+            "current_node_label": "Стартовый тракт",
+            "revealed_node_count": 3,
+            "visited_node_count": 2,
+            "reachable_unvisited_count": 1,
+            "blocked_frontier_count": 1,
+            "quiet_node_count": 0,
+            "active_local_node_count": 1,
+            "locally_resolved_node_count": 1,
+            "current_primary_frontier": {
+                "target_node_id": "fortress_gate",
+                "target_node_label": "Ворота крепости",
+                "plan_status": "reachable",
+            },
+            "current_primary_lead": {
+                "lead_id": "active_journey:journey-1",
+                "lead_type": "active_journey",
+                "title": "Активный путь: Ворота крепости",
+            },
+            "source": "region_exploration",
+        },
+    )
+    monkeypatch.setattr(
+        state_builder,
+        "get_current_group_region_frontier_summary",
+        lambda _sess, player_id=None: {
+            "blocked_frontiers": [
+                {
+                    "from_node_id": "start_trakt",
+                    "to_node_id": "craft_town",
+                    "route_id": "start_trakt->craft_town:move",
+                    "frontier_type": "blocked_route",
+                    "summary": "Маршрут видим, но заблокирован.",
+                }
+            ],
+            "reachable_unvisited_nodes": [
+                {
+                    "target_node_id": "fortress_gate",
+                    "target_node_label": "Ворота крепости",
+                    "plan_status": "reachable",
+                    "summary": "До Ворот крепости есть полностью открытый и проходимый путь.",
+                }
+            ],
+            "unresolved_local_nodes": [
+                {
+                    "node_id": "start_trakt",
+                    "node_label": "Стартовый тракт",
+                    "progression_status": "partially_resolved",
+                    "summary": "В Стартовом тракте часть локальных возможностей уже закрыта, но остаётся активный местный контент.",
+                }
+            ],
+            "summary": "У группы 1 достижимых непосещённых точек, 1 заблокированных frontier-веток и 1 локально незавершённых узлов.",
+        },
+    )
+    monkeypatch.setattr(
+        state_builder,
         "get_current_group_route_planning",
         lambda _sess, player_id=None: {
             "reachable_destinations": [
@@ -1508,6 +1574,60 @@ def test_build_state_exports_current_player_group_id(monkeypatch) -> None:
         "node_state_flags": ["old_road_cleared"],
         "unresolved_local_opportunities": ["Продолжить путь", "Безопасный отдых"],
         "source": "node_progression",
+    }
+    assert payload["game"]["current_group_region_exploration_summary"] == {
+        "region_id": "region",
+        "region_label": "Стартовый тракт",
+        "progression_status": "active_frontier",
+        "summary": "У группы остаются достижимые непосещённые точки, так что frontier региона ещё активен.",
+        "current_node_id": "start_trakt",
+        "current_node_label": "Стартовый тракт",
+        "revealed_node_count": 3,
+        "visited_node_count": 2,
+        "reachable_unvisited_count": 1,
+        "blocked_frontier_count": 1,
+        "quiet_node_count": 0,
+        "active_local_node_count": 1,
+        "locally_resolved_node_count": 1,
+        "current_primary_frontier": {
+            "target_node_id": "fortress_gate",
+            "target_node_label": "Ворота крепости",
+            "plan_status": "reachable",
+        },
+        "current_primary_lead": {
+            "lead_id": "active_journey:journey-1",
+            "lead_type": "active_journey",
+            "title": "Активный путь: Ворота крепости",
+        },
+        "source": "region_exploration",
+    }
+    assert payload["game"]["current_group_region_frontier_summary"] == {
+        "blocked_frontiers": [
+            {
+                "from_node_id": "start_trakt",
+                "to_node_id": "craft_town",
+                "route_id": "start_trakt->craft_town:move",
+                "frontier_type": "blocked_route",
+                "summary": "Маршрут видим, но заблокирован.",
+            }
+        ],
+        "reachable_unvisited_nodes": [
+            {
+                "target_node_id": "fortress_gate",
+                "target_node_label": "Ворота крепости",
+                "plan_status": "reachable",
+                "summary": "До Ворот крепости есть полностью открытый и проходимый путь.",
+            }
+        ],
+        "unresolved_local_nodes": [
+            {
+                "node_id": "start_trakt",
+                "node_label": "Стартовый тракт",
+                "progression_status": "partially_resolved",
+                "summary": "В Стартовом тракте часть локальных возможностей уже закрыта, но остаётся активный местный контент.",
+            }
+        ],
+        "summary": "У группы 1 достижимых непосещённых точек, 1 заблокированных frontier-веток и 1 локально незавершённых узлов.",
     }
     assert payload["game"]["current_group_navigation_options"] == [
         {

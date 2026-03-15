@@ -4343,3 +4343,116 @@ def test_group_exploration_leads_include_local_opportunities_only_when_available
         and lead["source_ref"] == "craft_town_local_guidance"
         for lead in leads_after
     )
+
+
+def test_group_region_exploration_summary_supports_quiet_active_expanding_blocked_and_saturated_states() -> None:
+    player_id = uuid.uuid4()
+
+    quiet_sess = SimpleNamespace(settings={})
+    session_state._initialize_default_group(
+        quiet_sess,
+        [player_id],
+        {"map_level": "region", "node_type": "landmark", "node_id": "mine_entrance", "label": "Шахтный вход"},
+    )
+    quiet_summary = session_state.get_current_group_region_exploration_summary(quiet_sess, player_id=player_id)
+    assert quiet_summary is not None
+    assert quiet_summary["progression_status"] == "region_quiet"
+
+    frontier_sess = SimpleNamespace(settings={})
+    session_state._initialize_default_group(
+        frontier_sess,
+        [player_id],
+        {"map_level": "region", "node_type": "zone", "node_id": "start_trakt", "label": "Стартовый тракт"},
+    )
+    active_summary = session_state.get_current_group_region_exploration_summary(frontier_sess, player_id=player_id)
+    assert active_summary is not None
+    assert active_summary["progression_status"] == "newly_opened_region"
+
+    session_state.grant_player_map_knowledge(frontier_sess, player_id, "craft_town", knowledge_kind="known", source="test")
+    session_state.reveal_player_map_node(frontier_sess, player_id, "craft_town", source="test")
+    expanding_summary = session_state.get_current_group_region_exploration_summary(frontier_sess, player_id=player_id)
+    assert expanding_summary is not None
+    assert expanding_summary["progression_status"] == "expanding_routes"
+
+    session_state.set_group_route_access_state(
+        frontier_sess,
+        "main",
+        "start_trakt->fortress_gate:move",
+        access_state="blocked",
+        summary="Подход к воротам перекрыт.",
+        block_reason="blocked_path",
+        source="test",
+    )
+    session_state.set_group_route_access_state(
+        frontier_sess,
+        "main",
+        "start_trakt->craft_town:move",
+        access_state="blocked",
+        summary="Дорога к городку перекрыта.",
+        block_reason="washout",
+        source="test",
+    )
+    blocked_summary = session_state.get_current_group_region_exploration_summary(frontier_sess, player_id=player_id)
+    assert blocked_summary is not None
+    assert blocked_summary["progression_status"] == "blocked_progress"
+
+    saturated_sess = SimpleNamespace(settings={})
+    session_state._initialize_default_group(
+        saturated_sess,
+        [player_id],
+        {"map_level": "region", "node_type": "landmark", "node_id": "mine_entrance", "label": "Шахтный вход"},
+    )
+    session_state.record_group_node_visit(
+        saturated_sess,
+        "main",
+        "mine_entrance",
+        node_label="Шахтный вход",
+        result_type="landmark_arrival",
+        summary="Первый визит.",
+    )
+    saturated_summary = session_state.get_current_group_region_exploration_summary(saturated_sess, player_id=player_id)
+    assert saturated_summary is not None
+    assert saturated_summary["progression_status"] == "locally_saturated"
+
+
+def test_group_region_frontier_summary_counts_reachable_blocked_and_unresolved_nodes() -> None:
+    player_id = uuid.uuid4()
+    sess = SimpleNamespace(settings={})
+    session_state._initialize_default_group(
+        sess,
+        [player_id],
+        {"map_level": "region", "node_type": "zone", "node_id": "craft_town", "label": "Озёрный городок"},
+    )
+    session_state.record_group_node_visit(
+        sess,
+        "main",
+        "craft_town",
+        node_label="Озёрный городок",
+        result_type="first_arrival",
+        summary="Первый визит.",
+    )
+    session_state.execute_current_group_service(
+        sess,
+        player_id=player_id,
+        service_id="craft_town:resupply",
+        source="test",
+    )
+    session_state.grant_player_map_knowledge(sess, player_id, "fortress_gate", knowledge_kind="known", source="test")
+    session_state.reveal_player_map_node(sess, player_id, "fortress_gate", source="test")
+    session_state.set_group_route_access_state(
+        sess,
+        "main",
+        "craft_town->fortress_gate:move",
+        access_state="blocked",
+        summary="Путь перекрыт.",
+        block_reason="blocked_path",
+        source="test",
+    )
+
+    frontier = session_state.get_current_group_region_frontier_summary(sess, player_id=player_id)
+
+    assert frontier is not None
+    assert frontier["blocked_frontiers"]
+    assert frontier["reachable_unvisited_nodes"] == []
+    assert frontier["unresolved_local_nodes"]
+    assert frontier["unresolved_local_nodes"][0]["node_id"] == "craft_town"

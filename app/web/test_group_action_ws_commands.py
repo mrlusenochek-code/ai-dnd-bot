@@ -41,6 +41,8 @@ def test_parse_group_command_supports_wait_camp_rest_scout_move_navigate_context
     action_interact, payload_interact = ws_handlers._parse_group_command("group interact")
     action_progress, payload_progress = ws_handlers._parse_group_command("group progress")
     action_place, payload_place = ws_handlers._parse_group_command("group place")
+    action_region, payload_region = ws_handlers._parse_group_command("group region")
+    action_frontier, payload_frontier = ws_handlers._parse_group_command("group frontier")
     action_enter, payload_enter = ws_handlers._parse_group_command("group enter замок")
     action_mode, payload_mode = ws_handlers._parse_group_command("group mode cautious")
     action_activity, payload_activity = ws_handlers._parse_group_command("group activity navigate")
@@ -95,6 +97,8 @@ def test_parse_group_command_supports_wait_camp_rest_scout_move_navigate_context
     assert (action_interact, payload_interact) == ("group_local_interactions", {})
     assert (action_progress, payload_progress) == ("group_node_progress", {})
     assert (action_place, payload_place) == ("group_node_progress", {})
+    assert (action_region, payload_region) == ("group_region_progress", {})
+    assert (action_frontier, payload_frontier) == ("group_region_progress", {})
     assert (action_enter, payload_enter) == ("group_enter", {"target_hint": "замок"})
     assert (action_mode, payload_mode) == ("group_set_mode", {"movement_mode": "cautious"})
     assert (action_activity, payload_activity) == ("group_set_activity", {"activity": "navigate"})
@@ -1118,6 +1122,63 @@ def test_handle_group_node_progress_returns_quiet_and_active_summaries() -> None
     assert err_active is None
     assert "locally_active" in str(msg_active)
     assert "Озёрный городок" in str(msg_active)
+
+
+def test_handle_group_region_progress_returns_minimal_and_frontier_summaries() -> None:
+    player_id = uuid.uuid4()
+    minimal_sess = SimpleNamespace(settings={})
+    session_state._initialize_default_group(
+        minimal_sess,
+        [player_id],
+        {
+            "map_level": "region",
+            "node_type": "zone",
+            "node_id": "mine_entrance",
+            "label": "Шахтный вход",
+        },
+    )
+
+    handled_min, err_min, msg_min = ws_handlers._handle_group_action_request(
+        minimal_sess,
+        action="group_region_progress",
+        actor_player_id=player_id,
+        payload={},
+        source="test",
+    )
+
+    assert handled_min is True
+    assert err_min is None
+    assert "region_quiet" in str(msg_min)
+
+    frontier_sess = SimpleNamespace(settings={})
+    session_state._initialize_default_group(
+        frontier_sess,
+        [player_id],
+        {
+            "map_level": "region",
+            "node_type": "zone",
+            "node_id": "start_trakt",
+            "label": "Стартовый тракт",
+        },
+    )
+    session_state.grant_player_map_knowledge(frontier_sess, player_id, "craft_town", knowledge_kind="known", source="test")
+    session_state.reveal_player_map_node(frontier_sess, player_id, "craft_town", source="test")
+
+    handled_frontier, err_frontier, msg_frontier = ws_handlers._handle_group_action_request(
+        frontier_sess,
+        action="group_region_progress",
+        actor_player_id=player_id,
+        payload={},
+        source="test",
+    )
+
+    assert handled_frontier is True
+    assert err_frontier is None
+    assert (
+        "active_frontier" in str(msg_frontier)
+        or "expanding_routes" in str(msg_frontier)
+        or "newly_opened_region" in str(msg_frontier)
+    )
 
 
 def test_handle_group_journey_set_advance_status_and_stop() -> None:
