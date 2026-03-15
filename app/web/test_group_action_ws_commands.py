@@ -26,6 +26,8 @@ def test_parse_group_command_supports_wait_camp_rest_scout_move_navigate_context
     action_use_service, payload_use_service = ws_handlers._parse_group_command("group use chapel_village_shrine_aid")
     action_intel, payload_intel = ws_handlers._parse_group_command("group intel")
     action_journal, payload_journal = ws_handlers._parse_group_command("group journal")
+    action_leads, payload_leads = ws_handlers._parse_group_command("group leads")
+    action_next, payload_next = ws_handlers._parse_group_command("group next")
     action_routes, payload_routes = ws_handlers._parse_group_command("group routes")
     action_path, payload_path = ws_handlers._parse_group_command("group path fortress_gate")
     action_route, payload_route = ws_handlers._parse_group_command("group route fortress_gate")
@@ -70,6 +72,8 @@ def test_parse_group_command_supports_wait_camp_rest_scout_move_navigate_context
     assert (action_use_service, payload_use_service) == ("group_service_use", {"service_id": "chapel_village_shrine_aid", "service_key": "chapel_village_shrine_aid"})
     assert (action_intel, payload_intel) == ("group_map_intel", {})
     assert (action_journal, payload_journal) == ("group_map_intel", {})
+    assert (action_leads, payload_leads) == ("group_exploration_leads", {})
+    assert (action_next, payload_next) == ("group_exploration_leads", {})
     assert (action_routes, payload_routes) == ("group_route_planning", {})
     assert (action_path, payload_path) == ("group_route_plan_to", {"target_node_id": "fortress_gate"})
     assert (action_route, payload_route) == ("group_route_plan_to", {"target_node_id": "fortress_gate"})
@@ -787,6 +791,53 @@ def test_handle_group_route_planning_and_target_lookup_return_clean_summaries() 
     assert handled_unrevealed is True
     assert err_unrevealed is None
     assert msg_unrevealed == "Точка Сторожевая башня ещё не раскрыта для текущей группы."
+
+
+def test_handle_group_exploration_leads_returns_empty_and_primary_summary() -> None:
+    player_id = uuid.uuid4()
+    empty_sess = SimpleNamespace(settings={})
+    session_state._initialize_default_group(empty_sess, [player_id], "Таверна")
+
+    handled_empty, err_empty, msg_empty = ws_handlers._handle_group_action_request(
+        empty_sess,
+        action="group_exploration_leads",
+        actor_player_id=player_id,
+        payload={},
+        source="test",
+    )
+
+    assert handled_empty is True
+    assert err_empty is None
+    assert msg_empty == "У группы main сейчас нет явных exploration leads."
+
+    sess = SimpleNamespace(settings={})
+    session_state._initialize_default_group(
+        sess,
+        [player_id],
+        {
+            "map_level": "region",
+            "node_type": "zone",
+            "node_id": "start_trakt",
+            "label": "Стартовый тракт",
+        },
+    )
+    for node_id in ("fortress_gate",):
+        session_state.grant_player_map_knowledge(sess, player_id, node_id, knowledge_kind="known", source="test")
+        session_state.reveal_player_map_node(sess, player_id, node_id, source="test")
+    session_state.set_group_journey_target(sess, "main", "fortress_gate", player_id=player_id, source="test")
+
+    handled_filled, err_filled, msg_filled = ws_handlers._handle_group_action_request(
+        sess,
+        action="group_exploration_leads",
+        actor_player_id=player_id,
+        payload={},
+        source="test",
+    )
+
+    assert handled_filled is True
+    assert err_filled is None
+    assert "Exploration leads группы main: " in str(msg_filled)
+    assert "Главная зацепка: Активный путь: Ворота крепости." in str(msg_filled)
 
 
 def test_handle_group_journey_set_advance_status_and_stop() -> None:

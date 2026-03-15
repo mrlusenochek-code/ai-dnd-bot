@@ -75,6 +75,8 @@ from app.web.session_state import (
     get_current_group_last_journey_result,
     get_current_group_route_planning,
     get_group_route_plan_to_node,
+    get_current_group_exploration_leads,
+    get_current_group_primary_exploration_lead,
     set_group_journey_target,
     advance_group_journey,
     clear_group_journey,
@@ -1779,6 +1781,9 @@ def _parse_group_command(cmdline: str) -> tuple[str | None, dict[str, Any]]:
     if lowered in {"group intel", "group_intel", "group journal", "group_journal"}:
         return "group_map_intel", {}
 
+    if lowered in {"group leads", "group_leads", "group next", "group_next"}:
+        return "group_exploration_leads", {}
+
     if lowered in {"group routes", "group_route_planning", "group_routes"}:
         return "group_route_planning", {}
 
@@ -1871,6 +1876,7 @@ def _handle_group_action_request(
         "group_service",
         "group_service_use",
         "group_map_intel",
+        "group_exploration_leads",
         "group_journey_set",
         "group_journey_advance",
         "group_journey_status",
@@ -1959,6 +1965,26 @@ def _handle_group_action_request(
         title = str((latest or {}).get("title") or "журнал разведки")
         count = len(all_entries)
         return True, None, f"Журнал разведки группы {actor_group_key}: {count} записей. Последняя запись: {title}."
+
+    if action == "group_exploration_leads":
+        if not actor_group_key:
+            return True, "Группа игрока не найдена.", None
+        leads = get_current_group_exploration_leads(
+            sess,
+            player_id=actor_player_id,
+            group_id=actor_group_key,
+        )
+        if not leads:
+            return True, None, f"У группы {actor_group_key} сейчас нет явных exploration leads."
+        primary = get_current_group_primary_exploration_lead(
+            sess,
+            player_id=actor_player_id,
+            group_id=actor_group_key,
+        ) or leads[0]
+        return True, None, (
+            f"Exploration leads группы {actor_group_key}: {len(leads)}. "
+            f"Главная зацепка: {str(primary.get('title') or 'lead')}."
+        )
 
     if action == "group_journey_status":
         if not actor_group_key:
@@ -2092,6 +2118,7 @@ def _handle_group_action_request(
         "group_service",
         "group_service_use",
         "group_map_intel",
+        "group_exploration_leads",
         "group_journey_set",
         "group_journey_advance",
         "group_journey_status",
@@ -6227,6 +6254,7 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                     "group_service",
                     "group_service_use",
                     "group_map_intel",
+                    "group_exploration_leads",
                     "group_journey_set",
                     "group_journey_advance",
                     "group_journey_status",

@@ -129,6 +129,8 @@ def test_build_state_includes_legacy_and_structured_positions(monkeypatch) -> No
     monkeypatch.setattr(state_builder, "get_current_group_route_traversal_states", lambda _sess, player_id=None: [])
     monkeypatch.setattr(state_builder, "get_current_group_journey_state", lambda _sess, player_id=None: None)
     monkeypatch.setattr(state_builder, "get_current_group_last_journey_result", lambda _sess, player_id=None: None)
+    monkeypatch.setattr(state_builder, "get_current_group_exploration_leads", lambda _sess, player_id=None: [])
+    monkeypatch.setattr(state_builder, "get_current_group_primary_exploration_lead", lambda _sess, player_id=None: None)
     monkeypatch.setattr(
         state_builder,
         "get_current_group_route_planning",
@@ -206,6 +208,8 @@ def test_build_state_includes_legacy_and_structured_positions(monkeypatch) -> No
     assert payload["game"]["current_group_route_planning"] == {"reachable_destinations": [], "route_frontiers": []}
     assert payload["game"]["current_group_reachable_destinations"] == []
     assert payload["game"]["current_group_route_frontiers"] == []
+    assert payload["game"]["current_group_exploration_leads"] == []
+    assert payload["game"]["current_group_primary_exploration_lead"] is None
     assert payload["game"]["current_group_navigation_options"] == []
     assert payload["session"]["current_group_id"] is None
     assert payload["players"] == [
@@ -700,6 +704,54 @@ def test_build_state_exports_current_player_group_id(monkeypatch) -> None:
     )
     monkeypatch.setattr(
         state_builder,
+        "get_current_group_exploration_leads",
+        lambda _sess, player_id=None: [
+            {
+                "lead_id": "active_journey:journey-1",
+                "lead_type": "active_journey",
+                "priority_band": "high",
+                "title": "Активный путь: Ворота крепости",
+                "summary": "У группы есть in_progress journey к Ворота крепости (0/1 шагов).",
+                "target_node_id": "fortress_gate",
+                "target_node_label": "Ворота крепости",
+                "route_id": "start_trakt->fortress_gate:move",
+                "source_kind": "journey",
+                "source_ref": "journey-1",
+                "reachable": True,
+                "blocked": False,
+                "blocked_reason": "",
+                "first_unvisited": "fortress_gate",
+                "has_active_journey": True,
+                "suggested_command": "group continue",
+                "tags": ["journey", "in_progress"],
+            }
+        ],
+    )
+    monkeypatch.setattr(
+        state_builder,
+        "get_current_group_primary_exploration_lead",
+        lambda _sess, player_id=None: {
+            "lead_id": "active_journey:journey-1",
+            "lead_type": "active_journey",
+            "priority_band": "high",
+            "title": "Активный путь: Ворота крепости",
+            "summary": "У группы есть in_progress journey к Ворота крепости (0/1 шагов).",
+            "target_node_id": "fortress_gate",
+            "target_node_label": "Ворота крепости",
+            "route_id": "start_trakt->fortress_gate:move",
+            "source_kind": "journey",
+            "source_ref": "journey-1",
+            "reachable": True,
+            "blocked": False,
+            "blocked_reason": "",
+            "first_unvisited": "fortress_gate",
+            "has_active_journey": True,
+            "suggested_command": "group continue",
+            "tags": ["journey", "in_progress"],
+        },
+    )
+    monkeypatch.setattr(
+        state_builder,
         "get_current_group_route_planning",
         lambda _sess, player_id=None: {
             "reachable_destinations": [
@@ -1093,6 +1145,28 @@ def test_build_state_exports_current_player_group_id(monkeypatch) -> None:
     }
     assert payload["game"]["current_group_reachable_destinations"] == payload["game"]["current_group_route_planning"]["reachable_destinations"]
     assert payload["game"]["current_group_route_frontiers"] == payload["game"]["current_group_route_planning"]["route_frontiers"]
+    assert payload["game"]["current_group_exploration_leads"] == [
+        {
+            "lead_id": "active_journey:journey-1",
+            "lead_type": "active_journey",
+            "priority_band": "high",
+            "title": "Активный путь: Ворота крепости",
+            "summary": "У группы есть in_progress journey к Ворота крепости (0/1 шагов).",
+            "target_node_id": "fortress_gate",
+            "target_node_label": "Ворота крепости",
+            "route_id": "start_trakt->fortress_gate:move",
+            "source_kind": "journey",
+            "source_ref": "journey-1",
+            "reachable": True,
+            "blocked": False,
+            "blocked_reason": "",
+            "first_unvisited": "fortress_gate",
+            "has_active_journey": True,
+            "suggested_command": "group continue",
+            "tags": ["journey", "in_progress"],
+        }
+    ]
+    assert payload["game"]["current_group_primary_exploration_lead"] == payload["game"]["current_group_exploration_leads"][0]
     assert payload["game"]["current_group_navigation_options"] == [
         {
             "route_id": "start_trakt->fortress_gate:move",

@@ -2478,6 +2478,97 @@ def _build_group_journey_result(
     )
 
 
+def _normalize_group_exploration_lead(raw: Any) -> dict[str, Any] | None:
+    if not isinstance(raw, dict):
+        return None
+    lead_id = str(raw.get("lead_id") or "").strip().lower()
+    lead_type = str(raw.get("lead_type") or "").strip().lower()
+    priority_band = str(raw.get("priority_band") or "").strip().lower()
+    title = str(raw.get("title") or "").strip()
+    summary = str(raw.get("summary") or "").strip()
+    target_node_id = str(raw.get("target_node_id") or "").strip().lower()
+    target_node_label = str(raw.get("target_node_label") or target_node_id).strip()
+    route_id = str(raw.get("route_id") or "").strip().lower()
+    source_kind = str(raw.get("source_kind") or "").strip().lower()
+    source_ref = str(raw.get("source_ref") or "").strip().lower()
+    blocked_reason = str(raw.get("blocked_reason") or "").strip()
+    first_unvisited = str(raw.get("first_unvisited") or "").strip().lower()
+    suggested_command = str(raw.get("suggested_command") or "").strip()
+    tags = [
+        str(item).strip().lower()[:40]
+        for item in (raw.get("tags") or [])
+        if str(item or "").strip()
+    ] if isinstance(raw.get("tags"), list) else []
+    if lead_type not in {"active_journey", "intel_target", "unvisited_reachable", "blocked_frontier", "local_opportunity"}:
+        return None
+    if priority_band not in {"high", "medium", "low"}:
+        return None
+    if not lead_id or not title or not summary:
+        return None
+    return {
+        "lead_id": lead_id[:160],
+        "lead_type": lead_type[:40],
+        "priority_band": priority_band[:20],
+        "title": title[:160],
+        "summary": summary[:400],
+        "target_node_id": target_node_id[:120],
+        "target_node_label": target_node_label[:120],
+        "route_id": route_id[:160],
+        "source_kind": source_kind[:40],
+        "source_ref": source_ref[:160],
+        "reachable": bool(raw.get("reachable")),
+        "blocked": bool(raw.get("blocked")),
+        "blocked_reason": blocked_reason[:120],
+        "first_unvisited": first_unvisited[:120],
+        "has_active_journey": bool(raw.get("has_active_journey")),
+        "suggested_command": suggested_command[:160],
+        "tags": tags,
+    }
+
+
+def build_group_exploration_lead(
+    *,
+    lead_id: str,
+    lead_type: str,
+    priority_band: str,
+    title: str,
+    summary: str,
+    target_node_id: str = "",
+    target_node_label: str = "",
+    route_id: str = "",
+    source_kind: str,
+    source_ref: str,
+    reachable: bool = False,
+    blocked: bool = False,
+    blocked_reason: str = "",
+    first_unvisited: str = "",
+    has_active_journey: bool = False,
+    suggested_command: str = "",
+    tags: list[str] | None = None,
+) -> dict[str, Any] | None:
+    return _normalize_group_exploration_lead(
+        {
+            "lead_id": lead_id,
+            "lead_type": lead_type,
+            "priority_band": priority_band,
+            "title": title,
+            "summary": summary,
+            "target_node_id": target_node_id,
+            "target_node_label": target_node_label,
+            "route_id": route_id,
+            "source_kind": source_kind,
+            "source_ref": source_ref,
+            "reachable": reachable,
+            "blocked": blocked,
+            "blocked_reason": blocked_reason,
+            "first_unvisited": first_unvisited,
+            "has_active_journey": has_active_journey,
+            "suggested_command": suggested_command,
+            "tags": list(tags or []),
+        }
+    )
+
+
 def build_group_journey_state(
     *,
     plan: dict[str, Any] | None,
@@ -2854,6 +2945,262 @@ def advance_group_journey(
         _persist_group_states(sess, refreshed_groups)
         _sync_group_position_mirrors(sess, refreshed_group)
     return dict(refreshed_group), None
+
+
+def get_group_exploration_leads(sess: Session, group_id: str) -> list[dict[str, Any]]:
+    group_key = str(group_id or "").strip()
+    group = _get_group_states(sess).get(group_key)
+    if not isinstance(group, dict):
+        return []
+    leads: list[dict[str, Any]] = []
+    seen_keys: set[str] = set()
+    journey = get_current_group_journey_state(sess, group_id=group_key)
+    planning = build_group_route_plan(sess, group_key)
+    reachable = list(planning.get("reachable_destinations") or [])
+    frontiers = list(planning.get("route_frontiers") or [])
+    map_intel = get_current_group_map_intel(sess, group_id=group_key)
+    visit_map = _normalize_group_node_visit_state_map(group.get("node_visit_states"))
+    current_context = get_current_group_node_context(sess, group_id=group_key) or {}
+    current_services = get_current_group_node_services(sess, group_id=group_key)
+    has_active_journey = journey is not None
+
+    def _add(lead: dict[str, Any] | None) -> None:
+        normalized = _normalize_group_exploration_lead(lead)
+        if not normalized:
+            return
+        dedupe_key = f"{normalized['lead_type']}|{normalized['source_kind']}|{normalized['source_ref']}|{normalized['target_node_id']}|{normalized['route_id']}"
+        if dedupe_key in seen_keys:
+            return
+        seen_keys.add(dedupe_key)
+        leads.append(normalized)
+
+    if journey:
+        journey_status = str(journey.get("journey_status") or "").strip().lower()
+        remaining_plan = get_group_journey_remaining_plan(sess, group_key) or {}
+        blocked_reason = str((remaining_plan or {}).get("blocked_reason") or "").strip()
+        suggested_command = "group continue"
+        if journey_status == "blocked":
+            suggested_command = f"group path {journey.get('target_node_id')}"
+        elif journey_status == "arrived":
+            suggested_command = "group stop"
+        _add(
+            build_group_exploration_lead(
+                lead_id=f"active_journey:{journey.get('journey_id')}",
+                lead_type="active_journey",
+                priority_band="high",
+                title=f"Активный путь: {journey.get('target_node_label')}",
+                summary=(
+                    f"У группы есть {journey_status} journey к {journey.get('target_node_label')} "
+                    f"({journey.get('completed_step_count')}/{journey.get('total_step_count')} шагов)."
+                ),
+                target_node_id=str(journey.get("target_node_id") or ""),
+                target_node_label=str(journey.get("target_node_label") or ""),
+                route_id=str(journey.get("next_route_id") or ""),
+                source_kind="journey",
+                source_ref=str(journey.get("journey_id") or ""),
+                reachable=journey_status in {"planned", "in_progress", "arrived"},
+                blocked=journey_status == "blocked",
+                blocked_reason=blocked_reason,
+                first_unvisited=str((remaining_plan or {}).get("first_unvisited") or ""),
+                has_active_journey=True,
+                suggested_command=suggested_command,
+                tags=["journey", journey_status],
+            )
+        )
+
+    for entry in reversed(map_intel):
+        target_node_ids = [str(item).strip().lower() for item in (entry.get("related_node_ids") or []) if str(item or "").strip()]
+        route_ids = [str(item).strip().lower() for item in (entry.get("related_route_ids") or []) if str(item or "").strip()]
+        target_node_id = target_node_ids[0] if target_node_ids else ""
+        if not target_node_id:
+            continue
+        target_node = get_static_node(target_node_id) or {}
+        target_node_label = str(target_node.get("label") or target_node_id).strip()
+        plan = get_group_route_plan_to_node(sess, group_key, target_node_id) or {}
+        plan_status = str(plan.get("plan_status") or "").strip().lower()
+        if plan_status not in {"reachable", "blocked", "current_location"}:
+            continue
+        _add(
+            build_group_exploration_lead(
+                lead_id=f"intel:{entry.get('entry_id')}:{target_node_id}",
+                lead_type="intel_target",
+                priority_band="high" if plan_status == "reachable" else "medium",
+                title=f"Зацепка: {target_node_label}",
+                summary=str(entry.get("result_summary") or entry.get("summary") or f"Есть новая зацепка по точке {target_node_label}."),
+                target_node_id=target_node_id,
+                target_node_label=target_node_label,
+                route_id=route_ids[0] if route_ids else str(plan.get("blocked_route_id") or ""),
+                source_kind="map_intel",
+                source_ref=str(entry.get("entry_id") or target_node_id),
+                reachable=plan_status in {"reachable", "current_location"},
+                blocked=plan_status == "blocked",
+                blocked_reason=str(plan.get("blocked_reason") or ""),
+                first_unvisited=str(plan.get("first_unvisited") or ""),
+                has_active_journey=has_active_journey,
+                suggested_command=f"group go {target_node_id}" if plan_status == "reachable" else f"group path {target_node_id}",
+                tags=[str(entry.get("entry_type") or "intel"), "intel"],
+            )
+        )
+
+    for item in reachable:
+        target_node_id = str(item.get("target_node_id") or "").strip().lower()
+        if not target_node_id or visit_map.get(target_node_id):
+            continue
+        target_node_label = str(item.get("target_node_label") or target_node_id).strip()
+        _add(
+            build_group_exploration_lead(
+                lead_id=f"reachable:{target_node_id}",
+                lead_type="unvisited_reachable",
+                priority_band="medium" if int(item.get("step_count") or 0) <= 1 else "low",
+                title=f"Непосещённая точка: {target_node_label}",
+                summary=f"{target_node_label} уже достижима и группа там ещё не была.",
+                target_node_id=target_node_id,
+                target_node_label=target_node_label,
+                route_id=str((item.get("path_route_ids") or [""])[0] or ""),
+                source_kind="route_planning",
+                source_ref=target_node_id,
+                reachable=True,
+                blocked=False,
+                first_unvisited=str(item.get("first_unvisited") or target_node_id),
+                has_active_journey=has_active_journey,
+                suggested_command=f"group go {target_node_id}",
+                tags=["reachable", "unvisited"],
+            )
+        )
+
+    for item in frontiers:
+        if str(item.get("frontier_type") or "") != "blocked_route":
+            continue
+        route_id = str(item.get("route_id") or "").strip().lower()
+        target_node_id = str(item.get("to_node_id") or "").strip().lower()
+        target_node = get_static_node(target_node_id) or {}
+        access = get_group_route_access_state(sess, group_key, route_id) or {}
+        _add(
+            build_group_exploration_lead(
+                lead_id=f"frontier:{route_id}",
+                lead_type="blocked_frontier",
+                priority_band="medium",
+                title=f"Препятствие на пути: {str(target_node.get('label') or target_node_id)}",
+                summary=str(item.get("summary") or f"На маршруте {route_id} есть известное препятствие."),
+                target_node_id=target_node_id,
+                target_node_label=str(target_node.get("label") or target_node_id).strip(),
+                route_id=route_id,
+                source_kind="route_frontier",
+                source_ref=route_id,
+                reachable=False,
+                blocked=True,
+                blocked_reason=str(access.get("block_reason") or ""),
+                has_active_journey=has_active_journey,
+                suggested_command=f"group path {target_node_id}" if target_node_id else "",
+                tags=["blocked", "frontier"],
+            )
+        )
+
+    for service in current_services:
+        if bool(service.get("available")) is not True:
+            continue
+        service_id = str(service.get("service_id") or "").strip().lower()
+        service_label = str(service.get("label") or service_id).strip()
+        _add(
+            build_group_exploration_lead(
+                lead_id=f"service:{service_id}",
+                lead_type="local_opportunity",
+                priority_band="low",
+                title=f"Локальная возможность: {service_label}",
+                summary=f"В текущей точке доступна полезная услуга: {service_label}.",
+                target_node_id=str(((current_context.get("node_summary") or {}).get("node_id") or "")).strip().lower(),
+                target_node_label=str(((current_context.get("node_summary") or {}).get("label") or "")).strip(),
+                source_kind="service",
+                source_ref=service_id,
+                reachable=True,
+                blocked=False,
+                has_active_journey=has_active_journey,
+                suggested_command=f"group service {service_id}",
+                tags=["local", "service", str(service.get("service_kind") or "service")],
+            )
+        )
+        break
+
+    contextual_actions = list((current_context.get("contextual_actions") or [])) if isinstance(current_context, dict) else []
+    for action in contextual_actions:
+        if bool(action.get("available")) is not True or bool(action.get("exhausted")) is True:
+            continue
+        action_id = str(action.get("action_id") or action.get("action_key") or "").strip().lower()
+        action_kind = str(action.get("action_kind") or action_id).strip().lower()
+        if action_kind in {"navigate", "inspect", "wait", "camp", "rest_hint"}:
+            continue
+        action_label = str(action.get("label") or action_id).strip()
+        _add(
+            build_group_exploration_lead(
+                lead_id=f"action:{action_id}",
+                lead_type="local_opportunity",
+                priority_band="low",
+                title=f"Локальная возможность: {action_label}",
+                summary=f"В текущей точке доступно контекстное действие: {action_label}.",
+                target_node_id=str(((current_context.get("node_summary") or {}).get("node_id") or "")).strip().lower(),
+                target_node_label=str(((current_context.get("node_summary") or {}).get("label") or "")).strip(),
+                source_kind="context_action",
+                source_ref=action_id,
+                reachable=True,
+                blocked=False,
+                has_active_journey=has_active_journey,
+                suggested_command=f"group action {action_id}",
+                tags=["local", "action", action_kind],
+            )
+        )
+        break
+
+    priority_order = {"high": 0, "medium": 1, "low": 2}
+    type_order = {
+        "active_journey": 0,
+        "intel_target": 1,
+        "unvisited_reachable": 2,
+        "blocked_frontier": 3,
+        "local_opportunity": 4,
+    }
+    leads.sort(
+        key=lambda item: (
+            priority_order.get(str(item.get("priority_band") or ""), 99),
+            type_order.get(str(item.get("lead_type") or ""), 99),
+            str(item.get("title") or ""),
+        )
+    )
+    return leads
+
+
+def get_group_primary_exploration_lead(sess: Session, group_id: str) -> dict[str, Any] | None:
+    leads = get_group_exploration_leads(sess, group_id)
+    return dict(leads[0]) if leads else None
+
+
+def get_current_group_exploration_leads(
+    sess: Session,
+    *,
+    player_id: uuid.UUID | str | None = None,
+    group_id: str | None = None,
+) -> list[dict[str, Any]]:
+    resolved_group_id = str(group_id or "").strip()
+    resolved_player_id = str(player_id or "").strip()
+    if not resolved_group_id and resolved_player_id:
+        resolved_group_id = str(_get_player_group_id(sess, resolved_player_id) or "").strip()
+    if not resolved_group_id:
+        return []
+    return get_group_exploration_leads(sess, resolved_group_id)
+
+
+def get_current_group_primary_exploration_lead(
+    sess: Session,
+    *,
+    player_id: uuid.UUID | str | None = None,
+    group_id: str | None = None,
+) -> dict[str, Any] | None:
+    resolved_group_id = str(group_id or "").strip()
+    resolved_player_id = str(player_id or "").strip()
+    if not resolved_group_id and resolved_player_id:
+        resolved_group_id = str(_get_player_group_id(sess, resolved_player_id) or "").strip()
+    if not resolved_group_id:
+        return None
+    return get_group_primary_exploration_lead(sess, resolved_group_id)
 
 
 def get_current_group_navigation_options(

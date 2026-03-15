@@ -3404,3 +3404,126 @@ def test_group_journey_rejects_current_location_and_unrevealed_targets_and_block
     assert blocked["last_journey_result"]["result_type"] == "journey_blocked"
     assert session_state.get_current_group_last_arrival_result(sess, player_id=player_id) is None
     assert session_state.get_current_group_route_traversal_states(sess, player_id=player_id) == []
+
+
+def test_group_exploration_leads_reflect_active_journey_and_primary_preference() -> None:
+    player_id = uuid.uuid4()
+    sess = SimpleNamespace(settings={})
+    session_state._initialize_default_group(
+        sess,
+        [player_id],
+        {"map_level": "region", "node_type": "zone", "node_id": "start_trakt", "label": "Стартовый тракт"},
+    )
+    for node_id in ("fortress_gate",):
+        session_state.grant_player_map_knowledge(sess, player_id, node_id, knowledge_kind="known", source="test")
+        session_state.reveal_player_map_node(sess, player_id, node_id, source="test")
+    session_state.set_group_journey_target(sess, "main", "fortress_gate", player_id=player_id, source="test")
+
+    leads = session_state.get_current_group_exploration_leads(sess, player_id=player_id)
+    primary = session_state.get_current_group_primary_exploration_lead(sess, player_id=player_id)
+
+    assert leads
+    assert leads[0]["lead_type"] == "active_journey"
+    assert leads[0]["priority_band"] == "high"
+    assert leads[0]["suggested_command"] == "group continue"
+    assert primary == leads[0]
+
+    session_state.advance_group_journey(sess, "main", player_id=player_id, source="test")
+    arrived_primary = session_state.get_current_group_primary_exploration_lead(sess, player_id=player_id)
+    assert arrived_primary is not None
+    assert arrived_primary["lead_type"] == "active_journey"
+    assert arrived_primary["suggested_command"] == "group stop"
+
+
+def test_group_exploration_leads_synthesize_intel_reachable_and_blocked_frontiers_without_duplicates() -> None:
+    player_id = uuid.uuid4()
+    sess = SimpleNamespace(settings={})
+    session_state._initialize_default_group(
+        sess,
+        [player_id],
+        {"map_level": "region", "node_type": "zone", "node_id": "start_trakt", "label": "Стартовый тракт"},
+    )
+    for node_id in ("fortress_gate", "craft_town"):
+        session_state.grant_player_map_knowledge(sess, player_id, node_id, knowledge_kind="known", source="test")
+        session_state.reveal_player_map_node(sess, player_id, node_id, source="test")
+    session_state.set_group_route_access_state(
+        sess,
+        "main",
+        "start_trakt->craft_town:move",
+        access_state="blocked",
+        summary="Путь перекрыт.",
+        block_reason="blocked_path",
+        source="test",
+    )
+    first_entry = session_state.add_group_map_intel_entry(
+        sess,
+        "main",
+        session_state.build_group_map_intel_entry(
+            entry_type="route_hint",
+            title="Зацепка к крепости",
+            summary="На тракте найден знак к воротам крепости.",
+            result_summary="Старый указатель явно ведёт к воротам крепости.",
+            source_kind="travel_event",
+            source_id="hint-1",
+            node_id="start_trakt",
+            node_label="Стартовый тракт",
+            related_node_ids=["fortress_gate"],
+            related_route_ids=["start_trakt->fortress_gate:move"],
+            tags=["fortress", "hint"],
+            dedupe_key="hint|fortress_gate",
+            discovered_at="2026-03-15T00:00:00+00:00",
+        ),
+    )
+    duplicate_entry = session_state.add_group_map_intel_entry(
+        sess,
+        "main",
+        session_state.build_group_map_intel_entry(
+            entry_type="route_hint",
+            title="Дублирующая зацепка к крепости",
+            summary="Повторный знак к тем же воротам.",
+            result_summary="Та же дорога снова указывает к воротам крепости.",
+            source_kind="travel_event",
+            source_id="hint-2",
+            node_id="start_trakt",
+            node_label="Стартовый тракт",
+            related_node_ids=["fortress_gate"],
+            related_route_ids=["start_trakt->fortress_gate:move"],
+            tags=["fortress", "hint"],
+            dedupe_key="hint|fortress_gate",
+            discovered_at="2026-03-15T00:05:00+00:00",
+        ),
+    )
+
+    leads = session_state.get_group_exploration_leads(sess, "main")
+
+    assert first_entry == duplicate_entry
+    assert sum(1 for lead in leads if lead["lead_type"] == "intel_target" and lead["target_node_id"] == "fortress_gate") == 1
+    assert any(lead["lead_type"] == "unvisited_reachable" and lead["target_node_id"] == "fortress_gate" for lead in leads)
+    blocked_frontier = next(lead for lead in leads if lead["lead_type"] == "blocked_frontier")
+    assert blocked_frontier["target_node_id"] == "craft_town"
+    assert blocked_frontier["blocked_reason"] == "blocked_path"
+
+
+def test_group_exploration_leads_include_local_opportunities_only_when_available() -> None:
+    player_id = uuid.uuid4()
+    sess = SimpleNamespace(settings={})
+    session_state._initialize_default_group(
+        sess,
+        [player_id],
+        {"map_level": "region", "node_type": "zone", "node_id": "craft_town", "label": "Озёрный городок"},
+    )
+
+    leads_before = session_state.get_group_exploration_leads(sess, "main")
+    local_lead = next((lead for lead in leads_before if lead["lead_type"] == "local_opportunity"), None)
+    assert local_lead is not None
+    assert local_lead["source_kind"] in {"service", "context_action"}
+    assert local_lead["suggested_command"] in {"group service craft_town:safe_rest", "group service craft_town:resupply", "group service craft_town_local_guidance", "group action clear_old_road"}
+
+    session_state.resolve_group_service(sess, "main", service_id="craft_town_local_guidance", player_id=player_id, source="test")
+    leads_after = session_state.get_group_exploration_leads(sess, "main")
+    assert not any(
+        lead["lead_type"] == "local_opportunity"
+        and lead["source_kind"] == "service"
+        and lead["source_ref"] == "craft_town_local_guidance"
+        for lead in leads_after
+    )
