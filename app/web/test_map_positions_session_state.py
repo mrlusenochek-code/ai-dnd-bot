@@ -3385,6 +3385,170 @@ def test_confirm_group_enter_creates_node_entry_result() -> None:
     ]
 
 
+def test_build_group_destination_event_result_supports_authored_warning_changed_and_repeat_semantics() -> None:
+    craft_first = session_state.build_group_destination_event_result(
+        current_map_position={"map_level": "region", "node_type": "zone", "node_id": "craft_town", "label": "Озёрный городок"},
+        node_visit_state={
+            "node_id": "craft_town",
+            "node_label": "Озёрный городок",
+            "visit_count": 1,
+            "first_visited_at": "2026-03-15T00:00:00+00:00",
+            "last_visited_at": "2026-03-15T00:00:00+00:00",
+            "last_result_type": "settlement_arrival",
+            "summary": "Первое прибытие в городок.",
+        },
+        source="test",
+    )
+    repeated = session_state.build_group_destination_event_result(
+        current_map_position={"map_level": "region", "node_type": "zone", "node_id": "craft_town", "label": "Озёрный городок"},
+        node_visit_state={
+            "node_id": "craft_town",
+            "node_label": "Озёрный городок",
+            "visit_count": 2,
+            "first_visited_at": "2026-03-15T00:00:00+00:00",
+            "last_visited_at": "2026-03-15T01:00:00+00:00",
+            "last_result_type": "return_arrival",
+            "summary": "Возвращение в городок.",
+        },
+        prior_destination_event_state={
+            "event_id": "craft_town_arrival_notice",
+            "node_id": "craft_town",
+            "status": "completed",
+            "result_type": "settlement_notice",
+            "summary": "Первое прибытие уже было отмечено.",
+            "source": "test",
+            "updated_at": "2026-03-15T00:00:10+00:00",
+        },
+        source="test",
+    )
+    warning = session_state.build_group_destination_event_result(
+        current_map_position={"map_level": "interior", "node_type": "interior_entry", "node_id": "mine_entrance", "label": "Шахтный вход"},
+        node_visit_state={
+            "node_id": "mine_entrance",
+            "node_label": "Шахтный вход",
+            "visit_count": 1,
+            "first_visited_at": "2026-03-15T00:00:00+00:00",
+            "last_visited_at": "2026-03-15T00:00:00+00:00",
+            "last_result_type": "landmark_arrival",
+            "summary": "Первое прибытие к шахте.",
+        },
+        source="test",
+    )
+    changed = session_state.build_group_destination_event_result(
+        current_map_position={"map_level": "region", "node_type": "zone", "node_id": "ruined_settlement", "label": "Разрушенный посёлок"},
+        node_visit_state={
+            "node_id": "ruined_settlement",
+            "node_label": "Разрушенный посёлок",
+            "visit_count": 2,
+            "first_visited_at": "2026-03-15T00:00:00+00:00",
+            "last_visited_at": "2026-03-15T02:00:00+00:00",
+            "last_result_type": "return_arrival",
+            "summary": "Возвращение к руинам.",
+        },
+        node_state={
+            "node_id": "ruined_settlement",
+            "state_flags": ["mine_path_shored"],
+            "summary": "У шахтного подхода есть свежие подпорки.",
+            "source": "test",
+            "updated_at": "2026-03-15T01:00:00+00:00",
+        },
+        source="test",
+    )
+    no_event = session_state.build_group_destination_event_result(
+        current_map_position={"map_level": "region", "node_type": "zone", "node_id": "start_trakt", "label": "Стартовый тракт"},
+        node_visit_state={
+            "node_id": "start_trakt",
+            "node_label": "Стартовый тракт",
+            "visit_count": 1,
+            "first_visited_at": "2026-03-15T00:00:00+00:00",
+            "last_visited_at": "2026-03-15T00:00:00+00:00",
+            "last_result_type": "first_arrival",
+            "summary": "Первое прибытие на тракт.",
+        },
+        source="test",
+    )
+
+    assert craft_first["result_type"] == "settlement_notice"
+    assert craft_first["event_id"] == "craft_town_arrival_notice"
+    assert repeated["result_type"] == "already_resolved"
+    assert warning["result_type"] == "local_warning"
+    assert changed["result_type"] == "changed_place_notice"
+    assert no_event["result_type"] == "no_event"
+
+
+def test_successful_arrival_creates_destination_event_and_integrates_with_helpers() -> None:
+    player_id = uuid.uuid4()
+    sess = SimpleNamespace(settings={})
+    session_state._initialize_default_group(
+        sess,
+        [player_id],
+        {"map_level": "region", "node_type": "zone", "node_id": "start_trakt", "label": "Стартовый тракт"},
+    )
+    session_state.grant_player_map_knowledge(sess, player_id, "craft_town", knowledge_kind="known", source="test")
+    session_state.reveal_player_map_node(sess, player_id, "craft_town", source="test")
+
+    started, error = session_state.execute_group_navigation_option(
+        sess,
+        target_node_id="craft_town",
+        player_id=player_id,
+        group_id="main",
+        source="test",
+    )
+
+    assert started is not None
+    assert error is None
+    completed = session_state.complete_group_travel(sess, "main", player_id=player_id, source="test")
+
+    assert completed is not None
+    assert completed["last_arrival_result"]["node_id"] == "craft_town"
+    assert completed["last_node_entry_result"]["node_id"] == "craft_town"
+    assert completed["last_destination_event_result"]["event_id"] == "craft_town_arrival_notice"
+    assert completed["last_destination_event_result"]["result_type"] == "settlement_notice"
+    assert session_state.is_player_node_revealed(sess, player_id, "watchtower") is True
+    assert session_state.get_group_node_state(sess, "main", "craft_town")["state_flags"] == ["craft_arrival_notice_taken"]
+    intel_entries = session_state.get_current_group_map_intel(sess, player_id=player_id)
+    assert intel_entries[-1]["source_kind"] == "destination_event"
+    assert intel_entries[-1]["source_id"] == "craft_town_arrival_notice"
+    assert session_state.get_current_group_last_destination_event_result(sess, player_id=player_id)["result_type"] == "settlement_notice"
+    assert session_state.get_current_group_current_node_destination_event_state(sess, player_id=player_id)["event_id"] == "craft_town_arrival_notice"
+    context = session_state.get_current_group_node_context(sess, player_id=player_id)
+    assert context["current_destination_event_type"] == "settlement_notice"
+
+
+def test_failed_or_blocked_travel_does_not_create_false_destination_event_result() -> None:
+    player_id = uuid.uuid4()
+    sess = SimpleNamespace(settings={})
+    session_state._initialize_default_group(
+        sess,
+        [player_id],
+        {"map_level": "region", "node_type": "zone", "node_id": "start_trakt", "label": "Стартовый тракт"},
+    )
+    session_state.grant_player_map_knowledge(sess, player_id, "craft_town", knowledge_kind="known", source="test")
+    session_state.reveal_player_map_node(sess, player_id, "craft_town", source="test")
+    session_state.set_group_route_access_state(
+        sess,
+        "main",
+        "start_trakt->craft_town:move",
+        access_state="blocked",
+        summary="Путь перекрыт.",
+        block_reason="blocked_path",
+        source="test",
+    )
+
+    updated, error = session_state.execute_group_navigation_option(
+        sess,
+        target_node_id="craft_town",
+        player_id=player_id,
+        group_id="main",
+        source="test",
+    )
+
+    assert updated is None
+    assert error == "Маршрут к Озёрный городок сейчас заблокирован: blocked_path."
+    assert session_state.get_current_group_last_destination_event_result(sess, player_id=player_id) is None
+    assert session_state.get_current_group_current_node_destination_event_state(sess, player_id=player_id) is None
+
+
 def test_group_route_planning_builds_reachable_destinations_and_frontiers() -> None:
     player_id = uuid.uuid4()
     sess = SimpleNamespace(settings={})

@@ -73,6 +73,8 @@ from app.web.session_state import (
     get_current_group_recent_map_intel,
     get_current_group_last_node_entry_result,
     get_current_group_current_node_entry_state,
+    get_current_group_last_destination_event_result,
+    get_current_group_current_node_destination_event_state,
     get_current_group_journey_state,
     get_current_group_last_journey_result,
     get_current_group_route_planning,
@@ -1753,6 +1755,9 @@ def _parse_group_command(cmdline: str) -> tuple[str | None, dict[str, Any]]:
     if lowered in {"group event ignore", "group_event_ignore"}:
         return "group_event_ignore", {}
 
+    if lowered in {"group local", "group_local", "group event", "group_destination_event"}:
+        return "group_destination_event", {}
+
     if lowered in {"group arrive", "group_arrive"}:
         return "group_arrive", {}
 
@@ -1882,6 +1887,7 @@ def _handle_group_action_request(
         "group_service_use",
         "group_map_intel",
         "group_node_entry",
+        "group_destination_event",
         "group_exploration_leads",
         "group_journey_set",
         "group_journey_advance",
@@ -1982,6 +1988,17 @@ def _handle_group_action_request(
         title = str((result or {}).get("title") or (entry_state or {}).get("node_label") or "entry")
         entry_type = str((result or {}).get("result_type") or (entry_state or {}).get("last_entry_type") or "entry")
         return True, None, f"Node entry группы {actor_group_key}: {title} ({entry_type})."
+
+    if action == "group_destination_event":
+        if not actor_group_key:
+            return True, "Группа игрока не найдена.", None
+        result = get_current_group_last_destination_event_result(sess, player_id=actor_player_id, group_id=actor_group_key)
+        event_state = get_current_group_current_node_destination_event_state(sess, player_id=actor_player_id, group_id=actor_group_key)
+        if not result and not event_state:
+            return True, None, f"У группы {actor_group_key} пока нет destination event результата."
+        title = str((result or {}).get("title") or (event_state or {}).get("event_id") or "local event")
+        result_type = str((result or {}).get("result_type") or (event_state or {}).get("result_type") or "destination_event")
+        return True, None, f"Destination event группы {actor_group_key}: {title} ({result_type})."
 
     if action == "group_exploration_leads":
         if not actor_group_key:
@@ -2136,6 +2153,7 @@ def _handle_group_action_request(
         "group_service_use",
         "group_map_intel",
         "group_node_entry",
+        "group_destination_event",
         "group_exploration_leads",
         "group_journey_set",
         "group_journey_advance",
@@ -6273,6 +6291,7 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                     "group_service_use",
                     "group_map_intel",
                     "group_node_entry",
+                    "group_destination_event",
                     "group_exploration_leads",
                     "group_journey_set",
                     "group_journey_advance",

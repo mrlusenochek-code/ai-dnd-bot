@@ -12,6 +12,7 @@ from app.web.map_registry import (
     get_current_node_context_actions,
     get_obvious_linked_static_node_ids,
     get_static_node_context_action_effects,
+    get_static_node_destination_events,
     get_static_node_entry_overlays,
     get_static_node_service_effects,
     get_static_node_state_overlays,
@@ -854,6 +855,109 @@ def _normalize_group_node_entry_state_map(raw: Any) -> dict[str, dict[str, Any]]
     return normalized
 
 
+def _normalize_group_last_destination_event_result(raw: Any) -> dict[str, Any] | None:
+    if not isinstance(raw, dict):
+        return None
+    result_id = str(raw.get("result_id") or "").strip()
+    event_id = str(raw.get("event_id") or "").strip().lower()
+    event_label = str(raw.get("event_label") or event_id).strip()
+    result_type = str(raw.get("result_type") or "").strip().lower()
+    if result_type not in {
+        "local_notice",
+        "first_discovery",
+        "local_warning",
+        "settlement_notice",
+        "changed_place_notice",
+        "no_event",
+        "already_resolved",
+    }:
+        return None
+    title = str(raw.get("title") or "").strip()
+    summary = str(raw.get("summary") or "").strip()
+    result_summary = str(raw.get("result_summary") or summary).strip()
+    node_id = str(raw.get("node_id") or "").strip().lower()
+    node_label = str(raw.get("node_label") or node_id).strip()
+    visit_count = max(0, as_int(raw.get("visit_count"), 0))
+    source = str(raw.get("source") or "destination_event").strip() or "destination_event"
+    resolved_at = str(raw.get("resolved_at") or "").strip()
+    if not result_id or not event_id or not event_label or not title or not summary or not result_summary or not node_id or not node_label or visit_count <= 0:
+        return None
+    applied_effects = [
+        str(item).strip()[:120]
+        for item in (raw.get("applied_effects") or [])
+        if str(item or "").strip()
+    ] if isinstance(raw.get("applied_effects"), list) else []
+    result: dict[str, Any] = {
+        "result_id": result_id[:80],
+        "event_id": event_id[:120],
+        "event_label": event_label[:160],
+        "result_type": result_type[:40],
+        "title": title[:160],
+        "summary": summary[:400],
+        "result_summary": result_summary[:400],
+        "node_id": node_id[:120],
+        "node_label": node_label[:120],
+        "visit_count": visit_count,
+        "first_visit": bool(raw.get("first_visit")),
+        "applied_effects": applied_effects,
+        "source": source[:40],
+    }
+    if resolved_at:
+        result["resolved_at"] = resolved_at[:80]
+    return result
+
+
+def _normalize_group_destination_event_state(raw: Any) -> dict[str, Any] | None:
+    if not isinstance(raw, dict):
+        return None
+    event_id = str(raw.get("event_id") or "").strip().lower()
+    node_id = str(raw.get("node_id") or "").strip().lower()
+    status = str(raw.get("status") or "").strip().lower()
+    if status not in {"completed", "resolved", "no_event"}:
+        return None
+    result_type = str(raw.get("result_type") or "").strip().lower()
+    if result_type and result_type not in {
+        "local_notice",
+        "first_discovery",
+        "local_warning",
+        "settlement_notice",
+        "changed_place_notice",
+        "no_event",
+        "already_resolved",
+    }:
+        return None
+    summary = str(raw.get("summary") or "").strip()
+    source = str(raw.get("source") or "destination_event").strip() or "destination_event"
+    updated_at = str(raw.get("updated_at") or "").strip()
+    if not event_id or not node_id or not summary:
+        return None
+    state: dict[str, Any] = {
+        "event_id": event_id[:120],
+        "node_id": node_id[:120],
+        "status": status[:40],
+        "summary": summary[:240],
+        "source": source[:40],
+    }
+    if result_type:
+        state["result_type"] = result_type[:40]
+    if updated_at:
+        state["updated_at"] = updated_at[:80]
+    return state
+
+
+def _normalize_group_destination_event_state_map(raw: Any) -> dict[str, dict[str, Any]]:
+    if not isinstance(raw, dict):
+        return {}
+    normalized: dict[str, dict[str, Any]] = {}
+    for node_id, value in raw.items():
+        candidate = value if isinstance(value, dict) else {"node_id": node_id, "event_id": node_id, "status": "resolved", "summary": str(value or node_id)}
+        merged = {"node_id": node_id, **candidate} if isinstance(candidate, dict) else candidate
+        state = _normalize_group_destination_event_state(merged)
+        if state:
+            normalized[state["node_id"]] = state
+    return normalized
+
+
 def _normalize_group_route_traversal_state(raw: Any) -> dict[str, Any] | None:
     if not isinstance(raw, dict):
         return None
@@ -1360,6 +1464,263 @@ def get_current_group_node_entry_states(
     if not isinstance(group, dict):
         return []
     state_map = _normalize_group_node_entry_state_map(group.get("node_entry_states"))
+    return [dict(state_map[key]) for key in sorted(state_map.keys())]
+
+
+def build_group_destination_event_result(
+    *,
+    current_map_position: dict[str, Any] | None,
+    node_visit_state: dict[str, Any] | None,
+    node_state: dict[str, Any] | None = None,
+    prior_destination_event_state: dict[str, Any] | None = None,
+    source: str = "destination_event",
+) -> dict[str, Any] | None:
+    position = _normalize_map_position(current_map_position)
+    visit = _normalize_group_node_visit_state(node_visit_state)
+    current_node_state = _normalize_group_node_state(node_state)
+    prior_state = _normalize_group_destination_event_state(prior_destination_event_state)
+    if not position or not visit:
+        return None
+    node_id = str(visit.get("node_id") or position.get("node_id") or "").strip().lower()
+    node_label = str(visit.get("node_label") or position.get("label") or node_id).strip()
+    visit_count = max(0, as_int(visit.get("visit_count"), 0))
+    if not node_id or not node_label or visit_count <= 0:
+        return None
+    first_visit = visit_count == 1
+    node_state_flags = list((current_node_state or {}).get("state_flags") or [])
+    node_static = get_static_node(node_id) or {}
+    node_type = str(position.get("node_type") or node_static.get("node_type") or "").strip().lower()
+    settlement_kind = str(node_static.get("settlement_kind") or "").strip().lower()
+    authored_events = get_static_node_destination_events(
+        current_map_position=position,
+        state_flags=node_state_flags,
+        visit_count=visit_count,
+    )
+    if not first_visit and prior_state and not authored_events:
+        prior_event_id = str(prior_state.get("event_id") or "").strip().lower()
+        historical_events = get_static_node_destination_events(
+            current_map_position=position,
+            state_flags=node_state_flags,
+            visit_count=1,
+        )
+        authored_events = [
+            dict(item)
+            for item in historical_events
+            if str(item.get("event_id") or "").strip().lower() == prior_event_id and bool(item.get("one_shot"))
+        ]
+    chosen_event: dict[str, Any] | None = None
+    already_resolved_event: dict[str, Any] | None = None
+    for event in authored_events:
+        event_id = str(event.get("event_id") or "").strip().lower()
+        if not event_id:
+            continue
+        if bool(event.get("one_shot")) and prior_state and str(prior_state.get("event_id") or "").strip().lower() == event_id:
+            already_resolved_event = dict(event)
+            continue
+        chosen_event = dict(event)
+        break
+
+    if chosen_event:
+        event_id = str(chosen_event.get("event_id") or f"{node_id}:event").strip().lower()
+        event_label = str(chosen_event.get("label") or event_id).strip()
+        result_type = str(chosen_event.get("result_type") or "").strip().lower() or "local_notice"
+        title = str(chosen_event.get("title") or event_label or node_label).strip()
+        summary = str(chosen_event.get("summary") or "").strip()
+        result_summary = str(chosen_event.get("result_summary") or summary).strip() or summary
+        applied_effects = [
+            str(item).strip()
+            for item in (chosen_event.get("applied_effects") or [])
+            if str(item or "").strip()
+        ]
+    elif already_resolved_event:
+        event_id = str(already_resolved_event.get("event_id") or f"{node_id}:event").strip().lower()
+        event_label = str(already_resolved_event.get("label") or event_id).strip()
+        title = str(already_resolved_event.get("title") or event_label or node_label).strip()
+        result_type = "already_resolved"
+        summary = f"Локальное событие {event_label} у {node_label} уже было отмечено для группы."
+        result_summary = "Это authored событие прибытия уже было разыграно для текущей группы и повторно не даёт нового локального эффекта."
+        applied_effects = ["destination_event:already_resolved"]
+    else:
+        event_id = f"{node_id}:no_event"
+        if settlement_kind in {"town", "village", "hamlet", "roadside"}:
+            title = f"{node_label} встречает без нового происшествия"
+        elif node_type in {"landmark", "interior_entry"}:
+            title = f"У {node_label} всё без новой перемены"
+        else:
+            title = f"На месте {node_label} тихо"
+        event_label = node_label
+        result_type = "no_event"
+        summary = f"У прибытия в {node_label} сейчас нет отдельного локального authored события."
+        result_summary = summary
+        applied_effects = ["destination_event:none"]
+
+    applied_effects = [*applied_effects, f"visit_count:{visit_count}", f"destination_event:{result_type}"]
+    if first_visit:
+        applied_effects.append("destination_event:first_visit")
+    else:
+        applied_effects.append("destination_event:return_visit")
+    return _normalize_group_last_destination_event_result(
+        {
+            "result_id": f"dest-{uuid.uuid4().hex[:12]}",
+            "event_id": event_id,
+            "event_label": event_label,
+            "result_type": result_type,
+            "title": title,
+            "summary": summary,
+            "result_summary": result_summary,
+            "node_id": node_id,
+            "node_label": node_label,
+            "visit_count": visit_count,
+            "first_visit": first_visit,
+            "applied_effects": applied_effects,
+            "source": source,
+            "resolved_at": datetime.now(timezone.utc).isoformat(),
+        }
+    )
+
+
+def resolve_group_destination_event(
+    sess: Session,
+    group_id: str,
+    *,
+    current_map_position: dict[str, Any] | None = None,
+    source: str = "destination_event",
+) -> dict[str, Any] | None:
+    normalized_group_id = str(group_id or "").strip()
+    if not normalized_group_id:
+        return None
+    groups = _get_group_states(sess)
+    group = groups.get(normalized_group_id)
+    if not isinstance(group, dict):
+        return None
+    position = _normalize_map_position(current_map_position or group.get("current_map_position"))
+    node_id = str((position or {}).get("node_id") or "").strip().lower()
+    if not position or not node_id:
+        return None
+    visit_state = (_normalize_group_node_visit_state_map(group.get("node_visit_states"))).get(node_id)
+    current_node_state = (_normalize_group_node_state_map(group.get("node_states"))).get(node_id)
+    prior_event_state = (_normalize_group_destination_event_state_map(group.get("destination_event_states"))).get(node_id)
+    result = build_group_destination_event_result(
+        current_map_position=position,
+        node_visit_state=visit_state,
+        node_state=current_node_state,
+        prior_destination_event_state=prior_event_state,
+        source=source,
+    )
+    if not result:
+        return None
+    authored_events = get_static_node_destination_events(
+        current_map_position=position,
+        state_flags=list((current_node_state or {}).get("state_flags") or []),
+        visit_count=max(0, as_int((visit_state or {}).get("visit_count"), 0)),
+    )
+    matched_event = next(
+        (
+            dict(item)
+            for item in authored_events
+            if str(item.get("event_id") or "").strip().lower() == str(result.get("event_id") or "").strip().lower()
+        ),
+        None,
+    )
+    group_player_ids = [str(pid).strip() for pid in (group.get("player_ids") or []) if str(pid).strip()]
+    if matched_event and str(result.get("result_type") or "") not in {"already_resolved", "no_event"}:
+        for revealed_node_id in matched_event.get("reveal_node_ids") or []:
+            for pid in group_player_ids:
+                reveal_player_map_node(sess, pid, str(revealed_node_id), source=source)
+        for node_state_flag in matched_event.get("node_state_flags") or []:
+            add_group_node_state_flag(
+                sess,
+                normalized_group_id,
+                node_id,
+                state_flag=str(node_state_flag),
+                summary=str(matched_event.get("node_state_summary") or result.get("summary") or ""),
+                source=source,
+            )
+        groups = _get_group_states(sess)
+        group = groups.get(normalized_group_id)
+        if not isinstance(group, dict):
+            return None
+        intel_entry = _build_map_intel_entry_from_destination_event_result(result, destination_event=matched_event)
+        if intel_entry:
+            _add_group_map_intel_entry_to_group(group, intel_entry)
+    state_map = _normalize_group_destination_event_state_map(group.get("destination_event_states"))
+    state = _normalize_group_destination_event_state(
+        {
+            "event_id": str(result.get("event_id") or f"{node_id}:no_event"),
+            "node_id": node_id,
+            "status": "no_event" if str(result.get("result_type") or "") == "no_event" else "completed",
+            "result_type": str(result.get("result_type") or ""),
+            "summary": str(result.get("summary") or ""),
+            "source": source,
+            "updated_at": datetime.now(timezone.utc).isoformat(),
+        }
+    )
+    if not state:
+        return None
+    group["last_destination_event_result"] = result
+    state_map[node_id] = state
+    group["destination_event_states"] = state_map
+    _persist_group_states(sess, groups)
+    _sync_group_position_mirrors(sess, group)
+    return result
+
+
+def get_current_group_last_destination_event_result(
+    sess: Session,
+    *,
+    player_id: uuid.UUID | str | None = None,
+    group_id: str | None = None,
+) -> dict[str, Any] | None:
+    resolved_group_id = str(group_id or "").strip()
+    resolved_player_id = str(player_id or "").strip()
+    if not resolved_group_id and resolved_player_id:
+        resolved_group_id = str(_get_player_group_id(sess, resolved_player_id) or "").strip()
+    if not resolved_group_id:
+        return None
+    group = _get_group_states(sess).get(resolved_group_id)
+    if not isinstance(group, dict):
+        return None
+    return _normalize_group_last_destination_event_result(group.get("last_destination_event_result"))
+
+
+def get_current_group_current_node_destination_event_state(
+    sess: Session,
+    *,
+    player_id: uuid.UUID | str | None = None,
+    group_id: str | None = None,
+) -> dict[str, Any] | None:
+    resolved_group_id = str(group_id or "").strip()
+    resolved_player_id = str(player_id or "").strip()
+    if not resolved_group_id and resolved_player_id:
+        resolved_group_id = str(_get_player_group_id(sess, resolved_player_id) or "").strip()
+    if not resolved_group_id:
+        return None
+    group = _get_group_states(sess).get(resolved_group_id)
+    if not isinstance(group, dict):
+        return None
+    current_map_position = _normalize_map_position(group.get("current_map_position"))
+    current_node_id = str((current_map_position or {}).get("node_id") or "").strip().lower()
+    if not current_node_id:
+        return None
+    return (_normalize_group_destination_event_state_map(group.get("destination_event_states"))).get(current_node_id)
+
+
+def get_current_group_destination_event_states(
+    sess: Session,
+    *,
+    player_id: uuid.UUID | str | None = None,
+    group_id: str | None = None,
+) -> list[dict[str, Any]]:
+    resolved_group_id = str(group_id or "").strip()
+    resolved_player_id = str(player_id or "").strip()
+    if not resolved_group_id and resolved_player_id:
+        resolved_group_id = str(_get_player_group_id(sess, resolved_player_id) or "").strip()
+    if not resolved_group_id:
+        return []
+    group = _get_group_states(sess).get(resolved_group_id)
+    if not isinstance(group, dict):
+        return []
+    state_map = _normalize_group_destination_event_state_map(group.get("destination_event_states"))
     return [dict(state_map[key]) for key in sorted(state_map.keys())]
 
 
@@ -3769,6 +4130,10 @@ def get_current_group_node_context(
     if current_entry_result and str(current_entry_result.get("node_id") or "").strip().lower() == current_node_id:
         payload["current_entry_type"] = str(current_entry_result.get("result_type") or "")
         payload["current_entry_note"] = str(current_entry_result.get("summary") or "")
+    current_destination_event = get_current_group_last_destination_event_result(sess, group_id=resolved_group_id) if current_node_id else None
+    if current_destination_event and str(current_destination_event.get("node_id") or "").strip().lower() == current_node_id:
+        payload["current_destination_event_type"] = str(current_destination_event.get("result_type") or "")
+        payload["current_destination_event_note"] = str(current_destination_event.get("summary") or "")
     return payload
 
 
@@ -3923,7 +4288,7 @@ def _normalize_group_map_intel_entry(raw: Any) -> dict[str, Any] | None:
     summary = str(raw.get("summary") or "").strip()
     result_summary = str(raw.get("result_summary") or "").strip()
     source_kind = str(raw.get("source_kind") or "").strip().lower()
-    if source_kind not in {"scout", "service", "context_action", "travel_event"}:
+    if source_kind not in {"scout", "service", "context_action", "travel_event", "destination_event"}:
         return None
     source_id = str(raw.get("source_id") or "").strip()
     node_id = str(raw.get("node_id") or "").strip()
@@ -4299,6 +4664,64 @@ def _build_map_intel_entry_from_travel_event_outcome(
         related_node_ids=related_node_ids,
         related_route_ids=related_route_ids,
         tags=_build_map_intel_tags(entry_type=entry_type, node_id=str(route_snapshot.get("target_node_id") or normalized.get("event_key") or "")),
+        dedupe_key="|".join(part for part in dedupe_parts if part),
+        discovered_at=str(normalized.get("resolved_at") or ""),
+    )
+
+
+def _build_map_intel_entry_from_destination_event_result(
+    result: dict[str, Any] | None,
+    *,
+    destination_event: dict[str, Any] | None = None,
+) -> dict[str, Any] | None:
+    normalized = _normalize_group_last_destination_event_result(result)
+    if not normalized:
+        return None
+    result_type = str(normalized.get("result_type") or "").strip().lower()
+    if result_type in {"no_event", "already_resolved"}:
+        return None
+    event = dict(destination_event or {})
+    entry_type = str(event.get("intel_entry_type") or "").strip().lower()
+    if not entry_type:
+        entry_type = {
+            "first_discovery": "landmark_note",
+            "settlement_notice": "guidance",
+            "local_warning": "warning",
+            "changed_place_notice": "warning",
+            "local_notice": "travel_note",
+        }.get(result_type, "travel_note")
+    node_id = str(normalized.get("node_id") or "").strip()
+    node_label = str(normalized.get("node_label") or node_id).strip()
+    event_id = str(normalized.get("event_id") or "").strip().lower()
+    related_node_ids = [
+        str(item).strip().lower()
+        for item in (event.get("reveal_node_ids") or [])
+        if str(item or "").strip()
+    ]
+    title = str(event.get("intel_title") or normalized.get("title") or normalized.get("event_label") or "Локальная заметка").strip()
+    dedupe_parts = [
+        "destination_event",
+        event_id,
+        result_type,
+        ",".join(sorted(related_node_ids)),
+        str(normalized.get("result_summary") or "").strip().lower(),
+    ]
+    return build_group_map_intel_entry(
+        entry_type=entry_type,
+        title=title,
+        summary=str(normalized.get("summary") or ""),
+        result_summary=str(normalized.get("result_summary") or normalized.get("summary") or ""),
+        source_kind="destination_event",
+        source_id=event_id,
+        node_id=node_id,
+        node_label=node_label,
+        related_node_ids=related_node_ids,
+        related_route_ids=[],
+        tags=[
+            str(item).strip().lower()
+            for item in (event.get("tags") or _build_map_intel_tags(entry_type=entry_type, node_id=node_id, related_node_ids=related_node_ids))
+            if str(item or "").strip()
+        ],
         dedupe_key="|".join(part for part in dedupe_parts if part),
         discovered_at=str(normalized.get("resolved_at") or ""),
     )
@@ -6054,6 +6477,17 @@ def _group_node_entry_states_summary(group: dict[str, Any]) -> list[dict[str, An
     return [dict(state_map[key]) for key in sorted(state_map.keys())]
 
 
+def _group_last_destination_event_result_summary(group: dict[str, Any]) -> dict[str, Any] | None:
+    return _normalize_group_last_destination_event_result(group.get("last_destination_event_result"))
+
+
+def _group_destination_event_states_summary(group: dict[str, Any]) -> list[dict[str, Any]] | None:
+    state_map = _normalize_group_destination_event_state_map(group.get("destination_event_states"))
+    if not state_map:
+        return None
+    return [dict(state_map[key]) for key in sorted(state_map.keys())]
+
+
 def _group_active_journey_summary(group: dict[str, Any]) -> dict[str, Any] | None:
     return _normalize_group_active_journey(group.get("active_journey"))
 
@@ -6295,6 +6729,12 @@ def _normalize_group_state(
     node_entry_states = _normalize_group_node_entry_state_map(raw.get("node_entry_states"))
     if node_entry_states:
         normalized["node_entry_states"] = node_entry_states
+    last_destination_event_result = _normalize_group_last_destination_event_result(raw.get("last_destination_event_result"))
+    if last_destination_event_result:
+        normalized["last_destination_event_result"] = last_destination_event_result
+    destination_event_states = _normalize_group_destination_event_state_map(raw.get("destination_event_states"))
+    if destination_event_states:
+        normalized["destination_event_states"] = destination_event_states
     active_journey = _normalize_group_active_journey(raw.get("active_journey"))
     if active_journey:
         normalized["active_journey"] = active_journey
@@ -6908,6 +7348,12 @@ def confirm_group_enter(
             current_map_position=next_map_position,
             source=source,
         )
+        resolve_group_destination_event(
+            sess,
+            group_key,
+            current_map_position=next_map_position,
+            source=source,
+        )
     if player_id and target_node_id and get_static_node(target_node_id):
         maybe_mark_player_node_visited(sess, player_id, target_node_id, source=source)
         maybe_reveal_nearby_static_nodes(sess, player_id, next_map_position, source=source)
@@ -7188,6 +7634,12 @@ def complete_group_travel(
             source=source,
         )
         resolve_group_node_entry(
+            sess,
+            group_key,
+            current_map_position=next_map_position,
+            source=source,
+        )
+        resolve_group_destination_event(
             sess,
             group_key,
             current_map_position=next_map_position,

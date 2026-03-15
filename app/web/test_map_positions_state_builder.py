@@ -127,6 +127,12 @@ def test_build_state_includes_legacy_and_structured_positions(monkeypatch) -> No
     monkeypatch.setattr(state_builder, "get_current_group_last_node_entry_result", lambda _sess, player_id=None: None)
     monkeypatch.setattr(state_builder, "get_current_group_current_node_entry_state", lambda _sess, player_id=None: None)
     monkeypatch.setattr(state_builder, "get_current_group_node_entry_states", lambda _sess, player_id=None: [])
+    monkeypatch.setattr(state_builder, "get_current_group_last_destination_event_result", lambda _sess, player_id=None: None)
+    monkeypatch.setattr(state_builder, "get_current_group_current_node_destination_event_state", lambda _sess, player_id=None: None)
+    monkeypatch.setattr(state_builder, "get_current_group_destination_event_states", lambda _sess, player_id=None: [])
+    monkeypatch.setattr(state_builder, "get_current_group_last_destination_event_result", lambda _sess, player_id=None: None)
+    monkeypatch.setattr(state_builder, "get_current_group_current_node_destination_event_state", lambda _sess, player_id=None: None)
+    monkeypatch.setattr(state_builder, "get_current_group_destination_event_states", lambda _sess, player_id=None: [])
     monkeypatch.setattr(state_builder, "get_current_group_current_node_visit_state", lambda _sess, player_id=None: None)
     monkeypatch.setattr(state_builder, "get_current_group_node_visit_states", lambda _sess, player_id=None: [])
     monkeypatch.setattr(state_builder, "get_current_group_route_traversal_states", lambda _sess, player_id=None: [])
@@ -166,10 +172,12 @@ def test_build_state_includes_legacy_and_structured_positions(monkeypatch) -> No
             "last_scout_result_summary": None,
             "last_context_action_result_summary": None,
             "last_node_entry_result_summary": None,
+            "last_destination_event_result_summary": None,
             "active_journey_summary": None,
             "last_journey_result_summary": None,
             "context_action_states": None,
             "node_entry_states": None,
+            "destination_event_states": None,
             "node_states": None,
             "last_service_result_summary": None,
             "service_states": None,
@@ -208,6 +216,9 @@ def test_build_state_includes_legacy_and_structured_positions(monkeypatch) -> No
     assert payload["game"]["current_group_last_node_entry_result"] is None
     assert payload["game"]["current_group_current_node_entry_state"] is None
     assert payload["game"]["current_group_node_entry_states"] == []
+    assert payload["game"]["current_group_last_destination_event_result"] is None
+    assert payload["game"]["current_group_current_node_destination_event_state"] is None
+    assert payload["game"]["current_group_destination_event_states"] == []
     assert payload["game"]["current_group_current_node_visit_state"] is None
     assert payload["game"]["current_group_node_visit_states"] == []
     assert payload["game"]["current_group_route_traversal_states"] == []
@@ -298,6 +309,33 @@ def test_build_state_exports_current_player_group_id(monkeypatch) -> None:
                     "summary": "Текущий вход в тракт отмечен как изменившееся место.",
                     "source": "test",
                     "updated_at": "2026-03-14T00:04:11+00:00",
+                }
+            },
+            "last_destination_event_result": {
+                "result_id": "dest-1",
+                "event_id": "craft_town_arrival_notice",
+                "event_label": "Береговая наводка у городка",
+                "result_type": "settlement_notice",
+                "title": "У причала быстро находят ориентиры",
+                "summary": "На первом прибытии местные сразу указывают группе полезный береговой ориентир.",
+                "result_summary": "Озёрный городок встречает группу короткой береговой наводкой и подсказывает, где проще держать следующий ход.",
+                "node_id": "start_trakt",
+                "node_label": "Стартовый тракт",
+                "visit_count": 1,
+                "first_visit": True,
+                "applied_effects": ["destination_notice:craft_town", "visit_count:1", "destination_event:settlement_notice"],
+                "source": "test",
+                "resolved_at": "2026-03-14T00:04:12+00:00",
+            },
+            "destination_event_states": {
+                "start_trakt": {
+                    "event_id": "craft_town_arrival_notice",
+                    "node_id": "start_trakt",
+                    "status": "completed",
+                    "result_type": "settlement_notice",
+                    "summary": "На первом прибытии местные сразу указывают группе полезный береговой ориентир.",
+                    "source": "test",
+                    "updated_at": "2026-03-14T00:04:13+00:00",
                 }
             },
         }
@@ -701,6 +739,54 @@ def test_build_state_exports_current_player_group_id(monkeypatch) -> None:
                 "summary": "Текущий вход в тракт отмечен как изменившееся место.",
                 "source": "test",
                 "updated_at": "2026-03-14T00:04:11+00:00",
+            }
+        ],
+    )
+    monkeypatch.setattr(
+        state_builder,
+        "get_current_group_last_destination_event_result",
+        lambda _sess, player_id=None: {
+            "result_id": "dest-1",
+            "event_id": "craft_town_arrival_notice",
+            "event_label": "Береговая наводка у городка",
+            "result_type": "settlement_notice",
+            "title": "У причала быстро находят ориентиры",
+            "summary": "На первом прибытии местные сразу указывают группе полезный береговой ориентир.",
+            "result_summary": "Озёрный городок встречает группу короткой береговой наводкой и подсказывает, где проще держать следующий ход.",
+            "node_id": "start_trakt",
+            "node_label": "Стартовый тракт",
+            "visit_count": 1,
+            "first_visit": True,
+            "applied_effects": ["destination_notice:craft_town", "visit_count:1", "destination_event:settlement_notice"],
+            "source": "test",
+            "resolved_at": "2026-03-14T00:04:12+00:00",
+        },
+    )
+    monkeypatch.setattr(
+        state_builder,
+        "get_current_group_current_node_destination_event_state",
+        lambda _sess, player_id=None: {
+            "event_id": "craft_town_arrival_notice",
+            "node_id": "start_trakt",
+            "status": "completed",
+            "result_type": "settlement_notice",
+            "summary": "На первом прибытии местные сразу указывают группе полезный береговой ориентир.",
+            "source": "test",
+            "updated_at": "2026-03-14T00:04:13+00:00",
+        },
+    )
+    monkeypatch.setattr(
+        state_builder,
+        "get_current_group_destination_event_states",
+        lambda _sess, player_id=None: [
+            {
+                "event_id": "craft_town_arrival_notice",
+                "node_id": "start_trakt",
+                "status": "completed",
+                "result_type": "settlement_notice",
+                "summary": "На первом прибытии местные сразу указывают группе полезный береговой ориентир.",
+                "source": "test",
+                "updated_at": "2026-03-14T00:04:13+00:00",
             }
         ],
     )
@@ -1172,6 +1258,42 @@ def test_build_state_exports_current_player_group_id(monkeypatch) -> None:
             "updated_at": "2026-03-14T00:04:11+00:00",
         }
     ]
+    assert payload["game"]["current_group_last_destination_event_result"] == {
+        "result_id": "dest-1",
+        "event_id": "craft_town_arrival_notice",
+        "event_label": "Береговая наводка у городка",
+        "result_type": "settlement_notice",
+        "title": "У причала быстро находят ориентиры",
+        "summary": "На первом прибытии местные сразу указывают группе полезный береговой ориентир.",
+        "result_summary": "Озёрный городок встречает группу короткой береговой наводкой и подсказывает, где проще держать следующий ход.",
+        "node_id": "start_trakt",
+        "node_label": "Стартовый тракт",
+        "visit_count": 1,
+        "first_visit": True,
+        "applied_effects": ["destination_notice:craft_town", "visit_count:1", "destination_event:settlement_notice"],
+        "source": "test",
+        "resolved_at": "2026-03-14T00:04:12+00:00",
+    }
+    assert payload["game"]["current_group_current_node_destination_event_state"] == {
+        "event_id": "craft_town_arrival_notice",
+        "node_id": "start_trakt",
+        "status": "completed",
+        "result_type": "settlement_notice",
+        "summary": "На первом прибытии местные сразу указывают группе полезный береговой ориентир.",
+        "source": "test",
+        "updated_at": "2026-03-14T00:04:13+00:00",
+    }
+    assert payload["game"]["current_group_destination_event_states"] == [
+        {
+            "event_id": "craft_town_arrival_notice",
+            "node_id": "start_trakt",
+            "status": "completed",
+            "result_type": "settlement_notice",
+            "summary": "На первом прибытии местные сразу указывают группе полезный береговой ориентир.",
+            "source": "test",
+            "updated_at": "2026-03-14T00:04:13+00:00",
+        }
+    ]
     assert payload["game"]["current_group_current_node_visit_state"] == {
         "node_id": "start_trakt",
         "node_label": "Стартовый тракт",
@@ -1331,6 +1453,33 @@ def test_build_state_exports_current_player_group_id(monkeypatch) -> None:
             "summary": "Текущий вход в тракт отмечен как изменившееся место.",
             "source": "test",
             "updated_at": "2026-03-14T00:04:11+00:00",
+        }
+    ]
+    assert payload["game"]["groups"]["main"]["last_destination_event_result_summary"] == {
+        "result_id": "dest-1",
+        "event_id": "craft_town_arrival_notice",
+        "event_label": "Береговая наводка у городка",
+        "result_type": "settlement_notice",
+        "title": "У причала быстро находят ориентиры",
+        "summary": "На первом прибытии местные сразу указывают группе полезный береговой ориентир.",
+        "result_summary": "Озёрный городок встречает группу короткой береговой наводкой и подсказывает, где проще держать следующий ход.",
+        "node_id": "start_trakt",
+        "node_label": "Стартовый тракт",
+        "visit_count": 1,
+        "first_visit": True,
+        "applied_effects": ["destination_notice:craft_town", "visit_count:1", "destination_event:settlement_notice"],
+        "source": "test",
+        "resolved_at": "2026-03-14T00:04:12+00:00",
+    }
+    assert payload["game"]["groups"]["main"]["destination_event_states"] == [
+        {
+            "event_id": "craft_town_arrival_notice",
+            "node_id": "start_trakt",
+            "status": "completed",
+            "result_type": "settlement_notice",
+            "summary": "На первом прибытии местные сразу указывают группе полезный береговой ориентир.",
+            "source": "test",
+            "updated_at": "2026-03-14T00:04:13+00:00",
         }
     ]
 
@@ -1615,6 +1764,9 @@ def test_build_state_exports_group_activity_summaries(monkeypatch) -> None:
     monkeypatch.setattr(state_builder, "get_current_group_last_node_entry_result", lambda _sess, player_id=None: None)
     monkeypatch.setattr(state_builder, "get_current_group_current_node_entry_state", lambda _sess, player_id=None: None)
     monkeypatch.setattr(state_builder, "get_current_group_node_entry_states", lambda _sess, player_id=None: [])
+    monkeypatch.setattr(state_builder, "get_current_group_last_destination_event_result", lambda _sess, player_id=None: None)
+    monkeypatch.setattr(state_builder, "get_current_group_current_node_destination_event_state", lambda _sess, player_id=None: None)
+    monkeypatch.setattr(state_builder, "get_current_group_destination_event_states", lambda _sess, player_id=None: [])
     monkeypatch.setattr(state_builder, "get_current_group_current_node_visit_state", lambda _sess, player_id=None: None)
     monkeypatch.setattr(state_builder, "get_current_group_node_visit_states", lambda _sess, player_id=None: [])
     monkeypatch.setattr(state_builder, "get_current_group_route_traversal_states", lambda _sess, player_id=None: [])

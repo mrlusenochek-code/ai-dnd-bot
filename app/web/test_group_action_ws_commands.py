@@ -35,6 +35,8 @@ def test_parse_group_command_supports_wait_camp_rest_scout_move_navigate_context
     action_visits, payload_visits = ws_handlers._parse_group_command("group visits")
     action_entry, payload_entry = ws_handlers._parse_group_command("group entry")
     action_arrival, payload_arrival = ws_handlers._parse_group_command("group arrival")
+    action_local, payload_local = ws_handlers._parse_group_command("group local")
+    action_event_read, payload_event_read = ws_handlers._parse_group_command("group event")
     action_enter, payload_enter = ws_handlers._parse_group_command("group enter замок")
     action_mode, payload_mode = ws_handlers._parse_group_command("group mode cautious")
     action_activity, payload_activity = ws_handlers._parse_group_command("group activity navigate")
@@ -83,6 +85,8 @@ def test_parse_group_command_supports_wait_camp_rest_scout_move_navigate_context
     assert (action_visits, payload_visits) == ("group_visit_history", {})
     assert (action_entry, payload_entry) == ("group_node_entry", {})
     assert (action_arrival, payload_arrival) == ("group_node_entry", {})
+    assert (action_local, payload_local) == ("group_destination_event", {})
+    assert (action_event_read, payload_event_read) == ("group_destination_event", {})
     assert (action_enter, payload_enter) == ("group_enter", {"target_hint": "замок"})
     assert (action_mode, payload_mode) == ("group_set_mode", {"movement_mode": "cautious"})
     assert (action_activity, payload_activity) == ("group_set_activity", {"activity": "navigate"})
@@ -587,6 +591,69 @@ def test_handle_group_node_entry_read_surface_returns_empty_and_current_entry() 
     assert handled is True
     assert err is None
     assert msg == "Node entry группы main: Озёрный городок принимает путников (settlement_welcome)."
+
+
+def test_handle_group_destination_event_read_surface_returns_empty_and_current_event() -> None:
+    player_id = uuid.uuid4()
+    empty_sess = SimpleNamespace(settings={})
+    session_state._initialize_default_group(
+        empty_sess,
+        [player_id],
+        {
+            "map_level": "region",
+            "node_type": "zone",
+            "node_id": "start_trakt",
+            "label": "Стартовый тракт",
+        },
+    )
+
+    handled_empty, err_empty, msg_empty = ws_handlers._handle_group_action_request(
+        empty_sess,
+        action="group_destination_event",
+        actor_player_id=player_id,
+        payload={},
+        source="test",
+    )
+
+    assert handled_empty is True
+    assert err_empty is None
+    assert msg_empty == "У группы main пока нет destination event результата."
+
+    sess = SimpleNamespace(settings={})
+    session_state._initialize_default_group(
+        sess,
+        [player_id],
+        {
+            "map_level": "region",
+            "node_type": "zone",
+            "node_id": "start_trakt",
+            "label": "Стартовый тракт",
+        },
+    )
+    session_state.grant_player_map_knowledge(sess, player_id, "craft_town", knowledge_kind="known", source="test")
+    session_state.reveal_player_map_node(sess, player_id, "craft_town", source="test")
+    started, error = session_state.execute_group_navigation_option(
+        sess,
+        target_node_id="craft_town",
+        player_id=player_id,
+        group_id="main",
+        source="test",
+    )
+    assert started is not None
+    assert error is None
+    session_state.complete_group_travel(sess, "main", player_id=player_id, source="test")
+
+    handled, err, msg = ws_handlers._handle_group_action_request(
+        sess,
+        action="group_destination_event",
+        actor_player_id=player_id,
+        payload={},
+        source="test",
+    )
+
+    assert handled is True
+    assert err is None
+    assert msg == "Destination event группы main: У причала быстро находят ориентиры (settlement_notice)."
 
 
 def test_handle_group_service_executes_and_errors_cleanly() -> None:

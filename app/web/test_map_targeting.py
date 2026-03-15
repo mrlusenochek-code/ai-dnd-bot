@@ -6,6 +6,7 @@ from app.web.map_registry import (
     get_obvious_linked_static_node_ids,
     get_static_node_detail,
     get_static_node_context,
+    get_static_node_destination_events,
     get_static_node_service_effects,
     get_static_node_inspect_result,
     get_static_node_state_overlays,
@@ -283,6 +284,34 @@ def test_get_static_node_entry_overlays_returns_authored_first_return_and_state_
             "entry_note": "У входа на лесную дорогу сразу заметно, что старый завал уже разобран и место ощущается иначе.",
         }
     ]
+
+
+def test_get_static_node_destination_events_returns_authored_arrival_events() -> None:
+    assert get_static_node_destination_events(node_id="craft_town", state_flags=[], visit_count=1) == [
+        {
+            "node_id": "craft_town",
+            "event_id": "craft_town_arrival_notice",
+            "label": "Береговая наводка у городка",
+            "first_visit_only": True,
+            "one_shot": True,
+            "result_type": "settlement_notice",
+            "title": "У причала быстро находят ориентиры",
+            "summary": "На первом прибытии местные сразу указывают группе полезный береговой ориентир.",
+            "result_summary": "Озёрный городок встречает группу короткой береговой наводкой и подсказывает, где проще держать следующий ход.",
+            "discovered_notes": [
+                "У причала советуют держаться видимой башни на берегу: так проще не потерять темп и не уйти в пустые дворы."
+            ],
+            "intel_entry_type": "guidance",
+            "intel_title": "Береговая наводка из Озёрного городка",
+            "reveal_node_ids": ["watchtower"],
+            "node_state_flags": ["craft_arrival_notice_taken"],
+            "node_state_summary": "В городке уже отмечено первое береговое указание, которое группа получила при прибытии.",
+            "applied_effects": ["destination_notice:craft_town", "node_revealed:watchtower", "intel:guidance"],
+            "tags": ["settlement", "guidance", "watchtower"],
+            "required_state_flags": [],
+        }
+    ]
+    assert get_static_node_destination_events(node_id="ruined_settlement", state_flags=["mine_path_shored"], visit_count=2)[0]["result_type"] == "changed_place_notice"
 
 
 def test_static_node_detail_and_inspect_result_expose_handcrafted_content() -> None:

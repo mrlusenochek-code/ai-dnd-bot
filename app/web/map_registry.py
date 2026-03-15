@@ -632,6 +632,102 @@ STATIC_MAP_NODE_ENTRY_OVERLAYS: tuple[dict[str, Any], ...] = (
 )
 
 
+STATIC_MAP_DESTINATION_EVENTS: tuple[dict[str, Any], ...] = (
+    {
+        "node_id": "craft_town",
+        "event_id": "craft_town_arrival_notice",
+        "label": "Береговая наводка у городка",
+        "first_visit_only": True,
+        "one_shot": True,
+        "result_type": "settlement_notice",
+        "title": "У причала быстро находят ориентиры",
+        "summary": "На первом прибытии местные сразу указывают группе полезный береговой ориентир.",
+        "result_summary": "Озёрный городок встречает группу короткой береговой наводкой и подсказывает, где проще держать следующий ход.",
+        "discovered_notes": [
+            "У причала советуют держаться видимой башни на берегу: так проще не потерять темп и не уйти в пустые дворы."
+        ],
+        "intel_entry_type": "guidance",
+        "intel_title": "Береговая наводка из Озёрного городка",
+        "reveal_node_ids": ["watchtower"],
+        "node_state_flags": ["craft_arrival_notice_taken"],
+        "node_state_summary": "В городке уже отмечено первое береговое указание, которое группа получила при прибытии.",
+        "applied_effects": ["destination_notice:craft_town", "node_revealed:watchtower", "intel:guidance"],
+        "tags": ["settlement", "guidance", "watchtower"],
+    },
+    {
+        "node_id": "road_hamlet",
+        "event_id": "road_hamlet_first_marker",
+        "label": "Дорожная примета хутора",
+        "first_visit_only": True,
+        "one_shot": True,
+        "result_type": "first_discovery",
+        "title": "У хутора замечают старую дорожную метку",
+        "summary": "У первого прибытия в хутор находится заметная дорожная примета для следующих переходов.",
+        "result_summary": "Дорожный хутор даёт группе первую локальную находку: старую метку, по которой легче удерживать путь обратно к тракту.",
+        "discovered_notes": [
+            "У хуторского колодца оставлена старая метка на обратный путь: по ней проще не потерять тракт в сумерках."
+        ],
+        "intel_entry_type": "clue",
+        "intel_title": "Дорожная метка у хутора",
+        "node_state_flags": ["road_hamlet_marker_found"],
+        "node_state_summary": "У хутора уже отмечена найденная группой дорожная примета.",
+        "applied_effects": ["destination_notice:road_hamlet", "intel:clue"],
+        "tags": ["clue", "hamlet", "road"],
+    },
+    {
+        "node_id": "fortress_gate",
+        "event_id": "fortress_gate_watch_warning",
+        "label": "Предупреждение дозора у ворот",
+        "first_visit_only": True,
+        "one_shot": True,
+        "result_type": "local_warning",
+        "title": "У ворот слышно предупреждение дозора",
+        "summary": "При первом подходе дозорные быстро предупреждают группу о напряжённом подходе вокруг крепости.",
+        "result_summary": "У ворот крепости группа получает короткое местное предупреждение: подход под контролем, и задерживаться у стены без нужды не стоит.",
+        "discovered_notes": [
+            "Дозор советует не задерживаться под стеной после сумерек и заранее выбирать безопасный отход обратно к тракту."
+        ],
+        "intel_entry_type": "warning",
+        "intel_title": "Предупреждение дозора у ворот",
+        "applied_effects": ["destination_warning:fortress_gate", "intel:warning"],
+        "tags": ["warning", "fortress", "watch"],
+    },
+    {
+        "node_id": "mine_entrance",
+        "event_id": "mine_entrance_air_warning",
+        "label": "Тяжёлый воздух у шахтного входа",
+        "result_type": "local_warning",
+        "title": "У входа тянет тяжёлым воздухом",
+        "summary": "Шахтный вход каждый раз напоминает о нестабильном и тревожном проходе вниз.",
+        "result_summary": "У шахтного входа чувствуется тяжёлый воздух и явная опасность: место встречает группу предупреждением, а не спокойствием.",
+        "discovered_notes": [
+            "Даже на подходе к шахте слышно, как воздух гуляет в пустотах, и место не кажется устойчивым."
+        ],
+        "intel_entry_type": "warning",
+        "intel_title": "Предупреждение у шахтного входа",
+        "applied_effects": ["destination_warning:mine_entrance", "intel:warning"],
+        "tags": ["warning", "mine", "ruins"],
+    },
+    {
+        "node_id": "ruined_settlement",
+        "event_id": "ruined_settlement_changed_notice",
+        "label": "Следы свежего укрепления у руин",
+        "required_state_flags": ["mine_path_shored"],
+        "result_type": "changed_place_notice",
+        "title": "Руины встречают новыми следами работы",
+        "summary": "После укрепления шахтного подхода у руин сразу заметны свежие подпорки и изменившийся рисунок места.",
+        "result_summary": "Руины больше не встречают группу прежней картиной: следы недавнего укрепления меняют локальное ощущение прибытия.",
+        "discovered_notes": [
+            "У шахтного направления заметны новые подпорки: место выглядит иначе и явно помнит недавнюю работу."
+        ],
+        "intel_entry_type": "warning",
+        "intel_title": "Новая примета у руин",
+        "applied_effects": ["destination_notice:ruined_settlement", "intel:warning"],
+        "tags": ["ruins", "changed_place", "mine"],
+    },
+)
+
+
 STATIC_MAP_SERVICE_EFFECTS: tuple[dict[str, Any], ...] = (
     {
         "node_id": "craft_town",
@@ -1019,6 +1115,50 @@ def get_static_node_entry_overlays(
         if len(overlay) > 1:
             overlays.append(overlay)
     return overlays
+
+
+def get_static_node_destination_events(
+    node_id: str | None = None,
+    current_map_position: dict[str, Any] | None = None,
+    *,
+    state_flags: list[str] | set[str] | None = None,
+    visit_count: int | None = None,
+) -> list[dict[str, Any]]:
+    resolved_node_id = _normalized_text(node_id)
+    if not resolved_node_id and isinstance(current_map_position, dict):
+        resolved_node_id = _normalized_text(current_map_position.get("node_id"))
+    if not resolved_node_id:
+        return []
+    normalized_state_flags = {
+        str(flag).strip().lower()
+        for flag in (state_flags or [])
+        if str(flag or "").strip()
+    }
+    resolved_visit_count = max(0, int(visit_count or 0))
+    events: list[dict[str, Any]] = []
+    for item in STATIC_MAP_DESTINATION_EVENTS:
+        if _normalized_text(item.get("node_id")) != resolved_node_id:
+            continue
+        required_state_flags = {
+            str(flag).strip().lower()
+            for flag in (item.get("required_state_flags") or [])
+            if str(flag or "").strip()
+        }
+        if required_state_flags and not required_state_flags.issubset(normalized_state_flags):
+            continue
+        if bool(item.get("first_visit_only")) and resolved_visit_count not in {0, 1}:
+            continue
+        min_visit_count = int(item.get("min_visit_count") or 0)
+        if min_visit_count > 0 and resolved_visit_count < min_visit_count:
+            continue
+        events.append(
+            {
+                **item,
+                "node_id": resolved_node_id,
+                "required_state_flags": sorted(required_state_flags),
+            }
+        )
+    return events
 
 
 def get_static_node_service_effects(
