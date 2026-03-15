@@ -146,6 +146,8 @@ def test_build_state_includes_legacy_and_structured_positions(monkeypatch) -> No
     monkeypatch.setattr(state_builder, "get_current_group_region_frontier_summary", lambda _sess, player_id=None: None)
     monkeypatch.setattr(state_builder, "get_current_group_region_gateways", lambda _sess, player_id=None: [])
     monkeypatch.setattr(state_builder, "get_current_group_primary_region_gateway", lambda _sess, player_id=None: None)
+    monkeypatch.setattr(state_builder, "get_current_group_last_region_transition_result", lambda _sess, player_id=None: None)
+    monkeypatch.setattr(state_builder, "get_current_group_region_transition_state", lambda _sess, player_id=None: None)
     monkeypatch.setattr(
         state_builder,
         "get_current_group_route_planning",
@@ -241,6 +243,8 @@ def test_build_state_includes_legacy_and_structured_positions(monkeypatch) -> No
     assert payload["game"]["current_group_region_frontier_summary"] is None
     assert payload["game"]["current_group_region_gateways"] == []
     assert payload["game"]["current_group_primary_region_gateway"] is None
+    assert payload["game"]["current_group_last_region_transition_result"] is None
+    assert payload["game"]["current_group_region_transition_state"] is None
     assert payload["game"]["current_group_navigation_options"] == []
     assert payload["session"]["current_group_id"] is None
     assert payload["players"] == [
@@ -1059,6 +1063,7 @@ def test_build_state_exports_current_player_group_id(monkeypatch) -> None:
                 "route_id": "forest_settlement->old_fortress_edge:move",
                 "target_region_id": "northwatch_frontier",
                 "target_region_label": "Северный рубеж",
+                "target_anchor_node_id": "northwatch_outpost",
                 "reachable": True,
                 "blocked": False,
                 "locked": False,
@@ -1076,6 +1081,38 @@ def test_build_state_exports_current_player_group_id(monkeypatch) -> None:
             "gateway_id": "forest_settlement_northwatch",
             "gateway_label": "Выход к северному рубежу",
             "gateway_status": "open",
+        },
+    )
+    monkeypatch.setattr(
+        state_builder,
+        "get_current_group_last_region_transition_result",
+        lambda _sess, player_id=None: {
+            "result_id": "transition-1",
+            "gateway_id": "forest_settlement_northwatch",
+            "gateway_label": "Выход к северному рубежу",
+            "result_type": "region_transition_completed",
+            "summary": "Группа проходит через Выход к северному рубежу и выходит в регион Северный рубеж.",
+            "result_summary": "Группа проходит через Выход к северному рубежу и выходит в регион Северный рубеж.",
+            "source_region_id": "region",
+            "source_region_label": "Лесной посёлок",
+            "source_node_id": "forest_settlement",
+            "target_region_id": "northwatch_frontier",
+            "target_region_label": "Северный рубеж",
+            "target_anchor_node_id": "northwatch_outpost",
+            "transition_status": "completed",
+            "applied_effects": ["region_transition:completed", "target_region:northwatch_frontier", "target_anchor:northwatch_outpost"],
+            "source": "region_transition",
+            "resolved_at": "2025-01-01T00:00:00+00:00",
+        },
+    )
+    monkeypatch.setattr(
+        state_builder,
+        "get_current_group_region_transition_state",
+        lambda _sess, player_id=None: {
+            "last_gateway_id": "forest_settlement_northwatch",
+            "last_result_type": "region_transition_completed",
+            "summary": "Группа проходит через Выход к северному рубежу и выходит в регион Северный рубеж.",
+            "updated_at": "2025-01-01T00:00:00+00:00",
         },
     )
     monkeypatch.setattr(
@@ -1677,6 +1714,7 @@ def test_build_state_exports_current_player_group_id(monkeypatch) -> None:
             "route_id": "forest_settlement->old_fortress_edge:move",
             "target_region_id": "northwatch_frontier",
             "target_region_label": "Северный рубеж",
+            "target_anchor_node_id": "northwatch_outpost",
             "reachable": True,
             "blocked": False,
             "locked": False,
@@ -1690,6 +1728,30 @@ def test_build_state_exports_current_player_group_id(monkeypatch) -> None:
         "gateway_id": "forest_settlement_northwatch",
         "gateway_label": "Выход к северному рубежу",
         "gateway_status": "open",
+    }
+    assert payload["game"]["current_group_last_region_transition_result"] == {
+        "result_id": "transition-1",
+        "gateway_id": "forest_settlement_northwatch",
+        "gateway_label": "Выход к северному рубежу",
+        "result_type": "region_transition_completed",
+        "summary": "Группа проходит через Выход к северному рубежу и выходит в регион Северный рубеж.",
+        "result_summary": "Группа проходит через Выход к северному рубежу и выходит в регион Северный рубеж.",
+        "source_region_id": "region",
+        "source_region_label": "Лесной посёлок",
+        "source_node_id": "forest_settlement",
+        "target_region_id": "northwatch_frontier",
+        "target_region_label": "Северный рубеж",
+        "target_anchor_node_id": "northwatch_outpost",
+        "transition_status": "completed",
+        "applied_effects": ["region_transition:completed", "target_region:northwatch_frontier", "target_anchor:northwatch_outpost"],
+        "source": "region_transition",
+        "resolved_at": "2025-01-01T00:00:00+00:00",
+    }
+    assert payload["game"]["current_group_region_transition_state"] == {
+        "last_gateway_id": "forest_settlement_northwatch",
+        "last_result_type": "region_transition_completed",
+        "summary": "Группа проходит через Выход к северному рубежу и выходит в регион Северный рубеж.",
+        "updated_at": "2025-01-01T00:00:00+00:00",
     }
     assert payload["game"]["current_group_navigation_options"] == [
         {

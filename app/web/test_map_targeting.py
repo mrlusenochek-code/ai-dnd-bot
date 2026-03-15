@@ -351,6 +351,7 @@ def test_get_static_region_gateways_returns_authored_frontier_exit_definitions()
             "route_id": "forest_settlement->old_fortress_edge:move",
             "target_region_id": "northwatch_frontier",
             "target_region_label": "Северный рубеж",
+            "target_anchor_node_id": "northwatch_outpost",
             "label": "Выход к северному рубежу",
             "future_stub": False,
             "unlock_hint": "Сначала собрать лесные припасы перед дальним выходом к северному рубежу.",

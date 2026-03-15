@@ -45,6 +45,9 @@ def test_parse_group_command_supports_wait_camp_rest_scout_move_navigate_context
     action_frontier, payload_frontier = ws_handlers._parse_group_command("group frontier")
     action_exits, payload_exits = ws_handlers._parse_group_command("group exits")
     action_gateways, payload_gateways = ws_handlers._parse_group_command("group gateways")
+    action_exit, payload_exit = ws_handlers._parse_group_command("group exit forest_settlement_northwatch")
+    action_cross, payload_cross = ws_handlers._parse_group_command("group cross fortress_gate_western_road")
+    action_transition, payload_transition = ws_handlers._parse_group_command("group transition")
     action_enter, payload_enter = ws_handlers._parse_group_command("group enter замок")
     action_mode, payload_mode = ws_handlers._parse_group_command("group mode cautious")
     action_activity, payload_activity = ws_handlers._parse_group_command("group activity navigate")
@@ -103,6 +106,9 @@ def test_parse_group_command_supports_wait_camp_rest_scout_move_navigate_context
     assert (action_frontier, payload_frontier) == ("group_region_progress", {})
     assert (action_exits, payload_exits) == ("group_region_gateways", {})
     assert (action_gateways, payload_gateways) == ("group_region_gateways", {})
+    assert (action_exit, payload_exit) == ("group_region_transition", {"gateway_id": "forest_settlement_northwatch"})
+    assert (action_cross, payload_cross) == ("group_region_transition", {"gateway_id": "fortress_gate_western_road"})
+    assert (action_transition, payload_transition) == ("group_region_transition_status", {})
     assert (action_enter, payload_enter) == ("group_enter", {"target_hint": "замок"})
     assert (action_mode, payload_mode) == ("group_set_mode", {"movement_mode": "cautious"})
     assert (action_activity, payload_activity) == ("group_set_activity", {"activity": "navigate"})
@@ -1235,6 +1241,74 @@ def test_handle_group_region_gateways_returns_clean_minimal_and_authored_gateway
     assert err_gateway is None
     assert "Региональные выходы" in str(msg_gateway)
     assert "future_stub" in str(msg_gateway)
+
+
+def test_handle_group_region_transition_execute_and_status_surface() -> None:
+    player_id = uuid.uuid4()
+    empty_sess = SimpleNamespace(settings={})
+    session_state._initialize_default_group(
+        empty_sess,
+        [player_id],
+        {
+            "map_level": "region",
+            "node_type": "zone",
+            "node_id": "start_trakt",
+            "label": "Стартовый тракт",
+        },
+    )
+    handled_empty, err_empty, msg_empty = ws_handlers._handle_group_action_request(
+        empty_sess,
+        action="group_region_transition_status",
+        actor_player_id=player_id,
+        payload={},
+        source="test",
+    )
+    assert handled_empty is True
+    assert err_empty is None
+    assert "пока нет region transition результата" in str(msg_empty)
+
+    sess = SimpleNamespace(settings={})
+    session_state._initialize_default_group(
+        sess,
+        [player_id],
+        {
+            "map_level": "region",
+            "node_type": "zone",
+            "node_id": "forest_settlement",
+            "label": "Лесной посёлок",
+        },
+    )
+    session_state.add_group_node_state_flag(
+        sess,
+        "main",
+        "forest_settlement",
+        state_flag="forest_supplies_secured",
+        summary="Лесной набор уже готов.",
+        source="test",
+    )
+
+    handled_exec, err_exec, msg_exec = ws_handlers._handle_group_action_request(
+        sess,
+        action="group_region_transition",
+        actor_player_id=player_id,
+        payload={"gateway_id": "forest_settlement_northwatch"},
+        source="test",
+    )
+    assert handled_exec is True
+    assert err_exec is None
+    assert "Северный рубеж" in str(msg_exec)
+
+    handled_status, err_status, msg_status = ws_handlers._handle_group_action_request(
+        sess,
+        action="group_region_transition_status",
+        actor_player_id=player_id,
+        payload={},
+        source="test",
+    )
+    assert handled_status is True
+    assert err_status is None
+    assert "completed" in str(msg_status)
+    assert "Выход к северному рубежу" in str(msg_status)
 
 
 def test_handle_group_journey_set_advance_status_and_stop() -> None:

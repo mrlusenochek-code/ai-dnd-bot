@@ -962,6 +962,92 @@ def _normalize_group_destination_event_state_map(raw: Any) -> dict[str, dict[str
     return normalized
 
 
+def _normalize_group_last_region_transition_result(raw: Any) -> dict[str, Any] | None:
+    if not isinstance(raw, dict):
+        return None
+    result_id = str(raw.get("result_id") or "").strip()
+    gateway_id = str(raw.get("gateway_id") or "").strip().lower()
+    gateway_label = str(raw.get("gateway_label") or gateway_id).strip()
+    result_type = str(raw.get("result_type") or "").strip().lower()
+    summary = str(raw.get("summary") or "").strip()
+    result_summary = str(raw.get("result_summary") or summary).strip()
+    source_region_id = str(raw.get("source_region_id") or "").strip().lower()
+    source_region_label = str(raw.get("source_region_label") or source_region_id).strip()
+    source_node_id = str(raw.get("source_node_id") or "").strip().lower()
+    target_region_id = str(raw.get("target_region_id") or "").strip().lower()
+    target_region_label = str(raw.get("target_region_label") or target_region_id).strip()
+    target_anchor_node_id = str(raw.get("target_anchor_node_id") or "").strip().lower()
+    transition_status = str(raw.get("transition_status") or "").strip().lower()
+    applied_effects = [
+        str(item).strip()
+        for item in (raw.get("applied_effects") or [])
+        if str(item or "").strip()
+    ]
+    source = str(raw.get("source") or "region_transition").strip() or "region_transition"
+    resolved_at = str(raw.get("resolved_at") or "").strip()
+    if result_type not in {
+        "region_transition_completed",
+        "region_transition_blocked",
+        "region_transition_locked",
+        "region_transition_future_stub",
+        "region_transition_unavailable",
+        "region_transition_invalid",
+    }:
+        return None
+    if transition_status not in {"completed", "blocked", "locked", "future_stub", "unavailable", "invalid"}:
+        return None
+    if not result_id or not gateway_id or not gateway_label or not summary or not result_summary or not source_region_id or not source_region_label or not source_node_id or not target_region_id or not target_region_label:
+        return None
+    result = {
+        "result_id": result_id[:120],
+        "gateway_id": gateway_id[:120],
+        "gateway_label": gateway_label[:160],
+        "result_type": result_type[:60],
+        "summary": summary[:400],
+        "result_summary": result_summary[:400],
+        "source_region_id": source_region_id[:120],
+        "source_region_label": source_region_label[:160],
+        "source_node_id": source_node_id[:120],
+        "target_region_id": target_region_id[:120],
+        "target_region_label": target_region_label[:160],
+        "target_anchor_node_id": target_anchor_node_id[:120],
+        "transition_status": transition_status[:40],
+        "applied_effects": applied_effects,
+        "source": source[:40],
+    }
+    if resolved_at:
+        result["resolved_at"] = resolved_at[:80]
+    return result
+
+
+def _normalize_group_region_transition_state(raw: Any) -> dict[str, Any] | None:
+    if not isinstance(raw, dict):
+        return None
+    last_gateway_id = str(raw.get("last_gateway_id") or "").strip().lower()
+    last_result_type = str(raw.get("last_result_type") or "").strip().lower()
+    summary = str(raw.get("summary") or "").strip()
+    updated_at = str(raw.get("updated_at") or "").strip()
+    if last_result_type not in {
+        "region_transition_completed",
+        "region_transition_blocked",
+        "region_transition_locked",
+        "region_transition_future_stub",
+        "region_transition_unavailable",
+        "region_transition_invalid",
+    }:
+        return None
+    if not last_gateway_id or not summary:
+        return None
+    state = {
+        "last_gateway_id": last_gateway_id[:120],
+        "last_result_type": last_result_type[:60],
+        "summary": summary[:240],
+    }
+    if updated_at:
+        state["updated_at"] = updated_at[:80]
+    return state
+
+
 def _normalize_group_route_traversal_state(raw: Any) -> dict[str, Any] | None:
     if not isinstance(raw, dict):
         return None
@@ -5029,6 +5115,357 @@ def get_current_group_primary_region_gateway(
     return get_group_primary_region_gateway(sess, resolved_group_id)
 
 
+def build_group_region_transition_result(
+    *,
+    gateway_id: str,
+    gateway_label: str,
+    result_type: str,
+    summary: str,
+    result_summary: str,
+    source_region_id: str,
+    source_region_label: str,
+    source_node_id: str,
+    target_region_id: str,
+    target_region_label: str,
+    target_anchor_node_id: str = "",
+    transition_status: str,
+    applied_effects: list[str] | None = None,
+    source: str = "region_transition",
+) -> dict[str, Any] | None:
+    return _normalize_group_last_region_transition_result(
+        {
+            "result_id": f"region_transition:{gateway_id}:{datetime.now(timezone.utc).isoformat()}",
+            "gateway_id": gateway_id,
+            "gateway_label": gateway_label,
+            "result_type": result_type,
+            "summary": summary,
+            "result_summary": result_summary,
+            "source_region_id": source_region_id,
+            "source_region_label": source_region_label,
+            "source_node_id": source_node_id,
+            "target_region_id": target_region_id,
+            "target_region_label": target_region_label,
+            "target_anchor_node_id": target_anchor_node_id,
+            "transition_status": transition_status,
+            "applied_effects": list(applied_effects or []),
+            "source": source,
+            "resolved_at": datetime.now(timezone.utc).isoformat(),
+        }
+    )
+
+
+def get_current_group_last_region_transition_result(
+    sess: Session,
+    *,
+    player_id: uuid.UUID | str | None = None,
+    group_id: str | None = None,
+) -> dict[str, Any] | None:
+    resolved_group_id = str(group_id or "").strip()
+    resolved_player_id = str(player_id or "").strip()
+    if not resolved_group_id and resolved_player_id:
+        resolved_group_id = str(_get_player_group_id(sess, resolved_player_id) or "").strip()
+    if not resolved_group_id:
+        return None
+    group = _get_group_states(sess).get(resolved_group_id)
+    if not isinstance(group, dict):
+        return None
+    return _normalize_group_last_region_transition_result(group.get("last_region_transition_result"))
+
+
+def get_current_group_region_transition_state(
+    sess: Session,
+    *,
+    player_id: uuid.UUID | str | None = None,
+    group_id: str | None = None,
+) -> dict[str, Any] | None:
+    resolved_group_id = str(group_id or "").strip()
+    resolved_player_id = str(player_id or "").strip()
+    if not resolved_group_id and resolved_player_id:
+        resolved_group_id = str(_get_player_group_id(sess, resolved_player_id) or "").strip()
+    if not resolved_group_id:
+        return None
+    group = _get_group_states(sess).get(resolved_group_id)
+    if not isinstance(group, dict):
+        return None
+    return _normalize_group_region_transition_state(group.get("region_transition_state"))
+
+
+def _build_static_map_position_from_node(node_id: str) -> dict[str, Any] | None:
+    node = get_static_node(node_id) or {}
+    if not node:
+        return None
+    return _normalize_map_position(
+        {
+            "map_level": str(node.get("map_level") or "region"),
+            "node_type": str(node.get("node_type") or "zone"),
+            "node_id": str(node.get("node_id") or node_id),
+            "label": str(node.get("label") or node_id),
+            "area_label": str(node.get("area_label") or node.get("label") or node_id),
+        }
+    )
+
+
+def _apply_group_arrival_pipeline(
+    sess: Session,
+    group_id: str,
+    *,
+    next_map_position: dict[str, Any],
+    route_summary: dict[str, Any] | None = None,
+    route_id: str = "",
+    player_ids: list[str] | None = None,
+    source: str = "manual",
+) -> None:
+    group_key = str(group_id or "").strip()
+    target_position = _normalize_map_position(next_map_position)
+    target_node_id = str((target_position or {}).get("node_id") or "").strip().lower()
+    effective_route_summary = _normalize_group_route_summary(route_summary) or None
+    resolved_route_id = str(route_id or (effective_route_summary or {}).get("route_id") or "").strip().lower()
+    if resolved_route_id:
+        record_group_route_traversal(
+            sess,
+            group_key,
+            resolved_route_id,
+            summary=f"Группа проходит маршрутом к {str((target_position or {}).get('label') or target_node_id or 'цели')}.",
+            traversed_at=datetime.now(timezone.utc).isoformat(),
+        )
+    if target_position and target_node_id:
+        record_group_node_visit(
+            sess,
+            group_key,
+            target_node_id,
+            node_label=str(target_position.get("label") or target_node_id),
+            result_type="landmark_arrival" if str(target_position.get("node_type") or "").strip().lower() in {"landmark", "interior_entry"} else "first_arrival",
+            summary=f"Группа достигает {str(target_position.get('label') or target_node_id)}.",
+            visited_at=datetime.now(timezone.utc).isoformat(),
+        )
+        resolve_group_arrival(
+            sess,
+            group_key,
+            current_map_position=target_position,
+            route_summary=effective_route_summary or {"route_id": resolved_route_id},
+            source=source,
+        )
+        resolve_group_node_entry(
+            sess,
+            group_key,
+            current_map_position=target_position,
+            source=source,
+        )
+        resolve_group_destination_event(
+            sess,
+            group_key,
+            current_map_position=target_position,
+            source=source,
+        )
+    if target_position and target_node_id and get_static_node(target_node_id):
+        for pid in [str(item).strip() for item in (player_ids or []) if str(item).strip()]:
+            maybe_mark_player_node_visited(sess, pid, target_node_id, source=source)
+            maybe_reveal_nearby_static_nodes(sess, pid, target_position, source=source)
+
+
+def resolve_group_region_transition(
+    sess: Session,
+    group_id: str,
+    gateway_id: str,
+    *,
+    player_id: uuid.UUID | str | None = None,
+    source: str = "region_transition",
+) -> tuple[dict[str, Any] | None, str | None]:
+    groups = _get_group_states(sess)
+    group_key = str(group_id or "").strip()
+    normalized_gateway_id = str(gateway_id or "").strip().lower()
+    group = groups.get(group_key)
+    if not isinstance(group, dict):
+        return None, "Группа не найдена."
+    if not normalized_gateway_id:
+        return None, "Нужно указать gateway_id для перехода."
+    current_position = _normalize_map_position(group.get("current_map_position"))
+    current_node_id = str((current_position or {}).get("node_id") or "").strip().lower()
+    source_region_id = str((current_position or {}).get("map_level") or "region").strip().lower() or "region"
+    source_region_label = str((current_position or {}).get("area_label") or (current_position or {}).get("label") or "Текущий регион").strip()
+    definition = next(
+        (
+            dict(item)
+            for item in get_static_region_gateways(region_id=source_region_id, current_map_position=current_position)
+            if str(item.get("gateway_id") or "").strip().lower() == normalized_gateway_id
+        ),
+        None,
+    )
+    if not definition:
+        result = build_group_region_transition_result(
+            gateway_id=normalized_gateway_id,
+            gateway_label=normalized_gateway_id,
+            result_type="region_transition_invalid",
+            summary="Неизвестный региональный выход.",
+            result_summary="Группа пытается пройти через неизвестный gateway_id, но такого выхода нет в authored frontier map.",
+            source_region_id=source_region_id,
+            source_region_label=source_region_label,
+            source_node_id=current_node_id or "unknown_source",
+            target_region_id="unknown_region",
+            target_region_label="Неизвестный регион",
+            transition_status="invalid",
+            applied_effects=["region_transition:invalid"],
+            source=source,
+        )
+        if result:
+            group["last_region_transition_result"] = result
+            group["region_transition_state"] = _normalize_group_region_transition_state(
+                {
+                    "last_gateway_id": normalized_gateway_id,
+                    "last_result_type": result.get("result_type"),
+                    "summary": result.get("summary"),
+                    "updated_at": result.get("resolved_at"),
+                }
+            )
+            _persist_group_states(sess, groups)
+            _sync_group_position_mirrors(sess, group)
+        return dict(group), "Неизвестный gateway_id."
+    source_node_id = str(definition.get("source_node_id") or "").strip().lower()
+    if current_node_id != source_node_id:
+        result = build_group_region_transition_result(
+            gateway_id=normalized_gateway_id,
+            gateway_label=str(definition.get("label") or normalized_gateway_id),
+            result_type="region_transition_invalid",
+            summary="Группа находится не у этого выхода.",
+            result_summary=f"Для перехода через {str(definition.get('label') or normalized_gateway_id)} нужно сначала оказаться в точке {source_node_id}.",
+            source_region_id=source_region_id,
+            source_region_label=source_region_label,
+            source_node_id=current_node_id or "unknown_source",
+            target_region_id=str(definition.get("target_region_id") or "unknown_region"),
+            target_region_label=str(definition.get("target_region_label") or "Неизвестный регион"),
+            target_anchor_node_id=str(definition.get("target_anchor_node_id") or ""),
+            transition_status="invalid",
+            applied_effects=["region_transition:invalid", f"wrong_source:{source_node_id}"],
+            source=source,
+        )
+        if result:
+            group["last_region_transition_result"] = result
+            group["region_transition_state"] = _normalize_group_region_transition_state(
+                {
+                    "last_gateway_id": normalized_gateway_id,
+                    "last_result_type": result.get("result_type"),
+                    "summary": result.get("summary"),
+                    "updated_at": result.get("resolved_at"),
+                }
+            )
+            _persist_group_states(sess, groups)
+            _sync_group_position_mirrors(sess, group)
+        return dict(group), "Переход нельзя выполнить из текущего узла."
+    gateway = next(
+        (item for item in get_group_region_gateways(sess, group_key) if str(item.get("gateway_id") or "").strip().lower() == normalized_gateway_id),
+        None,
+    )
+    gateway_status = str((gateway or {}).get("gateway_status") or "unavailable").strip().lower()
+    gateway_label = str((gateway or {}).get("gateway_label") or definition.get("label") or normalized_gateway_id).strip()
+    target_region_id = str(definition.get("target_region_id") or "unknown_region")
+    target_region_label = str(definition.get("target_region_label") or target_region_id or "Неизвестный регион").strip()
+    target_anchor_node_id = str(definition.get("target_anchor_node_id") or "").strip().lower()
+    result_type = "region_transition_unavailable"
+    transition_status = "unavailable"
+    summary = f"Выход {gateway_label} сейчас недоступен."
+    result_summary = summary
+    applied_effects = ["region_transition:unavailable"]
+    if gateway_status == "blocked":
+        result_type = "region_transition_blocked"
+        transition_status = "blocked"
+        summary = f"Выход {gateway_label} сейчас заблокирован."
+        result_summary = str((gateway or {}).get("summary") or summary)
+        applied_effects = ["region_transition:blocked"]
+    elif gateway_status == "locked":
+        result_type = "region_transition_locked"
+        transition_status = "locked"
+        summary = f"Выход {gateway_label} пока закрыт локальными условиями."
+        result_summary = str((gateway or {}).get("summary") or summary)
+        applied_effects = ["region_transition:locked"]
+    elif gateway_status == "future_stub":
+        result_type = "region_transition_future_stub"
+        transition_status = "future_stub"
+        summary = f"Выход {gateway_label} отмечен как будущий переход."
+        result_summary = str((gateway or {}).get("summary") or summary)
+        applied_effects = ["region_transition:future_stub"]
+    elif gateway_status == "open":
+        target_anchor_position = _build_static_map_position_from_node(target_anchor_node_id)
+        if not target_anchor_node_id or not target_anchor_position:
+            result_type = "region_transition_unavailable"
+            transition_status = "unavailable"
+            summary = f"У выхода {gateway_label} пока нет готовой точки перехода."
+            result_summary = "Gateway найден, но у него ещё нет authored target anchor для фактического перемещения группы."
+            applied_effects = ["region_transition:unavailable", "missing_target_anchor"]
+        else:
+            group["current_map_position"] = target_anchor_position
+            group["area_label"] = str(target_anchor_position.get("area_label") or target_anchor_position.get("label") or target_region_label)[:80]
+            _clear_group_activity_state(group, status="idle")
+            _persist_group_states(sess, groups)
+            _sync_group_position_mirrors(sess, group)
+            _apply_group_arrival_pipeline(
+                sess,
+                group_key,
+                next_map_position=target_anchor_position,
+                route_summary={
+                    "route_id": str((gateway or {}).get("route_id") or definition.get("route_id") or ""),
+                    "target_node_id": target_anchor_node_id,
+                    "target_label": str(target_anchor_position.get("label") or target_anchor_node_id),
+                    "target_node": target_anchor_position,
+                },
+                route_id=str((gateway or {}).get("route_id") or definition.get("route_id") or ""),
+                player_ids=[str(pid).strip() for pid in (group.get("player_ids") or []) if str(pid).strip()],
+                source=source,
+            )
+            groups = _get_group_states(sess)
+            group = groups.get(group_key)
+            if not isinstance(group, dict):
+                return None, "Не удалось завершить переход между регионами."
+            result_type = "region_transition_completed"
+            transition_status = "completed"
+            summary = f"Группа проходит через {gateway_label} и выходит в регион {target_region_label}."
+            result_summary = summary
+            applied_effects = [
+                "region_transition:completed",
+                f"target_region:{target_region_id}",
+                f"target_anchor:{target_anchor_node_id}",
+            ]
+    result = build_group_region_transition_result(
+        gateway_id=normalized_gateway_id,
+        gateway_label=gateway_label,
+        result_type=result_type,
+        summary=summary,
+        result_summary=result_summary,
+        source_region_id=source_region_id,
+        source_region_label=source_region_label,
+        source_node_id=source_node_id or current_node_id or "unknown_source",
+        target_region_id=target_region_id,
+        target_region_label=target_region_label,
+        target_anchor_node_id=target_anchor_node_id,
+        transition_status=transition_status,
+        applied_effects=applied_effects,
+        source=source,
+    )
+    if result and isinstance(group, dict):
+        group["last_region_transition_result"] = result
+        group["region_transition_state"] = _normalize_group_region_transition_state(
+            {
+                "last_gateway_id": normalized_gateway_id,
+                "last_result_type": result.get("result_type"),
+                "summary": result.get("summary"),
+                "updated_at": result.get("resolved_at"),
+            }
+        )
+        _persist_group_states(sess, groups)
+        _sync_group_position_mirrors(sess, group)
+    error_message = None
+    if transition_status == "blocked":
+        error_message = "Выход сейчас заблокирован."
+    elif transition_status == "locked":
+        error_message = "Выход пока закрыт условиями этого узла."
+    elif transition_status == "future_stub":
+        error_message = "Этот выход пока существует только как future stub."
+    elif transition_status == "unavailable":
+        error_message = "Этот выход сейчас недоступен."
+    elif transition_status == "invalid":
+        error_message = "Переход через этот выход недействителен."
+    return (dict(group) if isinstance(group, dict) else None), error_message
+
+
 def get_current_group_navigation_options(
     sess: Session,
     *,
@@ -7880,6 +8317,12 @@ def _normalize_group_state(
     destination_event_states = _normalize_group_destination_event_state_map(raw.get("destination_event_states"))
     if destination_event_states:
         normalized["destination_event_states"] = destination_event_states
+    last_region_transition_result = _normalize_group_last_region_transition_result(raw.get("last_region_transition_result"))
+    if last_region_transition_result:
+        normalized["last_region_transition_result"] = last_region_transition_result
+    region_transition_state = _normalize_group_region_transition_state(raw.get("region_transition_state"))
+    if region_transition_state:
+        normalized["region_transition_state"] = region_transition_state
     active_journey = _normalize_group_active_journey(raw.get("active_journey"))
     if active_journey:
         normalized["active_journey"] = active_journey
@@ -8462,46 +8905,15 @@ def confirm_group_enter(
     _clear_group_activity_state(group, status="idle")
     _persist_group_states(sess, groups)
     _sync_group_position_mirrors(sess, group)
-    if route_id:
-        record_group_route_traversal(
-            sess,
-            group_key,
-            route_id,
-            summary=f"Группа проходит маршрутом к {str(next_map_position.get('label') or target_node_id or 'цели')}.",
-            traversed_at=datetime.now(timezone.utc).isoformat(),
-        )
-    if target_node_id:
-        record_group_node_visit(
-            sess,
-            group_key,
-            target_node_id,
-            node_label=str(next_map_position.get("label") or target_node_id),
-            result_type="landmark_arrival" if str(next_map_position.get("node_type") or "").strip().lower() in {"landmark", "interior_entry"} else "first_arrival",
-            summary=f"Группа достигает {str(next_map_position.get('label') or target_node_id)}.",
-            visited_at=datetime.now(timezone.utc).isoformat(),
-        )
-        resolve_group_arrival(
-            sess,
-            group_key,
-            current_map_position=next_map_position,
-            route_summary=route_summary,
-            source=source,
-        )
-        resolve_group_node_entry(
-            sess,
-            group_key,
-            current_map_position=next_map_position,
-            source=source,
-        )
-        resolve_group_destination_event(
-            sess,
-            group_key,
-            current_map_position=next_map_position,
-            source=source,
-        )
-    if player_id and target_node_id and get_static_node(target_node_id):
-        maybe_mark_player_node_visited(sess, player_id, target_node_id, source=source)
-        maybe_reveal_nearby_static_nodes(sess, player_id, next_map_position, source=source)
+    _apply_group_arrival_pipeline(
+        sess,
+        group_key,
+        next_map_position=next_map_position,
+        route_summary=route_summary,
+        route_id=route_id,
+        player_ids=[str(player_id)] if player_id else [],
+        source=source,
+    )
     refreshed_group = _get_group_states(sess).get(group_key)
     return dict(refreshed_group) if isinstance(refreshed_group, dict) else dict(group)
 
@@ -8753,46 +9165,15 @@ def complete_group_travel(
     _clear_group_activity_state(group, status="idle")
     _persist_group_states(sess, groups)
     _sync_group_position_mirrors(sess, group)
-    if route_id:
-        record_group_route_traversal(
-            sess,
-            group_key,
-            route_id,
-            summary=f"Группа проходит маршрутом к {str(next_map_position.get('label') or target_node_id or 'цели')}.",
-            traversed_at=datetime.now(timezone.utc).isoformat(),
-        )
-    if target_node_id:
-        record_group_node_visit(
-            sess,
-            group_key,
-            target_node_id,
-            node_label=str(next_map_position.get("label") or target_node_id),
-            result_type="landmark_arrival" if str(next_map_position.get("node_type") or "").strip().lower() in {"landmark", "interior_entry"} else "first_arrival",
-            summary=f"Группа достигает {str(next_map_position.get('label') or target_node_id)}.",
-            visited_at=datetime.now(timezone.utc).isoformat(),
-        )
-        resolve_group_arrival(
-            sess,
-            group_key,
-            current_map_position=next_map_position,
-            route_summary=route_summary,
-            source=source,
-        )
-        resolve_group_node_entry(
-            sess,
-            group_key,
-            current_map_position=next_map_position,
-            source=source,
-        )
-        resolve_group_destination_event(
-            sess,
-            group_key,
-            current_map_position=next_map_position,
-            source=source,
-        )
-    if player_id and target_node_id and get_static_node(target_node_id):
-        maybe_mark_player_node_visited(sess, player_id, target_node_id, source=source)
-        maybe_reveal_nearby_static_nodes(sess, player_id, next_map_position, source=source)
+    _apply_group_arrival_pipeline(
+        sess,
+        group_key,
+        next_map_position=next_map_position,
+        route_summary=route_summary,
+        route_id=route_id,
+        player_ids=[str(player_id)] if player_id else [],
+        source=source,
+    )
     refreshed_group = _get_group_states(sess).get(group_key)
     return dict(refreshed_group) if isinstance(refreshed_group, dict) else dict(group)
 

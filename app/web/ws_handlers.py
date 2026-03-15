@@ -87,6 +87,9 @@ from app.web.session_state import (
     get_current_group_region_frontier_summary,
     get_current_group_region_gateways,
     get_current_group_primary_region_gateway,
+    get_current_group_last_region_transition_result,
+    get_current_group_region_transition_state,
+    resolve_group_region_transition,
     set_group_journey_target,
     advance_group_journey,
     clear_group_journey,
@@ -1776,6 +1779,13 @@ def _parse_group_command(cmdline: str) -> tuple[str | None, dict[str, Any]]:
     if lowered in {"group exits", "group_exits", "group gateways", "group_gateways"}:
         return "group_region_gateways", {}
 
+    if lowered in {"group transition", "group_region_transition_status"}:
+        return "group_region_transition_status", {}
+
+    for prefix in ("group exit ", "group_exit ", "group cross ", "group_cross "):
+        if lowered.startswith(prefix):
+            return "group_region_transition", {"gateway_id": txt[len(prefix):].strip()}
+
     if lowered in {"group arrive", "group_arrive"}:
         return "group_arrive", {}
 
@@ -1910,6 +1920,8 @@ def _handle_group_action_request(
         "group_node_progress",
         "group_region_progress",
         "group_region_gateways",
+        "group_region_transition",
+        "group_region_transition_status",
         "group_exploration_leads",
         "group_journey_set",
         "group_journey_advance",
@@ -2108,6 +2120,46 @@ def _handle_group_action_request(
             f"Главный выход: {str(primary_gateway.get('gateway_label') or 'gateway')} "
             f"({str(primary_gateway.get('gateway_status') or 'unknown')})."
         )
+
+    if action == "group_region_transition_status":
+        if not actor_group_key:
+            return True, "Группа игрока не найдена.", None
+        result = get_current_group_last_region_transition_result(
+            sess,
+            player_id=actor_player_id,
+            group_id=actor_group_key,
+        )
+        state = get_current_group_region_transition_state(
+            sess,
+            player_id=actor_player_id,
+            group_id=actor_group_key,
+        )
+        if not result and not state:
+            return True, None, f"У группы {actor_group_key} пока нет region transition результата."
+        return True, None, (
+            f"Region transition группы {actor_group_key}: "
+            f"{str((result or {}).get('gateway_label') or (state or {}).get('last_gateway_id') or 'gateway')} "
+            f"({str((result or {}).get('transition_status') or (state or {}).get('last_result_type') or 'unknown')})."
+        )
+
+    if action == "group_region_transition":
+        if not actor_group_key:
+            return True, "Группа игрока не найдена.", None
+        updated, error = resolve_group_region_transition(
+            sess,
+            actor_group_key,
+            str(payload.get("gateway_id") or ""),
+            player_id=actor_player_id,
+            source=source,
+        )
+        result = (updated or {}).get("last_region_transition_result") or get_current_group_last_region_transition_result(
+            sess,
+            player_id=actor_player_id,
+            group_id=actor_group_key,
+        ) or {}
+        if error:
+            return True, error, None
+        return True, None, str(result.get("result_summary") or f"Переход группы {actor_group_key} выполнен.")
 
     if action == "group_exploration_leads":
         if not actor_group_key:
