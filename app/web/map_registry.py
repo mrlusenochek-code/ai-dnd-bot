@@ -836,6 +836,49 @@ STATIC_MAP_SERVICE_REQUIREMENTS: tuple[dict[str, Any], ...] = (
 )
 
 
+STATIC_MAP_REGION_GATEWAYS: tuple[dict[str, Any], ...] = (
+    {
+        "gateway_id": "forest_settlement_northwatch",
+        "source_node_id": "forest_settlement",
+        "route_id": "forest_settlement->old_fortress_edge:move",
+        "target_region_id": "northwatch_frontier",
+        "target_region_label": "Северный рубеж",
+        "label": "Выход к северному рубежу",
+        "requires_node_state_flag": "forest_supplies_secured",
+        "unlock_hint": "Сначала собрать лесные припасы перед дальним выходом к северному рубежу.",
+    },
+    {
+        "gateway_id": "fortress_gate_western_road",
+        "source_node_id": "fortress_gate",
+        "route_id": "start_trakt->fortress_gate:move",
+        "target_region_id": "western_road",
+        "target_region_label": "Западный тракт",
+        "label": "Выход на западный тракт",
+        "requires_destination_event_id": "fortress_gate_watch_warning",
+        "unlock_hint": "Сначала выслушать предупреждение дозора у ворот.",
+    },
+    {
+        "gateway_id": "marsh_edge_deep_marsh",
+        "source_node_id": "marsh_edge",
+        "route_id": "ruined_settlement->marsh_edge:move",
+        "target_region_id": "deep_marsh",
+        "target_region_label": "Глубокие болота",
+        "label": "Тропа в глубокие болота",
+        "requires_min_visit_count": 2,
+        "unlock_hint": "К болотной кромке нужно вернуться хотя бы ещё раз, чтобы закрепить дальний выход.",
+    },
+    {
+        "gateway_id": "forgotten_shrine_sunken_reaches",
+        "source_node_id": "forgotten_shrine",
+        "route_id": "marsh_edge->forgotten_shrine:move",
+        "target_region_id": "sunken_reaches",
+        "target_region_label": "Затонувшие низины",
+        "label": "Затопленная тропа за святилищем",
+        "future_stub": True,
+    },
+)
+
+
 def _normalized_text(value: Any) -> str:
     return str(value or "").strip().lower()
 
@@ -1353,6 +1396,67 @@ def get_static_node_service_requirements(
             requirement["min_visit_count"] = min_visit_count
         requirements.append(requirement)
     return requirements
+
+
+def get_static_region_gateways(
+    *,
+    region_id: str | None = None,
+    current_map_position: dict[str, Any] | None = None,
+) -> list[dict[str, Any]]:
+    resolved_region_id = _normalized_text(region_id)
+    if not resolved_region_id and isinstance(current_map_position, dict):
+        resolved_region_id = _normalized_text(current_map_position.get("map_level"))
+    if not resolved_region_id:
+        resolved_region_id = "region"
+    if resolved_region_id != "region":
+        return []
+    gateways: list[dict[str, Any]] = []
+    for item in STATIC_MAP_REGION_GATEWAYS:
+        source_node_id = _normalized_text(item.get("source_node_id"))
+        gateway_id = _normalized_text(item.get("gateway_id"))
+        target_region_id = _normalized_text(item.get("target_region_id"))
+        if not source_node_id or not gateway_id or not target_region_id:
+            continue
+        gateway: dict[str, Any] = {
+            "gateway_id": gateway_id,
+            "source_node_id": source_node_id,
+            "route_id": _normalized_text(item.get("route_id")),
+            "target_region_id": target_region_id,
+            "target_region_label": str(item.get("target_region_label") or target_region_id).strip(),
+            "label": str(item.get("label") or gateway_id).strip(),
+            "future_stub": bool(item.get("future_stub")),
+            "unlock_hint": str(item.get("unlock_hint") or "").strip(),
+        }
+        requires_node_state_flag = _normalized_text(item.get("requires_node_state_flag"))
+        if requires_node_state_flag:
+            gateway["requires_node_state_flag"] = requires_node_state_flag
+        requires_destination_event_id = _normalized_text(item.get("requires_destination_event_id"))
+        if requires_destination_event_id:
+            gateway["requires_destination_event_id"] = requires_destination_event_id
+        requires_destination_event_result_type = _normalized_text(item.get("requires_destination_event_result_type"))
+        if requires_destination_event_result_type:
+            gateway["requires_destination_event_result_type"] = requires_destination_event_result_type
+        min_visit_count = int(item.get("requires_min_visit_count") or item.get("min_visit_count") or 0)
+        if min_visit_count > 0:
+            gateway["requires_min_visit_count"] = min_visit_count
+        gateways.append(gateway)
+    return gateways
+
+
+def get_static_node_region_gateways(
+    node_id: str | None = None,
+    current_map_position: dict[str, Any] | None = None,
+) -> list[dict[str, Any]]:
+    resolved_node_id = _normalized_text(node_id)
+    if not resolved_node_id and isinstance(current_map_position, dict):
+        resolved_node_id = _normalized_text(current_map_position.get("node_id"))
+    if not resolved_node_id:
+        return []
+    gateways: list[dict[str, Any]] = []
+    for item in get_static_region_gateways(current_map_position=current_map_position):
+        if _normalized_text(item.get("source_node_id")) == resolved_node_id:
+            gateways.append(dict(item))
+    return gateways
 
 
 def get_static_node(node_id: str | None) -> dict[str, Any] | None:

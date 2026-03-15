@@ -4456,3 +4456,120 @@ def test_group_region_frontier_summary_counts_reachable_blocked_and_unresolved_n
     assert frontier["reachable_unvisited_nodes"] == []
     assert frontier["unresolved_local_nodes"]
     assert frontier["unresolved_local_nodes"][0]["node_id"] == "craft_town"
+
+
+def test_group_region_gateways_support_unavailable_locked_open_blocked_and_future_stub_states() -> None:
+    player_id = uuid.uuid4()
+
+    hidden_sess = SimpleNamespace(settings={})
+    session_state._initialize_default_group(
+        hidden_sess,
+        [player_id],
+        {"map_level": "region", "node_type": "zone", "node_id": "start_trakt", "label": "Стартовый тракт"},
+    )
+    assert session_state.get_current_group_region_gateways(hidden_sess, player_id=player_id) == []
+    assert session_state.get_current_group_primary_region_gateway(hidden_sess, player_id=player_id) is None
+
+    fortress_sess = SimpleNamespace(settings={})
+    session_state._initialize_default_group(
+        fortress_sess,
+        [player_id],
+        {"map_level": "region", "node_type": "landmark", "node_id": "fortress_gate", "label": "Ворота крепости"},
+    )
+    locked_gateway = session_state.get_current_group_region_gateways(fortress_sess, player_id=player_id)
+    assert len(locked_gateway) == 1
+    assert locked_gateway[0]["gateway_status"] == "locked"
+    assert locked_gateway[0]["gateway_id"] == "fortress_gate_western_road"
+
+    session_state.record_group_node_visit(
+        fortress_sess,
+        "main",
+        "fortress_gate",
+        node_label="Ворота крепости",
+        result_type="landmark_arrival",
+        summary="Первый визит.",
+    )
+    session_state.resolve_group_destination_event(fortress_sess, "main", source="test")
+    open_gateway = session_state.get_current_group_region_gateways(fortress_sess, player_id=player_id)
+    assert open_gateway[0]["gateway_status"] == "open"
+    assert session_state.get_current_group_primary_region_gateway(fortress_sess, player_id=player_id)["gateway_id"] == "fortress_gate_western_road"
+
+    session_state.set_group_route_access_state(
+        fortress_sess,
+        "main",
+        "start_trakt->fortress_gate:move",
+        access_state="blocked",
+        summary="Подход к воротам перекрыт.",
+        block_reason="gate_blocked",
+        source="test",
+    )
+    blocked_gateway = session_state.get_current_group_region_gateways(fortress_sess, player_id=player_id)
+    assert blocked_gateway[0]["gateway_status"] == "blocked"
+    assert blocked_gateway[0]["blocked_reason"] == "gate_blocked"
+
+    shrine_sess = SimpleNamespace(settings={})
+    session_state._initialize_default_group(
+        shrine_sess,
+        [player_id],
+        {"map_level": "region", "node_type": "landmark", "node_id": "forgotten_shrine", "label": "Забытое святилище"},
+    )
+    future_gateway = session_state.get_current_group_region_gateways(shrine_sess, player_id=player_id)
+    assert len(future_gateway) == 1
+    assert future_gateway[0]["gateway_status"] == "future_stub"
+    assert future_gateway[0]["future_stub"] is True
+
+
+def test_group_region_gateways_honor_node_state_and_visit_requirements() -> None:
+    player_id = uuid.uuid4()
+
+    forest_sess = SimpleNamespace(settings={})
+    session_state._initialize_default_group(
+        forest_sess,
+        [player_id],
+        {"map_level": "region", "node_type": "zone", "node_id": "forest_settlement", "label": "Лесной посёлок"},
+    )
+    locked_forest_gateway = session_state.get_current_group_region_gateways(forest_sess, player_id=player_id)
+    assert len(locked_forest_gateway) == 1
+    assert locked_forest_gateway[0]["gateway_status"] == "locked"
+    session_state.add_group_node_state_flag(
+        forest_sess,
+        "main",
+        "forest_settlement",
+        state_flag="forest_supplies_secured",
+        summary="Лесной набор уже готов.",
+        source="test",
+    )
+    open_forest_gateway = session_state.get_current_group_region_gateways(forest_sess, player_id=player_id)
+    assert open_forest_gateway[0]["gateway_status"] == "open"
+    assert open_forest_gateway[0]["gateway_id"] == "forest_settlement_northwatch"
+
+    marsh_sess = SimpleNamespace(settings={})
+    session_state._initialize_default_group(
+        marsh_sess,
+        [player_id],
+        {"map_level": "region", "node_type": "zone", "node_id": "marsh_edge", "label": "Край болот"},
+    )
+    locked_marsh_gateway = session_state.get_current_group_region_gateways(marsh_sess, player_id=player_id)
+    assert len(locked_marsh_gateway) == 1
+    assert locked_marsh_gateway[0]["gateway_status"] == "locked"
+    session_state.record_group_node_visit(
+        marsh_sess,
+        "main",
+        "marsh_edge",
+        node_label="Край болот",
+        result_type="first_arrival",
+        summary="Первый визит.",
+    )
+    still_locked_gateway = session_state.get_current_group_region_gateways(marsh_sess, player_id=player_id)
+    assert still_locked_gateway[0]["gateway_status"] == "locked"
+    session_state.record_group_node_visit(
+        marsh_sess,
+        "main",
+        "marsh_edge",
+        node_label="Край болот",
+        result_type="return_arrival",
+        summary="Повторный визит.",
+    )
+    open_marsh_gateway = session_state.get_current_group_region_gateways(marsh_sess, player_id=player_id)
+    assert open_marsh_gateway[0]["gateway_status"] == "open"
+    assert open_marsh_gateway[0]["gateway_id"] == "marsh_edge_deep_marsh"

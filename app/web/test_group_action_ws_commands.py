@@ -43,6 +43,8 @@ def test_parse_group_command_supports_wait_camp_rest_scout_move_navigate_context
     action_place, payload_place = ws_handlers._parse_group_command("group place")
     action_region, payload_region = ws_handlers._parse_group_command("group region")
     action_frontier, payload_frontier = ws_handlers._parse_group_command("group frontier")
+    action_exits, payload_exits = ws_handlers._parse_group_command("group exits")
+    action_gateways, payload_gateways = ws_handlers._parse_group_command("group gateways")
     action_enter, payload_enter = ws_handlers._parse_group_command("group enter замок")
     action_mode, payload_mode = ws_handlers._parse_group_command("group mode cautious")
     action_activity, payload_activity = ws_handlers._parse_group_command("group activity navigate")
@@ -99,6 +101,8 @@ def test_parse_group_command_supports_wait_camp_rest_scout_move_navigate_context
     assert (action_place, payload_place) == ("group_node_progress", {})
     assert (action_region, payload_region) == ("group_region_progress", {})
     assert (action_frontier, payload_frontier) == ("group_region_progress", {})
+    assert (action_exits, payload_exits) == ("group_region_gateways", {})
+    assert (action_gateways, payload_gateways) == ("group_region_gateways", {})
     assert (action_enter, payload_enter) == ("group_enter", {"target_hint": "замок"})
     assert (action_mode, payload_mode) == ("group_set_mode", {"movement_mode": "cautious"})
     assert (action_activity, payload_activity) == ("group_set_activity", {"activity": "navigate"})
@@ -1179,6 +1183,58 @@ def test_handle_group_region_progress_returns_minimal_and_frontier_summaries() -
         or "expanding_routes" in str(msg_frontier)
         or "newly_opened_region" in str(msg_frontier)
     )
+
+
+def test_handle_group_region_gateways_returns_clean_minimal_and_authored_gateway_summaries() -> None:
+    player_id = uuid.uuid4()
+    minimal_sess = SimpleNamespace(settings={})
+    session_state._initialize_default_group(
+        minimal_sess,
+        [player_id],
+        {
+            "map_level": "region",
+            "node_type": "zone",
+            "node_id": "start_trakt",
+            "label": "Стартовый тракт",
+        },
+    )
+
+    handled_min, err_min, msg_min = ws_handlers._handle_group_action_request(
+        minimal_sess,
+        action="group_region_gateways",
+        actor_player_id=player_id,
+        payload={},
+        source="test",
+    )
+
+    assert handled_min is True
+    assert err_min is None
+    assert "нет видимых выходов" in str(msg_min)
+
+    gateway_sess = SimpleNamespace(settings={})
+    session_state._initialize_default_group(
+        gateway_sess,
+        [player_id],
+        {
+            "map_level": "region",
+            "node_type": "landmark",
+            "node_id": "forgotten_shrine",
+            "label": "Забытое святилище",
+        },
+    )
+
+    handled_gateway, err_gateway, msg_gateway = ws_handlers._handle_group_action_request(
+        gateway_sess,
+        action="group_region_gateways",
+        actor_player_id=player_id,
+        payload={},
+        source="test",
+    )
+
+    assert handled_gateway is True
+    assert err_gateway is None
+    assert "Региональные выходы" in str(msg_gateway)
+    assert "future_stub" in str(msg_gateway)
 
 
 def test_handle_group_journey_set_advance_status_and_stop() -> None:

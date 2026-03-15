@@ -100,6 +100,8 @@ from app.web.session_state import (
     get_current_group_current_node_progress,
     get_current_group_region_exploration_summary,
     get_current_group_region_frontier_summary,
+    get_current_group_region_gateways,
+    get_current_group_primary_region_gateway,
     get_current_group_navigation_options,
     get_current_group_context_action_states,
     get_player_known_node_ids,
@@ -612,6 +614,16 @@ async def build_state(db: AsyncSession, sess: Session) -> dict:
         if sess.current_player_id
         else None
     )
+    current_group_region_gateways = (
+        get_current_group_region_gateways(sess, player_id=sess.current_player_id)
+        if sess.current_player_id
+        else []
+    )
+    current_group_primary_region_gateway = (
+        get_current_group_primary_region_gateway(sess, player_id=sess.current_player_id)
+        if sess.current_player_id
+        else None
+    )
 
     return {
         "type": "state",
@@ -684,6 +696,8 @@ async def build_state(db: AsyncSession, sess: Session) -> dict:
             "current_group_current_node_progress": current_group_current_node_progress,
             "current_group_region_exploration_summary": current_group_region_exploration_summary,
             "current_group_region_frontier_summary": current_group_region_frontier_summary,
+            "current_group_region_gateways": current_group_region_gateways,
+            "current_group_primary_region_gateway": current_group_primary_region_gateway,
             "current_group_navigation_options": current_group_navigation_options,
             "groups": groups_payload,
             "pc_positions": pc_positions,

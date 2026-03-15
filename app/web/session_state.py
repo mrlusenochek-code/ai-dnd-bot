@@ -19,6 +19,7 @@ from app.web.map_registry import (
     get_static_node_service_requirements,
     get_static_node_state_overlays,
     get_static_node_scout_discoveries,
+    get_static_node_region_gateways,
     get_static_navigation_options,
     get_static_node_detail,
     get_static_node,
@@ -26,6 +27,7 @@ from app.web.map_registry import (
     get_static_node_inspect_result,
     get_static_node_service_result,
     get_static_node_services,
+    get_static_region_gateways,
 )
 from app.web.utils import as_int
 
@@ -4198,28 +4200,15 @@ def build_group_interaction_gate_result(
     available = True
     availability_status = "available"
     unavailable_reason = ""
-    missing_requirements: list[str] = []
-    satisfied_requirements: list[str] = []
     resolved_unlock_hint = str(unlock_hint or requirement_map.get("unlock_hint") or "").strip()
-    available_state_flags = {
-        str(flag or "").strip().lower()
-        for flag in (state_flags or [])
-        if str(flag or "").strip()
-    }
-    resolved_visit_count = max(0, int(visit_count or 0))
-
-    def _requirement_met(key: str, met: bool, *, missing_value: str = "", satisfied_value: str = "") -> None:
-        nonlocal available, availability_status, unavailable_reason
-        if met:
-            if satisfied_value:
-                satisfied_requirements.append(satisfied_value)
-            return
-        available = False
-        availability_status = "locked"
-        if missing_value:
-            missing_requirements.append(missing_value)
-        if not unavailable_reason:
-            unavailable_reason = key
+    requirement_eval = _evaluate_local_requirement_set(
+        requirements=requirement_map,
+        state_flags=state_flags,
+        destination_event_state=destination_state,
+        visit_count=visit_count,
+    )
+    missing_requirements = list(requirement_eval.get("missing_requirements") or [])
+    satisfied_requirements = list(requirement_eval.get("satisfied_requirements") or [])
 
     if completed:
         availability_status = "completed"
@@ -4229,55 +4218,10 @@ def build_group_interaction_gate_result(
         availability_status = "unavailable"
         available = False
         unavailable_reason = "informational_only"
-    else:
-        required_flag = str(requirement_map.get("requires_node_state_flag") or "").strip().lower()
-        if required_flag:
-            _requirement_met(
-                "requires_node_state_flag",
-                required_flag in available_state_flags,
-                missing_value=f"node_state:{required_flag}",
-                satisfied_value=f"node_state:{required_flag}",
-            )
-        required_event_id = str(requirement_map.get("requires_destination_event_id") or "").strip().lower()
-        if required_event_id:
-            actual_event_id = str((destination_state or {}).get("event_id") or "").strip().lower()
-            _requirement_met(
-                "requires_destination_event_id",
-                actual_event_id == required_event_id,
-                missing_value=f"destination_event:{required_event_id}",
-                satisfied_value=f"destination_event:{required_event_id}",
-            )
-        required_event_type = str(requirement_map.get("requires_destination_event_result_type") or "").strip().lower()
-        if required_event_type:
-            actual_event_type = str((destination_state or {}).get("result_type") or "").strip().lower()
-            _requirement_met(
-                "requires_destination_event_result_type",
-                actual_event_type == required_event_type,
-                missing_value=f"destination_event_result:{required_event_type}",
-                satisfied_value=f"destination_event_result:{required_event_type}",
-            )
-        if bool(requirement_map.get("first_visit_only")):
-            _requirement_met(
-                "first_visit_only",
-                resolved_visit_count == 1,
-                missing_value="first_visit_only",
-                satisfied_value="first_visit_only",
-            )
-        if bool(requirement_map.get("return_visit_only")):
-            _requirement_met(
-                "return_visit_only",
-                resolved_visit_count >= 2,
-                missing_value="return_visit_only",
-                satisfied_value="return_visit_only",
-            )
-        min_visit_count = max(0, as_int(requirement_map.get("min_visit_count"), 0))
-        if min_visit_count > 0:
-            _requirement_met(
-                "min_visit_count",
-                resolved_visit_count >= min_visit_count,
-                missing_value=f"min_visit_count:{min_visit_count}",
-                satisfied_value=f"min_visit_count:{min_visit_count}",
-            )
+    elif bool(requirement_eval.get("locked")):
+        availability_status = "locked"
+        available = False
+        unavailable_reason = str(requirement_eval.get("unavailable_reason") or "requirements_missing")
 
     result = {
         "interaction_kind": normalized_kind,
@@ -4292,6 +4236,100 @@ def build_group_interaction_gate_result(
         "source": str(source or "interaction_gating")[:40] or "interaction_gating",
     }
     return result
+
+
+def _evaluate_local_requirement_set(
+    *,
+    requirements: dict[str, Any] | None = None,
+    state_flags: list[str] | set[str] | None = None,
+    destination_event_state: dict[str, Any] | None = None,
+    visit_count: int = 0,
+) -> dict[str, Any]:
+    requirement_map = dict(requirements or {})
+    destination_state = _normalize_group_destination_event_state(destination_event_state)
+    available_state_flags = {
+        str(flag or "").strip().lower()
+        for flag in (state_flags or [])
+        if str(flag or "").strip()
+    }
+    resolved_visit_count = max(0, int(visit_count or 0))
+    missing_requirements: list[str] = []
+    satisfied_requirements: list[str] = []
+    unavailable_reason = ""
+
+    def _requirement_met(key: str, met: bool, *, missing_value: str = "", satisfied_value: str = "") -> None:
+        nonlocal unavailable_reason
+        if met:
+            if satisfied_value:
+                satisfied_requirements.append(satisfied_value)
+            return
+        if missing_value:
+            missing_requirements.append(missing_value)
+        if not unavailable_reason:
+            unavailable_reason = key
+
+    required_flag = str(requirement_map.get("requires_node_state_flag") or "").strip().lower()
+    if required_flag:
+        _requirement_met(
+            "requires_node_state_flag",
+            required_flag in available_state_flags,
+            missing_value=f"node_state:{required_flag}",
+            satisfied_value=f"node_state:{required_flag}",
+        )
+    required_event_id = str(requirement_map.get("requires_destination_event_id") or "").strip().lower()
+    if required_event_id:
+        actual_event_id = str((destination_state or {}).get("event_id") or "").strip().lower()
+        _requirement_met(
+            "requires_destination_event_id",
+            actual_event_id == required_event_id,
+            missing_value=f"destination_event:{required_event_id}",
+            satisfied_value=f"destination_event:{required_event_id}",
+        )
+    required_event_type = str(requirement_map.get("requires_destination_event_result_type") or "").strip().lower()
+    if required_event_type:
+        actual_event_type = str((destination_state or {}).get("result_type") or "").strip().lower()
+        _requirement_met(
+            "requires_destination_event_result_type",
+            actual_event_type == required_event_type,
+            missing_value=f"destination_event_result:{required_event_type}",
+            satisfied_value=f"destination_event_result:{required_event_type}",
+        )
+    if bool(requirement_map.get("first_visit_only")):
+        _requirement_met(
+            "first_visit_only",
+            resolved_visit_count == 1,
+            missing_value="first_visit_only",
+            satisfied_value="first_visit_only",
+        )
+    if bool(requirement_map.get("return_visit_only")):
+        _requirement_met(
+            "return_visit_only",
+            resolved_visit_count >= 2,
+            missing_value="return_visit_only",
+            satisfied_value="return_visit_only",
+        )
+    min_visit_count = max(
+        0,
+        as_int(
+            requirement_map.get("requires_min_visit_count")
+            if requirement_map.get("requires_min_visit_count") is not None
+            else requirement_map.get("min_visit_count"),
+            0,
+        ),
+    )
+    if min_visit_count > 0:
+        _requirement_met(
+            "min_visit_count",
+            resolved_visit_count >= min_visit_count,
+            missing_value=f"min_visit_count:{min_visit_count}",
+            satisfied_value=f"min_visit_count:{min_visit_count}",
+        )
+    return {
+        "locked": bool(missing_requirements),
+        "unavailable_reason": unavailable_reason,
+        "missing_requirements": missing_requirements,
+        "satisfied_requirements": satisfied_requirements,
+    }
 
 
 def _get_current_group_local_interaction_context(
@@ -4766,6 +4804,229 @@ def get_current_group_region_exploration_summary(
     if not resolved_group_id:
         return None
     return get_group_region_exploration_summary(sess, resolved_group_id)
+
+
+def _normalize_group_region_gateway(raw: Any) -> dict[str, Any] | None:
+    if not isinstance(raw, dict):
+        return None
+    gateway_id = str(raw.get("gateway_id") or "").strip().lower()
+    gateway_label = str(raw.get("gateway_label") or raw.get("label") or gateway_id).strip()
+    gateway_status = str(raw.get("gateway_status") or "").strip().lower()
+    summary = str(raw.get("summary") or "").strip()
+    source_node_id = str(raw.get("source_node_id") or "").strip().lower()
+    source_node_label = str(raw.get("source_node_label") or source_node_id).strip()
+    route_id = str(raw.get("route_id") or "").strip().lower()
+    target_region_id = str(raw.get("target_region_id") or "").strip().lower()
+    target_region_label = str(raw.get("target_region_label") or target_region_id).strip()
+    if gateway_status not in {"open", "blocked", "locked", "future_stub", "unavailable"}:
+        return None
+    if not gateway_id or not gateway_label or not summary or not source_node_id or not target_region_id or not target_region_label:
+        return None
+    return {
+        "gateway_id": gateway_id[:120],
+        "gateway_label": gateway_label[:160],
+        "gateway_status": gateway_status[:40],
+        "summary": summary[:400],
+        "source_node_id": source_node_id[:120],
+        "source_node_label": source_node_label[:160],
+        "route_id": route_id[:160],
+        "target_region_id": target_region_id[:120],
+        "target_region_label": target_region_label[:160],
+        "reachable": bool(raw.get("reachable")),
+        "blocked": bool(raw.get("blocked")),
+        "locked": bool(raw.get("locked")),
+        "blocked_reason": str(raw.get("blocked_reason") or "")[:160],
+        "unlock_hint": str(raw.get("unlock_hint") or "")[:240],
+        "future_stub": bool(raw.get("future_stub")),
+        "source": str(raw.get("source") or "region_gateway")[:40] or "region_gateway",
+    }
+
+
+def build_group_region_gateway(
+    *,
+    gateway_id: str,
+    gateway_label: str,
+    gateway_status: str,
+    summary: str,
+    source_node_id: str,
+    source_node_label: str,
+    route_id: str = "",
+    target_region_id: str,
+    target_region_label: str,
+    reachable: bool = False,
+    blocked: bool = False,
+    locked: bool = False,
+    blocked_reason: str = "",
+    unlock_hint: str = "",
+    future_stub: bool = False,
+    source: str = "region_gateway",
+) -> dict[str, Any] | None:
+    return _normalize_group_region_gateway(
+        {
+            "gateway_id": gateway_id,
+            "gateway_label": gateway_label,
+            "gateway_status": gateway_status,
+            "summary": summary,
+            "source_node_id": source_node_id,
+            "source_node_label": source_node_label,
+            "route_id": route_id,
+            "target_region_id": target_region_id,
+            "target_region_label": target_region_label,
+            "reachable": reachable,
+            "blocked": blocked,
+            "locked": locked,
+            "blocked_reason": blocked_reason,
+            "unlock_hint": unlock_hint,
+            "future_stub": future_stub,
+            "source": source,
+        }
+    )
+
+
+def get_group_region_gateways(sess: Session, group_id: str) -> list[dict[str, Any]]:
+    group_key = str(group_id or "").strip()
+    group = _get_group_states(sess).get(group_key)
+    if not isinstance(group, dict):
+        return []
+    current_position = _normalize_map_position(group.get("current_map_position"))
+    current_node_id = str((current_position or {}).get("node_id") or "").strip().lower()
+    region_id = str((current_position or {}).get("map_level") or "region").strip().lower() or "region"
+    revealed_node_ids = _get_group_revealed_node_ids(sess, group)
+    node_state_map = _normalize_group_node_state_map(group.get("node_states"))
+    visit_map = _normalize_group_node_visit_state_map(group.get("node_visit_states"))
+    destination_event_map = _normalize_group_destination_event_state_map(group.get("destination_event_states"))
+    gateways: list[dict[str, Any]] = []
+    for definition in get_static_region_gateways(region_id=region_id, current_map_position=current_position):
+        if not isinstance(definition, dict):
+            continue
+        source_node_id = str(definition.get("source_node_id") or "").strip().lower()
+        if not source_node_id or source_node_id not in revealed_node_ids:
+            continue
+        if source_node_id != current_node_id and source_node_id not in visit_map:
+            continue
+        source_node = get_static_node(source_node_id) or {}
+        source_node_label = str(source_node.get("label") or definition.get("source_node_label") or source_node_id).strip()
+        route_id = str(definition.get("route_id") or "").strip().lower()
+        route_plan = get_group_route_plan_to_node(sess, group_key, source_node_id) or {}
+        plan_status = str(route_plan.get("plan_status") or "").strip().lower()
+        effective_route_access = get_effective_group_route_access_state(sess, group_key, route_id=route_id) if route_id else {}
+        blocked_reason = str((effective_route_access or {}).get("block_reason") or route_plan.get("blocked_reason") or "").strip()
+        node_state_flags = list((node_state_map.get(source_node_id) or {}).get("state_flags") or [])
+        destination_event_state = destination_event_map.get(source_node_id)
+        visit_count = max(0, as_int((visit_map.get(source_node_id) or {}).get("visit_count"), 0))
+        requirements = {
+            key: definition.get(key)
+            for key in (
+                "requires_node_state_flag",
+                "requires_destination_event_id",
+                "requires_destination_event_result_type",
+                "requires_min_visit_count",
+            )
+            if definition.get(key) not in {None, ""}
+        }
+        requirement_eval = _evaluate_local_requirement_set(
+            requirements=requirements,
+            state_flags=node_state_flags,
+            destination_event_state=destination_event_state,
+            visit_count=visit_count,
+        )
+        future_stub = bool(definition.get("future_stub"))
+        reachable = plan_status in {"current_location", "reachable"}
+        blocked = bool(
+            route_id
+            and str((effective_route_access or {}).get("access_state") or "").strip().lower() == "blocked"
+        ) or plan_status == "blocked"
+        locked = bool(requirement_eval.get("locked"))
+        gateway_status = "open"
+        if future_stub:
+            gateway_status = "future_stub"
+        elif blocked:
+            gateway_status = "blocked"
+        elif locked:
+            gateway_status = "locked"
+        elif not reachable:
+            gateway_status = "unavailable"
+        summary = (
+            f"{source_node_label} выводит к региону {str(definition.get('target_region_label') or definition.get('target_region_id') or '').strip()}."
+        )
+        if gateway_status == "blocked":
+            summary = (
+                f"Выход через {source_node_label} известен, но сейчас упирается в блок на маршруте."
+            )
+        elif gateway_status == "locked":
+            summary = (
+                f"Выход через {source_node_label} уже известен, но ещё требует локальной подготовки."
+            )
+        elif gateway_status == "future_stub":
+            summary = (
+                f"У {source_node_label} отмечен будущий выход в соседний регион, но он пока остаётся только заготовкой."
+            )
+        elif gateway_status == "unavailable":
+            continue
+        gateway = build_group_region_gateway(
+            gateway_id=str(definition.get("gateway_id") or ""),
+            gateway_label=str(definition.get("label") or definition.get("gateway_id") or ""),
+            gateway_status=gateway_status,
+            summary=summary,
+            source_node_id=source_node_id,
+            source_node_label=source_node_label,
+            route_id=route_id,
+            target_region_id=str(definition.get("target_region_id") or ""),
+            target_region_label=str(definition.get("target_region_label") or definition.get("target_region_id") or ""),
+            reachable=reachable,
+            blocked=blocked,
+            locked=locked,
+            blocked_reason=blocked_reason,
+            unlock_hint=str(definition.get("unlock_hint") or ""),
+            future_stub=future_stub,
+            source="region_gateway",
+        )
+        if gateway:
+            gateways.append(gateway)
+    status_order = {"open": 0, "blocked": 1, "locked": 2, "future_stub": 3, "unavailable": 4}
+    gateways.sort(
+        key=lambda item: (
+            status_order.get(str(item.get("gateway_status") or ""), 99),
+            str(item.get("source_node_label") or ""),
+            str(item.get("gateway_label") or ""),
+        )
+    )
+    return gateways
+
+
+def get_group_primary_region_gateway(sess: Session, group_id: str) -> dict[str, Any] | None:
+    gateways = get_group_region_gateways(sess, group_id)
+    return dict(gateways[0]) if gateways else None
+
+
+def get_current_group_region_gateways(
+    sess: Session,
+    *,
+    player_id: uuid.UUID | str | None = None,
+    group_id: str | None = None,
+) -> list[dict[str, Any]]:
+    resolved_group_id = str(group_id or "").strip()
+    resolved_player_id = str(player_id or "").strip()
+    if not resolved_group_id and resolved_player_id:
+        resolved_group_id = str(_get_player_group_id(sess, resolved_player_id) or "").strip()
+    if not resolved_group_id:
+        return []
+    return get_group_region_gateways(sess, resolved_group_id)
+
+
+def get_current_group_primary_region_gateway(
+    sess: Session,
+    *,
+    player_id: uuid.UUID | str | None = None,
+    group_id: str | None = None,
+) -> dict[str, Any] | None:
+    resolved_group_id = str(group_id or "").strip()
+    resolved_player_id = str(player_id or "").strip()
+    if not resolved_group_id and resolved_player_id:
+        resolved_group_id = str(_get_player_group_id(sess, resolved_player_id) or "").strip()
+    if not resolved_group_id:
+        return None
+    return get_group_primary_region_gateway(sess, resolved_group_id)
 
 
 def get_current_group_navigation_options(

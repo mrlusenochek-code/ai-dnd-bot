@@ -13,6 +13,8 @@ from app.web.map_registry import (
     get_static_node_inspect_result,
     get_static_node_state_overlays,
     get_static_node_entry_overlays,
+    get_static_region_gateways,
+    get_static_node_region_gateways,
     get_static_node_service_result,
     get_static_node_services,
     get_static_navigation_options,
@@ -337,6 +339,25 @@ def test_get_static_node_destination_events_returns_authored_arrival_events() ->
         }
     ]
     assert get_static_node_destination_events(node_id="ruined_settlement", state_flags=["mine_path_shored"], visit_count=2)[0]["result_type"] == "changed_place_notice"
+
+
+def test_get_static_region_gateways_returns_authored_frontier_exit_definitions() -> None:
+    all_gateways = get_static_region_gateways(region_id="region")
+    assert len(all_gateways) == 4
+    assert get_static_node_region_gateways(node_id="forest_settlement") == [
+        {
+            "gateway_id": "forest_settlement_northwatch",
+            "source_node_id": "forest_settlement",
+            "route_id": "forest_settlement->old_fortress_edge:move",
+            "target_region_id": "northwatch_frontier",
+            "target_region_label": "Северный рубеж",
+            "label": "Выход к северному рубежу",
+            "future_stub": False,
+            "unlock_hint": "Сначала собрать лесные припасы перед дальним выходом к северному рубежу.",
+            "requires_node_state_flag": "forest_supplies_secured",
+        }
+    ]
+    assert get_static_node_region_gateways(node_id="forgotten_shrine")[0]["future_stub"] is True
 
 
 def test_static_node_detail_and_inspect_result_expose_handcrafted_content() -> None:

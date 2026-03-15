@@ -85,6 +85,8 @@ from app.web.session_state import (
     get_current_group_current_node_progress,
     get_current_group_region_exploration_summary,
     get_current_group_region_frontier_summary,
+    get_current_group_region_gateways,
+    get_current_group_primary_region_gateway,
     set_group_journey_target,
     advance_group_journey,
     clear_group_journey,
@@ -1771,6 +1773,9 @@ def _parse_group_command(cmdline: str) -> tuple[str | None, dict[str, Any]]:
     if lowered in {"group region", "group_region", "group frontier", "group_frontier"}:
         return "group_region_progress", {}
 
+    if lowered in {"group exits", "group_exits", "group gateways", "group_gateways"}:
+        return "group_region_gateways", {}
+
     if lowered in {"group arrive", "group_arrive"}:
         return "group_arrive", {}
 
@@ -1904,6 +1909,7 @@ def _handle_group_action_request(
         "group_local_interactions",
         "group_node_progress",
         "group_region_progress",
+        "group_region_gateways",
         "group_exploration_leads",
         "group_journey_set",
         "group_journey_advance",
@@ -2075,6 +2081,33 @@ def _handle_group_action_request(
             f"{str(summary.get('summary') or '')} "
             f"{str((frontier or {}).get('summary') or '')}"
         ).strip()
+
+    if action == "group_region_gateways":
+        if not actor_group_key:
+            return True, "Группа игрока не найдена.", None
+        gateways = get_current_group_region_gateways(
+            sess,
+            player_id=actor_player_id,
+            group_id=actor_group_key,
+        )
+        if not gateways:
+            return True, None, f"У группы {actor_group_key} пока нет видимых выходов из текущего региона."
+        primary_gateway = get_current_group_primary_region_gateway(
+            sess,
+            player_id=actor_player_id,
+            group_id=actor_group_key,
+        ) or gateways[0]
+        open_count = sum(1 for item in gateways if str(item.get("gateway_status") or "") == "open")
+        blocked_count = sum(1 for item in gateways if str(item.get("gateway_status") or "") == "blocked")
+        locked_count = sum(1 for item in gateways if str(item.get("gateway_status") or "") == "locked")
+        future_count = sum(1 for item in gateways if str(item.get("gateway_status") or "") == "future_stub")
+        return True, None, (
+            f"Региональные выходы группы {actor_group_key}: "
+            f"{open_count} открытых, {blocked_count} заблокированных, "
+            f"{locked_count} закрытых и {future_count} будущих. "
+            f"Главный выход: {str(primary_gateway.get('gateway_label') or 'gateway')} "
+            f"({str(primary_gateway.get('gateway_status') or 'unknown')})."
+        )
 
     if action == "group_exploration_leads":
         if not actor_group_key:

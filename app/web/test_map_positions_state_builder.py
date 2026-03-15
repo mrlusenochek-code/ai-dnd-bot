@@ -144,6 +144,8 @@ def test_build_state_includes_legacy_and_structured_positions(monkeypatch) -> No
     monkeypatch.setattr(state_builder, "get_current_group_current_node_progress", lambda _sess, player_id=None: None)
     monkeypatch.setattr(state_builder, "get_current_group_region_exploration_summary", lambda _sess, player_id=None: None)
     monkeypatch.setattr(state_builder, "get_current_group_region_frontier_summary", lambda _sess, player_id=None: None)
+    monkeypatch.setattr(state_builder, "get_current_group_region_gateways", lambda _sess, player_id=None: [])
+    monkeypatch.setattr(state_builder, "get_current_group_primary_region_gateway", lambda _sess, player_id=None: None)
     monkeypatch.setattr(
         state_builder,
         "get_current_group_route_planning",
@@ -237,6 +239,8 @@ def test_build_state_includes_legacy_and_structured_positions(monkeypatch) -> No
     assert payload["game"]["current_group_current_node_progress"] is None
     assert payload["game"]["current_group_region_exploration_summary"] is None
     assert payload["game"]["current_group_region_frontier_summary"] is None
+    assert payload["game"]["current_group_region_gateways"] == []
+    assert payload["game"]["current_group_primary_region_gateway"] is None
     assert payload["game"]["current_group_navigation_options"] == []
     assert payload["session"]["current_group_id"] is None
     assert payload["players"] == [
@@ -1043,6 +1047,39 @@ def test_build_state_exports_current_player_group_id(monkeypatch) -> None:
     )
     monkeypatch.setattr(
         state_builder,
+        "get_current_group_region_gateways",
+        lambda _sess, player_id=None: [
+            {
+                "gateway_id": "forest_settlement_northwatch",
+                "gateway_label": "Выход к северному рубежу",
+                "gateway_status": "open",
+                "summary": "Лесной посёлок выводит к региону Северный рубеж.",
+                "source_node_id": "forest_settlement",
+                "source_node_label": "Лесной посёлок",
+                "route_id": "forest_settlement->old_fortress_edge:move",
+                "target_region_id": "northwatch_frontier",
+                "target_region_label": "Северный рубеж",
+                "reachable": True,
+                "blocked": False,
+                "locked": False,
+                "blocked_reason": "",
+                "unlock_hint": "Сначала собрать лесные припасы перед дальним выходом к северному рубежу.",
+                "future_stub": False,
+                "source": "region_gateway",
+            }
+        ],
+    )
+    monkeypatch.setattr(
+        state_builder,
+        "get_current_group_primary_region_gateway",
+        lambda _sess, player_id=None: {
+            "gateway_id": "forest_settlement_northwatch",
+            "gateway_label": "Выход к северному рубежу",
+            "gateway_status": "open",
+        },
+    )
+    monkeypatch.setattr(
+        state_builder,
         "get_current_group_route_planning",
         lambda _sess, player_id=None: {
             "reachable_destinations": [
@@ -1628,6 +1665,31 @@ def test_build_state_exports_current_player_group_id(monkeypatch) -> None:
             }
         ],
         "summary": "У группы 1 достижимых непосещённых точек, 1 заблокированных frontier-веток и 1 локально незавершённых узлов.",
+    }
+    assert payload["game"]["current_group_region_gateways"] == [
+        {
+            "gateway_id": "forest_settlement_northwatch",
+            "gateway_label": "Выход к северному рубежу",
+            "gateway_status": "open",
+            "summary": "Лесной посёлок выводит к региону Северный рубеж.",
+            "source_node_id": "forest_settlement",
+            "source_node_label": "Лесной посёлок",
+            "route_id": "forest_settlement->old_fortress_edge:move",
+            "target_region_id": "northwatch_frontier",
+            "target_region_label": "Северный рубеж",
+            "reachable": True,
+            "blocked": False,
+            "locked": False,
+            "blocked_reason": "",
+            "unlock_hint": "Сначала собрать лесные припасы перед дальним выходом к северному рубежу.",
+            "future_stub": False,
+            "source": "region_gateway",
+        }
+    ]
+    assert payload["game"]["current_group_primary_region_gateway"] == {
+        "gateway_id": "forest_settlement_northwatch",
+        "gateway_label": "Выход к северному рубежу",
+        "gateway_status": "open",
     }
     assert payload["game"]["current_group_navigation_options"] == [
         {
