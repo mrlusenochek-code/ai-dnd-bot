@@ -127,6 +127,11 @@ def test_build_state_includes_legacy_and_structured_positions(monkeypatch) -> No
     monkeypatch.setattr(state_builder, "get_current_group_current_node_visit_state", lambda _sess, player_id=None: None)
     monkeypatch.setattr(state_builder, "get_current_group_node_visit_states", lambda _sess, player_id=None: [])
     monkeypatch.setattr(state_builder, "get_current_group_route_traversal_states", lambda _sess, player_id=None: [])
+    monkeypatch.setattr(
+        state_builder,
+        "get_current_group_route_planning",
+        lambda _sess, player_id=None: {"reachable_destinations": [], "route_frontiers": []},
+    )
     monkeypatch.setattr(state_builder, "get_current_group_navigation_options", lambda _sess, player_id=None: [])
     monkeypatch.setattr(state_builder, "snapshot_combat_state", lambda _session_id: None)
 
@@ -192,6 +197,9 @@ def test_build_state_includes_legacy_and_structured_positions(monkeypatch) -> No
     assert payload["game"]["current_group_current_node_visit_state"] is None
     assert payload["game"]["current_group_node_visit_states"] == []
     assert payload["game"]["current_group_route_traversal_states"] == []
+    assert payload["game"]["current_group_route_planning"] == {"reachable_destinations": [], "route_frontiers": []}
+    assert payload["game"]["current_group_reachable_destinations"] == []
+    assert payload["game"]["current_group_route_frontiers"] == []
     assert payload["game"]["current_group_navigation_options"] == []
     assert payload["session"]["current_group_id"] is None
     assert payload["players"] == [
@@ -648,6 +656,38 @@ def test_build_state_exports_current_player_group_id(monkeypatch) -> None:
     )
     monkeypatch.setattr(
         state_builder,
+        "get_current_group_route_planning",
+        lambda _sess, player_id=None: {
+            "reachable_destinations": [
+                {
+                    "target_node_id": "fortress_gate",
+                    "target_node_label": "Ворота крепости",
+                    "plan_status": "reachable",
+                    "path_node_ids": ["start_trakt", "fortress_gate"],
+                    "path_route_ids": ["start_trakt->fortress_gate:move"],
+                    "step_count": 1,
+                    "reachable": True,
+                    "blocked_route_id": "",
+                    "blocked_reason": "",
+                    "first_unvisited": "fortress_gate",
+                    "target_known": True,
+                    "target_revealed": True,
+                    "summary": "До Ворот крепости есть полностью открытый и проходимый путь.",
+                }
+            ],
+            "route_frontiers": [
+                {
+                    "from_node_id": "start_trakt",
+                    "to_node_id": "craft_town",
+                    "route_id": "start_trakt->craft_town:move",
+                    "frontier_type": "blocked_route",
+                    "summary": "Маршрут start_trakt->craft_town:move видим, но сейчас заблокирован для группы.",
+                }
+            ],
+        },
+    )
+    monkeypatch.setattr(
+        state_builder,
         "get_current_group_navigation_options",
         lambda _sess, player_id=None: [
             {
@@ -949,6 +989,36 @@ def test_build_state_exports_current_player_group_id(monkeypatch) -> None:
             "summary": "Группа проходит маршрутом к Стартовому тракту.",
         }
     ]
+    assert payload["game"]["current_group_route_planning"] == {
+        "reachable_destinations": [
+            {
+                "target_node_id": "fortress_gate",
+                "target_node_label": "Ворота крепости",
+                "plan_status": "reachable",
+                "path_node_ids": ["start_trakt", "fortress_gate"],
+                "path_route_ids": ["start_trakt->fortress_gate:move"],
+                "step_count": 1,
+                "reachable": True,
+                "blocked_route_id": "",
+                "blocked_reason": "",
+                "first_unvisited": "fortress_gate",
+                "target_known": True,
+                "target_revealed": True,
+                "summary": "До Ворот крепости есть полностью открытый и проходимый путь.",
+            }
+        ],
+        "route_frontiers": [
+            {
+                "from_node_id": "start_trakt",
+                "to_node_id": "craft_town",
+                "route_id": "start_trakt->craft_town:move",
+                "frontier_type": "blocked_route",
+                "summary": "Маршрут start_trakt->craft_town:move видим, но сейчас заблокирован для группы.",
+            }
+        ],
+    }
+    assert payload["game"]["current_group_reachable_destinations"] == payload["game"]["current_group_route_planning"]["reachable_destinations"]
+    assert payload["game"]["current_group_route_frontiers"] == payload["game"]["current_group_route_planning"]["route_frontiers"]
     assert payload["game"]["current_group_navigation_options"] == [
         {
             "route_id": "start_trakt->fortress_gate:move",
@@ -1255,6 +1325,11 @@ def test_build_state_exports_group_activity_summaries(monkeypatch) -> None:
     monkeypatch.setattr(state_builder, "get_current_group_current_node_visit_state", lambda _sess, player_id=None: None)
     monkeypatch.setattr(state_builder, "get_current_group_node_visit_states", lambda _sess, player_id=None: [])
     monkeypatch.setattr(state_builder, "get_current_group_route_traversal_states", lambda _sess, player_id=None: [])
+    monkeypatch.setattr(
+        state_builder,
+        "get_current_group_route_planning",
+        lambda _sess, player_id=None: {"reachable_destinations": [], "route_frontiers": []},
+    )
     monkeypatch.setattr(state_builder, "get_current_group_navigation_options", lambda _sess, player_id=None: [])
     monkeypatch.setattr(state_builder, "snapshot_combat_state", lambda _session_id: None)
 
@@ -1667,6 +1742,11 @@ def test_build_state_exports_paused_travel_status_and_pause_reason(monkeypatch) 
     monkeypatch.setattr(state_builder, "get_current_group_current_node_visit_state", lambda _sess, player_id=None: None)
     monkeypatch.setattr(state_builder, "get_current_group_node_visit_states", lambda _sess, player_id=None: [])
     monkeypatch.setattr(state_builder, "get_current_group_route_traversal_states", lambda _sess, player_id=None: [])
+    monkeypatch.setattr(
+        state_builder,
+        "get_current_group_route_planning",
+        lambda _sess, player_id=None: {"reachable_destinations": [], "route_frontiers": []},
+    )
     monkeypatch.setattr(state_builder, "snapshot_combat_state", lambda _session_id: None)
 
     db = _FakeDb([[player], [], [], []])

@@ -8,6 +8,7 @@ from app.db.models import Session
 from app.web.map_registry import (
     STATIC_MAP_NODES,
     build_static_route_id,
+    get_static_map_links,
     get_current_node_context_actions,
     get_obvious_linked_static_node_ids,
     get_static_node_context_action_effects,
@@ -1984,6 +1985,373 @@ def validate_group_route_accessibility(
     if block_reason:
         return f"Маршрут к {target_label} сейчас заблокирован: {block_reason}."
     return f"Маршрут к {target_label} сейчас заблокирован."
+
+
+def _normalize_group_route_plan_item(raw: Any) -> dict[str, Any] | None:
+    if not isinstance(raw, dict):
+        return None
+    target_node_id = str(raw.get("target_node_id") or "").strip()
+    target_node_label = str(raw.get("target_node_label") or target_node_id).strip()
+    plan_status = str(raw.get("plan_status") or "").strip().lower()
+    if plan_status not in {"reachable", "blocked", "current_location", "unrevealed", "unknown"}:
+        return None
+    path_node_ids = [
+        str(item).strip()[:120]
+        for item in (raw.get("path_node_ids") or [])
+        if str(item or "").strip()
+    ] if isinstance(raw.get("path_node_ids"), list) else []
+    path_route_ids = [
+        str(item).strip().lower()[:160]
+        for item in (raw.get("path_route_ids") or [])
+        if str(item or "").strip()
+    ] if isinstance(raw.get("path_route_ids"), list) else []
+    step_count = max(0, as_int(raw.get("step_count"), 0))
+    blocked_route_id = str(raw.get("blocked_route_id") or "").strip().lower()
+    blocked_reason = str(raw.get("blocked_reason") or "").strip()
+    first_unvisited = str(raw.get("first_unvisited") or "").strip()
+    summary = str(raw.get("summary") or "").strip()
+    if not target_node_id or not target_node_label or not summary:
+        return None
+    return {
+        "target_node_id": target_node_id[:120],
+        "target_node_label": target_node_label[:120],
+        "plan_status": plan_status[:40],
+        "path_node_ids": path_node_ids,
+        "path_route_ids": path_route_ids,
+        "step_count": step_count,
+        "reachable": bool(raw.get("reachable")),
+        "blocked_route_id": blocked_route_id[:160],
+        "blocked_reason": blocked_reason[:120],
+        "first_unvisited": first_unvisited[:120],
+        "target_known": bool(raw.get("target_known")),
+        "target_revealed": bool(raw.get("target_revealed")),
+        "summary": summary[:400],
+    }
+
+
+def _normalize_group_route_frontier_item(raw: Any) -> dict[str, Any] | None:
+    if not isinstance(raw, dict):
+        return None
+    from_node_id = str(raw.get("from_node_id") or "").strip()
+    to_node_id = str(raw.get("to_node_id") or "").strip()
+    route_id = str(raw.get("route_id") or "").strip().lower()
+    frontier_type = str(raw.get("frontier_type") or "").strip().lower()
+    summary = str(raw.get("summary") or "").strip()
+    if frontier_type not in {"blocked_route", "unrevealed_branch", "accessible_branch"}:
+        return None
+    if not from_node_id or not to_node_id or not route_id or not summary:
+        return None
+    return {
+        "from_node_id": from_node_id[:120],
+        "to_node_id": to_node_id[:120],
+        "route_id": route_id[:160],
+        "frontier_type": frontier_type[:40],
+        "summary": summary[:400],
+    }
+
+
+def _get_group_player_ids(group: dict[str, Any] | None) -> list[str]:
+    if not isinstance(group, dict):
+        return []
+    return [str(pid).strip() for pid in (group.get("player_ids") or []) if str(pid).strip()]
+
+
+def _get_group_revealed_node_ids(sess: Session, group: dict[str, Any] | None) -> set[str]:
+    player_ids = _get_group_player_ids(group)
+    if not player_ids:
+        return set()
+    revealed_sets = [
+        {
+            str(node_id).strip().lower()
+            for node_id in get_player_revealed_node_ids(sess, pid)
+            if str(node_id or "").strip()
+        }
+        for pid in player_ids
+    ]
+    return set.intersection(*revealed_sets) if revealed_sets else set()
+
+
+def _get_group_known_node_ids(sess: Session, group: dict[str, Any] | None) -> set[str]:
+    player_ids = _get_group_player_ids(group)
+    if not player_ids:
+        return set()
+    known_sets = [
+        {
+            str(node_id).strip().lower()
+            for node_id in get_player_known_node_ids(sess, pid)
+            if str(node_id or "").strip()
+        }
+        for pid in player_ids
+    ]
+    return set.intersection(*known_sets) if known_sets else set()
+
+
+def _get_first_unvisited_node_for_path(sess: Session, group_id: str, path_node_ids: list[str]) -> str:
+    visit_map = _normalize_group_node_visit_state_map((_get_group_states(sess).get(group_id) or {}).get("node_visit_states"))
+    for node_id in path_node_ids:
+        normalized_node_id = str(node_id).strip().lower()
+        if normalized_node_id and not visit_map.get(normalized_node_id):
+            return normalized_node_id
+    return ""
+
+
+def get_group_reachable_destinations(sess: Session, group_id: str) -> list[dict[str, Any]]:
+    group_key = str(group_id or "").strip()
+    group = _get_group_states(sess).get(group_key)
+    if not isinstance(group, dict):
+        return []
+    current_position = _normalize_map_position(group.get("current_map_position"))
+    current_node_id = str((current_position or {}).get("node_id") or "").strip().lower()
+    if not current_node_id:
+        return []
+    revealed_node_ids = _get_group_revealed_node_ids(sess, group)
+    known_node_ids = _get_group_known_node_ids(sess, group)
+    queue: list[tuple[str, list[str], list[str]]] = [(current_node_id, [current_node_id], [])]
+    visited_nodes: set[str] = {current_node_id}
+    plans: list[dict[str, Any]] = []
+    for_index_links = get_static_map_links()
+    while queue:
+        node_id, path_nodes, path_routes = queue.pop(0)
+        for link in for_index_links:
+            from_node_id = str(link.get("from_node_id") or "").strip().lower()
+            to_node_id = str(link.get("to_node_id") or "").strip().lower()
+            route_id = str(link.get("route_id") or "").strip().lower()
+            if from_node_id != node_id or not to_node_id or not route_id or to_node_id not in revealed_node_ids:
+                continue
+            effective = get_effective_group_route_access_state(sess, group_key, route_id=route_id)
+            if not effective or effective.get("is_traversable") is not True:
+                continue
+            if to_node_id in visited_nodes:
+                continue
+            next_path_nodes = [*path_nodes, to_node_id]
+            next_path_routes = [*path_routes, route_id]
+            visited_nodes.add(to_node_id)
+            queue.append((to_node_id, next_path_nodes, next_path_routes))
+            if to_node_id == current_node_id:
+                continue
+            target_node = get_static_node(to_node_id) or {}
+            plan = _normalize_group_route_plan_item(
+                {
+                    "target_node_id": to_node_id,
+                    "target_node_label": str(target_node.get("label") or to_node_id),
+                    "plan_status": "reachable",
+                    "path_node_ids": next_path_nodes,
+                    "path_route_ids": next_path_routes,
+                    "step_count": len(next_path_routes),
+                    "reachable": True,
+                    "blocked_route_id": "",
+                    "blocked_reason": "",
+                    "first_unvisited": _get_first_unvisited_node_for_path(sess, group_key, next_path_nodes),
+                    "target_known": to_node_id in known_node_ids,
+                    "target_revealed": to_node_id in revealed_node_ids,
+                    "summary": f"До {str(target_node.get('label') or to_node_id)} есть полностью открытый и проходимый путь.",
+                }
+            )
+            if plan:
+                plans.append(plan)
+    plans.sort(key=lambda item: (item.get("step_count", 0), str(item.get("target_node_label") or "")))
+    return plans
+
+
+def get_group_route_frontiers(sess: Session, group_id: str) -> list[dict[str, Any]]:
+    group_key = str(group_id or "").strip()
+    group = _get_group_states(sess).get(group_key)
+    if not isinstance(group, dict):
+        return []
+    current_position = _normalize_map_position(group.get("current_map_position"))
+    current_node_id = str((current_position or {}).get("node_id") or "").strip().lower()
+    if not current_node_id:
+        return []
+    reachable_ids = {current_node_id}
+    reachable_ids.update(str(item.get("target_node_id") or "").strip().lower() for item in get_group_reachable_destinations(sess, group_key))
+    revealed_node_ids = _get_group_revealed_node_ids(sess, group)
+    frontiers: list[dict[str, Any]] = []
+    seen_keys: set[str] = set()
+    for link in get_static_map_links():
+        from_node_id = str(link.get("from_node_id") or "").strip().lower()
+        to_node_id = str(link.get("to_node_id") or "").strip().lower()
+        route_id = str(link.get("route_id") or "").strip().lower()
+        if from_node_id not in reachable_ids or not to_node_id or not route_id:
+            continue
+        frontier_type = ""
+        summary = ""
+        effective = get_effective_group_route_access_state(sess, group_key, route_id=route_id)
+        if to_node_id not in revealed_node_ids:
+            frontier_type = "unrevealed_branch"
+            summary = f"От {from_node_id} уходит authored-ветка к ещё не раскрытой точке."
+        elif effective and effective.get("is_traversable") is not True:
+            frontier_type = "blocked_route"
+            summary = f"Маршрут {route_id} видим, но сейчас заблокирован для группы."
+        elif to_node_id not in reachable_ids:
+            frontier_type = "accessible_branch"
+            summary = f"От {from_node_id} есть доступная ветка к {to_node_id}."
+        if not frontier_type:
+            continue
+        dedupe_key = f"{route_id}|{frontier_type}"
+        if dedupe_key in seen_keys:
+            continue
+        seen_keys.add(dedupe_key)
+        frontier = _normalize_group_route_frontier_item(
+            {
+                "from_node_id": from_node_id,
+                "to_node_id": to_node_id,
+                "route_id": route_id,
+                "frontier_type": frontier_type,
+                "summary": summary,
+            }
+        )
+        if frontier:
+            frontiers.append(frontier)
+    frontiers.sort(key=lambda item: (str(item.get("frontier_type") or ""), str(item.get("route_id") or "")))
+    return frontiers
+
+
+def get_group_route_plan_to_node(sess: Session, group_id: str, target_node_id: str) -> dict[str, Any] | None:
+    group_key = str(group_id or "").strip()
+    normalized_target_node_id = str(target_node_id or "").strip().lower()
+    group = _get_group_states(sess).get(group_key)
+    if not isinstance(group, dict) or not normalized_target_node_id:
+        return None
+    current_position = _normalize_map_position(group.get("current_map_position"))
+    current_node_id = str((current_position or {}).get("node_id") or "").strip().lower()
+    if not current_node_id:
+        return None
+    target_node = get_static_node(normalized_target_node_id)
+    if current_node_id == normalized_target_node_id:
+        return _normalize_group_route_plan_item(
+            {
+                "target_node_id": normalized_target_node_id,
+                "target_node_label": str((target_node or {}).get("label") or normalized_target_node_id),
+                "plan_status": "current_location",
+                "path_node_ids": [normalized_target_node_id],
+                "path_route_ids": [],
+                "step_count": 0,
+                "reachable": True,
+                "blocked_route_id": "",
+                "blocked_reason": "",
+                "first_unvisited": "",
+                "target_known": True,
+                "target_revealed": True,
+                "summary": "Группа уже находится в этой точке.",
+            }
+        )
+    if not target_node:
+        return _normalize_group_route_plan_item(
+            {
+                "target_node_id": normalized_target_node_id,
+                "target_node_label": normalized_target_node_id,
+                "plan_status": "unknown",
+                "path_node_ids": [],
+                "path_route_ids": [],
+                "step_count": 0,
+                "reachable": False,
+                "blocked_route_id": "",
+                "blocked_reason": "",
+                "first_unvisited": "",
+                "target_known": False,
+                "target_revealed": False,
+                "summary": "Для этой цели нет корректного authored route plan.",
+            }
+        )
+    reachable = next((item for item in get_group_reachable_destinations(sess, group_key) if str(item.get("target_node_id") or "").strip().lower() == normalized_target_node_id), None)
+    if reachable:
+        return dict(reachable)
+    revealed_node_ids = _get_group_revealed_node_ids(sess, group)
+    known_node_ids = _get_group_known_node_ids(sess, group)
+    if normalized_target_node_id not in revealed_node_ids:
+        return _normalize_group_route_plan_item(
+            {
+                "target_node_id": normalized_target_node_id,
+                "target_node_label": str(target_node.get("label") or normalized_target_node_id),
+                "plan_status": "unrevealed",
+                "path_node_ids": [],
+                "path_route_ids": [],
+                "step_count": 0,
+                "reachable": False,
+                "blocked_route_id": "",
+                "blocked_reason": "",
+                "first_unvisited": "",
+                "target_known": normalized_target_node_id in known_node_ids,
+                "target_revealed": False,
+                "summary": "Цель существует в authored карте, но ещё не раскрыта для текущей группы.",
+            }
+        )
+    queue: list[tuple[str, list[str], list[str]]] = [(current_node_id, [current_node_id], [])]
+    visited_nodes: set[str] = {current_node_id}
+    for link in get_static_map_links():
+        pass
+    while queue:
+        node_id, path_nodes, path_routes = queue.pop(0)
+        for link in get_static_map_links():
+            from_node_id = str(link.get("from_node_id") or "").strip().lower()
+            to_node_id = str(link.get("to_node_id") or "").strip().lower()
+            route_id = str(link.get("route_id") or "").strip().lower()
+            if from_node_id != node_id or not route_id or not to_node_id or to_node_id not in revealed_node_ids:
+                continue
+            effective = get_effective_group_route_access_state(sess, group_key, route_id=route_id)
+            next_path_nodes = [*path_nodes, to_node_id]
+            next_path_routes = [*path_routes, route_id]
+            if effective and effective.get("is_traversable") is not True and to_node_id == normalized_target_node_id:
+                return _normalize_group_route_plan_item(
+                    {
+                        "target_node_id": normalized_target_node_id,
+                        "target_node_label": str(target_node.get("label") or normalized_target_node_id),
+                        "plan_status": "blocked",
+                        "path_node_ids": next_path_nodes,
+                        "path_route_ids": next_path_routes,
+                        "step_count": len(next_path_routes),
+                        "reachable": False,
+                        "blocked_route_id": route_id,
+                        "blocked_reason": str(effective.get("block_reason") or ""),
+                        "first_unvisited": _get_first_unvisited_node_for_path(sess, group_key, next_path_nodes),
+                        "target_known": normalized_target_node_id in known_node_ids,
+                        "target_revealed": True,
+                        "summary": f"Путь к {str(target_node.get('label') or normalized_target_node_id)} упирается в заблокированный маршрут.",
+                    }
+                )
+            if not effective or effective.get("is_traversable") is not True or to_node_id in visited_nodes:
+                continue
+            visited_nodes.add(to_node_id)
+            queue.append((to_node_id, next_path_nodes, next_path_routes))
+    return _normalize_group_route_plan_item(
+        {
+            "target_node_id": normalized_target_node_id,
+            "target_node_label": str(target_node.get("label") or normalized_target_node_id),
+            "plan_status": "unknown",
+            "path_node_ids": [],
+            "path_route_ids": [],
+            "step_count": 0,
+            "reachable": False,
+            "blocked_route_id": "",
+            "blocked_reason": "",
+            "first_unvisited": "",
+            "target_known": normalized_target_node_id in known_node_ids,
+            "target_revealed": normalized_target_node_id in revealed_node_ids,
+            "summary": "Для этой цели сейчас не удаётся собрать корректный план от текущей позиции группы.",
+        }
+    )
+
+
+def build_group_route_plan(sess: Session, group_id: str) -> dict[str, Any]:
+    return {
+        "reachable_destinations": get_group_reachable_destinations(sess, group_id),
+        "route_frontiers": get_group_route_frontiers(sess, group_id),
+    }
+
+
+def get_current_group_route_planning(
+    sess: Session,
+    *,
+    player_id: uuid.UUID | str | None = None,
+    group_id: str | None = None,
+) -> dict[str, Any]:
+    resolved_group_id = str(group_id or "").strip()
+    resolved_player_id = str(player_id or "").strip()
+    if not resolved_group_id and resolved_player_id:
+        resolved_group_id = str(_get_player_group_id(sess, resolved_player_id) or "").strip()
+    if not resolved_group_id:
+        return {"reachable_destinations": [], "route_frontiers": []}
+    return build_group_route_plan(sess, resolved_group_id)
 
 
 def get_current_group_navigation_options(

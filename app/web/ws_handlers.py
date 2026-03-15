@@ -71,6 +71,8 @@ from app.web.session_state import (
     execute_group_navigation_option,
     get_current_group_map_intel,
     get_current_group_recent_map_intel,
+    get_current_group_route_planning,
+    get_group_route_plan_to_node,
     get_current_group_node_visit_states,
     get_current_group_route_traversal_states,
     get_player_known_node_ids,
@@ -1766,6 +1768,13 @@ def _parse_group_command(cmdline: str) -> tuple[str | None, dict[str, Any]]:
     if lowered in {"group intel", "group_intel", "group journal", "group_journal"}:
         return "group_map_intel", {}
 
+    if lowered in {"group routes", "group_route_planning", "group_routes"}:
+        return "group_route_planning", {}
+
+    for prefix in ("group path ", "group_path ", "group route ", "group_route "):
+        if lowered.startswith(prefix):
+            return "group_route_plan_to", {"target_node_id": txt[len(prefix):].strip()}
+
     if lowered in {"group trail", "group_trail", "group visits", "group_visit_history", "group_visits"}:
         return "group_visit_history", {}
 
@@ -1851,6 +1860,8 @@ def _handle_group_action_request(
         "group_service",
         "group_service_use",
         "group_map_intel",
+        "group_route_planning",
+        "group_route_plan_to",
         "group_visit_history",
         "group_enter",
         "group_stop",
@@ -1951,6 +1962,48 @@ def _handle_group_action_request(
             f"Последнее: {latest_label}."
         )
 
+    if action == "group_route_planning":
+        if not actor_group_key:
+            return True, "Группа игрока не найдена.", None
+        planning = get_current_group_route_planning(
+            sess,
+            player_id=actor_player_id,
+            group_id=actor_group_key,
+        )
+        reachable = list(planning.get("reachable_destinations") or [])
+        frontiers = list(planning.get("route_frontiers") or [])
+        if not reachable and not frontiers:
+            return True, None, f"У группы {actor_group_key} пока нет доступных маршрутных планов."
+        return True, None, (
+            f"Маршрутный план группы {actor_group_key}: "
+            f"{len(reachable)} достижимых точек, {len(frontiers)} frontier-веток."
+        )
+
+    if action == "group_route_plan_to":
+        if not actor_group_key:
+            return True, "Группа игрока не найдена.", None
+        target_node_id = str(payload.get("target_node_id") or "").strip()
+        if not target_node_id:
+            return True, "Нужно указать target_node_id для route plan.", None
+        plan = get_group_route_plan_to_node(sess, actor_group_key, target_node_id)
+        if not plan:
+            return True, "Не удалось построить маршрутный план для этой цели.", None
+        status = str(plan.get("plan_status") or "").strip()
+        target_label = str(plan.get("target_node_label") or target_node_id).strip()
+        if status == "current_location":
+            return True, None, f"Группа {actor_group_key} уже находится в точке {target_label}."
+        if status == "reachable":
+            return True, None, (
+                f"Путь к {target_label} доступен: "
+                f"{int(plan.get('step_count') or 0)} шаг(а/ов), route_ids={plan.get('path_route_ids') or []}."
+            )
+        if status == "blocked":
+            block_reason = str(plan.get("blocked_reason") or "route_blocked").strip()
+            return True, None, f"Путь к {target_label} заблокирован: {block_reason}."
+        if status == "unrevealed":
+            return True, None, f"Точка {target_label} ещё не раскрыта для текущей группы."
+        return True, None, str(plan.get("summary") or f"Для точки {target_label} нет корректного route plan.")
+
     if action in {"group_camp_resolve", "group_rest"}:
         if not actor_group_key:
             return True, "Группа игрока не найдена.", None
@@ -1976,6 +2029,8 @@ def _handle_group_action_request(
         "group_service",
         "group_service_use",
         "group_map_intel",
+        "group_route_planning",
+        "group_route_plan_to",
         "group_visit_history",
         "group_enter",
         "group_stop",
@@ -6097,6 +6152,8 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                     "group_service",
                     "group_service_use",
                     "group_map_intel",
+                    "group_route_planning",
+                    "group_route_plan_to",
                     "group_visit_history",
                     "group_enter",
                     "group_stop",

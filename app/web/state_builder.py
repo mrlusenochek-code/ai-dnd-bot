@@ -79,6 +79,7 @@ from app.web.session_state import (
     get_current_group_current_node_visit_state,
     get_current_group_node_visit_states,
     get_current_group_route_traversal_states,
+    get_current_group_route_planning,
     get_current_group_navigation_options,
     get_current_group_context_action_states,
     get_player_known_node_ids,
@@ -510,6 +511,11 @@ async def build_state(db: AsyncSession, sess: Session) -> dict:
         if sess.current_player_id
         else []
     )
+    current_group_route_planning = (
+        get_current_group_route_planning(sess, player_id=sess.current_player_id)
+        if sess.current_player_id
+        else {"reachable_destinations": [], "route_frontiers": []}
+    )
 
     return {
         "type": "state",
@@ -565,6 +571,9 @@ async def build_state(db: AsyncSession, sess: Session) -> dict:
             "current_group_current_node_visit_state": current_group_current_node_visit_state,
             "current_group_node_visit_states": current_group_node_visit_states,
             "current_group_route_traversal_states": current_group_route_traversal_states,
+            "current_group_route_planning": current_group_route_planning,
+            "current_group_reachable_destinations": list(current_group_route_planning.get("reachable_destinations") or []),
+            "current_group_route_frontiers": list(current_group_route_planning.get("route_frontiers") or []),
             "current_group_navigation_options": current_group_navigation_options,
             "groups": groups_payload,
             "pc_positions": pc_positions,

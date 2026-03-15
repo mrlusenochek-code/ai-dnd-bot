@@ -3188,3 +3188,89 @@ def test_failed_or_blocked_travel_does_not_create_false_arrival_history() -> Non
     assert session_state.get_current_group_last_arrival_result(sess, player_id=player_id) is None
     assert session_state.get_current_group_node_visit_states(sess, player_id=player_id) == []
     assert session_state.get_current_group_route_traversal_states(sess, player_id=player_id) == []
+
+
+def test_group_route_planning_builds_reachable_destinations_and_frontiers() -> None:
+    player_id = uuid.uuid4()
+    sess = SimpleNamespace(settings={})
+    session_state._initialize_default_group(
+        sess,
+        [player_id],
+        {"map_level": "region", "node_type": "zone", "node_id": "forest_road", "label": "Лесная дорога"},
+    )
+    session_state.grant_player_map_knowledge(sess, player_id, "road_hamlet", knowledge_kind="known", source="test")
+    session_state.reveal_player_map_node(sess, player_id, "road_hamlet", source="test")
+    session_state.grant_player_map_knowledge(sess, player_id, "mine_entrance", knowledge_kind="known", source="test")
+    session_state.reveal_player_map_node(sess, player_id, "mine_entrance", source="test")
+    session_state.set_group_route_access_state(
+        sess,
+        "main",
+        "forest_road->mine_entrance:enter",
+        access_state="blocked",
+        summary="Вход в шахту завален.",
+        block_reason="blocked_path",
+        source="test",
+    )
+
+    reachable = session_state.get_group_reachable_destinations(sess, "main")
+    frontiers = session_state.get_group_route_frontiers(sess, "main")
+    planning = session_state.get_current_group_route_planning(sess, player_id=player_id)
+
+    assert [item["target_node_id"] for item in reachable] == ["road_hamlet"]
+    assert reachable[0]["path_node_ids"] == ["forest_road", "road_hamlet"]
+    assert reachable[0]["path_route_ids"] == ["forest_road->road_hamlet:move"]
+    assert reachable[0]["plan_status"] == "reachable"
+    assert any(
+        item["route_id"] == "forest_road->mine_entrance:enter" and item["frontier_type"] == "blocked_route"
+        for item in frontiers
+    )
+    assert any(item["frontier_type"] == "unrevealed_branch" for item in frontiers)
+    assert planning["reachable_destinations"] == reachable
+    assert planning["route_frontiers"] == frontiers
+
+
+def test_group_route_plan_to_node_returns_current_reachable_blocked_and_unrevealed() -> None:
+    player_id = uuid.uuid4()
+    sess = SimpleNamespace(settings={})
+    session_state._initialize_default_group(
+        sess,
+        [player_id],
+        {"map_level": "region", "node_type": "zone", "node_id": "forest_road", "label": "Лесная дорога"},
+    )
+    session_state.grant_player_map_knowledge(sess, player_id, "road_hamlet", knowledge_kind="known", source="test")
+    session_state.reveal_player_map_node(sess, player_id, "road_hamlet", source="test")
+    session_state.grant_player_map_knowledge(sess, player_id, "mine_entrance", knowledge_kind="known", source="test")
+    session_state.reveal_player_map_node(sess, player_id, "mine_entrance", source="test")
+    session_state.grant_player_map_knowledge(sess, player_id, "watchtower", knowledge_kind="known", source="test")
+    session_state.set_group_route_access_state(
+        sess,
+        "main",
+        "forest_road->mine_entrance:enter",
+        access_state="blocked",
+        summary="Вход в шахту завален.",
+        block_reason="blocked_path",
+        source="test",
+    )
+
+    current_plan = session_state.get_group_route_plan_to_node(sess, "main", "forest_road")
+    reachable_plan = session_state.get_group_route_plan_to_node(sess, "main", "road_hamlet")
+    blocked_plan = session_state.get_group_route_plan_to_node(sess, "main", "mine_entrance")
+    unrevealed_plan = session_state.get_group_route_plan_to_node(sess, "main", "watchtower")
+    unknown_plan = session_state.get_group_route_plan_to_node(sess, "main", "missing_node")
+
+    assert current_plan is not None
+    assert current_plan["plan_status"] == "current_location"
+    assert current_plan["reachable"] is True
+    assert reachable_plan is not None
+    assert reachable_plan["plan_status"] == "reachable"
+    assert reachable_plan["path_route_ids"] == ["forest_road->road_hamlet:move"]
+    assert blocked_plan is not None
+    assert blocked_plan["plan_status"] == "blocked"
+    assert blocked_plan["blocked_route_id"] == "forest_road->mine_entrance:enter"
+    assert blocked_plan["blocked_reason"] == "blocked_path"
+    assert unrevealed_plan is not None
+    assert unrevealed_plan["plan_status"] == "unrevealed"
+    assert unrevealed_plan["target_known"] is True
+    assert unrevealed_plan["target_revealed"] is False
+    assert unknown_plan is not None
+    assert unknown_plan["plan_status"] == "unknown"

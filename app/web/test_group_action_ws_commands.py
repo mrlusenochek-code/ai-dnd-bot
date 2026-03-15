@@ -24,6 +24,9 @@ def test_parse_group_command_supports_wait_camp_rest_scout_move_navigate_context
     action_use_service, payload_use_service = ws_handlers._parse_group_command("group use chapel_village_shrine_aid")
     action_intel, payload_intel = ws_handlers._parse_group_command("group intel")
     action_journal, payload_journal = ws_handlers._parse_group_command("group journal")
+    action_routes, payload_routes = ws_handlers._parse_group_command("group routes")
+    action_path, payload_path = ws_handlers._parse_group_command("group path fortress_gate")
+    action_route, payload_route = ws_handlers._parse_group_command("group route fortress_gate")
     action_trail, payload_trail = ws_handlers._parse_group_command("group trail")
     action_visits, payload_visits = ws_handlers._parse_group_command("group visits")
     action_enter, payload_enter = ws_handlers._parse_group_command("group enter замок")
@@ -63,6 +66,9 @@ def test_parse_group_command_supports_wait_camp_rest_scout_move_navigate_context
     assert (action_use_service, payload_use_service) == ("group_service_use", {"service_id": "chapel_village_shrine_aid", "service_key": "chapel_village_shrine_aid"})
     assert (action_intel, payload_intel) == ("group_map_intel", {})
     assert (action_journal, payload_journal) == ("group_map_intel", {})
+    assert (action_routes, payload_routes) == ("group_route_planning", {})
+    assert (action_path, payload_path) == ("group_route_plan_to", {"target_node_id": "fortress_gate"})
+    assert (action_route, payload_route) == ("group_route_plan_to", {"target_node_id": "fortress_gate"})
     assert (action_trail, payload_trail) == ("group_visit_history", {})
     assert (action_visits, payload_visits) == ("group_visit_history", {})
     assert (action_enter, payload_enter) == ("group_enter", {"target_hint": "замок"})
@@ -708,6 +714,75 @@ def test_handle_group_visit_history_returns_empty_and_recent_summary() -> None:
     assert err_filled is None
     assert "История пути группы main" in str(msg_filled)
     assert "посещённых точек" in str(msg_filled)
+
+
+def test_handle_group_route_planning_and_target_lookup_return_clean_summaries() -> None:
+    player_id = uuid.uuid4()
+    sess = SimpleNamespace(settings={})
+    session_state._initialize_default_group(
+        sess,
+        [player_id],
+        {
+            "map_level": "region",
+            "node_type": "zone",
+            "node_id": "forest_road",
+            "label": "Лесная дорога",
+        },
+    )
+    for node_id in ("road_hamlet", "mine_entrance"):
+        session_state.grant_player_map_knowledge(sess, player_id, node_id, knowledge_kind="known", source="test")
+        session_state.reveal_player_map_node(sess, player_id, node_id, source="test")
+    session_state.set_group_route_access_state(
+        sess,
+        "main",
+        "forest_road->mine_entrance:enter",
+        access_state="blocked",
+        summary="Вход завален.",
+        block_reason="blocked_path",
+        source="test",
+    )
+
+    handled_routes, err_routes, msg_routes = ws_handlers._handle_group_action_request(
+        sess,
+        action="group_route_planning",
+        actor_player_id=player_id,
+        payload={},
+        source="test",
+    )
+    handled_reachable, err_reachable, msg_reachable = ws_handlers._handle_group_action_request(
+        sess,
+        action="group_route_plan_to",
+        actor_player_id=player_id,
+        payload={"target_node_id": "road_hamlet"},
+        source="test",
+    )
+    handled_blocked, err_blocked, msg_blocked = ws_handlers._handle_group_action_request(
+        sess,
+        action="group_route_plan_to",
+        actor_player_id=player_id,
+        payload={"target_node_id": "mine_entrance"},
+        source="test",
+    )
+    handled_unrevealed, err_unrevealed, msg_unrevealed = ws_handlers._handle_group_action_request(
+        sess,
+        action="group_route_plan_to",
+        actor_player_id=player_id,
+        payload={"target_node_id": "watchtower"},
+        source="test",
+    )
+
+    assert handled_routes is True
+    assert err_routes is None
+    assert "Маршрутный план группы main" in str(msg_routes)
+    assert handled_reachable is True
+    assert err_reachable is None
+    assert "Путь к Дорожный хутор доступен" in str(msg_reachable)
+    assert handled_blocked is True
+    assert err_blocked is None
+    assert msg_blocked == "Путь к Шахтный вход заблокирован: blocked_path."
+    assert handled_unrevealed is True
+    assert err_unrevealed is None
+    assert msg_unrevealed == "Точка Сторожевая башня ещё не раскрыта для текущей группы."
 
 
 def test_handle_group_move_pause_resume_enter_arrive_interrupt_and_stop_requests_update_group_state() -> None:
