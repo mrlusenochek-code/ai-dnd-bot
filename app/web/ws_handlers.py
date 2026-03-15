@@ -71,6 +71,8 @@ from app.web.session_state import (
     execute_group_navigation_option,
     get_current_group_map_intel,
     get_current_group_recent_map_intel,
+    get_current_group_last_node_entry_result,
+    get_current_group_current_node_entry_state,
     get_current_group_journey_state,
     get_current_group_last_journey_result,
     get_current_group_route_planning,
@@ -1781,6 +1783,9 @@ def _parse_group_command(cmdline: str) -> tuple[str | None, dict[str, Any]]:
     if lowered in {"group intel", "group_intel", "group journal", "group_journal"}:
         return "group_map_intel", {}
 
+    if lowered in {"group entry", "group_entry", "group arrival", "group_arrival"}:
+        return "group_node_entry", {}
+
     if lowered in {"group leads", "group_leads", "group next", "group_next"}:
         return "group_exploration_leads", {}
 
@@ -1876,6 +1881,7 @@ def _handle_group_action_request(
         "group_service",
         "group_service_use",
         "group_map_intel",
+        "group_node_entry",
         "group_exploration_leads",
         "group_journey_set",
         "group_journey_advance",
@@ -1965,6 +1971,17 @@ def _handle_group_action_request(
         title = str((latest or {}).get("title") or "журнал разведки")
         count = len(all_entries)
         return True, None, f"Журнал разведки группы {actor_group_key}: {count} записей. Последняя запись: {title}."
+
+    if action == "group_node_entry":
+        if not actor_group_key:
+            return True, "Группа игрока не найдена.", None
+        result = get_current_group_last_node_entry_result(sess, player_id=actor_player_id, group_id=actor_group_key)
+        entry_state = get_current_group_current_node_entry_state(sess, player_id=actor_player_id, group_id=actor_group_key)
+        if not result and not entry_state:
+            return True, None, f"У группы {actor_group_key} пока нет node-entry результата."
+        title = str((result or {}).get("title") or (entry_state or {}).get("node_label") or "entry")
+        entry_type = str((result or {}).get("result_type") or (entry_state or {}).get("last_entry_type") or "entry")
+        return True, None, f"Node entry группы {actor_group_key}: {title} ({entry_type})."
 
     if action == "group_exploration_leads":
         if not actor_group_key:
@@ -2118,6 +2135,7 @@ def _handle_group_action_request(
         "group_service",
         "group_service_use",
         "group_map_intel",
+        "group_node_entry",
         "group_exploration_leads",
         "group_journey_set",
         "group_journey_advance",
@@ -6254,6 +6272,7 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                     "group_service",
                     "group_service_use",
                     "group_map_intel",
+                    "group_node_entry",
                     "group_exploration_leads",
                     "group_journey_set",
                     "group_journey_advance",

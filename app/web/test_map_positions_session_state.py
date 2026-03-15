@@ -3190,6 +3190,201 @@ def test_failed_or_blocked_travel_does_not_create_false_arrival_history() -> Non
     assert session_state.get_current_group_route_traversal_states(sess, player_id=player_id) == []
 
 
+def test_build_group_node_entry_result_supports_authored_and_state_sensitive_overlays() -> None:
+    player_id = uuid.uuid4()
+    sess = SimpleNamespace(settings={})
+    session_state._initialize_default_group(
+        sess,
+        [player_id],
+        {"map_level": "region", "node_type": "zone", "node_id": "craft_town", "label": "Озёрный городок"},
+    )
+
+    first_entry = session_state.build_group_node_entry_result(
+        current_map_position={"map_level": "region", "node_type": "zone", "node_id": "craft_town", "label": "Озёрный городок"},
+        node_visit_state={
+            "node_id": "craft_town",
+            "node_label": "Озёрный городок",
+            "visit_count": 1,
+            "first_visited_at": "2026-03-15T00:00:00+00:00",
+            "last_visited_at": "2026-03-15T00:00:00+00:00",
+            "last_result_type": "settlement_arrival",
+            "summary": "Первое прибытие в городок.",
+        },
+        source="test",
+    )
+    return_entry = session_state.build_group_node_entry_result(
+        current_map_position={"map_level": "region", "node_type": "zone", "node_id": "craft_town", "label": "Озёрный городок"},
+        node_visit_state={
+            "node_id": "craft_town",
+            "node_label": "Озёрный городок",
+            "visit_count": 2,
+            "first_visited_at": "2026-03-15T00:00:00+00:00",
+            "last_visited_at": "2026-03-15T01:00:00+00:00",
+            "last_result_type": "return_arrival",
+            "summary": "Возвращение в городок.",
+        },
+        source="test",
+    )
+    landmark_entry = session_state.build_group_node_entry_result(
+        current_map_position={"map_level": "landmark", "node_type": "landmark", "node_id": "fortress_gate", "label": "Ворота крепости"},
+        node_visit_state={
+            "node_id": "fortress_gate",
+            "node_label": "Ворота крепости",
+            "visit_count": 1,
+            "first_visited_at": "2026-03-15T00:00:00+00:00",
+            "last_visited_at": "2026-03-15T00:00:00+00:00",
+            "last_result_type": "landmark_arrival",
+            "summary": "Первый подход к воротам.",
+        },
+        source="test",
+    )
+    changed_entry = session_state.build_group_node_entry_result(
+        current_map_position={"map_level": "region", "node_type": "zone", "node_id": "forest_road", "label": "Лесная дорога"},
+        node_visit_state={
+            "node_id": "forest_road",
+            "node_label": "Лесная дорога",
+            "visit_count": 2,
+            "first_visited_at": "2026-03-15T00:00:00+00:00",
+            "last_visited_at": "2026-03-15T02:00:00+00:00",
+            "last_result_type": "return_arrival",
+            "summary": "Возвращение на дорогу.",
+        },
+        node_state={
+            "node_id": "forest_road",
+            "state_flags": ["old_road_cleared"],
+            "summary": "Проход был расчищен.",
+            "source": "test",
+            "updated_at": "2026-03-15T01:00:00+00:00",
+        },
+        source="test",
+    )
+    quiet_entry = session_state.build_group_node_entry_result(
+        current_map_position={"map_level": "region", "node_type": "zone", "node_id": "road_hamlet", "label": "Дорожный хутор"},
+        node_visit_state={
+            "node_id": "road_hamlet",
+            "node_label": "Дорожный хутор",
+            "visit_count": 1,
+            "first_visited_at": "2026-03-15T00:00:00+00:00",
+            "last_visited_at": "2026-03-15T00:00:00+00:00",
+            "last_result_type": "first_arrival",
+            "summary": "Первое прибытие в хутор.",
+        },
+        source="test",
+    )
+
+    assert first_entry["result_type"] == "settlement_welcome"
+    assert first_entry["title"] == "Озёрный городок принимает путников"
+    assert first_entry["first_visit"] is True
+    assert return_entry["result_type"] == "return_entry"
+    assert return_entry["title"] == "Возвращение в Озёрный городок"
+    assert return_entry["first_visit"] is False
+    assert landmark_entry["result_type"] == "landmark_reached"
+    assert landmark_entry["title"] == "Ворота крепости достигнуты"
+    assert changed_entry["result_type"] == "changed_place"
+    assert changed_entry["title"] == "Лесная дорога изменилась"
+    assert changed_entry["node_state_flags"] == ["old_road_cleared"]
+    assert quiet_entry["result_type"] == "quiet_entry"
+    assert quiet_entry["title"] == "Дорожный хутор на пути"
+
+
+def test_successful_arrival_creates_node_entry_and_failed_travel_does_not() -> None:
+    player_id = uuid.uuid4()
+    sess = SimpleNamespace(settings={})
+    session_state._initialize_default_group(
+        sess,
+        [player_id],
+        {"map_level": "region", "node_type": "zone", "node_id": "start_trakt", "label": "Стартовый тракт"},
+    )
+    session_state.grant_player_map_knowledge(sess, player_id, "craft_town", knowledge_kind="known", source="test")
+    session_state.reveal_player_map_node(sess, player_id, "craft_town", source="test")
+
+    started, error = session_state.execute_group_navigation_option(
+        sess,
+        target_node_id="craft_town",
+        player_id=player_id,
+        group_id="main",
+        source="test",
+    )
+
+    assert started is not None
+    assert error is None
+    updated = session_state.complete_group_travel(sess, "main", player_id=player_id, source="test")
+    assert updated is not None
+    assert updated["last_arrival_result"]["node_id"] == "craft_town"
+    assert updated["last_node_entry_result"]["node_id"] == "craft_town"
+    assert updated["last_node_entry_result"]["result_type"] == "settlement_welcome"
+    assert updated["node_entry_states"]["craft_town"]["entry_count"] == 1
+    assert session_state.get_current_group_last_node_entry_result(sess, player_id=player_id)["result_type"] == "settlement_welcome"
+    assert session_state.get_current_group_current_node_entry_state(sess, player_id=player_id)["entry_count"] == 1
+    context = session_state.get_current_group_node_context(sess, player_id=player_id)
+    assert context["current_entry_type"] == "settlement_welcome"
+    assert context["current_entry_note"] == "Городок встречает группу как новый спокойный узел пути у воды."
+
+    blocked_sess = SimpleNamespace(settings={})
+    session_state._initialize_default_group(
+        blocked_sess,
+        [player_id],
+        {"map_level": "region", "node_type": "zone", "node_id": "start_trakt", "label": "Стартовый тракт"},
+    )
+    session_state.grant_player_map_knowledge(blocked_sess, player_id, "craft_town", knowledge_kind="known", source="test")
+    session_state.reveal_player_map_node(blocked_sess, player_id, "craft_town", source="test")
+    session_state.set_group_route_access_state(
+        blocked_sess,
+        "main",
+        "start_trakt->craft_town:move",
+        access_state="blocked",
+        summary="Путь перекрыт.",
+        block_reason="blocked_path",
+        source="test",
+    )
+
+    blocked_updated, blocked_error = session_state.execute_group_navigation_option(
+        blocked_sess,
+        target_node_id="craft_town",
+        player_id=player_id,
+        group_id="main",
+        source="test",
+    )
+
+    assert blocked_updated is None
+    assert blocked_error == "Маршрут к Озёрный городок сейчас заблокирован: blocked_path."
+    assert session_state.get_current_group_last_node_entry_result(blocked_sess, player_id=player_id) is None
+    assert session_state.get_current_group_current_node_entry_state(blocked_sess, player_id=player_id) is None
+
+
+def test_confirm_group_enter_creates_node_entry_result() -> None:
+    player_id = uuid.uuid4()
+    sess = SimpleNamespace(settings={})
+    session_state._initialize_default_group(
+        sess,
+        [player_id],
+        {"map_level": "region", "node_type": "zone", "node_id": "ruined_settlement", "label": "Разрушенный посёлок"},
+    )
+    session_state.maybe_apply_group_enter_target(
+        sess,
+        "main",
+        {
+            "map_level": "interior",
+            "node_type": "interior_entry",
+            "node_id": "mine_entrance",
+            "label": "Шахтный вход",
+            "zone_label": "Разрушенный посёлок",
+            "area_label": "Разрушенный посёлок",
+        },
+        source="test",
+    )
+
+    confirmed = session_state.confirm_group_enter(sess, "main", player_id=player_id, source="test")
+
+    assert confirmed is not None
+    assert confirmed["last_arrival_result"]["node_id"] == "mine_entrance"
+    assert confirmed["last_node_entry_result"]["node_id"] == "mine_entrance"
+    assert confirmed["last_node_entry_result"]["result_type"] == "landmark_reached"
+    assert session_state.get_current_group_node_entry_states(sess, player_id=player_id) == [
+        confirmed["node_entry_states"]["mine_entrance"]
+    ]
+
+
 def test_group_route_planning_builds_reachable_destinations_and_frontiers() -> None:
     player_id = uuid.uuid4()
     sess = SimpleNamespace(settings={})

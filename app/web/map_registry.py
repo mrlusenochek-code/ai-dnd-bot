@@ -587,6 +587,51 @@ STATIC_MAP_NODE_STATE_OVERLAYS: tuple[dict[str, Any], ...] = (
 )
 
 
+STATIC_MAP_NODE_ENTRY_OVERLAYS: tuple[dict[str, Any], ...] = (
+    {
+        "node_id": "craft_town",
+        "first_entry_type": "settlement_welcome",
+        "first_entry_title": "Озёрный городок принимает путников",
+        "first_entry_note": "Городок встречает группу как новый спокойный узел пути у воды.",
+        "return_entry_type": "return_entry",
+        "return_entry_title": "Возвращение в Озёрный городок",
+        "return_entry_note": "Знакомые улицы и пристань быстро возвращают группе прежний ориентир.",
+    },
+    {
+        "node_id": "fortress_gate",
+        "first_entry_type": "landmark_reached",
+        "first_entry_title": "Ворота крепости достигнуты",
+        "first_entry_note": "Подъём к крепостным воротам отмечает явную веху на маршруте группы.",
+        "return_entry_type": "return_entry",
+        "return_entry_title": "Снова у ворот крепости",
+        "return_entry_note": "Крепостной подход уже знаком, и группа быстро считывает прежний порядок пути.",
+    },
+    {
+        "node_id": "forest_road",
+        "state_flag": "old_road_cleared",
+        "entry_type": "changed_place",
+        "entry_title": "Лесная дорога изменилась",
+        "entry_note": "У входа на лесную дорогу сразу заметно, что старый завал уже разобран и место ощущается иначе.",
+    },
+    {
+        "node_id": "ruined_settlement",
+        "state_flag": "mine_path_shored",
+        "entry_type": "changed_place",
+        "entry_title": "Руины с новым укреплением",
+        "entry_note": "Подход к руинам теперь выглядит иначе: у шахтного направления заметны свежие подпорки и следы недавней работы.",
+    },
+    {
+        "node_id": "road_hamlet",
+        "first_entry_type": "quiet_entry",
+        "first_entry_title": "Дорожный хутор на пути",
+        "first_entry_note": "Небольшой хутор даёт группе короткую передышку без лишнего шума.",
+        "return_entry_type": "return_entry",
+        "return_entry_title": "Снова в дорожном хуторе",
+        "return_entry_note": "Хутор уже знаком и воспринимается скорее как тихая отметка на маршруте.",
+    },
+)
+
+
 STATIC_MAP_SERVICE_EFFECTS: tuple[dict[str, Any], ...] = (
     {
         "node_id": "craft_town",
@@ -927,6 +972,51 @@ def get_static_node_state_overlays(
         if service_note:
             overlay["service_note"] = service_note
         if state_flag:
+            overlays.append(overlay)
+    return overlays
+
+
+def get_static_node_entry_overlays(
+    *,
+    node_id: str | None = None,
+    current_map_position: dict[str, Any] | None = None,
+    state_flags: list[str] | set[str] | None = None,
+) -> list[dict[str, Any]]:
+    resolved_node_id = _normalized_text(node_id)
+    if not resolved_node_id and isinstance(current_map_position, dict):
+        resolved_node_id = _normalized_text(current_map_position.get("node_id"))
+    if not resolved_node_id:
+        return []
+    normalized_flags = {
+        _normalized_text(flag)
+        for flag in (state_flags or [])
+        if _normalized_text(flag)
+    }
+    overlays: list[dict[str, Any]] = []
+    for item in STATIC_MAP_NODE_ENTRY_OVERLAYS:
+        if _normalized_text(item.get("node_id")) != resolved_node_id:
+            continue
+        state_flag = _normalized_text(item.get("state_flag"))
+        if state_flag and state_flag not in normalized_flags:
+            continue
+        overlay: dict[str, Any] = {"node_id": resolved_node_id}
+        if state_flag:
+            overlay["state_flag"] = state_flag
+        for key in (
+            "entry_type",
+            "entry_title",
+            "entry_note",
+            "first_entry_type",
+            "first_entry_title",
+            "first_entry_note",
+            "return_entry_type",
+            "return_entry_title",
+            "return_entry_note",
+        ):
+            value = str(item.get(key) or "").strip()
+            if value:
+                overlay[key] = value
+        if len(overlay) > 1:
             overlays.append(overlay)
     return overlays
 

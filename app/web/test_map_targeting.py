@@ -9,6 +9,7 @@ from app.web.map_registry import (
     get_static_node_service_effects,
     get_static_node_inspect_result,
     get_static_node_state_overlays,
+    get_static_node_entry_overlays,
     get_static_node_service_result,
     get_static_node_services,
     get_static_navigation_options,
@@ -257,6 +258,29 @@ def test_get_static_node_state_overlays_returns_authored_notes_for_flags() -> No
             "state_flag": "old_road_cleared",
             "context_note": "У старой дороги видны следы недавней расчистки, и проход к руинам читается увереннее.",
             "detail_note": "Сломанные ветви и свежие борозды в грязи показывают, что завал уже разбирали совсем недавно.",
+        }
+    ]
+
+
+def test_get_static_node_entry_overlays_returns_authored_first_return_and_state_sensitive_notes() -> None:
+    assert get_static_node_entry_overlays(node_id="craft_town") == [
+        {
+            "node_id": "craft_town",
+            "first_entry_type": "settlement_welcome",
+            "first_entry_title": "Озёрный городок принимает путников",
+            "first_entry_note": "Городок встречает группу как новый спокойный узел пути у воды.",
+            "return_entry_type": "return_entry",
+            "return_entry_title": "Возвращение в Озёрный городок",
+            "return_entry_note": "Знакомые улицы и пристань быстро возвращают группе прежний ориентир.",
+        }
+    ]
+    assert get_static_node_entry_overlays(node_id="forest_road", state_flags=["old_road_cleared"]) == [
+        {
+            "node_id": "forest_road",
+            "state_flag": "old_road_cleared",
+            "entry_type": "changed_place",
+            "entry_title": "Лесная дорога изменилась",
+            "entry_note": "У входа на лесную дорогу сразу заметно, что старый завал уже разобран и место ощущается иначе.",
         }
     ]
 
