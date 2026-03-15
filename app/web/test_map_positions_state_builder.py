@@ -148,9 +148,12 @@ def test_build_state_includes_legacy_and_structured_positions(monkeypatch) -> No
     monkeypatch.setattr(state_builder, "get_current_group_primary_region_gateway", lambda _sess, player_id=None: None)
     monkeypatch.setattr(state_builder, "get_current_group_current_region_state", lambda _sess, player_id=None: None)
     monkeypatch.setattr(state_builder, "get_current_group_discovered_regions", lambda _sess, player_id=None: [])
+    monkeypatch.setattr(state_builder, "get_current_group_discovered_region_summaries", lambda _sess, player_id=None: [])
     monkeypatch.setattr(state_builder, "get_current_group_last_region_entry_result", lambda _sess, player_id=None: None)
     monkeypatch.setattr(state_builder, "get_current_group_last_region_onboarding_result", lambda _sess, player_id=None: None)
     monkeypatch.setattr(state_builder, "get_current_group_region_onboarding_states", lambda _sess, player_id=None: [])
+    monkeypatch.setattr(state_builder, "get_current_group_region_world_overview", lambda _sess, player_id=None: None)
+    monkeypatch.setattr(state_builder, "get_current_group_primary_region_focus", lambda _sess, player_id=None: None)
     monkeypatch.setattr(state_builder, "get_current_group_last_region_transition_result", lambda _sess, player_id=None: None)
     monkeypatch.setattr(state_builder, "get_current_group_region_transition_state", lambda _sess, player_id=None: None)
     monkeypatch.setattr(
@@ -252,9 +255,12 @@ def test_build_state_includes_legacy_and_structured_positions(monkeypatch) -> No
     assert payload["game"]["current_group_primary_region_gateway"] is None
     assert payload["game"]["current_group_current_region_state"] is None
     assert payload["game"]["current_group_discovered_regions"] == []
+    assert payload["game"]["current_group_discovered_region_summaries"] == []
     assert payload["game"]["current_group_last_region_entry_result"] is None
     assert payload["game"]["current_group_last_region_onboarding_result"] is None
     assert payload["game"]["current_group_region_onboarding_states"] == []
+    assert payload["game"]["current_group_region_world_overview"] is None
+    assert payload["game"]["current_group_primary_region_focus"] is None
     assert payload["game"]["current_group_last_region_transition_result"] is None
     assert payload["game"]["current_group_region_transition_state"] is None
     assert payload["game"]["current_group_navigation_options"] == []
@@ -451,6 +457,30 @@ def test_build_state_exports_region_residency_payloads(monkeypatch) -> None:
     )
     monkeypatch.setattr(
         state_builder,
+        "get_current_group_discovered_region_summaries",
+        lambda _sess, player_id=None: [
+            {
+                "region_id": "northwatch_frontier",
+                "region_label": "Северный рубеж",
+                "region_status": "newly_onboarded_region",
+                "summary": "Северный рубеж только что закреплён как новый регион и пока остаётся свежим стартовым плацдармом.",
+                "current_region": True,
+                "visit_count": 1,
+                "first_entered_at": "2025-01-02T00:00:00+00:00",
+                "last_entered_at": "2025-01-02T00:00:00+00:00",
+                "revealed_node_count": 1,
+                "visited_node_count": 1,
+                "unresolved_local_node_count": 0,
+                "blocked_frontier_count": 0,
+                "reachable_unvisited_count": 0,
+                "onboarding_status": "applied",
+                "primary_frontier": None,
+                "source": "region_world_overview",
+            }
+        ],
+    )
+    monkeypatch.setattr(
+        state_builder,
         "get_current_group_last_region_entry_result",
         lambda _sess, player_id=None: {
             "result_id": "region-entry-2",
@@ -499,6 +529,55 @@ def test_build_state_exports_region_residency_payloads(monkeypatch) -> None:
             }
         ],
     )
+    monkeypatch.setattr(
+        state_builder,
+        "get_current_group_region_world_overview",
+        lambda _sess, player_id=None: {
+            "current_region_id": "northwatch_frontier",
+            "current_region_label": "Северный рубеж",
+            "discovered_region_count": 1,
+            "active_region_count": 1,
+            "blocked_region_count": 0,
+            "saturated_region_count": 0,
+            "quiet_region_count": 0,
+            "primary_region_focus": {
+                "region_id": "northwatch_frontier",
+                "region_label": "Северный рубеж",
+                "region_status": "newly_onboarded_region",
+            },
+            "region_summaries": [
+                {
+                    "region_id": "northwatch_frontier",
+                    "region_label": "Северный рубеж",
+                    "region_status": "newly_onboarded_region",
+                    "summary": "Северный рубеж только что закреплён как новый регион и пока остаётся свежим стартовым плацдармом.",
+                    "current_region": True,
+                    "visit_count": 1,
+                    "first_entered_at": "2025-01-02T00:00:00+00:00",
+                    "last_entered_at": "2025-01-02T00:00:00+00:00",
+                    "revealed_node_count": 1,
+                    "visited_node_count": 1,
+                    "unresolved_local_node_count": 0,
+                    "blocked_frontier_count": 0,
+                    "reachable_unvisited_count": 0,
+                    "onboarding_status": "applied",
+                    "primary_frontier": None,
+                    "source": "region_world_overview",
+                }
+            ],
+            "summary": "Группа видит 1 открытых регионов: 1 активных, 0 упёршихся в блоки, 0 в основном выработанных и 0 тихих.",
+        },
+    )
+    monkeypatch.setattr(
+        state_builder,
+        "get_current_group_primary_region_focus",
+        lambda _sess, player_id=None: {
+            "region_id": "northwatch_frontier",
+            "region_label": "Северный рубеж",
+            "region_status": "newly_onboarded_region",
+            "summary": "Северный рубеж только что закреплён как новый регион и пока остаётся свежим стартовым плацдармом.",
+        },
+    )
     monkeypatch.setattr(state_builder, "get_current_group_last_region_transition_result", lambda _sess, player_id=None: None)
     monkeypatch.setattr(state_builder, "get_current_group_region_transition_state", lambda _sess, player_id=None: None)
     monkeypatch.setattr(state_builder, "get_current_group_navigation_options", lambda _sess, player_id=None: [])
@@ -529,8 +608,11 @@ def test_build_state_exports_region_residency_payloads(monkeypatch) -> None:
         "northwatch_frontier",
     ]
     assert payload["game"]["current_group_last_region_entry_result"]["result_type"] == "region_transition_entry"
+    assert payload["game"]["current_group_discovered_region_summaries"][0]["region_id"] == "northwatch_frontier"
     assert payload["game"]["current_group_last_region_onboarding_result"]["result_type"] == "anchor_reveal_applied"
     assert payload["game"]["current_group_region_onboarding_states"][0]["region_id"] == "northwatch_frontier"
+    assert payload["game"]["current_group_region_world_overview"]["current_region_id"] == "northwatch_frontier"
+    assert payload["game"]["current_group_primary_region_focus"]["region_status"] == "newly_onboarded_region"
 
 
 def test_build_state_exports_current_player_group_id(monkeypatch) -> None:
@@ -1374,6 +1456,34 @@ def test_build_state_exports_current_player_group_id(monkeypatch) -> None:
     )
     monkeypatch.setattr(
         state_builder,
+        "get_current_group_discovered_region_summaries",
+        lambda _sess, player_id=None: [
+            {
+                "region_id": "starter_frontier",
+                "region_label": "Стартовое пограничье",
+                "region_status": "current_active_region",
+                "summary": "Стартовое пограничье остаётся основным рабочим frontier-регионом группы.",
+                "current_region": True,
+                "visit_count": 1,
+                "first_entered_at": "2025-01-01T00:00:00+00:00",
+                "last_entered_at": "2025-01-01T00:00:00+00:00",
+                "revealed_node_count": 2,
+                "visited_node_count": 1,
+                "unresolved_local_node_count": 1,
+                "blocked_frontier_count": 0,
+                "reachable_unvisited_count": 1,
+                "onboarding_status": "applied",
+                "primary_frontier": {
+                    "target_node_id": "craft_town",
+                    "target_node_label": "Озёрный городок",
+                    "plan_status": "reachable",
+                },
+                "source": "region_world_overview",
+            }
+        ],
+    )
+    monkeypatch.setattr(
+        state_builder,
         "get_current_group_last_region_entry_result",
         lambda _sess, player_id=None: {
             "result_id": "region-entry-1",
@@ -1421,6 +1531,60 @@ def test_build_state_exports_current_player_group_id(monkeypatch) -> None:
                 "updated_at": "2025-01-01T00:00:00+00:00",
             }
         ],
+    )
+    monkeypatch.setattr(
+        state_builder,
+        "get_current_group_region_world_overview",
+        lambda _sess, player_id=None: {
+            "current_region_id": "starter_frontier",
+            "current_region_label": "Стартовое пограничье",
+            "discovered_region_count": 1,
+            "active_region_count": 1,
+            "blocked_region_count": 0,
+            "saturated_region_count": 0,
+            "quiet_region_count": 0,
+            "primary_region_focus": {
+                "region_id": "starter_frontier",
+                "region_label": "Стартовое пограничье",
+                "region_status": "current_active_region",
+                "summary": "Стартовое пограничье остаётся основным рабочим frontier-регионом группы.",
+            },
+            "region_summaries": [
+                {
+                    "region_id": "starter_frontier",
+                    "region_label": "Стартовое пограничье",
+                    "region_status": "current_active_region",
+                    "summary": "Стартовое пограничье остаётся основным рабочим frontier-регионом группы.",
+                    "current_region": True,
+                    "visit_count": 1,
+                    "first_entered_at": "2025-01-01T00:00:00+00:00",
+                    "last_entered_at": "2025-01-01T00:00:00+00:00",
+                    "revealed_node_count": 2,
+                    "visited_node_count": 1,
+                    "unresolved_local_node_count": 1,
+                    "blocked_frontier_count": 0,
+                    "reachable_unvisited_count": 1,
+                    "onboarding_status": "applied",
+                    "primary_frontier": {
+                        "target_node_id": "craft_town",
+                        "target_node_label": "Озёрный городок",
+                        "plan_status": "reachable",
+                    },
+                    "source": "region_world_overview",
+                }
+            ],
+            "summary": "Группа видит 1 открытых регионов: 1 активных, 0 упёршихся в блоки, 0 в основном выработанных и 0 тихих.",
+        },
+    )
+    monkeypatch.setattr(
+        state_builder,
+        "get_current_group_primary_region_focus",
+        lambda _sess, player_id=None: {
+            "region_id": "starter_frontier",
+            "region_label": "Стартовое пограничье",
+            "region_status": "current_active_region",
+            "summary": "Стартовое пограничье остаётся основным рабочим frontier-регионом группы.",
+        },
     )
     monkeypatch.setattr(
         state_builder,
@@ -2088,6 +2252,30 @@ def test_build_state_exports_current_player_group_id(monkeypatch) -> None:
             "summary": "Группа впервые входит в регион Стартовое пограничье.",
         }
     ]
+    assert payload["game"]["current_group_discovered_region_summaries"] == [
+        {
+            "region_id": "starter_frontier",
+            "region_label": "Стартовое пограничье",
+            "region_status": "current_active_region",
+            "summary": "Стартовое пограничье остаётся основным рабочим frontier-регионом группы.",
+            "current_region": True,
+            "visit_count": 1,
+            "first_entered_at": "2025-01-01T00:00:00+00:00",
+            "last_entered_at": "2025-01-01T00:00:00+00:00",
+            "revealed_node_count": 2,
+            "visited_node_count": 1,
+            "unresolved_local_node_count": 1,
+            "blocked_frontier_count": 0,
+            "reachable_unvisited_count": 1,
+            "onboarding_status": "applied",
+            "primary_frontier": {
+                "target_node_id": "craft_town",
+                "target_node_label": "Озёрный городок",
+                "plan_status": "reachable",
+            },
+            "source": "region_world_overview",
+        }
+    ]
     assert payload["game"]["current_group_last_region_entry_result"] == {
         "result_id": "region-entry-1",
         "result_type": "first_region_entry",
@@ -2126,6 +2314,52 @@ def test_build_state_exports_current_player_group_id(monkeypatch) -> None:
             "updated_at": "2025-01-01T00:00:00+00:00",
         }
     ]
+    assert payload["game"]["current_group_region_world_overview"] == {
+        "current_region_id": "starter_frontier",
+        "current_region_label": "Стартовое пограничье",
+        "discovered_region_count": 1,
+        "active_region_count": 1,
+        "blocked_region_count": 0,
+        "saturated_region_count": 0,
+        "quiet_region_count": 0,
+        "primary_region_focus": {
+            "region_id": "starter_frontier",
+            "region_label": "Стартовое пограничье",
+            "region_status": "current_active_region",
+            "summary": "Стартовое пограничье остаётся основным рабочим frontier-регионом группы.",
+        },
+        "region_summaries": [
+            {
+                "region_id": "starter_frontier",
+                "region_label": "Стартовое пограничье",
+                "region_status": "current_active_region",
+                "summary": "Стартовое пограничье остаётся основным рабочим frontier-регионом группы.",
+                "current_region": True,
+                "visit_count": 1,
+                "first_entered_at": "2025-01-01T00:00:00+00:00",
+                "last_entered_at": "2025-01-01T00:00:00+00:00",
+                "revealed_node_count": 2,
+                "visited_node_count": 1,
+                "unresolved_local_node_count": 1,
+                "blocked_frontier_count": 0,
+                "reachable_unvisited_count": 1,
+                "onboarding_status": "applied",
+                "primary_frontier": {
+                    "target_node_id": "craft_town",
+                    "target_node_label": "Озёрный городок",
+                    "plan_status": "reachable",
+                },
+                "source": "region_world_overview",
+            }
+        ],
+        "summary": "Группа видит 1 открытых регионов: 1 активных, 0 упёршихся в блоки, 0 в основном выработанных и 0 тихих.",
+    }
+    assert payload["game"]["current_group_primary_region_focus"] == {
+        "region_id": "starter_frontier",
+        "region_label": "Стартовое пограничье",
+        "region_status": "current_active_region",
+        "summary": "Стартовое пограничье остаётся основным рабочим frontier-регионом группы.",
+    }
     assert payload["game"]["current_group_last_region_transition_result"] == {
         "result_id": "transition-1",
         "gateway_id": "forest_settlement_northwatch",

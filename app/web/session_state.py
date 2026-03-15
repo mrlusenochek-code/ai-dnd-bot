@@ -5619,6 +5619,439 @@ def get_current_group_region_exploration_summary(
     return get_group_region_exploration_summary(sess, resolved_group_id)
 
 
+def _normalize_group_discovered_region_summary(raw: Any) -> dict[str, Any] | None:
+    if not isinstance(raw, dict):
+        return None
+    region_id = str(raw.get("region_id") or "").strip().lower()
+    region_label = str(raw.get("region_label") or region_id).strip()
+    region_status = str(raw.get("region_status") or "").strip().lower()
+    summary = str(raw.get("summary") or "").strip()
+    onboarding_status = str(raw.get("onboarding_status") or "").strip().lower()
+    primary_frontier = dict(raw.get("primary_frontier") or {}) if isinstance(raw.get("primary_frontier"), dict) else None
+    if region_status not in {
+        "current_active_region",
+        "current_blocked_region",
+        "active_region",
+        "blocked_region",
+        "saturated_region",
+        "quiet_region",
+        "newly_onboarded_region",
+    }:
+        return None
+    if not region_id or not region_label or not summary:
+        return None
+    return {
+        "region_id": region_id[:120],
+        "region_label": region_label[:160],
+        "region_status": region_status[:40],
+        "summary": summary[:400],
+        "current_region": bool(raw.get("current_region")),
+        "visit_count": max(0, as_int(raw.get("visit_count"), 0)),
+        "first_entered_at": str(raw.get("first_entered_at") or "")[:80],
+        "last_entered_at": str(raw.get("last_entered_at") or "")[:80],
+        "revealed_node_count": max(0, as_int(raw.get("revealed_node_count"), 0)),
+        "visited_node_count": max(0, as_int(raw.get("visited_node_count"), 0)),
+        "unresolved_local_node_count": max(0, as_int(raw.get("unresolved_local_node_count"), 0)),
+        "blocked_frontier_count": max(0, as_int(raw.get("blocked_frontier_count"), 0)),
+        "reachable_unvisited_count": max(0, as_int(raw.get("reachable_unvisited_count"), 0)),
+        "onboarding_status": onboarding_status[:40],
+        "primary_frontier": primary_frontier,
+        "source": str(raw.get("source") or "region_world_overview")[:40] or "region_world_overview",
+    }
+
+
+def build_group_discovered_region_summary(
+    *,
+    region_id: str,
+    region_label: str,
+    region_status: str,
+    summary: str,
+    current_region: bool = False,
+    visit_count: int = 0,
+    first_entered_at: str = "",
+    last_entered_at: str = "",
+    revealed_node_count: int = 0,
+    visited_node_count: int = 0,
+    unresolved_local_node_count: int = 0,
+    blocked_frontier_count: int = 0,
+    reachable_unvisited_count: int = 0,
+    onboarding_status: str = "",
+    primary_frontier: dict[str, Any] | None = None,
+    source: str = "region_world_overview",
+) -> dict[str, Any] | None:
+    return _normalize_group_discovered_region_summary(
+        {
+            "region_id": region_id,
+            "region_label": region_label,
+            "region_status": region_status,
+            "summary": summary,
+            "current_region": current_region,
+            "visit_count": visit_count,
+            "first_entered_at": first_entered_at,
+            "last_entered_at": last_entered_at,
+            "revealed_node_count": revealed_node_count,
+            "visited_node_count": visited_node_count,
+            "unresolved_local_node_count": unresolved_local_node_count,
+            "blocked_frontier_count": blocked_frontier_count,
+            "reachable_unvisited_count": reachable_unvisited_count,
+            "onboarding_status": onboarding_status,
+            "primary_frontier": primary_frontier,
+            "source": source,
+        }
+    )
+
+
+def _normalize_group_region_world_overview(raw: Any) -> dict[str, Any] | None:
+    if not isinstance(raw, dict):
+        return None
+    current_region_id = str(raw.get("current_region_id") or "").strip().lower()
+    current_region_label = str(raw.get("current_region_label") or current_region_id).strip()
+    region_summaries = [
+        dict(item)
+        for item in (raw.get("region_summaries") or [])
+        if _normalize_group_discovered_region_summary(item)
+    ] if isinstance(raw.get("region_summaries"), list) else []
+    primary_region_focus = _normalize_group_discovered_region_summary(raw.get("primary_region_focus"))
+    summary = str(raw.get("summary") or "").strip()
+    if not current_region_id or not current_region_label or not summary:
+        return None
+    return {
+        "current_region_id": current_region_id[:120],
+        "current_region_label": current_region_label[:160],
+        "discovered_region_count": max(0, as_int(raw.get("discovered_region_count"), 0)),
+        "active_region_count": max(0, as_int(raw.get("active_region_count"), 0)),
+        "blocked_region_count": max(0, as_int(raw.get("blocked_region_count"), 0)),
+        "saturated_region_count": max(0, as_int(raw.get("saturated_region_count"), 0)),
+        "quiet_region_count": max(0, as_int(raw.get("quiet_region_count"), 0)),
+        "primary_region_focus": primary_region_focus,
+        "region_summaries": region_summaries,
+        "summary": summary[:400],
+    }
+
+
+def _resolve_region_identity_for_node_id(node_id: str | None) -> dict[str, Any] | None:
+    resolved_node_id = str(node_id or "").strip().lower()
+    if not resolved_node_id:
+        return None
+    identity = get_static_region_identity(node_id=resolved_node_id) or {}
+    region_id = str(identity.get("region_id") or "").strip().lower()
+    region_label = str(identity.get("region_label") or "").strip()
+    if not region_id or not region_label:
+        return None
+    return {"region_id": region_id, "region_label": region_label}
+
+
+def _build_region_gateway_snapshots_for_group(
+    sess: Session,
+    group_id: str,
+) -> list[dict[str, Any]]:
+    group_key = str(group_id or "").strip()
+    group = _get_group_states(sess).get(group_key)
+    if not isinstance(group, dict):
+        return []
+    revealed_node_ids = _get_group_revealed_node_ids(sess, group)
+    visit_map = _normalize_group_node_visit_state_map(group.get("node_visit_states"))
+    discovered_map = _normalize_group_discovered_region_map(group.get("discovered_regions"))
+    node_state_map = _normalize_group_node_state_map(group.get("node_states"))
+    destination_event_map = _normalize_group_destination_event_state_map(group.get("destination_event_states"))
+    known_anchor_node_ids = {
+        str(node_id).strip().lower()
+        for region in discovered_map.values()
+        for node_id in (region.get("first_anchor_node_id"), region.get("last_anchor_node_id"))
+        if str(node_id or "").strip()
+    }
+    current_region_state = _normalize_group_current_region_state(group.get("current_region_state"))
+    current_anchor_node_id = str((current_region_state or {}).get("current_node_id") or "").strip().lower()
+    if current_anchor_node_id:
+        known_anchor_node_ids.add(current_anchor_node_id)
+    snapshots: list[dict[str, Any]] = []
+    for definition in get_static_region_gateways(region_id="region"):
+        if not isinstance(definition, dict):
+            continue
+        source_node_id = str(definition.get("source_node_id") or "").strip().lower()
+        if not source_node_id:
+            continue
+        if source_node_id not in revealed_node_ids and source_node_id not in known_anchor_node_ids:
+            continue
+        if source_node_id not in visit_map and source_node_id not in known_anchor_node_ids:
+            continue
+        route_id = str(definition.get("route_id") or "").strip().lower()
+        effective_route_access = get_effective_group_route_access_state(sess, group_key, route_id=route_id) if route_id else {}
+        blocked = bool(route_id and str((effective_route_access or {}).get("access_state") or "").strip().lower() == "blocked")
+        node_state_flags = list((node_state_map.get(source_node_id) or {}).get("state_flags") or [])
+        destination_event_state = destination_event_map.get(source_node_id)
+        visit_count = max(0, as_int((visit_map.get(source_node_id) or {}).get("visit_count"), 0))
+        requirements = {
+            key: definition.get(key)
+            for key in (
+                "requires_node_state_flag",
+                "requires_destination_event_id",
+                "requires_destination_event_result_type",
+                "requires_min_visit_count",
+            )
+            if definition.get(key) not in {None, ""}
+        }
+        requirement_eval = _evaluate_local_requirement_set(
+            requirements=requirements,
+            state_flags=node_state_flags,
+            destination_event_state=destination_event_state,
+            visit_count=visit_count,
+        )
+        future_stub = bool(definition.get("future_stub"))
+        locked = bool(requirement_eval.get("locked"))
+        if future_stub:
+            gateway_status = "future_stub"
+        elif blocked:
+            gateway_status = "blocked"
+        elif locked:
+            gateway_status = "locked"
+        else:
+            gateway_status = "open"
+        snapshots.append(
+            {
+                "gateway_id": str(definition.get("gateway_id") or ""),
+                "gateway_label": str(definition.get("label") or definition.get("gateway_id") or ""),
+                "gateway_status": gateway_status,
+                "source_node_id": source_node_id,
+                "route_id": route_id,
+                "target_region_id": str(definition.get("target_region_id") or "").strip().lower(),
+                "target_region_label": str(definition.get("target_region_label") or definition.get("target_region_id") or ""),
+                "blocked_reason": str((effective_route_access or {}).get("block_reason") or ""),
+                "unlock_hint": str(definition.get("unlock_hint") or ""),
+                "future_stub": future_stub,
+            }
+        )
+    return snapshots
+
+
+def _region_focus_sort_key(summary: dict[str, Any]) -> tuple[int, int, int, int, int, str]:
+    status = str(summary.get("region_status") or "").strip().lower()
+    status_order = {
+        "newly_onboarded_region": 0,
+        "current_active_region": 1,
+        "current_blocked_region": 2,
+        "active_region": 3,
+        "blocked_region": 4,
+        "saturated_region": 5,
+        "quiet_region": 6,
+    }
+    return (
+        status_order.get(status, 99),
+        0 if bool(summary.get("current_region")) else 1,
+        -max(0, as_int(summary.get("reachable_unvisited_count"), 0)),
+        -max(0, as_int(summary.get("unresolved_local_node_count"), 0)),
+        -max(0, as_int(summary.get("visit_count"), 0)),
+        str(summary.get("region_label") or ""),
+    )
+
+
+def get_group_discovered_region_summaries(sess: Session, group_id: str) -> list[dict[str, Any]]:
+    group_key = str(group_id or "").strip()
+    group = _get_group_states(sess).get(group_key)
+    if not isinstance(group, dict):
+        return []
+    current_region_state = _normalize_group_current_region_state(group.get("current_region_state"))
+    discovered_map = _normalize_group_discovered_region_map(group.get("discovered_regions"))
+    if not discovered_map:
+        return []
+    current_region_summary = get_group_region_exploration_summary(sess, group_key) or {}
+    onboarding_map = _normalize_group_region_onboarding_state_map(group.get("region_onboarding_states"))
+    revealed_node_ids = sorted(_get_group_revealed_node_ids(sess, group))
+    visit_map = _normalize_group_node_visit_state_map(group.get("node_visit_states"))
+    gateway_snapshots = _build_region_gateway_snapshots_for_group(sess, group_key)
+    region_summaries: list[dict[str, Any]] = []
+    for region_id, discovered_state in discovered_map.items():
+        region_label = str(discovered_state.get("region_label") or region_id).strip()
+        is_current_region = str((current_region_state or {}).get("region_id") or "").strip().lower() == region_id
+        revealed_nodes_in_region = [
+            node_id
+            for node_id in revealed_node_ids
+            if str(((_resolve_region_identity_for_node_id(node_id) or {}).get("region_id")) or "") == region_id
+        ]
+        visited_nodes_in_region = [
+            node_id
+            for node_id in visit_map.keys()
+            if str(((_resolve_region_identity_for_node_id(node_id) or {}).get("region_id")) or "") == region_id
+        ]
+        for anchor_key in ("first_anchor_node_id", "last_anchor_node_id"):
+            anchor_node_id = str(discovered_state.get(anchor_key) or "").strip().lower()
+            if not anchor_node_id:
+                continue
+            anchor_identity = _resolve_region_identity_for_node_id(anchor_node_id) or {}
+            if str(anchor_identity.get("region_id") or "") != region_id:
+                continue
+            if anchor_node_id not in revealed_nodes_in_region:
+                revealed_nodes_in_region.append(anchor_node_id)
+            if anchor_node_id not in visited_nodes_in_region:
+                visited_nodes_in_region.append(anchor_node_id)
+        unresolved_local_nodes = []
+        for node_id in sorted(visited_nodes_in_region):
+            progress = _build_group_node_progress_summary_for_node(sess, group_key, node_id)
+            if not progress:
+                continue
+            if str(progress.get("progression_status") or "").strip().lower() not in {
+                "newly_arrived",
+                "locally_active",
+                "partially_resolved",
+                "revisit_changed",
+            }:
+                continue
+            unresolved_local_nodes.append(progress)
+        region_gateway_snapshots = [
+            dict(item)
+            for item in gateway_snapshots
+            if str(((_resolve_region_identity_for_node_id(item.get("source_node_id")) or {}).get("region_id")) or "") == region_id
+        ]
+        blocked_frontier_count = sum(1 for item in region_gateway_snapshots if str(item.get("gateway_status") or "") == "blocked")
+        primary_frontier: dict[str, Any] | None = None
+        reachable_unvisited_count = max(0, len(revealed_nodes_in_region) - len(visited_nodes_in_region))
+        summary_text = ""
+        onboarding_status = str((onboarding_map.get(region_id) or {}).get("status") or "").strip().lower()
+        if is_current_region and current_region_summary:
+            blocked_frontier_count = max(blocked_frontier_count, as_int(current_region_summary.get("blocked_frontier_count"), 0))
+            reachable_unvisited_count = max(reachable_unvisited_count, as_int(current_region_summary.get("reachable_unvisited_count"), 0))
+            primary_frontier = dict(current_region_summary.get("current_primary_frontier") or {}) if isinstance(current_region_summary.get("current_primary_frontier"), dict) else None
+            current_progression_status = str(current_region_summary.get("progression_status") or "").strip().lower()
+            if onboarding_status == "applied" and as_int(discovered_state.get("visit_count"), 0) <= 1 and as_int(current_region_summary.get("visited_node_count"), 0) <= 1:
+                region_status = "newly_onboarded_region"
+                summary_text = f"{region_label} только что onboarded и пока раскрывает стартовый срез вокруг якоря входа."
+            elif current_progression_status == "blocked_progress":
+                region_status = "current_blocked_region"
+                summary_text = str(current_region_summary.get("summary") or "")
+            elif current_progression_status in {"active_frontier", "expanding_routes", "newly_opened_region"} or unresolved_local_nodes:
+                region_status = "current_active_region"
+                summary_text = str(current_region_summary.get("summary") or "")
+            elif current_progression_status == "locally_saturated":
+                region_status = "saturated_region"
+                summary_text = str(current_region_summary.get("summary") or "")
+            else:
+                region_status = "quiet_region"
+                summary_text = str(current_region_summary.get("summary") or "")
+        else:
+            blocked_gateway = next((item for item in region_gateway_snapshots if str(item.get("gateway_status") or "") == "blocked"), None)
+            if blocked_gateway:
+                primary_frontier = {
+                    "gateway_id": str(blocked_gateway.get("gateway_id") or ""),
+                    "gateway_label": str(blocked_gateway.get("gateway_label") or ""),
+                    "gateway_status": "blocked",
+                }
+            elif reachable_unvisited_count > 0:
+                first_unvisited = next((node_id for node_id in revealed_nodes_in_region if node_id not in visit_map), "")
+                if first_unvisited:
+                    primary_frontier = {
+                        "target_node_id": first_unvisited,
+                        "target_node_label": str((get_static_node(first_unvisited) or {}).get("label") or first_unvisited),
+                        "plan_status": "reachable",
+                    }
+            if blocked_frontier_count > 0:
+                region_status = "blocked_region"
+                summary_text = f"В {region_label} дальнейший прогресс сейчас в основном упирается в известные заблокированные выходы."
+            elif onboarding_status == "applied" and as_int(discovered_state.get("visit_count"), 0) <= 1 and len(visited_nodes_in_region) <= 1:
+                region_status = "newly_onboarded_region"
+                summary_text = f"{region_label} только что закреплён как новый регион и пока остаётся свежим стартовым плацдармом."
+            elif unresolved_local_nodes or reachable_unvisited_count > 0:
+                region_status = "active_region"
+                summary_text = f"{region_label} остаётся значимым направлением: там ещё есть незавершённые локальные точки или видимые непосещённые узлы."
+            elif len(visited_nodes_in_region) > 0 and len(revealed_nodes_in_region) <= len(visited_nodes_in_region):
+                region_status = "saturated_region"
+                summary_text = f"{region_label} в основном уже посещён и локально выработан."
+            else:
+                region_status = "quiet_region"
+                summary_text = f"{region_label} пока выглядит тихим известным регионом без сильного текущего давления на прогресс."
+        summary = build_group_discovered_region_summary(
+            region_id=region_id,
+            region_label=region_label,
+            region_status=region_status,
+            summary=summary_text,
+            current_region=is_current_region,
+            visit_count=as_int(discovered_state.get("visit_count"), 0),
+            first_entered_at=str(discovered_state.get("first_entered_at") or ""),
+            last_entered_at=str(discovered_state.get("last_entered_at") or ""),
+            revealed_node_count=len(revealed_nodes_in_region),
+            visited_node_count=len(visited_nodes_in_region),
+            unresolved_local_node_count=len(unresolved_local_nodes),
+            blocked_frontier_count=blocked_frontier_count,
+            reachable_unvisited_count=reachable_unvisited_count,
+            onboarding_status=onboarding_status,
+            primary_frontier=primary_frontier,
+            source="region_world_overview",
+        )
+        if summary:
+            region_summaries.append(summary)
+    region_summaries.sort(key=_region_focus_sort_key)
+    return region_summaries
+
+
+def get_current_group_discovered_region_summaries(
+    sess: Session,
+    *,
+    player_id: uuid.UUID | str | None = None,
+    group_id: str | None = None,
+) -> list[dict[str, Any]]:
+    resolved_group_id = str(group_id or "").strip()
+    resolved_player_id = str(player_id or "").strip()
+    if not resolved_group_id and resolved_player_id:
+        resolved_group_id = str(_get_player_group_id(sess, resolved_player_id) or "").strip()
+    if not resolved_group_id:
+        return []
+    return get_group_discovered_region_summaries(sess, resolved_group_id)
+
+
+def get_current_group_primary_region_focus(
+    sess: Session,
+    *,
+    player_id: uuid.UUID | str | None = None,
+    group_id: str | None = None,
+) -> dict[str, Any] | None:
+    summaries = get_current_group_discovered_region_summaries(sess, player_id=player_id, group_id=group_id)
+    return dict(summaries[0]) if summaries else None
+
+
+def get_current_group_region_world_overview(
+    sess: Session,
+    *,
+    player_id: uuid.UUID | str | None = None,
+    group_id: str | None = None,
+) -> dict[str, Any] | None:
+    resolved_group_id = str(group_id or "").strip()
+    resolved_player_id = str(player_id or "").strip()
+    if not resolved_group_id and resolved_player_id:
+        resolved_group_id = str(_get_player_group_id(sess, resolved_player_id) or "").strip()
+    if not resolved_group_id:
+        return None
+    group = _get_group_states(sess).get(resolved_group_id)
+    if not isinstance(group, dict):
+        return None
+    summaries = get_group_discovered_region_summaries(sess, resolved_group_id)
+    current_region_state = _normalize_group_current_region_state(group.get("current_region_state"))
+    if not summaries or not current_region_state:
+        return None
+    active_region_count = sum(1 for item in summaries if str(item.get("region_status") or "") in {"current_active_region", "active_region", "newly_onboarded_region"})
+    blocked_region_count = sum(1 for item in summaries if str(item.get("region_status") or "") in {"current_blocked_region", "blocked_region"})
+    saturated_region_count = sum(1 for item in summaries if str(item.get("region_status") or "") == "saturated_region")
+    quiet_region_count = sum(1 for item in summaries if str(item.get("region_status") or "") == "quiet_region")
+    primary_region_focus = dict(summaries[0])
+    summary = (
+        f"Группа видит {len(summaries)} открытых регионов: "
+        f"{active_region_count} активных, {blocked_region_count} упёршихся в блоки, "
+        f"{saturated_region_count} в основном выработанных и {quiet_region_count} тихих."
+    )
+    return _normalize_group_region_world_overview(
+        {
+            "current_region_id": str(current_region_state.get("region_id") or ""),
+            "current_region_label": str(current_region_state.get("region_label") or ""),
+            "discovered_region_count": len(summaries),
+            "active_region_count": active_region_count,
+            "blocked_region_count": blocked_region_count,
+            "saturated_region_count": saturated_region_count,
+            "quiet_region_count": quiet_region_count,
+            "primary_region_focus": primary_region_focus,
+            "region_summaries": summaries,
+            "summary": summary,
+        }
+    )
+
+
 def _normalize_group_region_gateway(raw: Any) -> dict[str, Any] | None:
     if not isinstance(raw, dict):
         return None

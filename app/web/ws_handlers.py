@@ -89,10 +89,13 @@ from app.web.session_state import (
     get_current_group_primary_region_gateway,
     get_current_group_current_region_state,
     get_current_group_discovered_regions,
+    get_current_group_discovered_region_summaries,
     get_current_group_last_region_entry_result,
     get_current_group_last_region_onboarding_result,
+    get_current_group_primary_region_focus,
     get_current_group_last_region_transition_result,
     get_current_group_region_onboarding_states,
+    get_current_group_region_world_overview,
     get_current_group_region_transition_state,
     resolve_group_region_transition,
     set_group_journey_target,
@@ -1790,6 +1793,12 @@ def _parse_group_command(cmdline: str) -> tuple[str | None, dict[str, Any]]:
     if lowered in {"group regions", "group_regions"}:
         return "group_discovered_regions", {}
 
+    if lowered in {"group world", "group_world"}:
+        return "group_region_world", {}
+
+    if lowered in {"group focus", "group_focus"}:
+        return "group_region_focus", {}
+
     if lowered in {"group arrival-region", "group_arrival_region", "group region-entry", "group_region_entry"}:
         return "group_region_onboarding", {}
 
@@ -1936,6 +1945,8 @@ def _handle_group_action_request(
         "group_region_gateways",
         "group_region_status",
         "group_discovered_regions",
+        "group_region_world",
+        "group_region_focus",
         "group_region_onboarding",
         "group_region_transition",
         "group_region_transition_status",
@@ -2183,6 +2194,45 @@ def _handle_group_action_request(
             f"Открытые регионы группы {actor_group_key}: {len(regions)}. "
             f"Текущий регион: {current_region_label or str(regions[-1].get('region_label') or 'регион')}."
         )
+
+    if action == "group_region_world":
+        if not actor_group_key:
+            return True, "Группа игрока не найдена.", None
+        overview = get_current_group_region_world_overview(
+            sess,
+            player_id=actor_player_id,
+            group_id=actor_group_key,
+        )
+        if not overview:
+            return True, None, f"У группы {actor_group_key} пока слишком мало discovered-region данных для world overview."
+        return True, None, (
+            f"Мировой обзор регионов группы {actor_group_key}: "
+            f"{str(overview.get('summary') or '')} "
+            f"Текущий регион: {str(overview.get('current_region_label') or 'регион')}."
+        ).strip()
+
+    if action == "group_region_focus":
+        if not actor_group_key:
+            return True, "Группа игрока не найдена.", None
+        focus = get_current_group_primary_region_focus(
+            sess,
+            player_id=actor_player_id,
+            group_id=actor_group_key,
+        )
+        summaries = get_current_group_discovered_region_summaries(
+            sess,
+            player_id=actor_player_id,
+            group_id=actor_group_key,
+        )
+        if not focus and not summaries:
+            return True, None, f"У группы {actor_group_key} пока нет выраженного region focus."
+        focus = focus or summaries[0]
+        return True, None, (
+            f"Region focus группы {actor_group_key}: "
+            f"{str((focus or {}).get('region_label') or 'регион')} "
+            f"({str((focus or {}).get('region_status') or 'unknown')}). "
+            f"{str((focus or {}).get('summary') or '')}"
+        ).strip()
 
     if action == "group_region_onboarding":
         if not actor_group_key:

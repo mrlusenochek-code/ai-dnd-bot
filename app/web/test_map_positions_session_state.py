@@ -4865,6 +4865,98 @@ def test_group_region_transition_triggers_region_onboarding_without_fake_reapply
     assert len(session_state.get_current_group_region_onboarding_states(sess, player_id=player_id)) == 2
 
 
+def test_group_discovered_region_summaries_support_current_blocked_region() -> None:
+    player_id = uuid.uuid4()
+    sess = SimpleNamespace(settings={})
+    session_state._initialize_default_group(
+        sess,
+        [player_id],
+        {"map_level": "region", "node_type": "zone", "node_id": "start_trakt", "label": "Стартовый тракт"},
+    )
+    session_state.get_current_group_current_region_state(sess, player_id=player_id)
+    group_states = session_state._get_group_states(sess)
+    group = group_states["main"]
+    group["current_region_state"]["visit_count"] = 2
+    group["discovered_regions"]["starter_frontier"]["visit_count"] = 2
+    session_state._persist_group_states(sess, group_states)
+    session_state.set_group_route_access_state(
+        sess,
+        "main",
+        route_id="start_trakt->craft_town:move",
+        access_state="blocked",
+        summary="Выход к городку перекрыт.",
+        block_reason="Завал на тракте.",
+        source="test",
+    )
+    session_state.set_group_route_access_state(
+        sess,
+        "main",
+        route_id="start_trakt->fortress_gate:move",
+        access_state="blocked",
+        summary="К крепости не пройти.",
+        block_reason="Подъезд к крепости перекрыт.",
+        source="test",
+    )
+
+    summaries = session_state.get_current_group_discovered_region_summaries(sess, player_id=player_id)
+
+    assert summaries[0]["region_id"] == "starter_frontier"
+    assert summaries[0]["region_status"] == "current_blocked_region"
+    assert summaries[0]["blocked_frontier_count"] >= 1
+    focus = session_state.get_current_group_primary_region_focus(sess, player_id=player_id)
+    assert focus["region_status"] == "current_blocked_region"
+
+
+def test_group_region_world_overview_synthesizes_current_and_non_current_discovered_regions() -> None:
+    player_id = uuid.uuid4()
+    sess = SimpleNamespace(settings={})
+    session_state._initialize_default_group(
+        sess,
+        [player_id],
+        {"map_level": "region", "node_type": "zone", "node_id": "forest_settlement", "label": "Лесной посёлок"},
+    )
+    session_state.get_current_group_current_region_state(sess, player_id=player_id)
+    session_state.add_group_node_state_flag(
+        sess,
+        "main",
+        "forest_settlement",
+        state_flag="forest_supplies_secured",
+        summary="Лесной набор уже готов.",
+        source="test",
+    )
+    updated, error = session_state.resolve_group_region_transition(
+        sess,
+        "main",
+        "forest_settlement_northwatch",
+        player_id=player_id,
+        source="region_transition",
+    )
+    assert error is None
+    assert updated is not None
+    session_state.set_group_route_access_state(
+        sess,
+        "main",
+        route_id="forest_settlement->old_fortress_edge:move",
+        access_state="blocked",
+        summary="Дальний путь к северному рубежу снова затянут туманом.",
+        block_reason="Опасный проход снова перекрыт.",
+        source="test",
+    )
+
+    summaries = session_state.get_current_group_discovered_region_summaries(sess, player_id=player_id)
+    overview = session_state.get_current_group_region_world_overview(sess, player_id=player_id)
+    focus = session_state.get_current_group_primary_region_focus(sess, player_id=player_id)
+
+    assert [item["region_id"] for item in summaries] == ["northwatch_frontier", "starter_frontier"]
+    assert summaries[0]["region_status"] == "newly_onboarded_region"
+    assert summaries[1]["region_status"] == "blocked_region"
+    assert overview["discovered_region_count"] == 2
+    assert overview["active_region_count"] == 1
+    assert overview["blocked_region_count"] == 1
+    assert overview["primary_region_focus"]["region_id"] == "northwatch_frontier"
+    assert focus["region_id"] == "northwatch_frontier"
+
+
 def test_group_region_transition_updates_region_residency_history() -> None:
     player_id = uuid.uuid4()
     sess = SimpleNamespace(settings={})

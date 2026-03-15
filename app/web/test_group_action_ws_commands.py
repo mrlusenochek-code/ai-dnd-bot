@@ -47,6 +47,8 @@ def test_parse_group_command_supports_wait_camp_rest_scout_move_navigate_context
     action_gateways, payload_gateways = ws_handlers._parse_group_command("group gateways")
     action_here, payload_here = ws_handlers._parse_group_command("group here")
     action_regions, payload_regions = ws_handlers._parse_group_command("group regions")
+    action_world, payload_world = ws_handlers._parse_group_command("group world")
+    action_focus, payload_focus = ws_handlers._parse_group_command("group focus")
     action_arrival_region, payload_arrival_region = ws_handlers._parse_group_command("group arrival-region")
     action_region_entry, payload_region_entry = ws_handlers._parse_group_command("group region-entry")
     action_exit, payload_exit = ws_handlers._parse_group_command("group exit forest_settlement_northwatch")
@@ -112,6 +114,8 @@ def test_parse_group_command_supports_wait_camp_rest_scout_move_navigate_context
     assert (action_gateways, payload_gateways) == ("group_region_gateways", {})
     assert (action_here, payload_here) == ("group_region_status", {})
     assert (action_regions, payload_regions) == ("group_discovered_regions", {})
+    assert (action_world, payload_world) == ("group_region_world", {})
+    assert (action_focus, payload_focus) == ("group_region_focus", {})
     assert (action_arrival_region, payload_arrival_region) == ("group_region_onboarding", {})
     assert (action_region_entry, payload_region_entry) == ("group_region_onboarding", {})
     assert (action_exit, payload_exit) == ("group_region_transition", {"gateway_id": "forest_settlement_northwatch"})
@@ -1405,6 +1409,94 @@ def test_handle_group_region_onboarding_surface() -> None:
     assert err is None
     assert "Region onboarding группы main" in str(msg)
     assert "Стартовое пограничье" in str(msg)
+
+
+def test_handle_group_region_world_and_focus_surfaces() -> None:
+    player_id = uuid.uuid4()
+    empty_sess = SimpleNamespace(settings={})
+    session_state._initialize_default_group(
+        empty_sess,
+        [player_id],
+        {
+            "map_level": "region",
+            "node_type": "zone",
+            "node_id": "forest_settlement",
+            "label": "Лесной посёлок",
+        },
+    )
+
+    handled_empty_world, err_empty_world, msg_empty_world = ws_handlers._handle_group_action_request(
+        empty_sess,
+        action="group_region_world",
+        actor_player_id=player_id,
+        payload={},
+        source="test",
+    )
+    assert handled_empty_world is True
+    assert err_empty_world is None
+    assert "слишком мало discovered-region данных" in str(msg_empty_world)
+
+    handled_empty_focus, err_empty_focus, msg_empty_focus = ws_handlers._handle_group_action_request(
+        empty_sess,
+        action="group_region_focus",
+        actor_player_id=player_id,
+        payload={},
+        source="test",
+    )
+    assert handled_empty_focus is True
+    assert err_empty_focus is None
+    assert "пока нет выраженного region focus" in str(msg_empty_focus)
+
+    sess = SimpleNamespace(settings={})
+    session_state._initialize_default_group(
+        sess,
+        [player_id],
+        {
+            "map_level": "region",
+            "node_type": "zone",
+            "node_id": "forest_settlement",
+            "label": "Лесной посёлок",
+        },
+    )
+    session_state.get_current_group_current_region_state(sess, player_id=player_id)
+    session_state.add_group_node_state_flag(
+        sess,
+        "main",
+        "forest_settlement",
+        state_flag="forest_supplies_secured",
+        summary="Лесной набор уже готов.",
+        source="test",
+    )
+    session_state.resolve_group_region_transition(
+        sess,
+        "main",
+        "forest_settlement_northwatch",
+        player_id=player_id,
+        source="region_transition",
+    )
+
+    handled_world, err_world, msg_world = ws_handlers._handle_group_action_request(
+        sess,
+        action="group_region_world",
+        actor_player_id=player_id,
+        payload={},
+        source="test",
+    )
+    assert handled_world is True
+    assert err_world is None
+    assert "Мировой обзор регионов группы main" in str(msg_world)
+    assert "открытых регионов" in str(msg_world)
+
+    handled_focus, err_focus, msg_focus = ws_handlers._handle_group_action_request(
+        sess,
+        action="group_region_focus",
+        actor_player_id=player_id,
+        payload={},
+        source="test",
+    )
+    assert handled_focus is True
+    assert err_focus is None
+    assert "Region focus группы main" in str(msg_focus)
 
 
 def test_handle_group_journey_set_advance_status_and_stop() -> None:
