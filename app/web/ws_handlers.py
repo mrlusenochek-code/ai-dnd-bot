@@ -71,6 +71,8 @@ from app.web.session_state import (
     execute_group_navigation_option,
     get_current_group_map_intel,
     get_current_group_recent_map_intel,
+    get_current_group_node_visit_states,
+    get_current_group_route_traversal_states,
     get_player_known_node_ids,
     get_current_group_travel_event,
     get_group_movement_mode,
@@ -1764,6 +1766,9 @@ def _parse_group_command(cmdline: str) -> tuple[str | None, dict[str, Any]]:
     if lowered in {"group intel", "group_intel", "group journal", "group_journal"}:
         return "group_map_intel", {}
 
+    if lowered in {"group trail", "group_trail", "group visits", "group_visit_history", "group_visits"}:
+        return "group_visit_history", {}
+
     for prefix in ("group split ", "group_split "):
         if lowered.startswith(prefix):
             payload = txt[len(prefix):].strip()
@@ -1846,6 +1851,7 @@ def _handle_group_action_request(
         "group_service",
         "group_service_use",
         "group_map_intel",
+        "group_visit_history",
         "group_enter",
         "group_stop",
         "group_event_resolve",
@@ -1929,6 +1935,22 @@ def _handle_group_action_request(
         count = len(all_entries)
         return True, None, f"Журнал разведки группы {actor_group_key}: {count} записей. Последняя запись: {title}."
 
+    if action == "group_visit_history":
+        if not actor_group_key:
+            return True, "Группа игрока не найдена.", None
+        node_visits = get_current_group_node_visit_states(sess, player_id=actor_player_id, group_id=actor_group_key)
+        route_traversals = get_current_group_route_traversal_states(sess, player_id=actor_player_id, group_id=actor_group_key)
+        if not node_visits and not route_traversals:
+            return True, None, f"У группы {actor_group_key} пока нет истории посещений."
+        latest_node = node_visits[-1] if node_visits else None
+        latest_route = route_traversals[-1] if route_traversals else None
+        latest_label = str((latest_node or {}).get("node_label") or (latest_route or {}).get("route_id") or "история пути")
+        return True, None, (
+            f"История пути группы {actor_group_key}: "
+            f"{len(node_visits)} посещённых точек, {len(route_traversals)} пройденных маршрутов. "
+            f"Последнее: {latest_label}."
+        )
+
     if action in {"group_camp_resolve", "group_rest"}:
         if not actor_group_key:
             return True, "Группа игрока не найдена.", None
@@ -1954,6 +1976,7 @@ def _handle_group_action_request(
         "group_service",
         "group_service_use",
         "group_map_intel",
+        "group_visit_history",
         "group_enter",
         "group_stop",
         "group_event_resolve",
@@ -6074,6 +6097,7 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                     "group_service",
                     "group_service_use",
                     "group_map_intel",
+                    "group_visit_history",
                     "group_enter",
                     "group_stop",
                     "group_event_resolve",

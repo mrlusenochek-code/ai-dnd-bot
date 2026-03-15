@@ -686,6 +686,120 @@ def _normalize_group_node_state(raw: Any) -> dict[str, Any] | None:
     return state
 
 
+def _normalize_group_last_arrival_result(raw: Any) -> dict[str, Any] | None:
+    if not isinstance(raw, dict):
+        return None
+    result_id = str(raw.get("result_id") or "").strip()
+    result_type = str(raw.get("result_type") or "").strip().lower()
+    if result_type not in {"first_arrival", "return_arrival", "settlement_arrival", "landmark_arrival", "quiet_arrival"}:
+        return None
+    summary = str(raw.get("summary") or "").strip()
+    result_summary = str(raw.get("result_summary") or "").strip()
+    node_id = str(raw.get("node_id") or "").strip()
+    node_label = str(raw.get("node_label") or node_id).strip()
+    route_id = str(raw.get("route_id") or "").strip().lower()
+    source = str(raw.get("source") or "arrival").strip() or "arrival"
+    resolved_at = str(raw.get("resolved_at") or "").strip()
+    visit_count = max(0, as_int(raw.get("visit_count"), 0))
+    if not result_id or not summary or not result_summary or not node_id or not node_label or visit_count <= 0:
+        return None
+    applied_effects = [
+        str(item).strip()[:120]
+        for item in (raw.get("applied_effects") or [])
+        if str(item or "").strip()
+    ] if isinstance(raw.get("applied_effects"), list) else []
+    result: dict[str, Any] = {
+        "result_id": result_id[:80],
+        "result_type": result_type[:40],
+        "summary": summary[:400],
+        "result_summary": result_summary[:400],
+        "node_id": node_id[:120],
+        "node_label": node_label[:120],
+        "route_id": route_id[:160],
+        "first_visit": bool(raw.get("first_visit")),
+        "visit_count": visit_count,
+        "source": source[:40],
+        "applied_effects": applied_effects,
+    }
+    if resolved_at:
+        result["resolved_at"] = resolved_at[:80]
+    return result
+
+
+def _normalize_group_node_visit_state(raw: Any) -> dict[str, Any] | None:
+    if not isinstance(raw, dict):
+        return None
+    node_id = str(raw.get("node_id") or "").strip().lower()
+    node_label = str(raw.get("node_label") or node_id).strip()
+    visit_count = max(0, as_int(raw.get("visit_count"), 0))
+    first_visited_at = str(raw.get("first_visited_at") or "").strip()
+    last_visited_at = str(raw.get("last_visited_at") or "").strip()
+    last_result_type = str(raw.get("last_result_type") or "").strip().lower()
+    summary = str(raw.get("summary") or "").strip()
+    if not node_id or not node_label or visit_count <= 0:
+        return None
+    state: dict[str, Any] = {
+        "node_id": node_id[:120],
+        "node_label": node_label[:120],
+        "visit_count": visit_count,
+        "last_result_type": last_result_type[:40],
+        "summary": summary[:240],
+    }
+    if first_visited_at:
+        state["first_visited_at"] = first_visited_at[:80]
+    if last_visited_at:
+        state["last_visited_at"] = last_visited_at[:80]
+    return state
+
+
+def _normalize_group_node_visit_state_map(raw: Any) -> dict[str, dict[str, Any]]:
+    if not isinstance(raw, dict):
+        return {}
+    normalized: dict[str, dict[str, Any]] = {}
+    for node_id, value in raw.items():
+        candidate = value if isinstance(value, dict) else {"node_id": node_id, "visit_count": 1, "summary": str(value or node_id)}
+        merged = {"node_id": node_id, **candidate} if isinstance(candidate, dict) else candidate
+        state = _normalize_group_node_visit_state(merged)
+        if state:
+            normalized[state["node_id"]] = state
+    return normalized
+
+
+def _normalize_group_route_traversal_state(raw: Any) -> dict[str, Any] | None:
+    if not isinstance(raw, dict):
+        return None
+    route_id = str(raw.get("route_id") or "").strip().lower()
+    traversal_count = max(0, as_int(raw.get("traversal_count"), 0))
+    first_traversed_at = str(raw.get("first_traversed_at") or "").strip()
+    last_traversed_at = str(raw.get("last_traversed_at") or "").strip()
+    summary = str(raw.get("summary") or "").strip()
+    if not route_id or traversal_count <= 0:
+        return None
+    state: dict[str, Any] = {
+        "route_id": route_id[:160],
+        "traversal_count": traversal_count,
+        "summary": summary[:240],
+    }
+    if first_traversed_at:
+        state["first_traversed_at"] = first_traversed_at[:80]
+    if last_traversed_at:
+        state["last_traversed_at"] = last_traversed_at[:80]
+    return state
+
+
+def _normalize_group_route_traversal_state_map(raw: Any) -> dict[str, dict[str, Any]]:
+    if not isinstance(raw, dict):
+        return {}
+    normalized: dict[str, dict[str, Any]] = {}
+    for route_id, value in raw.items():
+        candidate = value if isinstance(value, dict) else {"route_id": route_id, "traversal_count": 1, "summary": str(value or route_id)}
+        merged = {"route_id": route_id, **candidate} if isinstance(candidate, dict) else candidate
+        state = _normalize_group_route_traversal_state(merged)
+        if state:
+            normalized[state["route_id"]] = state
+    return normalized
+
+
 def _normalize_group_node_state_map(raw: Any) -> dict[str, dict[str, Any]]:
     if not isinstance(raw, dict):
         return {}
@@ -726,6 +840,275 @@ def get_group_node_state(
     if not isinstance(group, dict):
         return None
     return _normalize_group_node_state((_normalize_group_node_state_map(group.get("node_states"))).get(normalized_node_id))
+
+
+def record_group_node_visit(
+    sess: Session,
+    group_id: str,
+    node_id: str,
+    *,
+    node_label: str,
+    result_type: str,
+    summary: str,
+    visited_at: str | None = None,
+) -> dict[str, Any] | None:
+    normalized_group_id = str(group_id or "").strip()
+    normalized_node_id = str(node_id or "").strip().lower()
+    normalized_node_label = str(node_label or node_id).strip()
+    normalized_result_type = str(result_type or "").strip().lower()
+    normalized_summary = str(summary or "").strip()
+    if not normalized_group_id or not normalized_node_id or not normalized_node_label:
+        return None
+    groups = _get_group_states(sess)
+    group = groups.get(normalized_group_id)
+    if not isinstance(group, dict):
+        return None
+    state_map = _normalize_group_node_visit_state_map(group.get("node_visit_states"))
+    existing = state_map.get(normalized_node_id) or {}
+    count = max(0, as_int(existing.get("visit_count"), 0)) + 1
+    timestamp = str(visited_at or datetime.now(timezone.utc).isoformat()).strip()
+    state = _normalize_group_node_visit_state(
+        {
+            "node_id": normalized_node_id,
+            "node_label": normalized_node_label,
+            "visit_count": count,
+            "first_visited_at": str(existing.get("first_visited_at") or timestamp),
+            "last_visited_at": timestamp,
+            "last_result_type": normalized_result_type,
+            "summary": normalized_summary or str(existing.get("summary") or ""),
+        }
+    )
+    if not state:
+        return None
+    state_map[normalized_node_id] = state
+    group["node_visit_states"] = state_map
+    _persist_group_states(sess, groups)
+    _sync_group_position_mirrors(sess, group)
+    return state
+
+
+def record_group_route_traversal(
+    sess: Session,
+    group_id: str,
+    route_id: str,
+    *,
+    summary: str,
+    traversed_at: str | None = None,
+) -> dict[str, Any] | None:
+    normalized_group_id = str(group_id or "").strip()
+    normalized_route_id = str(route_id or "").strip().lower()
+    normalized_summary = str(summary or "").strip()
+    if not normalized_group_id or not normalized_route_id:
+        return None
+    groups = _get_group_states(sess)
+    group = groups.get(normalized_group_id)
+    if not isinstance(group, dict):
+        return None
+    state_map = _normalize_group_route_traversal_state_map(group.get("route_traversal_states"))
+    existing = state_map.get(normalized_route_id) or {}
+    count = max(0, as_int(existing.get("traversal_count"), 0)) + 1
+    timestamp = str(traversed_at or datetime.now(timezone.utc).isoformat()).strip()
+    state = _normalize_group_route_traversal_state(
+        {
+            "route_id": normalized_route_id,
+            "traversal_count": count,
+            "first_traversed_at": str(existing.get("first_traversed_at") or timestamp),
+            "last_traversed_at": timestamp,
+            "summary": normalized_summary or str(existing.get("summary") or ""),
+        }
+    )
+    if not state:
+        return None
+    state_map[normalized_route_id] = state
+    group["route_traversal_states"] = state_map
+    _persist_group_states(sess, groups)
+    _sync_group_position_mirrors(sess, group)
+    return state
+
+
+def build_group_arrival_result(
+    *,
+    node_visit_state: dict[str, Any] | None,
+    route_traversal_state: dict[str, Any] | None = None,
+    current_map_position: dict[str, Any] | None = None,
+    route_summary: dict[str, Any] | None = None,
+    source: str = "arrival",
+) -> dict[str, Any] | None:
+    visit = _normalize_group_node_visit_state(node_visit_state)
+    position = _normalize_map_position(current_map_position)
+    route = _normalize_group_route_summary(route_summary)
+    if not visit or not position:
+        return None
+    node_id = str(visit.get("node_id") or position.get("node_id") or "").strip()
+    node_label = str(visit.get("node_label") or position.get("label") or node_id).strip()
+    visit_count = max(0, as_int(visit.get("visit_count"), 0))
+    if not node_id or not node_label or visit_count <= 0:
+        return None
+    first_visit = visit_count == 1
+    node_static = get_static_node(node_id)
+    settlement_kind = str((node_static or {}).get("settlement_kind") or "").strip().lower()
+    node_type = str((node_static or {}).get("node_type") or position.get("node_type") or "").strip().lower()
+    route_id = str((route or {}).get("route_id") or (route_traversal_state or {}).get("route_id") or "").strip().lower()
+    result_type = "first_arrival" if first_visit else "return_arrival"
+    if settlement_kind in {"town", "village", "hamlet", "roadside"}:
+        result_type = "settlement_arrival" if first_visit else "return_arrival"
+    elif node_type in {"landmark", "interior_entry"}:
+        result_type = "landmark_arrival" if first_visit else "return_arrival"
+    elif not first_visit:
+        result_type = "return_arrival"
+    else:
+        result_type = "quiet_arrival" if node_type == "zone" and not settlement_kind else result_type
+    summary = f"Группа прибывает в {node_label}."
+    result_summary = "Группа отмечает новое прибытие в этой точке пути."
+    applied_effects = [f"visit_count:{visit_count}"]
+    if route_id:
+        applied_effects.append(f"route_traversed:{route_id}")
+    if first_visit:
+        result_summary = "Это первое фактическое прибытие группы в данную точку карты."
+        applied_effects.append("visit:first_time")
+    else:
+        summary = f"Группа снова прибывает в {node_label}."
+        result_summary = "Группа возвращается в уже посещённую точку и обновляет историю визитов."
+        applied_effects.append("visit:return")
+    if result_type == "settlement_arrival":
+        result_summary = "Группа фактически достигает поселения и фиксирует его как посещённую точку маршрута."
+    elif result_type == "landmark_arrival":
+        result_summary = "Группа достигает заметного ориентира и фиксирует это прибытие в истории пути."
+    elif result_type == "quiet_arrival":
+        result_summary = "Группа спокойно достигает следующей точки пути без особого события, но с записью фактического визита."
+    return _normalize_group_last_arrival_result(
+        {
+            "result_id": uuid.uuid4().hex[:12],
+            "result_type": result_type,
+            "summary": summary,
+            "result_summary": result_summary,
+            "node_id": node_id,
+            "node_label": node_label,
+            "route_id": route_id,
+            "first_visit": first_visit,
+            "visit_count": visit_count,
+            "source": source,
+            "applied_effects": applied_effects,
+            "resolved_at": datetime.now(timezone.utc).isoformat(),
+        }
+    )
+
+
+def resolve_group_arrival(
+    sess: Session,
+    group_id: str,
+    *,
+    current_map_position: dict[str, Any] | None = None,
+    route_summary: dict[str, Any] | None = None,
+    source: str = "arrival",
+) -> dict[str, Any] | None:
+    normalized_group_id = str(group_id or "").strip()
+    if not normalized_group_id:
+        return None
+    group = _get_group_states(sess).get(normalized_group_id)
+    if not isinstance(group, dict):
+        return None
+    position = _normalize_map_position(current_map_position or group.get("current_map_position"))
+    node_id = str((position or {}).get("node_id") or "").strip().lower()
+    if not position or not node_id:
+        return None
+    visit_state = (_normalize_group_node_visit_state_map(group.get("node_visit_states"))).get(node_id)
+    route_id = str((_normalize_group_route_summary(route_summary) or {}).get("route_id") or "").strip().lower()
+    traversal_state = (_normalize_group_route_traversal_state_map(group.get("route_traversal_states"))).get(route_id) if route_id else None
+    result = build_group_arrival_result(
+        node_visit_state=visit_state,
+        route_traversal_state=traversal_state,
+        current_map_position=position,
+        route_summary=route_summary,
+        source=source,
+    )
+    if not result:
+        return None
+    groups = _get_group_states(sess)
+    group = groups.get(normalized_group_id)
+    if not isinstance(group, dict):
+        return None
+    group["last_arrival_result"] = result
+    _persist_group_states(sess, groups)
+    _sync_group_position_mirrors(sess, group)
+    return result
+
+
+def get_current_group_last_arrival_result(
+    sess: Session,
+    *,
+    player_id: uuid.UUID | str | None = None,
+    group_id: str | None = None,
+) -> dict[str, Any] | None:
+    resolved_group_id = str(group_id or "").strip()
+    resolved_player_id = str(player_id or "").strip()
+    if not resolved_group_id and resolved_player_id:
+        resolved_group_id = str(_get_player_group_id(sess, resolved_player_id) or "").strip()
+    if not resolved_group_id:
+        return None
+    group = _get_group_states(sess).get(resolved_group_id)
+    if not isinstance(group, dict):
+        return None
+    return _normalize_group_last_arrival_result(group.get("last_arrival_result"))
+
+
+def get_current_group_current_node_visit_state(
+    sess: Session,
+    *,
+    player_id: uuid.UUID | str | None = None,
+    group_id: str | None = None,
+) -> dict[str, Any] | None:
+    resolved_group_id = str(group_id or "").strip()
+    resolved_player_id = str(player_id or "").strip()
+    if not resolved_group_id and resolved_player_id:
+        resolved_group_id = str(_get_player_group_id(sess, resolved_player_id) or "").strip()
+    if not resolved_group_id:
+        return None
+    group = _get_group_states(sess).get(resolved_group_id)
+    if not isinstance(group, dict):
+        return None
+    current_node_id = str((_normalize_map_position(group.get("current_map_position")) or {}).get("node_id") or "").strip().lower()
+    if not current_node_id:
+        return None
+    return (_normalize_group_node_visit_state_map(group.get("node_visit_states"))).get(current_node_id)
+
+
+def get_current_group_node_visit_states(
+    sess: Session,
+    *,
+    player_id: uuid.UUID | str | None = None,
+    group_id: str | None = None,
+) -> list[dict[str, Any]]:
+    resolved_group_id = str(group_id or "").strip()
+    resolved_player_id = str(player_id or "").strip()
+    if not resolved_group_id and resolved_player_id:
+        resolved_group_id = str(_get_player_group_id(sess, resolved_player_id) or "").strip()
+    if not resolved_group_id:
+        return []
+    group = _get_group_states(sess).get(resolved_group_id)
+    if not isinstance(group, dict):
+        return []
+    state_map = _normalize_group_node_visit_state_map(group.get("node_visit_states"))
+    return [dict(state_map[key]) for key in sorted(state_map.keys())]
+
+
+def get_current_group_route_traversal_states(
+    sess: Session,
+    *,
+    player_id: uuid.UUID | str | None = None,
+    group_id: str | None = None,
+) -> list[dict[str, Any]]:
+    resolved_group_id = str(group_id or "").strip()
+    resolved_player_id = str(player_id or "").strip()
+    if not resolved_group_id and resolved_player_id:
+        resolved_group_id = str(_get_player_group_id(sess, resolved_player_id) or "").strip()
+    if not resolved_group_id:
+        return []
+    group = _get_group_states(sess).get(resolved_group_id)
+    if not isinstance(group, dict):
+        return []
+    state_map = _normalize_group_route_traversal_state_map(group.get("route_traversal_states"))
+    return [dict(state_map[key]) for key in sorted(state_map.keys())]
 
 
 def set_group_node_state(
@@ -1757,6 +2140,7 @@ def get_current_group_node_context(
     current_node_state = get_group_node_state(sess, resolved_group_id, current_node_id) if current_node_id else None
     node_state_flags = list((current_node_state or {}).get("state_flags") or [])
     state_notes = _build_effective_node_state_notes(current_node_id, node_state_flags, note_kind="context_note") if current_node_id else []
+    current_visit_state = get_current_group_current_node_visit_state(sess, group_id=resolved_group_id) if current_node_id else None
     contextual_actions = get_current_node_context_actions(current_map_position=current_map_position)
     action_states = _normalize_group_context_action_state_map(group.get("context_action_states"))
     authored_effects = {
@@ -1833,6 +2217,9 @@ def get_current_group_node_context(
         payload["node_state_flags"] = node_state_flags
     if state_notes:
         payload["state_notes"] = state_notes
+    if current_visit_state:
+        payload["visit_count"] = int(current_visit_state.get("visit_count") or 0)
+        payload["current_node_visit_state"] = dict(current_visit_state)
     return payload
 
 
@@ -4132,6 +4519,14 @@ def _group_map_intel_count(group: dict[str, Any]) -> int:
     return len(_normalize_group_map_intel_entries(group.get("map_intel_entries")))
 
 
+def _group_visited_node_count(group: dict[str, Any]) -> int:
+    return len(_normalize_group_node_visit_state_map(group.get("node_visit_states")))
+
+
+def _group_traversed_route_count(group: dict[str, Any]) -> int:
+    return len(_normalize_group_route_traversal_state_map(group.get("route_traversal_states")))
+
+
 def _group_movement_mode(group: dict[str, Any]) -> str:
     return _normalize_group_movement_mode(group.get("movement_mode"))
 
@@ -4326,6 +4721,15 @@ def _normalize_group_state(
     node_states = _normalize_group_node_state_map(raw.get("node_states"))
     if node_states:
         normalized["node_states"] = node_states
+    last_arrival_result = _normalize_group_last_arrival_result(raw.get("last_arrival_result"))
+    if last_arrival_result:
+        normalized["last_arrival_result"] = last_arrival_result
+    node_visit_states = _normalize_group_node_visit_state_map(raw.get("node_visit_states"))
+    if node_visit_states:
+        normalized["node_visit_states"] = node_visit_states
+    route_traversal_states = _normalize_group_route_traversal_state_map(raw.get("route_traversal_states"))
+    if route_traversal_states:
+        normalized["route_traversal_states"] = route_traversal_states
     if movement_intent:
         normalized["movement_intent"] = movement_intent
     if travel_state:
@@ -4879,6 +5283,7 @@ def confirm_group_enter(
     if pause_reason != "target_requires_enter" or not next_map_position or not next_zone_label:
         return None
     target_node_id = str((route_summary or {}).get("target_node_id") or next_map_position.get("node_id") or "").strip()
+    route_id = str((route_summary or {}).get("route_id") or "").strip().lower()
     group["current_map_position"] = next_map_position
     group["area_label"] = next_zone_label[:80]
     _set_group_last_travel_resolution(
@@ -4892,10 +5297,36 @@ def confirm_group_enter(
     _clear_group_activity_state(group, status="idle")
     _persist_group_states(sess, groups)
     _sync_group_position_mirrors(sess, group)
+    if route_id:
+        record_group_route_traversal(
+            sess,
+            group_key,
+            route_id,
+            summary=f"Группа проходит маршрутом к {str(next_map_position.get('label') or target_node_id or 'цели')}.",
+            traversed_at=datetime.now(timezone.utc).isoformat(),
+        )
+    if target_node_id:
+        record_group_node_visit(
+            sess,
+            group_key,
+            target_node_id,
+            node_label=str(next_map_position.get("label") or target_node_id),
+            result_type="landmark_arrival" if str(next_map_position.get("node_type") or "").strip().lower() in {"landmark", "interior_entry"} else "first_arrival",
+            summary=f"Группа достигает {str(next_map_position.get('label') or target_node_id)}.",
+            visited_at=datetime.now(timezone.utc).isoformat(),
+        )
+        resolve_group_arrival(
+            sess,
+            group_key,
+            current_map_position=next_map_position,
+            route_summary=route_summary,
+            source=source,
+        )
     if player_id and target_node_id and get_static_node(target_node_id):
         maybe_mark_player_node_visited(sess, player_id, target_node_id, source=source)
         maybe_reveal_nearby_static_nodes(sess, player_id, next_map_position, source=source)
-    return dict(group)
+    refreshed_group = _get_group_states(sess).get(group_key)
+    return dict(refreshed_group) if isinstance(refreshed_group, dict) else dict(group)
 
 
 def inspect_group_travel_target(
@@ -5128,6 +5559,7 @@ def complete_group_travel(
     next_map_position = _normalize_map_position((route_summary or {}).get("next_map_position"))
     next_zone_label = str((route_summary or {}).get("next_zone_label") or "").strip()
     target_node_id = str((route_summary or {}).get("target_node_id") or (next_map_position or {}).get("node_id") or "").strip()
+    route_id = str((route_summary or {}).get("route_id") or "").strip().lower()
     if not next_map_position or not next_zone_label:
         return None
     group["current_map_position"] = next_map_position
@@ -5144,10 +5576,36 @@ def complete_group_travel(
     _clear_group_activity_state(group, status="idle")
     _persist_group_states(sess, groups)
     _sync_group_position_mirrors(sess, group)
+    if route_id:
+        record_group_route_traversal(
+            sess,
+            group_key,
+            route_id,
+            summary=f"Группа проходит маршрутом к {str(next_map_position.get('label') or target_node_id or 'цели')}.",
+            traversed_at=datetime.now(timezone.utc).isoformat(),
+        )
+    if target_node_id:
+        record_group_node_visit(
+            sess,
+            group_key,
+            target_node_id,
+            node_label=str(next_map_position.get("label") or target_node_id),
+            result_type="landmark_arrival" if str(next_map_position.get("node_type") or "").strip().lower() in {"landmark", "interior_entry"} else "first_arrival",
+            summary=f"Группа достигает {str(next_map_position.get('label') or target_node_id)}.",
+            visited_at=datetime.now(timezone.utc).isoformat(),
+        )
+        resolve_group_arrival(
+            sess,
+            group_key,
+            current_map_position=next_map_position,
+            route_summary=route_summary,
+            source=source,
+        )
     if player_id and target_node_id and get_static_node(target_node_id):
         maybe_mark_player_node_visited(sess, player_id, target_node_id, source=source)
         maybe_reveal_nearby_static_nodes(sess, player_id, next_map_position, source=source)
-    return dict(group)
+    refreshed_group = _get_group_states(sess).get(group_key)
+    return dict(refreshed_group) if isinstance(refreshed_group, dict) else dict(group)
 
 
 def interrupt_group_travel(sess: Session, group_id: str) -> dict[str, Any] | None:

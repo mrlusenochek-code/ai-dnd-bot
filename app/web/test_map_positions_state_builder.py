@@ -123,6 +123,10 @@ def test_build_state_includes_legacy_and_structured_positions(monkeypatch) -> No
     monkeypatch.setattr(state_builder, "get_current_group_last_travel_event_outcome", lambda _sess, player_id=None: None)
     monkeypatch.setattr(state_builder, "get_current_group_map_intel", lambda _sess, player_id=None: [])
     monkeypatch.setattr(state_builder, "get_current_group_recent_map_intel", lambda _sess, player_id=None: [])
+    monkeypatch.setattr(state_builder, "get_current_group_last_arrival_result", lambda _sess, player_id=None: None)
+    monkeypatch.setattr(state_builder, "get_current_group_current_node_visit_state", lambda _sess, player_id=None: None)
+    monkeypatch.setattr(state_builder, "get_current_group_node_visit_states", lambda _sess, player_id=None: [])
+    monkeypatch.setattr(state_builder, "get_current_group_route_traversal_states", lambda _sess, player_id=None: [])
     monkeypatch.setattr(state_builder, "get_current_group_navigation_options", lambda _sess, player_id=None: [])
     monkeypatch.setattr(state_builder, "snapshot_combat_state", lambda _session_id: None)
 
@@ -154,6 +158,8 @@ def test_build_state_includes_legacy_and_structured_positions(monkeypatch) -> No
             "last_service_result_summary": None,
             "service_states": None,
             "map_intel_count": 0,
+            "visited_node_count": 0,
+            "traversed_route_count": 0,
             "movement_intent_summary": None,
             "travel_state": None,
             "travel_summary": None,
@@ -182,6 +188,10 @@ def test_build_state_includes_legacy_and_structured_positions(monkeypatch) -> No
     assert payload["game"]["current_group_last_travel_event_outcome"] is None
     assert payload["game"]["current_group_map_intel"] == []
     assert payload["game"]["current_group_recent_map_intel"] == []
+    assert payload["game"]["current_group_last_arrival_result"] is None
+    assert payload["game"]["current_group_current_node_visit_state"] is None
+    assert payload["game"]["current_group_node_visit_states"] == []
+    assert payload["game"]["current_group_route_traversal_states"] == []
     assert payload["game"]["current_group_navigation_options"] == []
     assert payload["session"]["current_group_id"] is None
     assert payload["players"] == [
@@ -579,6 +589,65 @@ def test_build_state_exports_current_player_group_id(monkeypatch) -> None:
     )
     monkeypatch.setattr(
         state_builder,
+        "get_current_group_last_arrival_result",
+        lambda _sess, player_id=None: {
+            "result_id": "arrival-1",
+            "result_type": "first_arrival",
+            "summary": "Группа прибывает в Стартовый тракт.",
+            "result_summary": "Это первое фактическое прибытие группы в данную точку карты.",
+            "node_id": "start_trakt",
+            "node_label": "Стартовый тракт",
+            "route_id": "camp->start_trakt:move",
+            "first_visit": True,
+            "visit_count": 1,
+            "source": "test",
+            "applied_effects": ["visit_count:1", "visit:first_time"],
+            "resolved_at": "2026-03-14T00:04:00+00:00",
+        },
+    )
+    monkeypatch.setattr(
+        state_builder,
+        "get_current_group_current_node_visit_state",
+        lambda _sess, player_id=None: {
+            "node_id": "start_trakt",
+            "node_label": "Стартовый тракт",
+            "visit_count": 1,
+            "first_visited_at": "2026-03-14T00:04:00+00:00",
+            "last_visited_at": "2026-03-14T00:04:00+00:00",
+            "last_result_type": "first_arrival",
+            "summary": "Группа впервые достигает Стартового тракта.",
+        },
+    )
+    monkeypatch.setattr(
+        state_builder,
+        "get_current_group_node_visit_states",
+        lambda _sess, player_id=None: [
+            {
+                "node_id": "start_trakt",
+                "node_label": "Стартовый тракт",
+                "visit_count": 1,
+                "first_visited_at": "2026-03-14T00:04:00+00:00",
+                "last_visited_at": "2026-03-14T00:04:00+00:00",
+                "last_result_type": "first_arrival",
+                "summary": "Группа впервые достигает Стартового тракта.",
+            }
+        ],
+    )
+    monkeypatch.setattr(
+        state_builder,
+        "get_current_group_route_traversal_states",
+        lambda _sess, player_id=None: [
+            {
+                "route_id": "camp->start_trakt:move",
+                "traversal_count": 1,
+                "first_traversed_at": "2026-03-14T00:04:00+00:00",
+                "last_traversed_at": "2026-03-14T00:04:00+00:00",
+                "summary": "Группа проходит маршрутом к Стартовому тракту.",
+            }
+        ],
+    )
+    monkeypatch.setattr(
+        state_builder,
         "get_current_group_navigation_options",
         lambda _sess, player_id=None: [
             {
@@ -837,6 +906,49 @@ def test_build_state_exports_current_player_group_id(monkeypatch) -> None:
         }
     ]
     assert payload["game"]["current_group_recent_map_intel"] == payload["game"]["current_group_map_intel"]
+    assert payload["game"]["current_group_last_arrival_result"] == {
+        "result_id": "arrival-1",
+        "result_type": "first_arrival",
+        "summary": "Группа прибывает в Стартовый тракт.",
+        "result_summary": "Это первое фактическое прибытие группы в данную точку карты.",
+        "node_id": "start_trakt",
+        "node_label": "Стартовый тракт",
+        "route_id": "camp->start_trakt:move",
+        "first_visit": True,
+        "visit_count": 1,
+        "source": "test",
+        "applied_effects": ["visit_count:1", "visit:first_time"],
+        "resolved_at": "2026-03-14T00:04:00+00:00",
+    }
+    assert payload["game"]["current_group_current_node_visit_state"] == {
+        "node_id": "start_trakt",
+        "node_label": "Стартовый тракт",
+        "visit_count": 1,
+        "first_visited_at": "2026-03-14T00:04:00+00:00",
+        "last_visited_at": "2026-03-14T00:04:00+00:00",
+        "last_result_type": "first_arrival",
+        "summary": "Группа впервые достигает Стартового тракта.",
+    }
+    assert payload["game"]["current_group_node_visit_states"] == [
+        {
+            "node_id": "start_trakt",
+            "node_label": "Стартовый тракт",
+            "visit_count": 1,
+            "first_visited_at": "2026-03-14T00:04:00+00:00",
+            "last_visited_at": "2026-03-14T00:04:00+00:00",
+            "last_result_type": "first_arrival",
+            "summary": "Группа впервые достигает Стартового тракта.",
+        }
+    ]
+    assert payload["game"]["current_group_route_traversal_states"] == [
+        {
+            "route_id": "camp->start_trakt:move",
+            "traversal_count": 1,
+            "first_traversed_at": "2026-03-14T00:04:00+00:00",
+            "last_traversed_at": "2026-03-14T00:04:00+00:00",
+            "summary": "Группа проходит маршрутом к Стартовому тракту.",
+        }
+    ]
     assert payload["game"]["current_group_navigation_options"] == [
         {
             "route_id": "start_trakt->fortress_gate:move",
@@ -859,6 +971,8 @@ def test_build_state_exports_current_player_group_id(monkeypatch) -> None:
         }
     ]
     assert payload["game"]["groups"]["main"]["map_intel_count"] == 0
+    assert payload["game"]["groups"]["main"]["visited_node_count"] == 0
+    assert payload["game"]["groups"]["main"]["traversed_route_count"] == 0
 
 
 def test_build_state_exports_group_activity_summaries(monkeypatch) -> None:
@@ -1135,6 +1249,12 @@ def test_build_state_exports_group_activity_summaries(monkeypatch) -> None:
     monkeypatch.setattr(state_builder, "get_current_group_node_states", lambda _sess, player_id=None: [])
     monkeypatch.setattr(state_builder, "get_current_group_current_node_state", lambda _sess, player_id=None: None)
     monkeypatch.setattr(state_builder, "get_current_group_last_travel_event_outcome", lambda _sess, player_id=None: None)
+    monkeypatch.setattr(state_builder, "get_current_group_map_intel", lambda _sess, player_id=None: [])
+    monkeypatch.setattr(state_builder, "get_current_group_recent_map_intel", lambda _sess, player_id=None: [])
+    monkeypatch.setattr(state_builder, "get_current_group_last_arrival_result", lambda _sess, player_id=None: None)
+    monkeypatch.setattr(state_builder, "get_current_group_current_node_visit_state", lambda _sess, player_id=None: None)
+    monkeypatch.setattr(state_builder, "get_current_group_node_visit_states", lambda _sess, player_id=None: [])
+    monkeypatch.setattr(state_builder, "get_current_group_route_traversal_states", lambda _sess, player_id=None: [])
     monkeypatch.setattr(state_builder, "get_current_group_navigation_options", lambda _sess, player_id=None: [])
     monkeypatch.setattr(state_builder, "snapshot_combat_state", lambda _session_id: None)
 
@@ -1400,6 +1520,8 @@ def test_build_state_exports_group_activity_summaries(monkeypatch) -> None:
         "resolved": False,
     }
     assert payload["game"]["groups"]["main"]["last_travel_event_outcome_summary"] is None
+    assert payload["game"]["groups"]["main"]["visited_node_count"] == 0
+    assert payload["game"]["groups"]["main"]["traversed_route_count"] == 0
     assert payload["game"]["groups"]["main"]["available_resolutions"] is None
     assert payload["game"]["groups"]["main"]["last_resolution_summary"] is None
 
@@ -1539,6 +1661,12 @@ def test_build_state_exports_paused_travel_status_and_pause_reason(monkeypatch) 
     monkeypatch.setattr(state_builder, "get_current_group_last_service_result", lambda _sess, player_id=None: None)
     monkeypatch.setattr(state_builder, "get_current_group_travel_event", lambda _sess, player_id=None: None)
     monkeypatch.setattr(state_builder, "get_current_group_last_travel_event_outcome", lambda _sess, player_id=None: None)
+    monkeypatch.setattr(state_builder, "get_current_group_map_intel", lambda _sess, player_id=None: [])
+    monkeypatch.setattr(state_builder, "get_current_group_recent_map_intel", lambda _sess, player_id=None: [])
+    monkeypatch.setattr(state_builder, "get_current_group_last_arrival_result", lambda _sess, player_id=None: None)
+    monkeypatch.setattr(state_builder, "get_current_group_current_node_visit_state", lambda _sess, player_id=None: None)
+    monkeypatch.setattr(state_builder, "get_current_group_node_visit_states", lambda _sess, player_id=None: [])
+    monkeypatch.setattr(state_builder, "get_current_group_route_traversal_states", lambda _sess, player_id=None: [])
     monkeypatch.setattr(state_builder, "snapshot_combat_state", lambda _session_id: None)
 
     db = _FakeDb([[player], [], [], []])
@@ -1552,6 +1680,8 @@ def test_build_state_exports_paused_travel_status_and_pause_reason(monkeypatch) 
     assert payload["game"]["groups"]["main"]["travel_summary"]["pause_details"] == {"target_node_type": "interior_entry"}
     assert payload["game"]["groups"]["main"]["travel_event_summary"] is None
     assert payload["game"]["groups"]["main"]["last_travel_event_outcome_summary"] is None
+    assert payload["game"]["groups"]["main"]["visited_node_count"] == 0
+    assert payload["game"]["groups"]["main"]["traversed_route_count"] == 0
     assert payload["game"]["groups"]["main"]["pause_reason"] == "target_requires_enter"
     assert payload["game"]["groups"]["main"]["pause_details"] == {"target_node_type": "interior_entry"}
     assert payload["game"]["groups"]["main"]["available_resolutions"] == [

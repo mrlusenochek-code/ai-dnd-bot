@@ -2374,6 +2374,10 @@ def test_complete_inspect_and_confirm_enter_update_player_map_knowledge() -> Non
     completed = session_state.complete_group_travel(sess, "main", player_id=player_id, source="test")
 
     assert completed is not None
+    assert completed["last_arrival_result"]["result_type"] == "landmark_arrival"
+    assert completed["last_arrival_result"]["visit_count"] == 1
+    assert completed["route_traversal_states"]["start_trakt->fortress_gate:move"]["traversal_count"] == 1
+    assert completed["node_visit_states"]["fortress_gate"]["visit_count"] == 1
     assert session_state.get_player_map_knowledge(sess, player_id)["fortress_gate"]["knowledge_kind"] == "visited"
     assert session_state.is_player_node_revealed(sess, player_id, "fortress_gate") is True
 
@@ -2444,6 +2448,8 @@ def test_complete_inspect_and_confirm_enter_update_player_map_knowledge() -> Non
     confirmed = session_state.confirm_group_enter(sess, "main", player_id=player_id, source="test")
 
     assert confirmed is not None
+    assert confirmed["last_arrival_result"]["node_id"] == "mine_entrance"
+    assert confirmed["node_visit_states"]["mine_entrance"]["visit_count"] == 1
     assert session_state.get_player_map_knowledge(sess, player_id)["mine_entrance"]["knowledge_kind"] == "visited"
     assert session_state.is_player_node_revealed(sess, player_id, "mine_entrance") is True
 
@@ -3019,3 +3025,166 @@ def test_existing_outcomes_write_map_intel_entries() -> None:
     event_entries = session_state.get_current_group_map_intel(sess, player_id=player_id)
     assert event_entries[-1]["source_kind"] == "travel_event"
     assert event_entries[-1]["entry_type"] == "route_hint"
+
+
+def test_group_visit_history_storage_helpers_are_canonical_and_scoped_per_group() -> None:
+    player_id = uuid.uuid4()
+    other_player_id = uuid.uuid4()
+    sess = SimpleNamespace(settings={})
+    session_state._initialize_default_group(
+        sess,
+        [player_id],
+        {"map_level": "region", "node_type": "zone", "node_id": "start_trakt", "label": "Стартовый тракт"},
+    )
+    groups = session_state._get_group_states(sess)
+    groups["scout"] = {
+        "group_id": "scout",
+        "player_ids": [str(other_player_id)],
+        "current_map_position": {"v": 1, "map_level": "region", "node_type": "zone", "node_id": "forest_road", "label": "Лесная дорога"},
+        "area_label": "Лесная дорога",
+        "status": "idle",
+        "movement_mode": "normal",
+    }
+    session_state._persist_group_states(sess, groups)
+
+    route_state = session_state.record_group_route_traversal(
+        sess,
+        "main",
+        "start_trakt->fortress_gate:move",
+        summary="Группа проходит к воротам крепости.",
+        traversed_at="2026-03-15T00:00:00+00:00",
+    )
+    node_state = session_state.record_group_node_visit(
+        sess,
+        "main",
+        "fortress_gate",
+        node_label="Ворота крепости",
+        result_type="landmark_arrival",
+        summary="Группа впервые достигает ворот крепости.",
+        visited_at="2026-03-15T00:00:10+00:00",
+    )
+
+    assert route_state == {
+        "route_id": "start_trakt->fortress_gate:move",
+        "traversal_count": 1,
+        "first_traversed_at": "2026-03-15T00:00:00+00:00",
+        "last_traversed_at": "2026-03-15T00:00:00+00:00",
+        "summary": "Группа проходит к воротам крепости.",
+    }
+    assert node_state == {
+        "node_id": "fortress_gate",
+        "node_label": "Ворота крепости",
+        "visit_count": 1,
+        "first_visited_at": "2026-03-15T00:00:10+00:00",
+        "last_visited_at": "2026-03-15T00:00:10+00:00",
+        "last_result_type": "landmark_arrival",
+        "summary": "Группа впервые достигает ворот крепости.",
+    }
+    assert session_state.get_current_group_current_node_visit_state(sess, player_id=player_id) is None
+    assert session_state.get_current_group_node_visit_states(sess, player_id=player_id) == [node_state]
+    assert session_state.get_current_group_route_traversal_states(sess, player_id=player_id) == [route_state]
+    assert session_state.get_current_group_node_visit_states(sess, group_id="scout") == []
+    assert session_state.get_current_group_route_traversal_states(sess, group_id="scout") == []
+
+
+def test_complete_group_travel_records_first_and_return_arrival_history() -> None:
+    player_id = uuid.uuid4()
+    sess = SimpleNamespace(settings={})
+    session_state._initialize_default_group(
+        sess,
+        [player_id],
+        {"map_level": "region", "node_type": "zone", "node_id": "start_trakt", "label": "Стартовый тракт"},
+    )
+
+    route = {
+        "allowed": True,
+        "route_id": "start_trakt->craft_town:move",
+        "route_kind": "zone_move",
+        "action_kind": "move",
+        "target_label": "Озёрный городок",
+        "target_node_id": "craft_town",
+        "target_node": {
+            "map_level": "region",
+            "node_type": "zone",
+            "node_id": "craft_town",
+            "label": "Озёрный городок",
+            "zone_label": "Озёрный городок",
+            "area_label": "Озёрный городок",
+        },
+        "next_map_position": {
+            "v": 1,
+            "map_level": "region",
+            "node_type": "zone",
+            "node_id": "craft_town",
+            "label": "Озёрный городок",
+            "area_label": "Озёрный городок",
+        },
+        "next_zone_label": "Озёрный городок",
+        "source": "registry",
+    }
+
+    session_state.start_group_travel(sess, "main", route, source="test")
+    first = session_state.complete_group_travel(sess, "main", player_id=player_id, source="test")
+
+    groups = session_state._get_group_states(sess)
+    groups["main"]["current_map_position"] = {
+        "v": 1,
+        "map_level": "region",
+        "node_type": "zone",
+        "node_id": "start_trakt",
+        "label": "Стартовый тракт",
+        "area_label": "Стартовый тракт",
+    }
+    groups["main"]["area_label"] = "Стартовый тракт"
+    session_state._persist_group_states(sess, groups)
+    session_state.start_group_travel(sess, "main", route, source="test")
+    second = session_state.complete_group_travel(sess, "main", player_id=player_id, source="test")
+
+    assert first is not None
+    assert first["last_arrival_result"]["result_type"] == "settlement_arrival"
+    assert first["last_arrival_result"]["first_visit"] is True
+    assert first["last_arrival_result"]["visit_count"] == 1
+    assert second is not None
+    assert second["last_arrival_result"]["result_type"] == "return_arrival"
+    assert second["last_arrival_result"]["first_visit"] is False
+    assert second["last_arrival_result"]["visit_count"] == 2
+    assert second["node_visit_states"]["craft_town"]["visit_count"] == 2
+    assert second["route_traversal_states"]["start_trakt->craft_town:move"]["traversal_count"] == 2
+    assert session_state.get_current_group_current_node_visit_state(sess, player_id=player_id)["node_id"] == "craft_town"
+    context = session_state.get_current_group_node_context(sess, player_id=player_id)
+    assert context["visit_count"] == 2
+    assert context["current_node_visit_state"]["visit_count"] == 2
+
+
+def test_failed_or_blocked_travel_does_not_create_false_arrival_history() -> None:
+    player_id = uuid.uuid4()
+    sess = SimpleNamespace(settings={})
+    session_state._initialize_default_group(
+        sess,
+        [player_id],
+        {"map_level": "region", "node_type": "zone", "node_id": "start_trakt", "label": "Стартовый тракт"},
+    )
+    session_state.grant_player_map_knowledge(sess, player_id, "craft_town", knowledge_kind="known", source="test")
+    session_state.set_group_route_access_state(
+        sess,
+        "main",
+        "start_trakt->craft_town:move",
+        access_state="blocked",
+        summary="Путь перекрыт.",
+        block_reason="blocked_path",
+        source="test",
+    )
+
+    updated, error = session_state.execute_group_navigation_option(
+        sess,
+        target_node_id="craft_town",
+        player_id=player_id,
+        group_id="main",
+        source="test",
+    )
+
+    assert updated is None
+    assert error == "Маршрут к Озёрный городок сейчас заблокирован: blocked_path."
+    assert session_state.get_current_group_last_arrival_result(sess, player_id=player_id) is None
+    assert session_state.get_current_group_node_visit_states(sess, player_id=player_id) == []
+    assert session_state.get_current_group_route_traversal_states(sess, player_id=player_id) == []

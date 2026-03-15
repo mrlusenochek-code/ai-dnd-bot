@@ -24,6 +24,8 @@ def test_parse_group_command_supports_wait_camp_rest_scout_move_navigate_context
     action_use_service, payload_use_service = ws_handlers._parse_group_command("group use chapel_village_shrine_aid")
     action_intel, payload_intel = ws_handlers._parse_group_command("group intel")
     action_journal, payload_journal = ws_handlers._parse_group_command("group journal")
+    action_trail, payload_trail = ws_handlers._parse_group_command("group trail")
+    action_visits, payload_visits = ws_handlers._parse_group_command("group visits")
     action_enter, payload_enter = ws_handlers._parse_group_command("group enter замок")
     action_mode, payload_mode = ws_handlers._parse_group_command("group mode cautious")
     action_activity, payload_activity = ws_handlers._parse_group_command("group activity navigate")
@@ -61,6 +63,8 @@ def test_parse_group_command_supports_wait_camp_rest_scout_move_navigate_context
     assert (action_use_service, payload_use_service) == ("group_service_use", {"service_id": "chapel_village_shrine_aid", "service_key": "chapel_village_shrine_aid"})
     assert (action_intel, payload_intel) == ("group_map_intel", {})
     assert (action_journal, payload_journal) == ("group_map_intel", {})
+    assert (action_trail, payload_trail) == ("group_visit_history", {})
+    assert (action_visits, payload_visits) == ("group_visit_history", {})
     assert (action_enter, payload_enter) == ("group_enter", {"target_hint": "замок"})
     assert (action_mode, payload_mode) == ("group_set_mode", {"movement_mode": "cautious"})
     assert (action_activity, payload_activity) == ("group_set_activity", {"activity": "navigate"})
@@ -634,6 +638,76 @@ def test_handle_group_map_intel_returns_empty_and_recent_journal_summary() -> No
     assert err_filled is None
     assert "Журнал разведки группы main" in str(msg_filled)
     assert "Последняя запись" in str(msg_filled)
+
+
+def test_handle_group_visit_history_returns_empty_and_recent_summary() -> None:
+    player_id = uuid.uuid4()
+    empty_sess = SimpleNamespace(settings={})
+    session_state._initialize_default_group(empty_sess, [player_id], "Таверна")
+
+    handled_empty, err_empty, msg_empty = ws_handlers._handle_group_action_request(
+        empty_sess,
+        action="group_visit_history",
+        actor_player_id=player_id,
+        payload={},
+        source="test",
+    )
+
+    assert handled_empty is True
+    assert err_empty is None
+    assert "пока нет истории посещений" in str(msg_empty)
+
+    sess = SimpleNamespace(settings={})
+    session_state._initialize_default_group(
+        sess,
+        [player_id],
+        {"map_level": "region", "node_type": "zone", "node_id": "start_trakt", "label": "Стартовый тракт"},
+    )
+    session_state.start_group_travel(
+        sess,
+        "main",
+        {
+            "allowed": True,
+            "route_id": "start_trakt->craft_town:move",
+            "route_kind": "zone_move",
+            "action_kind": "move",
+            "target_label": "Озёрный городок",
+            "target_node_id": "craft_town",
+            "target_node": {
+                "map_level": "region",
+                "node_type": "zone",
+                "node_id": "craft_town",
+                "label": "Озёрный городок",
+                "zone_label": "Озёрный городок",
+                "area_label": "Озёрный городок",
+            },
+            "next_map_position": {
+                "v": 1,
+                "map_level": "region",
+                "node_type": "zone",
+                "node_id": "craft_town",
+                "label": "Озёрный городок",
+                "area_label": "Озёрный городок",
+            },
+            "next_zone_label": "Озёрный городок",
+            "source": "registry",
+        },
+        source="test",
+    )
+    session_state.complete_group_travel(sess, "main", player_id=player_id, source="test")
+
+    handled_filled, err_filled, msg_filled = ws_handlers._handle_group_action_request(
+        sess,
+        action="group_visit_history",
+        actor_player_id=player_id,
+        payload={},
+        source="test",
+    )
+
+    assert handled_filled is True
+    assert err_filled is None
+    assert "История пути группы main" in str(msg_filled)
+    assert "посещённых точек" in str(msg_filled)
 
 
 def test_handle_group_move_pause_resume_enter_arrive_interrupt_and_stop_requests_update_group_state() -> None:
