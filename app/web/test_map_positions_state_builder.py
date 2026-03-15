@@ -141,6 +141,7 @@ def test_build_state_includes_legacy_and_structured_positions(monkeypatch) -> No
     monkeypatch.setattr(state_builder, "get_current_group_exploration_leads", lambda _sess, player_id=None: [])
     monkeypatch.setattr(state_builder, "get_current_group_primary_exploration_lead", lambda _sess, player_id=None: None)
     monkeypatch.setattr(state_builder, "get_current_group_local_interaction_surface", lambda _sess, player_id=None: None)
+    monkeypatch.setattr(state_builder, "get_current_group_current_node_progress", lambda _sess, player_id=None: None)
     monkeypatch.setattr(
         state_builder,
         "get_current_group_route_planning",
@@ -231,6 +232,7 @@ def test_build_state_includes_legacy_and_structured_positions(monkeypatch) -> No
     assert payload["game"]["current_group_exploration_leads"] == []
     assert payload["game"]["current_group_primary_exploration_lead"] is None
     assert payload["game"]["current_group_local_interaction_surface"] is None
+    assert payload["game"]["current_group_current_node_progress"] is None
     assert payload["game"]["current_group_navigation_options"] == []
     assert payload["session"]["current_group_id"] is None
     assert payload["players"] == [
@@ -952,6 +954,29 @@ def test_build_state_exports_current_player_group_id(monkeypatch) -> None:
     )
     monkeypatch.setattr(
         state_builder,
+        "get_current_group_current_node_progress",
+        lambda _sess, player_id=None: {
+            "node_id": "start_trakt",
+            "node_label": "Стартовый тракт",
+            "progression_status": "partially_resolved",
+            "summary": "В Стартовом тракте часть локальных возможностей уже закрыта, но остаётся активный местный контент.",
+            "visit_count": 2,
+            "first_visit": False,
+            "has_node_entry": True,
+            "has_destination_event": True,
+            "available_action_count": 1,
+            "locked_action_count": 1,
+            "completed_action_count": 1,
+            "available_service_count": 1,
+            "locked_service_count": 0,
+            "completed_service_count": 1,
+            "node_state_flags": ["old_road_cleared"],
+            "unresolved_local_opportunities": ["Продолжить путь", "Безопасный отдых"],
+            "source": "node_progression",
+        },
+    )
+    monkeypatch.setattr(
+        state_builder,
         "get_current_group_route_planning",
         lambda _sess, player_id=None: {
             "reachable_destinations": [
@@ -1464,6 +1489,25 @@ def test_build_state_exports_current_player_group_id(monkeypatch) -> None:
         ],
         "locked_services": [],
         "summary": "У Стартового тракта доступно 1 действий и 1 услуг; ограничено 1 действий и 0 услуг.",
+    }
+    assert payload["game"]["current_group_current_node_progress"] == {
+        "node_id": "start_trakt",
+        "node_label": "Стартовый тракт",
+        "progression_status": "partially_resolved",
+        "summary": "В Стартовом тракте часть локальных возможностей уже закрыта, но остаётся активный местный контент.",
+        "visit_count": 2,
+        "first_visit": False,
+        "has_node_entry": True,
+        "has_destination_event": True,
+        "available_action_count": 1,
+        "locked_action_count": 1,
+        "completed_action_count": 1,
+        "available_service_count": 1,
+        "locked_service_count": 0,
+        "completed_service_count": 1,
+        "node_state_flags": ["old_road_cleared"],
+        "unresolved_local_opportunities": ["Продолжить путь", "Безопасный отдых"],
+        "source": "node_progression",
     }
     assert payload["game"]["current_group_navigation_options"] == [
         {

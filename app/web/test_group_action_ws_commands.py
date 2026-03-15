@@ -39,6 +39,8 @@ def test_parse_group_command_supports_wait_camp_rest_scout_move_navigate_context
     action_event_read, payload_event_read = ws_handlers._parse_group_command("group event")
     action_options, payload_options = ws_handlers._parse_group_command("group options")
     action_interact, payload_interact = ws_handlers._parse_group_command("group interact")
+    action_progress, payload_progress = ws_handlers._parse_group_command("group progress")
+    action_place, payload_place = ws_handlers._parse_group_command("group place")
     action_enter, payload_enter = ws_handlers._parse_group_command("group enter замок")
     action_mode, payload_mode = ws_handlers._parse_group_command("group mode cautious")
     action_activity, payload_activity = ws_handlers._parse_group_command("group activity navigate")
@@ -91,6 +93,8 @@ def test_parse_group_command_supports_wait_camp_rest_scout_move_navigate_context
     assert (action_event_read, payload_event_read) == ("group_destination_event", {})
     assert (action_options, payload_options) == ("group_local_interactions", {})
     assert (action_interact, payload_interact) == ("group_local_interactions", {})
+    assert (action_progress, payload_progress) == ("group_node_progress", {})
+    assert (action_place, payload_place) == ("group_node_progress", {})
     assert (action_enter, payload_enter) == ("group_enter", {"target_hint": "замок"})
     assert (action_mode, payload_mode) == ("group_set_mode", {"movement_mode": "cautious"})
     assert (action_activity, payload_activity) == ("group_set_activity", {"activity": "navigate"})
@@ -1054,6 +1058,66 @@ def test_handle_group_exploration_leads_returns_empty_and_primary_summary() -> N
     assert err_filled is None
     assert "Exploration leads группы main: " in str(msg_filled)
     assert "Главная зацепка: Активный путь: Ворота крепости." in str(msg_filled)
+
+
+def test_handle_group_node_progress_returns_quiet_and_active_summaries() -> None:
+    player_id = uuid.uuid4()
+    empty_sess = SimpleNamespace(settings={})
+    session_state._initialize_default_group(
+        empty_sess,
+        [player_id],
+        {
+            "map_level": "region",
+            "node_type": "zone",
+            "node_id": "start_trakt",
+            "label": "Стартовый тракт",
+        },
+    )
+
+    handled_quiet, err_quiet, msg_quiet = ws_handlers._handle_group_action_request(
+        empty_sess,
+        action="group_node_progress",
+        actor_player_id=player_id,
+        payload={},
+        source="test",
+    )
+
+    assert handled_quiet is True
+    assert err_quiet is None
+    assert "quiet_location" in str(msg_quiet)
+
+    active_sess = SimpleNamespace(settings={})
+    session_state._initialize_default_group(
+        active_sess,
+        [player_id],
+        {
+            "map_level": "region",
+            "node_type": "zone",
+            "node_id": "craft_town",
+            "label": "Озёрный городок",
+        },
+    )
+    session_state.record_group_node_visit(
+        active_sess,
+        "main",
+        "craft_town",
+        node_label="Озёрный городок",
+        result_type="first_arrival",
+        summary="Первый визит.",
+    )
+
+    handled_active, err_active, msg_active = ws_handlers._handle_group_action_request(
+        active_sess,
+        action="group_node_progress",
+        actor_player_id=player_id,
+        payload={},
+        source="test",
+    )
+
+    assert handled_active is True
+    assert err_active is None
+    assert "locally_active" in str(msg_active)
+    assert "Озёрный городок" in str(msg_active)
 
 
 def test_handle_group_journey_set_advance_status_and_stop() -> None:

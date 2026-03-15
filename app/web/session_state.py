@@ -3260,6 +3260,99 @@ def build_group_exploration_lead(
     )
 
 
+def _normalize_group_node_progress_summary(raw: Any) -> dict[str, Any] | None:
+    if not isinstance(raw, dict):
+        return None
+    node_id = str(raw.get("node_id") or "").strip().lower()
+    node_label = str(raw.get("node_label") or node_id).strip()
+    progression_status = str(raw.get("progression_status") or "").strip().lower()
+    summary = str(raw.get("summary") or "").strip()
+    source = str(raw.get("source") or "node_progression").strip().lower() or "node_progression"
+    node_state_flags = [
+        str(item).strip().lower()[:80]
+        for item in (raw.get("node_state_flags") or [])
+        if str(item or "").strip()
+    ] if isinstance(raw.get("node_state_flags"), list) else []
+    unresolved_local_opportunities = [
+        str(item).strip()[:160]
+        for item in (raw.get("unresolved_local_opportunities") or [])
+        if str(item or "").strip()
+    ] if isinstance(raw.get("unresolved_local_opportunities"), list) else []
+    if progression_status not in {
+        "newly_arrived",
+        "locally_active",
+        "partially_resolved",
+        "locally_resolved",
+        "revisit_changed",
+        "quiet_location",
+    }:
+        return None
+    if not node_id or not node_label or not summary:
+        return None
+    return {
+        "node_id": node_id[:120],
+        "node_label": node_label[:120],
+        "progression_status": progression_status[:40],
+        "summary": summary[:400],
+        "visit_count": max(0, as_int(raw.get("visit_count"), 0)),
+        "first_visit": bool(raw.get("first_visit")),
+        "has_node_entry": bool(raw.get("has_node_entry")),
+        "has_destination_event": bool(raw.get("has_destination_event")),
+        "available_action_count": max(0, as_int(raw.get("available_action_count"), 0)),
+        "locked_action_count": max(0, as_int(raw.get("locked_action_count"), 0)),
+        "completed_action_count": max(0, as_int(raw.get("completed_action_count"), 0)),
+        "available_service_count": max(0, as_int(raw.get("available_service_count"), 0)),
+        "locked_service_count": max(0, as_int(raw.get("locked_service_count"), 0)),
+        "completed_service_count": max(0, as_int(raw.get("completed_service_count"), 0)),
+        "node_state_flags": node_state_flags,
+        "unresolved_local_opportunities": unresolved_local_opportunities,
+        "source": source[:40],
+    }
+
+
+def build_group_node_progress_summary(
+    *,
+    node_id: str,
+    node_label: str,
+    progression_status: str,
+    summary: str,
+    visit_count: int = 0,
+    first_visit: bool = False,
+    has_node_entry: bool = False,
+    has_destination_event: bool = False,
+    available_action_count: int = 0,
+    locked_action_count: int = 0,
+    completed_action_count: int = 0,
+    available_service_count: int = 0,
+    locked_service_count: int = 0,
+    completed_service_count: int = 0,
+    node_state_flags: list[str] | None = None,
+    unresolved_local_opportunities: list[str] | None = None,
+    source: str = "node_progression",
+) -> dict[str, Any] | None:
+    return _normalize_group_node_progress_summary(
+        {
+            "node_id": node_id,
+            "node_label": node_label,
+            "progression_status": progression_status,
+            "summary": summary,
+            "visit_count": visit_count,
+            "first_visit": first_visit,
+            "has_node_entry": has_node_entry,
+            "has_destination_event": has_destination_event,
+            "available_action_count": available_action_count,
+            "locked_action_count": locked_action_count,
+            "completed_action_count": completed_action_count,
+            "available_service_count": available_service_count,
+            "locked_service_count": locked_service_count,
+            "completed_service_count": completed_service_count,
+            "node_state_flags": list(node_state_flags or []),
+            "unresolved_local_opportunities": list(unresolved_local_opportunities or []),
+            "source": source,
+        }
+    )
+
+
 def build_group_journey_state(
     *,
     plan: dict[str, Any] | None,
@@ -3653,6 +3746,8 @@ def get_group_exploration_leads(sess: Session, group_id: str) -> list[dict[str, 
     visit_map = _normalize_group_node_visit_state_map(group.get("node_visit_states"))
     current_context = get_current_group_node_context(sess, group_id=group_key) or {}
     current_services = get_current_group_node_services(sess, group_id=group_key)
+    current_node_progress = get_current_group_current_node_progress(sess, group_id=group_key) or {}
+    progression_status = str(current_node_progress.get("progression_status") or "").strip().lower()
     has_active_journey = journey is not None
 
     def _add(lead: dict[str, Any] | None) -> None:
@@ -3787,59 +3882,60 @@ def get_group_exploration_leads(sess: Session, group_id: str) -> list[dict[str, 
             )
         )
 
-    for service in current_services:
-        if bool(service.get("available")) is not True:
-            continue
-        service_id = str(service.get("service_id") or "").strip().lower()
-        service_label = str(service.get("label") or service_id).strip()
-        _add(
-            build_group_exploration_lead(
-                lead_id=f"service:{service_id}",
-                lead_type="local_opportunity",
-                priority_band="low",
-                title=f"Локальная возможность: {service_label}",
-                summary=f"В текущей точке доступна полезная услуга: {service_label}.",
-                target_node_id=str(((current_context.get("node_summary") or {}).get("node_id") or "")).strip().lower(),
-                target_node_label=str(((current_context.get("node_summary") or {}).get("label") or "")).strip(),
-                source_kind="service",
-                source_ref=service_id,
-                reachable=True,
-                blocked=False,
-                has_active_journey=has_active_journey,
-                suggested_command=f"group service {service_id}",
-                tags=["local", "service", str(service.get("service_kind") or "service")],
+    if progression_status not in {"quiet_location", "locally_resolved"}:
+        for service in current_services:
+            if bool(service.get("available")) is not True:
+                continue
+            service_id = str(service.get("service_id") or "").strip().lower()
+            service_label = str(service.get("label") or service_id).strip()
+            _add(
+                build_group_exploration_lead(
+                    lead_id=f"service:{service_id}",
+                    lead_type="local_opportunity",
+                    priority_band="medium" if progression_status == "partially_resolved" else "low",
+                    title=f"Локальная возможность: {service_label}",
+                    summary=f"В текущей точке доступна полезная услуга: {service_label}.",
+                    target_node_id=str(((current_context.get("node_summary") or {}).get("node_id") or "")).strip().lower(),
+                    target_node_label=str(((current_context.get("node_summary") or {}).get("label") or "")).strip(),
+                    source_kind="service",
+                    source_ref=service_id,
+                    reachable=True,
+                    blocked=False,
+                    has_active_journey=has_active_journey,
+                    suggested_command=f"group service {service_id}",
+                    tags=["local", "service", str(service.get("service_kind") or "service"), progression_status or "local"],
+                )
             )
-        )
-        break
+            break
 
-    contextual_actions = list((current_context.get("contextual_actions") or [])) if isinstance(current_context, dict) else []
-    for action in contextual_actions:
-        if bool(action.get("available")) is not True or bool(action.get("exhausted")) is True:
-            continue
-        action_id = str(action.get("action_id") or action.get("action_key") or "").strip().lower()
-        action_kind = str(action.get("action_kind") or action_id).strip().lower()
-        if action_kind in {"navigate", "inspect", "wait", "camp", "rest_hint"}:
-            continue
-        action_label = str(action.get("label") or action_id).strip()
-        _add(
-            build_group_exploration_lead(
-                lead_id=f"action:{action_id}",
-                lead_type="local_opportunity",
-                priority_band="low",
-                title=f"Локальная возможность: {action_label}",
-                summary=f"В текущей точке доступно контекстное действие: {action_label}.",
-                target_node_id=str(((current_context.get("node_summary") or {}).get("node_id") or "")).strip().lower(),
-                target_node_label=str(((current_context.get("node_summary") or {}).get("label") or "")).strip(),
-                source_kind="context_action",
-                source_ref=action_id,
-                reachable=True,
-                blocked=False,
-                has_active_journey=has_active_journey,
-                suggested_command=f"group action {action_id}",
-                tags=["local", "action", action_kind],
+        contextual_actions = list((current_context.get("contextual_actions") or [])) if isinstance(current_context, dict) else []
+        for action in contextual_actions:
+            if bool(action.get("available")) is not True or bool(action.get("exhausted")) is True:
+                continue
+            action_id = str(action.get("action_id") or action.get("action_key") or "").strip().lower()
+            action_kind = str(action.get("action_kind") or action_id).strip().lower()
+            if action_kind in {"navigate", "inspect", "wait", "camp", "rest_hint"}:
+                continue
+            action_label = str(action.get("label") or action_id).strip()
+            _add(
+                build_group_exploration_lead(
+                    lead_id=f"action:{action_id}",
+                    lead_type="local_opportunity",
+                    priority_band="medium" if progression_status == "partially_resolved" else "low",
+                    title=f"Локальная возможность: {action_label}",
+                    summary=f"В текущей точке доступно контекстное действие: {action_label}.",
+                    target_node_id=str(((current_context.get("node_summary") or {}).get("node_id") or "")).strip().lower(),
+                    target_node_label=str(((current_context.get("node_summary") or {}).get("label") or "")).strip(),
+                    source_kind="context_action",
+                    source_ref=action_id,
+                    reachable=True,
+                    blocked=False,
+                    has_active_journey=has_active_journey,
+                    suggested_command=f"group action {action_id}",
+                    tags=["local", "action", action_kind, progression_status or "local"],
+                )
             )
-        )
-        break
+            break
 
     priority_order = {"high": 0, "medium": 1, "low": 2}
     type_order = {
@@ -4200,6 +4296,166 @@ def get_current_group_local_interaction_surface(
     }
 
 
+def get_group_node_progress_summary(sess: Session, group_id: str, node_id: str) -> dict[str, Any] | None:
+    group_key = str(group_id or "").strip()
+    normalized_node_id = str(node_id or "").strip().lower()
+    group = _get_group_states(sess).get(group_key)
+    if not isinstance(group, dict) or not normalized_node_id:
+        return None
+    current_map_position = _normalize_map_position(group.get("current_map_position"))
+    current_node_id = str((current_map_position or {}).get("node_id") or "").strip().lower()
+    if normalized_node_id != current_node_id:
+        return None
+    node_summary = get_static_node(normalized_node_id) or {}
+    node_label = str(node_summary.get("label") or current_map_position.get("label") or normalized_node_id).strip()
+    visit_state = get_current_group_current_node_visit_state(sess, group_id=group_key)
+    visit_count = max(0, as_int((visit_state or {}).get("visit_count"), 0))
+    first_visit = visit_count <= 1 and bool(visit_state)
+    node_entry = get_current_group_last_node_entry_result(sess, group_id=group_key)
+    current_entry = (
+        node_entry
+        if node_entry and str(node_entry.get("node_id") or "").strip().lower() == normalized_node_id
+        else None
+    )
+    destination_event = get_current_group_last_destination_event_result(sess, group_id=group_key)
+    current_destination_event = (
+        destination_event
+        if destination_event and str(destination_event.get("node_id") or "").strip().lower() == normalized_node_id
+        else None
+    )
+    node_state = get_group_node_state(sess, group_key, normalized_node_id) or {}
+    node_state_flags = list(node_state.get("state_flags") or [])
+    interaction_surface = get_current_group_local_interaction_surface(sess, group_id=group_key) or {}
+    available_actions = [dict(item) for item in (interaction_surface.get("available_actions") or []) if isinstance(item, dict)]
+    locked_actions = [dict(item) for item in (interaction_surface.get("locked_actions") or []) if isinstance(item, dict)]
+    available_services = [dict(item) for item in (interaction_surface.get("available_services") or []) if isinstance(item, dict)]
+    locked_services = [dict(item) for item in (interaction_surface.get("locked_services") or []) if isinstance(item, dict)]
+    trivial_action_kinds = {"navigate", "inspect", "wait", "camp", "rest_hint", "enter"}
+    meaningful_available_actions = [
+        item
+        for item in available_actions
+        if str(item.get("action_kind") or item.get("action_id") or "").strip().lower() not in trivial_action_kinds
+    ]
+    meaningful_locked_actions = [
+        item
+        for item in locked_actions
+        if str(item.get("action_kind") or item.get("action_id") or "").strip().lower() not in trivial_action_kinds
+    ]
+    current_action_ids = {
+        str(item.get("action_id") or "").strip().lower()
+        for item in get_static_node_context_action_effects(current_map_position=current_map_position)
+        if isinstance(item, dict) and str(item.get("action_id") or "").strip()
+    } | {
+        str(item.get("action_id") or item.get("action_key") or "").strip().lower()
+        for item in [*available_actions, *locked_actions]
+        if str(item.get("action_id") or item.get("action_key") or "").strip()
+    }
+    current_service_ids = {
+        str(item.get("service_id") or item.get("service_key") or "").strip().lower()
+        for item in get_static_node_services(current_map_position=current_map_position)
+        if isinstance(item, dict) and str(item.get("service_id") or item.get("service_key") or "").strip()
+    } | {
+        str(item.get("service_id") or item.get("service_key") or "").strip().lower()
+        for item in [*available_services, *locked_services]
+        if str(item.get("service_id") or item.get("service_key") or "").strip()
+    }
+    action_states = _normalize_group_context_action_state_map(group.get("context_action_states"))
+    service_states = _normalize_group_service_state_map(group.get("service_states"))
+    completed_action_count = sum(
+        1
+        for action_id, state in action_states.items()
+        if action_id in current_action_ids and str(state.get("status") or "").strip().lower() in {"completed", "resolved"}
+    )
+    completed_service_count = sum(
+        1
+        for service_id, state in service_states.items()
+        if service_id in current_service_ids and str(state.get("status") or "").strip().lower() in {"completed", "resolved"}
+    )
+    available_action_count = len(meaningful_available_actions)
+    locked_action_count = len(meaningful_locked_actions)
+    available_service_count = len(available_services)
+    locked_service_count = len(locked_services)
+    unresolved_local_opportunities = [
+        str(item.get("label") or item.get("service_label") or item.get("action_id") or item.get("service_id") or "").strip()
+        for item in [*meaningful_available_actions, *available_services]
+        if str(item.get("label") or item.get("service_label") or item.get("action_id") or item.get("service_id") or "").strip()
+    ]
+    has_node_entry = current_entry is not None
+    destination_event_type = str((current_destination_event or {}).get("result_type") or "").strip().lower()
+    has_destination_event = destination_event_type not in {"", "no_event"}
+    changed_signal = bool(node_state_flags) or destination_event_type == "changed_place_notice"
+
+    if visit_count <= 1 and (has_node_entry or has_destination_event):
+        progression_status = "newly_arrived"
+        summary = f"{node_label} только что отмечено для группы, местный прогресс ещё почти не тронут."
+    elif visit_count > 1 and changed_signal:
+        progression_status = "revisit_changed"
+        summary = f"{node_label} изменилось с прошлого визита, здесь есть новые локальные последствия."
+    elif (available_action_count + available_service_count) > 0 and (completed_action_count + completed_service_count) > 0:
+        progression_status = "partially_resolved"
+        summary = f"В {node_label} часть локальных возможностей уже закрыта, но остаётся активный местный контент."
+    elif (available_action_count + available_service_count) > 0:
+        progression_status = "locally_active"
+        summary = f"В {node_label} ещё есть доступные локальные действия или услуги."
+    elif (completed_action_count + completed_service_count) > 0 or has_destination_event or has_node_entry:
+        progression_status = "locally_resolved"
+        summary = f"Локальные возможности в {node_label} в основном уже выработаны."
+    else:
+        progression_status = "quiet_location"
+        summary = f"{node_label} сейчас выглядит тихим местом без заметного локального прогресса."
+
+    return build_group_node_progress_summary(
+        node_id=normalized_node_id,
+        node_label=node_label,
+        progression_status=progression_status,
+        summary=summary,
+        visit_count=visit_count,
+        first_visit=first_visit,
+        has_node_entry=has_node_entry,
+        has_destination_event=has_destination_event,
+        available_action_count=available_action_count,
+        locked_action_count=locked_action_count,
+        completed_action_count=completed_action_count,
+        available_service_count=available_service_count,
+        locked_service_count=locked_service_count,
+        completed_service_count=completed_service_count,
+        node_state_flags=node_state_flags,
+        unresolved_local_opportunities=unresolved_local_opportunities,
+        source="node_progression",
+    )
+
+
+def get_current_group_node_progress_summary(
+    sess: Session,
+    *,
+    player_id: uuid.UUID | str | None = None,
+    group_id: str | None = None,
+) -> dict[str, Any] | None:
+    resolved_group_id = str(group_id or "").strip()
+    resolved_player_id = str(player_id or "").strip()
+    if not resolved_group_id and resolved_player_id:
+        resolved_group_id = str(_get_player_group_id(sess, resolved_player_id) or "").strip()
+    if not resolved_group_id:
+        return None
+    group = _get_group_states(sess).get(resolved_group_id)
+    if not isinstance(group, dict):
+        return None
+    current_map_position = _normalize_map_position(group.get("current_map_position"))
+    current_node_id = str((current_map_position or {}).get("node_id") or "").strip().lower()
+    if not current_node_id:
+        return None
+    return get_group_node_progress_summary(sess, resolved_group_id, current_node_id)
+
+
+def get_current_group_current_node_progress(
+    sess: Session,
+    *,
+    player_id: uuid.UUID | str | None = None,
+    group_id: str | None = None,
+) -> dict[str, Any] | None:
+    return get_current_group_node_progress_summary(sess, player_id=player_id, group_id=group_id)
+
+
 def get_current_group_navigation_options(
     sess: Session,
     *,
@@ -4436,6 +4692,10 @@ def get_current_group_node_context(
     if current_destination_event and str(current_destination_event.get("node_id") or "").strip().lower() == current_node_id:
         payload["current_destination_event_type"] = str(current_destination_event.get("result_type") or "")
         payload["current_destination_event_note"] = str(current_destination_event.get("summary") or "")
+    current_node_progress = get_current_group_current_node_progress(sess, group_id=resolved_group_id) if current_node_id else None
+    if current_node_progress:
+        payload["current_node_progression_status"] = str(current_node_progress.get("progression_status") or "")
+        payload["current_node_progression_summary"] = str(current_node_progress.get("summary") or "")
     return payload
 
 

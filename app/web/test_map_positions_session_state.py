@@ -1463,6 +1463,8 @@ def test_get_current_group_node_context_returns_node_summary_and_contextual_acti
         "service_actions": [
             {"action_key": "use_service", "label": "Воспользоваться услугой", "action_type": "action"},
         ],
+        "current_node_progression_status": "locally_active",
+        "current_node_progression_summary": "В Озёрный городок ещё есть доступные локальные действия или услуги.",
     }
 
 
@@ -4051,6 +4053,202 @@ def test_group_exploration_leads_reflect_active_journey_and_primary_preference()
     assert arrived_primary is not None
     assert arrived_primary["lead_type"] == "active_journey"
     assert arrived_primary["suggested_command"] == "group stop"
+
+
+def test_group_node_progress_summary_supports_new_active_partial_changed_resolved_and_quiet_states() -> None:
+    player_id = uuid.uuid4()
+
+    quiet_sess = SimpleNamespace(settings={})
+    session_state._initialize_default_group(
+        quiet_sess,
+        [player_id],
+        {"map_level": "region", "node_type": "zone", "node_id": "start_trakt", "label": "Стартовый тракт"},
+    )
+    quiet_progress = session_state.get_current_group_current_node_progress(quiet_sess, player_id=player_id)
+    assert quiet_progress is not None
+    assert quiet_progress["progression_status"] == "quiet_location"
+
+    active_sess = SimpleNamespace(settings={})
+    session_state._initialize_default_group(
+        active_sess,
+        [player_id],
+        {"map_level": "region", "node_type": "zone", "node_id": "craft_town", "label": "Озёрный городок"},
+    )
+    session_state.record_group_node_visit(
+        active_sess,
+        "main",
+        "craft_town",
+        node_label="Озёрный городок",
+        result_type="first_arrival",
+        summary="Первый визит.",
+    )
+    active_progress = session_state.get_current_group_current_node_progress(active_sess, player_id=player_id)
+    assert active_progress is not None
+    assert active_progress["progression_status"] == "locally_active"
+    assert active_progress["available_service_count"] >= 1
+
+    new_sess = SimpleNamespace(settings={})
+    session_state._initialize_default_group(
+        new_sess,
+        [player_id],
+        {"map_level": "region", "node_type": "zone", "node_id": "craft_town", "label": "Озёрный городок"},
+    )
+    session_state.record_group_node_visit(
+        new_sess,
+        "main",
+        "craft_town",
+        node_label="Озёрный городок",
+        result_type="first_arrival",
+        summary="Первый визит.",
+    )
+    session_state.resolve_group_node_entry(new_sess, "main", source="test")
+    session_state.resolve_group_destination_event(new_sess, "main", source="test")
+    new_progress = session_state.get_current_group_current_node_progress(new_sess, player_id=player_id)
+    assert new_progress is not None
+    assert new_progress["progression_status"] == "newly_arrived"
+
+    partial_sess = SimpleNamespace(settings={})
+    session_state._initialize_default_group(
+        partial_sess,
+        [player_id],
+        {"map_level": "region", "node_type": "zone", "node_id": "craft_town", "label": "Озёрный городок"},
+    )
+    session_state.record_group_node_visit(
+        partial_sess,
+        "main",
+        "craft_town",
+        node_label="Озёрный городок",
+        result_type="first_arrival",
+        summary="Первый визит.",
+    )
+    session_state.record_group_node_visit(
+        partial_sess,
+        "main",
+        "craft_town",
+        node_label="Озёрный городок",
+        result_type="return_arrival",
+        summary="Повторный визит.",
+    )
+    session_state.execute_current_group_service(
+        partial_sess,
+        player_id=player_id,
+        service_id="craft_town:resupply",
+        source="test",
+    )
+    partial_progress = session_state.get_current_group_current_node_progress(partial_sess, player_id=player_id)
+    assert partial_progress is not None
+    assert partial_progress["progression_status"] == "partially_resolved"
+    assert partial_progress["completed_service_count"] >= 1
+    assert partial_progress["available_service_count"] >= 1
+
+    resolved_sess = SimpleNamespace(settings={})
+    session_state._initialize_default_group(
+        resolved_sess,
+        [player_id],
+        {"map_level": "region", "node_type": "zone", "node_id": "forest_road", "label": "Лесная дорога"},
+    )
+    session_state.record_group_node_visit(
+        resolved_sess,
+        "main",
+        "forest_road",
+        node_label="Лесная дорога",
+        result_type="landmark_arrival",
+        summary="Первый визит.",
+    )
+    session_state.resolve_group_context_action(
+        resolved_sess,
+        "main",
+        action_id="clear_old_road",
+        player_id=player_id,
+        source="test",
+    )
+    resolved_progress = session_state.get_current_group_current_node_progress(resolved_sess, player_id=player_id)
+    assert resolved_progress is not None
+    assert resolved_progress["progression_status"] == "locally_resolved"
+
+    changed_sess = SimpleNamespace(settings={})
+    session_state._initialize_default_group(
+        changed_sess,
+        [player_id],
+        {"map_level": "region", "node_type": "zone", "node_id": "ruined_settlement", "label": "Разрушенный посёлок"},
+    )
+    session_state.record_group_node_visit(
+        changed_sess,
+        "main",
+        "ruined_settlement",
+        node_label="Разрушенный посёлок",
+        result_type="first_arrival",
+        summary="Первый визит.",
+    )
+    session_state.record_group_node_visit(
+        changed_sess,
+        "main",
+        "ruined_settlement",
+        node_label="Разрушенный посёлок",
+        result_type="return_arrival",
+        summary="Повторный визит.",
+    )
+    session_state.add_group_node_state_flag(
+        changed_sess,
+        "main",
+        "ruined_settlement",
+        state_flag="mine_path_shored",
+        summary="Место выглядит иначе после укрепления подступа.",
+        source="test",
+    )
+    session_state.resolve_group_destination_event(changed_sess, "main", source="test")
+    changed_progress = session_state.get_current_group_current_node_progress(changed_sess, player_id=player_id)
+    assert changed_progress is not None
+    assert changed_progress["progression_status"] == "revisit_changed"
+
+
+def test_current_group_node_context_and_exploration_leads_reflect_node_progress() -> None:
+    player_id = uuid.uuid4()
+    sess = SimpleNamespace(settings={})
+    session_state._initialize_default_group(
+        sess,
+        [player_id],
+        {"map_level": "region", "node_type": "zone", "node_id": "craft_town", "label": "Озёрный городок"},
+    )
+    session_state.record_group_node_visit(
+        sess,
+        "main",
+        "craft_town",
+        node_label="Озёрный городок",
+        result_type="first_arrival",
+        summary="Первый визит.",
+    )
+    session_state.record_group_node_visit(
+        sess,
+        "main",
+        "craft_town",
+        node_label="Озёрный городок",
+        result_type="return_arrival",
+        summary="Повторный визит.",
+    )
+    session_state.execute_current_group_service(
+        sess,
+        player_id=player_id,
+        service_id="craft_town:resupply",
+        source="test",
+    )
+
+    context = session_state.get_current_group_node_context(sess, player_id=player_id)
+    leads = session_state.get_current_group_exploration_leads(sess, player_id=player_id)
+
+    assert context is not None
+    assert context["current_node_progression_status"] == "partially_resolved"
+    assert "локальных возможностей" in context["current_node_progression_summary"]
+    assert any(lead["lead_type"] == "local_opportunity" for lead in leads)
+
+    quiet_sess = SimpleNamespace(settings={})
+    session_state._initialize_default_group(
+        quiet_sess,
+        [player_id],
+        {"map_level": "region", "node_type": "zone", "node_id": "start_trakt", "label": "Стартовый тракт"},
+    )
+    quiet_leads = session_state.get_current_group_exploration_leads(quiet_sess, player_id=player_id)
+    assert all(lead["lead_type"] != "local_opportunity" for lead in quiet_leads)
 
 
 def test_group_exploration_leads_synthesize_intel_reachable_and_blocked_frontiers_without_duplicates() -> None:

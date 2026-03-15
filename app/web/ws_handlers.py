@@ -82,6 +82,7 @@ from app.web.session_state import (
     get_current_group_exploration_leads,
     get_current_group_primary_exploration_lead,
     get_current_group_local_interaction_surface,
+    get_current_group_current_node_progress,
     set_group_journey_target,
     advance_group_journey,
     clear_group_journey,
@@ -1762,6 +1763,9 @@ def _parse_group_command(cmdline: str) -> tuple[str | None, dict[str, Any]]:
     if lowered in {"group options", "group_options", "group interact", "group_interact"}:
         return "group_local_interactions", {}
 
+    if lowered in {"group progress", "group_progress", "group place", "group_place"}:
+        return "group_node_progress", {}
+
     if lowered in {"group arrive", "group_arrive"}:
         return "group_arrive", {}
 
@@ -1893,6 +1897,7 @@ def _handle_group_action_request(
         "group_node_entry",
         "group_destination_event",
         "group_local_interactions",
+        "group_node_progress",
         "group_exploration_leads",
         "group_journey_set",
         "group_journey_advance",
@@ -2024,6 +2029,23 @@ def _handle_group_action_request(
             f"{len(available_actions)} действий и {len(available_services)} услуг доступны, "
             f"{len(locked_actions)} действий и {len(locked_services)} услуг ограничены."
         )
+
+    if action == "group_node_progress":
+        if not actor_group_key:
+            return True, "Группа игрока не найдена.", None
+        progress = get_current_group_current_node_progress(
+            sess,
+            player_id=actor_player_id,
+            group_id=actor_group_key,
+        )
+        if not progress:
+            return True, "Не удалось определить текущий узел группы.", None
+        return True, None, (
+            f"Локальный прогресс группы {actor_group_key}: "
+            f"{str(progress.get('node_label') or 'узел')} "
+            f"({str(progress.get('progression_status') or 'unknown')}). "
+            f"{str(progress.get('summary') or '')}"
+        ).strip()
 
     if action == "group_exploration_leads":
         if not actor_group_key:
@@ -2180,6 +2202,7 @@ def _handle_group_action_request(
         "group_node_entry",
         "group_destination_event",
         "group_local_interactions",
+        "group_node_progress",
         "group_exploration_leads",
         "group_journey_set",
         "group_journey_advance",
@@ -6318,6 +6341,7 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                     "group_map_intel",
                     "group_node_entry",
                     "group_destination_event",
+                    "group_node_progress",
                     "group_exploration_leads",
                     "group_journey_set",
                     "group_journey_advance",
