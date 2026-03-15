@@ -146,6 +146,9 @@ def test_build_state_includes_legacy_and_structured_positions(monkeypatch) -> No
     monkeypatch.setattr(state_builder, "get_current_group_region_frontier_summary", lambda _sess, player_id=None: None)
     monkeypatch.setattr(state_builder, "get_current_group_region_gateways", lambda _sess, player_id=None: [])
     monkeypatch.setattr(state_builder, "get_current_group_primary_region_gateway", lambda _sess, player_id=None: None)
+    monkeypatch.setattr(state_builder, "get_current_group_current_region_state", lambda _sess, player_id=None: None)
+    monkeypatch.setattr(state_builder, "get_current_group_discovered_regions", lambda _sess, player_id=None: [])
+    monkeypatch.setattr(state_builder, "get_current_group_last_region_entry_result", lambda _sess, player_id=None: None)
     monkeypatch.setattr(state_builder, "get_current_group_last_region_transition_result", lambda _sess, player_id=None: None)
     monkeypatch.setattr(state_builder, "get_current_group_region_transition_state", lambda _sess, player_id=None: None)
     monkeypatch.setattr(
@@ -181,6 +184,7 @@ def test_build_state_includes_legacy_and_structured_positions(monkeypatch) -> No
             "last_context_action_result_summary": None,
             "last_node_entry_result_summary": None,
             "last_destination_event_result_summary": None,
+            "last_region_entry_result_summary": None,
             "active_journey_summary": None,
             "last_journey_result_summary": None,
             "context_action_states": None,
@@ -190,6 +194,7 @@ def test_build_state_includes_legacy_and_structured_positions(monkeypatch) -> No
             "last_service_result_summary": None,
             "service_states": None,
             "map_intel_count": 0,
+            "discovered_region_count": 0,
             "visited_node_count": 0,
             "traversed_route_count": 0,
             "movement_intent_summary": None,
@@ -243,6 +248,9 @@ def test_build_state_includes_legacy_and_structured_positions(monkeypatch) -> No
     assert payload["game"]["current_group_region_frontier_summary"] is None
     assert payload["game"]["current_group_region_gateways"] == []
     assert payload["game"]["current_group_primary_region_gateway"] is None
+    assert payload["game"]["current_group_current_region_state"] is None
+    assert payload["game"]["current_group_discovered_regions"] == []
+    assert payload["game"]["current_group_last_region_entry_result"] is None
     assert payload["game"]["current_group_last_region_transition_result"] is None
     assert payload["game"]["current_group_region_transition_state"] is None
     assert payload["game"]["current_group_navigation_options"] == []
@@ -270,6 +278,220 @@ def test_build_state_includes_legacy_and_structured_positions(monkeypatch) -> No
             "revealed_node_ids": [],
         }
     ]
+
+
+def test_build_state_exports_region_residency_payloads(monkeypatch) -> None:
+    player_id = uuid.uuid4()
+    session_id = uuid.uuid4()
+    structured_position = {
+        "v": 1,
+        "map_level": "region",
+        "node_type": "zone",
+        "node_id": "northwatch_outpost",
+        "label": "Северный рубеж",
+        "area_label": "Северный рубеж",
+    }
+    sp = SimpleNamespace(player_id=player_id, join_order=1, is_admin=False, is_active=True)
+    player = SimpleNamespace(id=player_id, display_name="Alice", web_user_id=42, telegram_user_id=None)
+    group_state = {
+        "main": {
+            "group_id": "main",
+            "player_ids": [str(player_id)],
+            "movement_mode": "normal",
+            "current_map_position": structured_position,
+            "area_label": "Северный рубеж",
+            "status": "idle",
+            "current_region_state": {
+                "region_id": "northwatch_frontier",
+                "region_label": "Северный рубеж",
+                "current_node_id": "northwatch_outpost",
+                "entered_at": "2025-01-02T00:00:00+00:00",
+                "visit_count": 1,
+                "source": "region_transition",
+            },
+            "discovered_regions": {
+                "starter_frontier": {
+                    "region_id": "starter_frontier",
+                    "region_label": "Стартовое пограничье",
+                    "visit_count": 1,
+                    "first_entered_at": "2025-01-01T00:00:00+00:00",
+                    "last_entered_at": "2025-01-01T00:00:00+00:00",
+                    "first_anchor_node_id": "start_trakt",
+                    "last_anchor_node_id": "start_trakt",
+                    "summary": "Группа впервые входит в регион Стартовое пограничье.",
+                },
+                "northwatch_frontier": {
+                    "region_id": "northwatch_frontier",
+                    "region_label": "Северный рубеж",
+                    "visit_count": 1,
+                    "first_entered_at": "2025-01-02T00:00:00+00:00",
+                    "last_entered_at": "2025-01-02T00:00:00+00:00",
+                    "first_anchor_node_id": "northwatch_outpost",
+                    "last_anchor_node_id": "northwatch_outpost",
+                    "summary": "Группа впервые входит в регион Северный рубеж.",
+                },
+            },
+            "last_region_entry_result": {
+                "result_id": "region-entry-2",
+                "result_type": "region_transition_entry",
+                "summary": "Группа переходит в регион Северный рубеж через frontier gateway.",
+                "result_summary": "Группа переходит в регион Северный рубеж через frontier gateway.",
+                "region_id": "northwatch_frontier",
+                "region_label": "Северный рубеж",
+                "anchor_node_id": "northwatch_outpost",
+                "first_region_visit": True,
+                "visit_count": 1,
+                "source": "region_transition",
+                "resolved_at": "2025-01-02T00:00:00+00:00",
+            },
+        }
+    }
+    sess = SimpleNamespace(
+        id=session_id,
+        title="Campaign",
+        is_active=False,
+        is_paused=False,
+        turn_index=0,
+        current_player_id=player_id,
+        turn_started_at=None,
+        settings={
+            "ready": {str(player_id): True},
+            "initiative": {str(player_id): 7},
+            "group_states": group_state,
+            "pc_positions": {str(player_id): "Северный рубеж"},
+            "map_positions": {str(player_id): structured_position},
+        },
+    )
+
+    monkeypatch.setattr(state_builder, "get_session_lock", lambda _session_id: None)
+    async def _list_players(_db, _session_id, active_only=False):
+        return [sp]
+
+    monkeypatch.setattr(state_builder, "list_session_players", _list_players)
+    monkeypatch.setattr(state_builder, "snapshot_combat_state", lambda _session_id: None)
+    monkeypatch.setattr(state_builder, "get_current_group_node_context", lambda _sess, player_id=None: None)
+    monkeypatch.setattr(state_builder, "get_current_group_node_detail", lambda _sess, player_id=None: None)
+    monkeypatch.setattr(state_builder, "get_current_group_last_inspect_result", lambda _sess, player_id=None: None)
+    monkeypatch.setattr(state_builder, "get_current_group_node_services", lambda _sess, player_id=None: [])
+    monkeypatch.setattr(state_builder, "get_current_group_last_service_result", lambda _sess, player_id=None: None)
+    monkeypatch.setattr(state_builder, "get_current_group_service_states", lambda _sess, player_id=None: [])
+    monkeypatch.setattr(state_builder, "get_current_group_travel_event", lambda _sess, player_id=None: None)
+    monkeypatch.setattr(state_builder, "get_current_group_last_camp_result", lambda _sess, player_id=None: None)
+    monkeypatch.setattr(state_builder, "get_current_group_last_scout_result", lambda _sess, player_id=None: None)
+    monkeypatch.setattr(state_builder, "get_current_group_last_context_action_result", lambda _sess, player_id=None: None)
+    monkeypatch.setattr(state_builder, "get_current_group_route_access_states", lambda _sess, player_id=None: [])
+    monkeypatch.setattr(state_builder, "get_current_group_context_action_states", lambda _sess, player_id=None: [])
+    monkeypatch.setattr(state_builder, "get_current_group_node_states", lambda _sess, player_id=None: [])
+    monkeypatch.setattr(state_builder, "get_current_group_current_node_state", lambda _sess, player_id=None: None)
+    monkeypatch.setattr(state_builder, "get_current_group_last_travel_event_outcome", lambda _sess, player_id=None: None)
+    monkeypatch.setattr(state_builder, "get_current_group_map_intel", lambda _sess, player_id=None: [])
+    monkeypatch.setattr(state_builder, "get_current_group_recent_map_intel", lambda _sess, player_id=None: [])
+    monkeypatch.setattr(state_builder, "get_current_group_last_arrival_result", lambda _sess, player_id=None: None)
+    monkeypatch.setattr(state_builder, "get_current_group_last_node_entry_result", lambda _sess, player_id=None: None)
+    monkeypatch.setattr(state_builder, "get_current_group_current_node_entry_state", lambda _sess, player_id=None: None)
+    monkeypatch.setattr(state_builder, "get_current_group_node_entry_states", lambda _sess, player_id=None: [])
+    monkeypatch.setattr(state_builder, "get_current_group_last_destination_event_result", lambda _sess, player_id=None: None)
+    monkeypatch.setattr(state_builder, "get_current_group_current_node_destination_event_state", lambda _sess, player_id=None: None)
+    monkeypatch.setattr(state_builder, "get_current_group_destination_event_states", lambda _sess, player_id=None: [])
+    monkeypatch.setattr(state_builder, "get_current_group_current_node_visit_state", lambda _sess, player_id=None: None)
+    monkeypatch.setattr(state_builder, "get_current_group_node_visit_states", lambda _sess, player_id=None: [])
+    monkeypatch.setattr(state_builder, "get_current_group_route_traversal_states", lambda _sess, player_id=None: [])
+    monkeypatch.setattr(state_builder, "get_current_group_journey_state", lambda _sess, player_id=None: None)
+    monkeypatch.setattr(state_builder, "get_current_group_last_journey_result", lambda _sess, player_id=None: None)
+    monkeypatch.setattr(state_builder, "get_current_group_route_planning", lambda _sess, player_id=None: {"reachable_destinations": [], "route_frontiers": []})
+    monkeypatch.setattr(state_builder, "get_current_group_exploration_leads", lambda _sess, player_id=None: [])
+    monkeypatch.setattr(state_builder, "get_current_group_primary_exploration_lead", lambda _sess, player_id=None: None)
+    monkeypatch.setattr(state_builder, "get_current_group_local_interaction_surface", lambda _sess, player_id=None: None)
+    monkeypatch.setattr(state_builder, "get_current_group_current_node_progress", lambda _sess, player_id=None: None)
+    monkeypatch.setattr(state_builder, "get_current_group_region_exploration_summary", lambda _sess, player_id=None: None)
+    monkeypatch.setattr(state_builder, "get_current_group_region_frontier_summary", lambda _sess, player_id=None: None)
+    monkeypatch.setattr(state_builder, "get_current_group_region_gateways", lambda _sess, player_id=None: [])
+    monkeypatch.setattr(state_builder, "get_current_group_primary_region_gateway", lambda _sess, player_id=None: None)
+    monkeypatch.setattr(
+        state_builder,
+        "get_current_group_current_region_state",
+        lambda _sess, player_id=None: {
+            "region_id": "northwatch_frontier",
+            "region_label": "Северный рубеж",
+            "current_node_id": "northwatch_outpost",
+            "entered_at": "2025-01-02T00:00:00+00:00",
+            "visit_count": 1,
+            "source": "region_transition",
+        },
+    )
+    monkeypatch.setattr(
+        state_builder,
+        "get_current_group_discovered_regions",
+        lambda _sess, player_id=None: [
+            {
+                "region_id": "starter_frontier",
+                "region_label": "Стартовое пограничье",
+                "visit_count": 1,
+                "first_entered_at": "2025-01-01T00:00:00+00:00",
+                "last_entered_at": "2025-01-01T00:00:00+00:00",
+                "first_anchor_node_id": "start_trakt",
+                "last_anchor_node_id": "start_trakt",
+                "summary": "Группа впервые входит в регион Стартовое пограничье.",
+            },
+            {
+                "region_id": "northwatch_frontier",
+                "region_label": "Северный рубеж",
+                "visit_count": 1,
+                "first_entered_at": "2025-01-02T00:00:00+00:00",
+                "last_entered_at": "2025-01-02T00:00:00+00:00",
+                "first_anchor_node_id": "northwatch_outpost",
+                "last_anchor_node_id": "northwatch_outpost",
+                "summary": "Группа впервые входит в регион Северный рубеж.",
+            },
+        ],
+    )
+    monkeypatch.setattr(
+        state_builder,
+        "get_current_group_last_region_entry_result",
+        lambda _sess, player_id=None: {
+            "result_id": "region-entry-2",
+            "result_type": "region_transition_entry",
+            "summary": "Группа переходит в регион Северный рубеж через frontier gateway.",
+            "result_summary": "Группа переходит в регион Северный рубеж через frontier gateway.",
+            "region_id": "northwatch_frontier",
+            "region_label": "Северный рубеж",
+            "anchor_node_id": "northwatch_outpost",
+            "first_region_visit": True,
+            "visit_count": 1,
+            "source": "region_transition",
+            "resolved_at": "2025-01-02T00:00:00+00:00",
+        },
+    )
+    monkeypatch.setattr(state_builder, "get_current_group_last_region_transition_result", lambda _sess, player_id=None: None)
+    monkeypatch.setattr(state_builder, "get_current_group_region_transition_state", lambda _sess, player_id=None: None)
+    monkeypatch.setattr(state_builder, "get_current_group_navigation_options", lambda _sess, player_id=None: [])
+    monkeypatch.setattr(state_builder, "_group_discovered_region_count", lambda _group: 2)
+    monkeypatch.setattr(
+        state_builder,
+        "_group_last_region_entry_result_summary",
+        lambda _group: {
+            "result_id": "region-entry-2",
+            "result_type": "region_transition_entry",
+            "summary": "Группа переходит в регион Северный рубеж через frontier gateway.",
+            "result_summary": "Группа переходит в регион Северный рубеж через frontier gateway.",
+            "region_id": "northwatch_frontier",
+            "region_label": "Северный рубеж",
+            "anchor_node_id": "northwatch_outpost",
+            "first_region_visit": True,
+            "visit_count": 1,
+            "source": "region_transition",
+            "resolved_at": "2025-01-02T00:00:00+00:00",
+        },
+    )
+    db = _FakeDb([[player], [], [], []])
+    payload = asyncio.run(state_builder.build_state(db, sess))
+
+    assert payload["game"]["current_group_current_region_state"]["region_id"] == "northwatch_frontier"
+    assert [item["region_id"] for item in payload["game"]["current_group_discovered_regions"]] == [
+        "starter_frontier",
+        "northwatch_frontier",
+    ]
+    assert payload["game"]["current_group_last_region_entry_result"]["result_type"] == "region_transition_entry"
 
 
 def test_build_state_exports_current_player_group_id(monkeypatch) -> None:
@@ -1085,6 +1307,51 @@ def test_build_state_exports_current_player_group_id(monkeypatch) -> None:
     )
     monkeypatch.setattr(
         state_builder,
+        "get_current_group_current_region_state",
+        lambda _sess, player_id=None: {
+            "region_id": "starter_frontier",
+            "region_label": "Стартовое пограничье",
+            "current_node_id": "start_trakt",
+            "entered_at": "2025-01-01T00:00:00+00:00",
+            "visit_count": 1,
+            "source": "region_residency",
+        },
+    )
+    monkeypatch.setattr(
+        state_builder,
+        "get_current_group_discovered_regions",
+        lambda _sess, player_id=None: [
+            {
+                "region_id": "starter_frontier",
+                "region_label": "Стартовое пограничье",
+                "visit_count": 1,
+                "first_entered_at": "2025-01-01T00:00:00+00:00",
+                "last_entered_at": "2025-01-01T00:00:00+00:00",
+                "first_anchor_node_id": "start_trakt",
+                "last_anchor_node_id": "start_trakt",
+                "summary": "Группа впервые входит в регион Стартовое пограничье.",
+            }
+        ],
+    )
+    monkeypatch.setattr(
+        state_builder,
+        "get_current_group_last_region_entry_result",
+        lambda _sess, player_id=None: {
+            "result_id": "region-entry-1",
+            "result_type": "first_region_entry",
+            "summary": "Группа впервые закрепляется в регионе Стартовое пограничье.",
+            "result_summary": "Группа впервые закрепляется в регионе Стартовое пограничье.",
+            "region_id": "starter_frontier",
+            "region_label": "Стартовое пограничье",
+            "anchor_node_id": "start_trakt",
+            "first_region_visit": True,
+            "visit_count": 1,
+            "source": "region_residency",
+            "resolved_at": "2025-01-01T00:00:00+00:00",
+        },
+    )
+    monkeypatch.setattr(
+        state_builder,
         "get_current_group_last_region_transition_result",
         lambda _sess, player_id=None: {
             "result_id": "transition-1",
@@ -1728,6 +1995,39 @@ def test_build_state_exports_current_player_group_id(monkeypatch) -> None:
         "gateway_id": "forest_settlement_northwatch",
         "gateway_label": "Выход к северному рубежу",
         "gateway_status": "open",
+    }
+    assert payload["game"]["current_group_current_region_state"] == {
+        "region_id": "starter_frontier",
+        "region_label": "Стартовое пограничье",
+        "current_node_id": "start_trakt",
+        "entered_at": "2025-01-01T00:00:00+00:00",
+        "visit_count": 1,
+        "source": "region_residency",
+    }
+    assert payload["game"]["current_group_discovered_regions"] == [
+        {
+            "region_id": "starter_frontier",
+            "region_label": "Стартовое пограничье",
+            "visit_count": 1,
+            "first_entered_at": "2025-01-01T00:00:00+00:00",
+            "last_entered_at": "2025-01-01T00:00:00+00:00",
+            "first_anchor_node_id": "start_trakt",
+            "last_anchor_node_id": "start_trakt",
+            "summary": "Группа впервые входит в регион Стартовое пограничье.",
+        }
+    ]
+    assert payload["game"]["current_group_last_region_entry_result"] == {
+        "result_id": "region-entry-1",
+        "result_type": "first_region_entry",
+        "summary": "Группа впервые закрепляется в регионе Стартовое пограничье.",
+        "result_summary": "Группа впервые закрепляется в регионе Стартовое пограничье.",
+        "region_id": "starter_frontier",
+        "region_label": "Стартовое пограничье",
+        "anchor_node_id": "start_trakt",
+        "first_region_visit": True,
+        "visit_count": 1,
+        "source": "region_residency",
+        "resolved_at": "2025-01-01T00:00:00+00:00",
     }
     assert payload["game"]["current_group_last_region_transition_result"] == {
         "result_id": "transition-1",

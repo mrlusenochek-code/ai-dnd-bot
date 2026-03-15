@@ -45,6 +45,8 @@ def test_parse_group_command_supports_wait_camp_rest_scout_move_navigate_context
     action_frontier, payload_frontier = ws_handlers._parse_group_command("group frontier")
     action_exits, payload_exits = ws_handlers._parse_group_command("group exits")
     action_gateways, payload_gateways = ws_handlers._parse_group_command("group gateways")
+    action_here, payload_here = ws_handlers._parse_group_command("group here")
+    action_regions, payload_regions = ws_handlers._parse_group_command("group regions")
     action_exit, payload_exit = ws_handlers._parse_group_command("group exit forest_settlement_northwatch")
     action_cross, payload_cross = ws_handlers._parse_group_command("group cross fortress_gate_western_road")
     action_transition, payload_transition = ws_handlers._parse_group_command("group transition")
@@ -106,6 +108,8 @@ def test_parse_group_command_supports_wait_camp_rest_scout_move_navigate_context
     assert (action_frontier, payload_frontier) == ("group_region_progress", {})
     assert (action_exits, payload_exits) == ("group_region_gateways", {})
     assert (action_gateways, payload_gateways) == ("group_region_gateways", {})
+    assert (action_here, payload_here) == ("group_region_status", {})
+    assert (action_regions, payload_regions) == ("group_discovered_regions", {})
     assert (action_exit, payload_exit) == ("group_region_transition", {"gateway_id": "forest_settlement_northwatch"})
     assert (action_cross, payload_cross) == ("group_region_transition", {"gateway_id": "fortress_gate_western_road"})
     assert (action_transition, payload_transition) == ("group_region_transition_status", {})
@@ -1309,6 +1313,43 @@ def test_handle_group_region_transition_execute_and_status_surface() -> None:
     assert err_status is None
     assert "completed" in str(msg_status)
     assert "Выход к северному рубежу" in str(msg_status)
+
+
+def test_handle_group_region_status_and_discovered_regions_surface() -> None:
+    player_id = uuid.uuid4()
+    empty_sess = SimpleNamespace(settings={})
+    session_state._initialize_default_group(
+        empty_sess,
+        [player_id],
+        {
+            "map_level": "region",
+            "node_type": "zone",
+            "node_id": "start_trakt",
+            "label": "Стартовый тракт",
+        },
+    )
+    handled_here, err_here, msg_here = ws_handlers._handle_group_action_request(
+        empty_sess,
+        action="group_region_status",
+        actor_player_id=player_id,
+        payload={},
+        source="test",
+    )
+    assert handled_here is True
+    assert err_here is None
+    assert "Стартовое пограничье" in str(msg_here)
+
+    handled_regions, err_regions, msg_regions = ws_handlers._handle_group_action_request(
+        empty_sess,
+        action="group_discovered_regions",
+        actor_player_id=player_id,
+        payload={},
+        source="test",
+    )
+    assert handled_regions is True
+    assert err_regions is None
+    assert "Открытые регионы группы main: 1." in str(msg_regions)
+    assert "Стартовое пограничье" in str(msg_regions)
 
 
 def test_handle_group_journey_set_advance_status_and_stop() -> None:

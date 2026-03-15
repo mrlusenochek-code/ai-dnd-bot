@@ -914,6 +914,44 @@ STATIC_MAP_REGION_GATEWAYS: tuple[dict[str, Any], ...] = (
     },
 )
 
+STATIC_MAP_REGION_IDENTITIES: tuple[dict[str, Any], ...] = (
+    {
+        "region_id": "starter_frontier",
+        "region_label": "Стартовое пограничье",
+        "node_ids": (
+            "start_trakt",
+            "eastern_bank",
+            "craft_town",
+            "forest_road",
+            "road_hamlet",
+            "chapel_village",
+            "forest_settlement",
+            "ruined_settlement",
+            "marsh_edge",
+            "fortress_gate",
+            "watchtower",
+            "old_fortress_edge",
+            "forgotten_shrine",
+            "mine_entrance",
+        ),
+    },
+    {
+        "region_id": "northwatch_frontier",
+        "region_label": "Северный рубеж",
+        "node_ids": ("northwatch_outpost",),
+    },
+    {
+        "region_id": "western_road",
+        "region_label": "Западный тракт",
+        "node_ids": ("western_road_watch",),
+    },
+    {
+        "region_id": "deep_marsh",
+        "region_label": "Глубокие болота",
+        "node_ids": ("deep_marsh_threshold",),
+    },
+)
+
 
 def _normalized_text(value: Any) -> str:
     return str(value or "").strip().lower()
@@ -1478,6 +1516,36 @@ def get_static_region_gateways(
             gateway["requires_min_visit_count"] = min_visit_count
         gateways.append(gateway)
     return gateways
+
+
+def get_static_region_identity(
+    *,
+    node_id: str | None = None,
+    current_map_position: dict[str, Any] | None = None,
+) -> dict[str, Any] | None:
+    resolved_node_id = _normalized_text(node_id)
+    if not resolved_node_id and isinstance(current_map_position, dict):
+        resolved_node_id = _normalized_text(current_map_position.get("node_id"))
+    if not resolved_node_id:
+        return None
+    for item in STATIC_MAP_REGION_IDENTITIES:
+        node_ids = {
+            _normalized_text(candidate)
+            for candidate in (item.get("node_ids") or [])
+            if _normalized_text(candidate)
+        }
+        if resolved_node_id not in node_ids:
+            continue
+        region_id = _normalized_text(item.get("region_id"))
+        region_label = str(item.get("region_label") or region_id).strip()
+        if not region_id or not region_label:
+            continue
+        return {
+            "region_id": region_id,
+            "region_label": region_label,
+            "node_ids": sorted(node_ids),
+        }
+    return None
 
 
 def get_static_node_region_gateways(

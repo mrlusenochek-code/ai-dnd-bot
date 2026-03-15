@@ -40,6 +40,7 @@ from app.web.session_state import (
     _group_last_destination_event_result_summary,
     _group_active_journey_summary,
     _group_last_journey_result_summary,
+    _group_last_region_entry_result_summary,
     _group_context_action_states_summary,
     _group_node_entry_states_summary,
     _group_destination_event_states_summary,
@@ -50,6 +51,7 @@ from app.web.session_state import (
     _group_last_service_result_summary,
     _group_service_states_summary,
     _group_map_intel_count,
+    _group_discovered_region_count,
     _group_visited_node_count,
     _group_traversed_route_count,
     _group_movement_mode,
@@ -102,6 +104,9 @@ from app.web.session_state import (
     get_current_group_region_frontier_summary,
     get_current_group_region_gateways,
     get_current_group_primary_region_gateway,
+    get_current_group_current_region_state,
+    get_current_group_discovered_regions,
+    get_current_group_last_region_entry_result,
     get_current_group_last_region_transition_result,
     get_current_group_region_transition_state,
     get_current_group_navigation_options,
@@ -409,6 +414,7 @@ async def build_state(db: AsyncSession, sess: Session) -> dict:
             "last_context_action_result_summary": _group_last_context_action_result_summary(group),
             "last_node_entry_result_summary": _group_last_node_entry_result_summary(group),
             "last_destination_event_result_summary": _group_last_destination_event_result_summary(group),
+            "last_region_entry_result_summary": _group_last_region_entry_result_summary(group),
             "active_journey_summary": _group_active_journey_summary(group),
             "last_journey_result_summary": _group_last_journey_result_summary(group),
             "context_action_states": _group_context_action_states_summary(group),
@@ -418,6 +424,7 @@ async def build_state(db: AsyncSession, sess: Session) -> dict:
             "last_service_result_summary": _group_last_service_result_summary(group),
             "service_states": _group_service_states_summary(group),
             "map_intel_count": _group_map_intel_count(group),
+            "discovered_region_count": _group_discovered_region_count(group),
             "visited_node_count": _group_visited_node_count(group),
             "traversed_route_count": _group_traversed_route_count(group),
             "movement_intent_summary": _group_movement_intent_summary(group),
@@ -636,6 +643,21 @@ async def build_state(db: AsyncSession, sess: Session) -> dict:
         if sess.current_player_id
         else None
     )
+    current_group_current_region_state = (
+        get_current_group_current_region_state(sess, player_id=sess.current_player_id)
+        if sess.current_player_id
+        else None
+    )
+    current_group_discovered_regions = (
+        get_current_group_discovered_regions(sess, player_id=sess.current_player_id)
+        if sess.current_player_id
+        else []
+    )
+    current_group_last_region_entry_result = (
+        get_current_group_last_region_entry_result(sess, player_id=sess.current_player_id)
+        if sess.current_player_id
+        else None
+    )
 
     return {
         "type": "state",
@@ -710,6 +732,9 @@ async def build_state(db: AsyncSession, sess: Session) -> dict:
             "current_group_region_frontier_summary": current_group_region_frontier_summary,
             "current_group_region_gateways": current_group_region_gateways,
             "current_group_primary_region_gateway": current_group_primary_region_gateway,
+            "current_group_current_region_state": current_group_current_region_state,
+            "current_group_discovered_regions": current_group_discovered_regions,
+            "current_group_last_region_entry_result": current_group_last_region_entry_result,
             "current_group_last_region_transition_result": current_group_last_region_transition_result,
             "current_group_region_transition_state": current_group_region_transition_state,
             "current_group_navigation_options": current_group_navigation_options,

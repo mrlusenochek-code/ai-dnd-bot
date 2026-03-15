@@ -28,6 +28,7 @@ from app.web.map_registry import (
     get_static_node_service_result,
     get_static_node_services,
     get_static_region_gateways,
+    get_static_region_identity,
 )
 from app.web.utils import as_int
 
@@ -1048,6 +1049,120 @@ def _normalize_group_region_transition_state(raw: Any) -> dict[str, Any] | None:
     return state
 
 
+def _normalize_group_current_region_state(raw: Any) -> dict[str, Any] | None:
+    if not isinstance(raw, dict):
+        return None
+    region_id = str(raw.get("region_id") or "").strip().lower()
+    region_label = str(raw.get("region_label") or region_id).strip()
+    current_node_id = str(raw.get("current_node_id") or "").strip().lower()
+    entered_at = str(raw.get("entered_at") or "").strip()
+    visit_count = max(0, as_int(raw.get("visit_count"), 0))
+    source = str(raw.get("source") or "region_residency").strip() or "region_residency"
+    if not region_id or not region_label or not current_node_id or visit_count <= 0:
+        return None
+    state: dict[str, Any] = {
+        "region_id": region_id[:120],
+        "region_label": region_label[:160],
+        "current_node_id": current_node_id[:120],
+        "visit_count": visit_count,
+        "source": source[:40],
+    }
+    if entered_at:
+        state["entered_at"] = entered_at[:80]
+    return state
+
+
+def _normalize_group_discovered_region(raw: Any) -> dict[str, Any] | None:
+    if not isinstance(raw, dict):
+        return None
+    region_id = str(raw.get("region_id") or "").strip().lower()
+    region_label = str(raw.get("region_label") or region_id).strip()
+    visit_count = max(0, as_int(raw.get("visit_count"), 0))
+    first_entered_at = str(raw.get("first_entered_at") or "").strip()
+    last_entered_at = str(raw.get("last_entered_at") or "").strip()
+    first_anchor_node_id = str(raw.get("first_anchor_node_id") or "").strip().lower()
+    last_anchor_node_id = str(raw.get("last_anchor_node_id") or "").strip().lower()
+    summary = str(raw.get("summary") or "").strip()
+    if not region_id or not region_label or visit_count <= 0 or not summary:
+        return None
+    state: dict[str, Any] = {
+        "region_id": region_id[:120],
+        "region_label": region_label[:160],
+        "visit_count": visit_count,
+        "first_anchor_node_id": first_anchor_node_id[:120],
+        "last_anchor_node_id": last_anchor_node_id[:120],
+        "summary": summary[:240],
+    }
+    if first_entered_at:
+        state["first_entered_at"] = first_entered_at[:80]
+    if last_entered_at:
+        state["last_entered_at"] = last_entered_at[:80]
+    return state
+
+
+def _normalize_group_discovered_region_map(raw: Any) -> dict[str, dict[str, Any]]:
+    if not isinstance(raw, dict):
+        return {}
+    normalized: dict[str, dict[str, Any]] = {}
+    for region_id, value in raw.items():
+        candidate = (
+            value
+            if isinstance(value, dict)
+            else {
+                "region_id": region_id,
+                "region_label": str(value or region_id),
+                "visit_count": 1,
+                "summary": str(value or region_id),
+            }
+        )
+        merged = {"region_id": region_id, **candidate} if isinstance(candidate, dict) else candidate
+        state = _normalize_group_discovered_region(merged)
+        if state:
+            normalized[state["region_id"]] = state
+    return normalized
+
+
+def _normalize_group_last_region_entry_result(raw: Any) -> dict[str, Any] | None:
+    if not isinstance(raw, dict):
+        return None
+    result_id = str(raw.get("result_id") or "").strip()
+    result_type = str(raw.get("result_type") or "").strip().lower()
+    summary = str(raw.get("summary") or "").strip()
+    result_summary = str(raw.get("result_summary") or summary).strip()
+    region_id = str(raw.get("region_id") or "").strip().lower()
+    region_label = str(raw.get("region_label") or region_id).strip()
+    anchor_node_id = str(raw.get("anchor_node_id") or "").strip().lower()
+    visit_count = max(0, as_int(raw.get("visit_count"), 0))
+    first_region_visit = bool(raw.get("first_region_visit"))
+    source = str(raw.get("source") or "region_residency").strip() or "region_residency"
+    resolved_at = str(raw.get("resolved_at") or "").strip()
+    if result_type not in {
+        "first_region_entry",
+        "return_region_entry",
+        "current_region_confirmed",
+        "region_transition_entry",
+        "quiet_region_entry",
+    }:
+        return None
+    if not result_id or not summary or not result_summary or not region_id or not region_label or not anchor_node_id or visit_count <= 0:
+        return None
+    result: dict[str, Any] = {
+        "result_id": result_id[:120],
+        "result_type": result_type[:60],
+        "summary": summary[:400],
+        "result_summary": result_summary[:400],
+        "region_id": region_id[:120],
+        "region_label": region_label[:160],
+        "anchor_node_id": anchor_node_id[:120],
+        "first_region_visit": first_region_visit,
+        "visit_count": visit_count,
+        "source": source[:40],
+    }
+    if resolved_at:
+        result["resolved_at"] = resolved_at[:80]
+    return result
+
+
 def _normalize_group_route_traversal_state(raw: Any) -> dict[str, Any] | None:
     if not isinstance(raw, dict):
         return None
@@ -1889,6 +2004,289 @@ def get_current_group_route_traversal_states(
         return []
     state_map = _normalize_group_route_traversal_state_map(group.get("route_traversal_states"))
     return [dict(state_map[key]) for key in sorted(state_map.keys())]
+
+
+def _resolve_region_identity_for_position(current_map_position: dict[str, Any] | None) -> dict[str, Any] | None:
+    position = _normalize_map_position(current_map_position)
+    node_id = str((position or {}).get("node_id") or "").strip().lower()
+    if not position or not node_id:
+        return None
+    region_identity = get_static_region_identity(node_id=node_id, current_map_position=position) or {}
+    region_id = str(region_identity.get("region_id") or "").strip().lower()
+    region_label = str(region_identity.get("region_label") or "").strip()
+    if not region_id:
+        map_level = str((position or {}).get("map_level") or "").strip().lower()
+        if map_level == "region":
+            region_id = "starter_frontier"
+            region_label = region_label or "Стартовое пограничье"
+    if not region_label:
+        region_label = str((position or {}).get("area_label") or (position or {}).get("label") or "Текущий регион").strip()
+    if not region_id or not region_label:
+        return None
+    return {
+        "region_id": region_id[:120],
+        "region_label": region_label[:160],
+        "anchor_node_id": node_id[:120],
+    }
+
+
+def build_group_region_entry_result(
+    *,
+    result_type: str,
+    summary: str,
+    result_summary: str,
+    region_id: str,
+    region_label: str,
+    anchor_node_id: str,
+    first_region_visit: bool,
+    visit_count: int,
+    source: str = "region_residency",
+) -> dict[str, Any] | None:
+    return _normalize_group_last_region_entry_result(
+        {
+            "result_id": f"region-entry:{region_id}:{datetime.now(timezone.utc).isoformat()}",
+            "result_type": result_type,
+            "summary": summary,
+            "result_summary": result_summary,
+            "region_id": region_id,
+            "region_label": region_label,
+            "anchor_node_id": anchor_node_id,
+            "first_region_visit": first_region_visit,
+            "visit_count": visit_count,
+            "source": source,
+            "resolved_at": datetime.now(timezone.utc).isoformat(),
+        }
+    )
+
+
+def record_group_region_visit(
+    sess: Session,
+    group_id: str,
+    region_id: str,
+    *,
+    region_label: str,
+    anchor_node_id: str,
+    source: str = "region_residency",
+    entered_at: str | None = None,
+    increment_visit: bool = True,
+) -> tuple[dict[str, Any] | None, dict[str, Any] | None]:
+    normalized_group_id = str(group_id or "").strip()
+    normalized_region_id = str(region_id or "").strip().lower()
+    normalized_region_label = str(region_label or region_id).strip()
+    normalized_anchor_node_id = str(anchor_node_id or "").strip().lower()
+    if not normalized_group_id or not normalized_region_id or not normalized_region_label or not normalized_anchor_node_id:
+        return None, None
+    groups = _get_group_states(sess)
+    group = groups.get(normalized_group_id)
+    if not isinstance(group, dict):
+        return None, None
+    discovered_map = _normalize_group_discovered_region_map(group.get("discovered_regions"))
+    existing_current_region = _normalize_group_current_region_state(group.get("current_region_state"))
+    existing_region = discovered_map.get(normalized_region_id) or {}
+    timestamp = str(entered_at or datetime.now(timezone.utc).isoformat()).strip()
+    prior_visit_count = max(0, as_int(existing_region.get("visit_count"), 0))
+    visit_count = prior_visit_count + 1 if increment_visit or prior_visit_count <= 0 else prior_visit_count
+    summary = (
+        f"Группа уже {visit_count}-й раз входит в регион {normalized_region_label}."
+        if visit_count > 1
+        else f"Группа впервые входит в регион {normalized_region_label}."
+    )
+    discovered_state = _normalize_group_discovered_region(
+        {
+            "region_id": normalized_region_id,
+            "region_label": normalized_region_label,
+            "visit_count": visit_count,
+            "first_entered_at": str(existing_region.get("first_entered_at") or timestamp),
+            "last_entered_at": timestamp,
+            "first_anchor_node_id": str(existing_region.get("first_anchor_node_id") or normalized_anchor_node_id),
+            "last_anchor_node_id": normalized_anchor_node_id,
+            "summary": summary,
+        }
+    )
+    current_region_state = _normalize_group_current_region_state(
+        {
+            "region_id": normalized_region_id,
+            "region_label": normalized_region_label,
+            "current_node_id": normalized_anchor_node_id,
+            "entered_at": str((existing_current_region or {}).get("entered_at") or timestamp) if not increment_visit else timestamp,
+            "visit_count": visit_count,
+            "source": source,
+        }
+    )
+    if not discovered_state or not current_region_state:
+        return None, None
+    discovered_map[normalized_region_id] = discovered_state
+    group["discovered_regions"] = discovered_map
+    group["current_region_state"] = current_region_state
+    _persist_group_states(sess, groups)
+    _sync_group_position_mirrors(sess, group)
+    return current_region_state, discovered_state
+
+
+def resolve_group_region_residency(
+    sess: Session,
+    group_id: str,
+    *,
+    current_map_position: dict[str, Any] | None = None,
+    source: str = "region_residency",
+    persist_result: bool = True,
+) -> dict[str, Any] | None:
+    normalized_group_id = str(group_id or "").strip()
+    if not normalized_group_id:
+        return None
+    groups = _get_group_states(sess)
+    group = groups.get(normalized_group_id)
+    if not isinstance(group, dict):
+        return None
+    position = _normalize_map_position(current_map_position or group.get("current_map_position"))
+    region_identity = _resolve_region_identity_for_position(position)
+    if not position or not region_identity:
+        return None
+    current_region_state = _normalize_group_current_region_state(group.get("current_region_state"))
+    discovered_map = _normalize_group_discovered_region_map(group.get("discovered_regions"))
+    region_id = str(region_identity.get("region_id") or "").strip().lower()
+    region_label = str(region_identity.get("region_label") or region_id).strip()
+    anchor_node_id = str(region_identity.get("anchor_node_id") or (position or {}).get("node_id") or "").strip().lower()
+    if not region_id or not region_label or not anchor_node_id:
+        return None
+    previous_region_id = str((current_region_state or {}).get("region_id") or "").strip().lower()
+    first_region_visit = region_id not in discovered_map
+    increment_visit = first_region_visit or not previous_region_id or previous_region_id != region_id
+    current_region_state, discovered_state = record_group_region_visit(
+        sess,
+        normalized_group_id,
+        region_id,
+        region_label=region_label,
+        anchor_node_id=anchor_node_id,
+        source=source,
+        increment_visit=increment_visit,
+    )
+    if not current_region_state or not discovered_state:
+        return None
+    if not persist_result:
+        return current_region_state
+    visit_count = max(0, as_int(discovered_state.get("visit_count"), 0))
+    if source == "region_transition" and previous_region_id and previous_region_id != region_id:
+        result_type = "region_transition_entry"
+        summary = f"Группа переходит в регион {region_label} через frontier gateway."
+    elif first_region_visit:
+        result_type = "first_region_entry"
+        summary = f"Группа впервые закрепляется в регионе {region_label}."
+    elif previous_region_id == region_id:
+        result_type = "current_region_confirmed"
+        summary = f"Группа подтверждает своё присутствие в регионе {region_label}."
+    elif visit_count > 1:
+        result_type = "return_region_entry"
+        summary = f"Группа возвращается в уже известный регион {region_label}."
+    else:
+        result_type = "quiet_region_entry"
+        summary = f"Группа отмечает присутствие в регионе {region_label}."
+    result = build_group_region_entry_result(
+        result_type=result_type,
+        summary=summary,
+        result_summary=summary,
+        region_id=region_id,
+        region_label=region_label,
+        anchor_node_id=anchor_node_id,
+        first_region_visit=first_region_visit,
+        visit_count=visit_count,
+        source=source,
+    )
+    groups = _get_group_states(sess)
+    group = groups.get(normalized_group_id)
+    if not result or not isinstance(group, dict):
+        return current_region_state
+    group["last_region_entry_result"] = result
+    _persist_group_states(sess, groups)
+    _sync_group_position_mirrors(sess, group)
+    return current_region_state
+
+
+def get_current_group_current_region_state(
+    sess: Session,
+    *,
+    player_id: uuid.UUID | str | None = None,
+    group_id: str | None = None,
+) -> dict[str, Any] | None:
+    resolved_group_id = str(group_id or "").strip()
+    resolved_player_id = str(player_id or "").strip()
+    if not resolved_group_id and resolved_player_id:
+        resolved_group_id = str(_get_player_group_id(sess, resolved_player_id) or "").strip()
+    if not resolved_group_id:
+        return None
+    group = _get_group_states(sess).get(resolved_group_id)
+    if not isinstance(group, dict):
+        return None
+    current_map_position = _normalize_map_position(group.get("current_map_position"))
+    current_region_state = _normalize_group_current_region_state(group.get("current_region_state"))
+    region_identity = _resolve_region_identity_for_position(current_map_position)
+    current_node_id = str((current_map_position or {}).get("node_id") or "").strip().lower()
+    needs_refresh = bool(
+        region_identity
+        and (
+            not current_region_state
+            or str(current_region_state.get("region_id") or "").strip().lower() != str(region_identity.get("region_id") or "").strip().lower()
+            or str(current_region_state.get("current_node_id") or "").strip().lower() != current_node_id
+        )
+    )
+    if needs_refresh:
+        resolve_group_region_residency(
+            sess,
+            resolved_group_id,
+            current_map_position=current_map_position,
+            source="region_residency",
+            persist_result=not bool(current_region_state),
+        )
+        group = _get_group_states(sess).get(resolved_group_id)
+        if not isinstance(group, dict):
+            return None
+        current_region_state = _normalize_group_current_region_state(group.get("current_region_state"))
+    return current_region_state
+
+
+def get_current_group_discovered_regions(
+    sess: Session,
+    *,
+    player_id: uuid.UUID | str | None = None,
+    group_id: str | None = None,
+) -> list[dict[str, Any]]:
+    resolved_group_id = str(group_id or "").strip()
+    resolved_player_id = str(player_id or "").strip()
+    if not resolved_group_id and resolved_player_id:
+        resolved_group_id = str(_get_player_group_id(sess, resolved_player_id) or "").strip()
+    if not resolved_group_id:
+        return []
+    get_current_group_current_region_state(sess, player_id=resolved_player_id or None, group_id=resolved_group_id)
+    group = _get_group_states(sess).get(resolved_group_id)
+    if not isinstance(group, dict):
+        return []
+    region_map = _normalize_group_discovered_region_map(group.get("discovered_regions"))
+    return sorted(
+        (dict(item) for item in region_map.values()),
+        key=lambda item: (
+            str(item.get("first_entered_at") or ""),
+            str(item.get("region_label") or ""),
+            str(item.get("region_id") or ""),
+        ),
+    )
+
+
+def get_current_group_last_region_entry_result(
+    sess: Session,
+    *,
+    player_id: uuid.UUID | str | None = None,
+    group_id: str | None = None,
+) -> dict[str, Any] | None:
+    resolved_group_id = str(group_id or "").strip()
+    resolved_player_id = str(player_id or "").strip()
+    if not resolved_group_id and resolved_player_id:
+        resolved_group_id = str(_get_player_group_id(sess, resolved_player_id) or "").strip()
+    if not resolved_group_id:
+        return None
+    group = _get_group_states(sess).get(resolved_group_id)
+    if not isinstance(group, dict):
+        return None
+    return _normalize_group_last_region_entry_result(group.get("last_region_entry_result"))
 
 
 def set_group_node_state(
@@ -4855,8 +5253,10 @@ def get_group_region_exploration_summary(sess: Session, group_id: str) -> dict[s
     else:
         progression_status = "region_quiet"
         summary = "Текущая раскрытая часть региона пока даёт мало активных frontier-направлений."
-    region_id = str((current_position or {}).get("map_level") or "region").strip().lower() or "region"
-    region_label = str((current_position or {}).get("area_label") or current_node_label or "Текущий регион").strip()
+    current_region_state = _normalize_group_current_region_state(group.get("current_region_state"))
+    region_identity = _resolve_region_identity_for_position(current_position) or {}
+    region_id = str((current_region_state or {}).get("region_id") or region_identity.get("region_id") or (current_position or {}).get("map_level") or "region").strip().lower() or "region"
+    region_label = str((current_region_state or {}).get("region_label") or region_identity.get("region_label") or (current_position or {}).get("area_label") or current_node_label or "Текущий регион").strip()
     return build_group_region_exploration_summary(
         region_id=region_id,
         region_label=region_label,
@@ -5281,12 +5681,15 @@ def resolve_group_region_transition(
         return None, "Нужно указать gateway_id для перехода."
     current_position = _normalize_map_position(group.get("current_map_position"))
     current_node_id = str((current_position or {}).get("node_id") or "").strip().lower()
-    source_region_id = str((current_position or {}).get("map_level") or "region").strip().lower() or "region"
-    source_region_label = str((current_position or {}).get("area_label") or (current_position or {}).get("label") or "Текущий регион").strip()
+    source_region_identity = _resolve_region_identity_for_position(current_position) or {}
+    source_region_state = _normalize_group_current_region_state(group.get("current_region_state"))
+    source_region_id = str((source_region_state or {}).get("region_id") or source_region_identity.get("region_id") or (current_position or {}).get("map_level") or "region").strip().lower() or "region"
+    source_region_label = str((source_region_state or {}).get("region_label") or source_region_identity.get("region_label") or (current_position or {}).get("area_label") or (current_position or {}).get("label") or "Текущий регион").strip()
+    gateway_lookup_region_id = str((current_position or {}).get("map_level") or "region").strip().lower() or "region"
     definition = next(
         (
             dict(item)
-            for item in get_static_region_gateways(region_id=source_region_id, current_map_position=current_position)
+            for item in get_static_region_gateways(region_id=gateway_lookup_region_id, current_map_position=current_position)
             if str(item.get("gateway_id") or "").strip().lower() == normalized_gateway_id
         ),
         None,
@@ -5410,6 +5813,13 @@ def resolve_group_region_transition(
                 route_id=str((gateway or {}).get("route_id") or definition.get("route_id") or ""),
                 player_ids=[str(pid).strip() for pid in (group.get("player_ids") or []) if str(pid).strip()],
                 source=source,
+            )
+            resolve_group_region_residency(
+                sess,
+                group_key,
+                current_map_position=target_anchor_position,
+                source=source,
+                persist_result=True,
             )
             groups = _get_group_states(sess)
             group = groups.get(group_key)
@@ -8078,6 +8488,14 @@ def _group_last_journey_result_summary(group: dict[str, Any]) -> dict[str, Any] 
     return _normalize_group_last_journey_result(group.get("last_journey_result"))
 
 
+def _group_last_region_entry_result_summary(group: dict[str, Any]) -> dict[str, Any] | None:
+    return _normalize_group_last_region_entry_result(group.get("last_region_entry_result"))
+
+
+def _group_discovered_region_count(group: dict[str, Any]) -> int:
+    return len(_normalize_group_discovered_region_map(group.get("discovered_regions")))
+
+
 def _group_context_action_states_summary(group: dict[str, Any]) -> list[dict[str, Any]] | None:
     action_states = _normalize_group_context_action_state_map(group.get("context_action_states"))
     if not action_states:
@@ -8323,6 +8741,15 @@ def _normalize_group_state(
     region_transition_state = _normalize_group_region_transition_state(raw.get("region_transition_state"))
     if region_transition_state:
         normalized["region_transition_state"] = region_transition_state
+    current_region_state = _normalize_group_current_region_state(raw.get("current_region_state"))
+    if current_region_state:
+        normalized["current_region_state"] = current_region_state
+    discovered_regions = _normalize_group_discovered_region_map(raw.get("discovered_regions"))
+    if discovered_regions:
+        normalized["discovered_regions"] = discovered_regions
+    last_region_entry_result = _normalize_group_last_region_entry_result(raw.get("last_region_entry_result"))
+    if last_region_entry_result:
+        normalized["last_region_entry_result"] = last_region_entry_result
     active_journey = _normalize_group_active_journey(raw.get("active_journey"))
     if active_journey:
         normalized["active_journey"] = active_journey

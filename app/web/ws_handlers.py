@@ -87,6 +87,9 @@ from app.web.session_state import (
     get_current_group_region_frontier_summary,
     get_current_group_region_gateways,
     get_current_group_primary_region_gateway,
+    get_current_group_current_region_state,
+    get_current_group_discovered_regions,
+    get_current_group_last_region_entry_result,
     get_current_group_last_region_transition_result,
     get_current_group_region_transition_state,
     resolve_group_region_transition,
@@ -1779,6 +1782,12 @@ def _parse_group_command(cmdline: str) -> tuple[str | None, dict[str, Any]]:
     if lowered in {"group exits", "group_exits", "group gateways", "group_gateways"}:
         return "group_region_gateways", {}
 
+    if lowered in {"group here", "group_here"}:
+        return "group_region_status", {}
+
+    if lowered in {"group regions", "group_regions"}:
+        return "group_discovered_regions", {}
+
     if lowered in {"group transition", "group_region_transition_status"}:
         return "group_region_transition_status", {}
 
@@ -1920,6 +1929,8 @@ def _handle_group_action_request(
         "group_node_progress",
         "group_region_progress",
         "group_region_gateways",
+        "group_region_status",
+        "group_discovered_regions",
         "group_region_transition",
         "group_region_transition_status",
         "group_exploration_leads",
@@ -2119,6 +2130,52 @@ def _handle_group_action_request(
             f"{locked_count} закрытых и {future_count} будущих. "
             f"Главный выход: {str(primary_gateway.get('gateway_label') or 'gateway')} "
             f"({str(primary_gateway.get('gateway_status') or 'unknown')})."
+        )
+
+    if action == "group_region_status":
+        if not actor_group_key:
+            return True, "Группа игрока не найдена.", None
+        current_region = get_current_group_current_region_state(
+            sess,
+            player_id=actor_player_id,
+            group_id=actor_group_key,
+        )
+        last_entry = get_current_group_last_region_entry_result(
+            sess,
+            player_id=actor_player_id,
+            group_id=actor_group_key,
+        )
+        if not current_region and not last_entry:
+            return True, None, f"У группы {actor_group_key} пока нет region residency истории."
+        region_label = str((current_region or last_entry or {}).get("region_label") or "регион")
+        visit_count = as_int((current_region or last_entry or {}).get("visit_count"), 0)
+        status_note = str((last_entry or {}).get("result_type") or "current_region_confirmed")
+        summary_parts = [
+            f"Текущий регион группы {actor_group_key}: {region_label}.",
+            f"Входов в регион: {visit_count}." if visit_count > 0 else "",
+            f"Последний region-entry: {status_note}." if status_note else "",
+        ]
+        return True, None, " ".join(part for part in summary_parts if part).strip()
+
+    if action == "group_discovered_regions":
+        if not actor_group_key:
+            return True, "Группа игрока не найдена.", None
+        regions = get_current_group_discovered_regions(
+            sess,
+            player_id=actor_player_id,
+            group_id=actor_group_key,
+        )
+        if not regions:
+            return True, None, f"У группы {actor_group_key} пока нет discovered regions."
+        current_region = get_current_group_current_region_state(
+            sess,
+            player_id=actor_player_id,
+            group_id=actor_group_key,
+        )
+        current_region_label = str((current_region or {}).get("region_label") or "")
+        return True, None, (
+            f"Открытые регионы группы {actor_group_key}: {len(regions)}. "
+            f"Текущий регион: {current_region_label or str(regions[-1].get('region_label') or 'регион')}."
         )
 
     if action == "group_region_transition_status":

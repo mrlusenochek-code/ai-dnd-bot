@@ -4702,3 +4702,118 @@ def test_group_region_transition_handles_invalid_blocked_locked_and_future_stub_
     assert future_error == "Этот выход пока существует только как future stub."
     assert future_updated["last_region_transition_result"]["result_type"] == "region_transition_future_stub"
     assert future_updated["current_map_position"]["node_id"] == "forgotten_shrine"
+
+
+def test_group_region_residency_tracks_current_region_and_same_region_refresh_without_fake_discovery() -> None:
+    player_id = uuid.uuid4()
+    sess = SimpleNamespace(settings={})
+    session_state._initialize_default_group(
+        sess,
+        [player_id],
+        {"map_level": "region", "node_type": "zone", "node_id": "start_trakt", "label": "Стартовый тракт"},
+    )
+
+    current_region = session_state.get_current_group_current_region_state(sess, player_id=player_id)
+    assert current_region == {
+        "region_id": "starter_frontier",
+        "region_label": "Стартовое пограничье",
+        "current_node_id": "start_trakt",
+        "visit_count": 1,
+        "source": "region_residency",
+        "entered_at": current_region["entered_at"],
+    }
+    first_entry = session_state.get_current_group_last_region_entry_result(sess, player_id=player_id)
+    assert first_entry["result_type"] == "first_region_entry"
+    assert first_entry["region_id"] == "starter_frontier"
+    assert first_entry["anchor_node_id"] == "start_trakt"
+    assert first_entry["visit_count"] == 1
+
+    group_states = session_state._get_group_states(sess)
+    group = group_states["main"]
+    group["current_map_position"] = session_state._normalize_map_position(
+        {"map_level": "region", "node_type": "zone", "node_id": "craft_town", "label": "Озёрный городок"}
+    )
+    group["area_label"] = "Озёрный городок"
+    session_state._persist_group_states(sess, group_states)
+
+    refreshed_region = session_state.get_current_group_current_region_state(sess, player_id=player_id)
+    assert refreshed_region["region_id"] == "starter_frontier"
+    assert refreshed_region["current_node_id"] == "craft_town"
+    assert refreshed_region["visit_count"] == 1
+
+    discovered_regions = session_state.get_current_group_discovered_regions(sess, player_id=player_id)
+    assert discovered_regions == [
+        {
+            "region_id": "starter_frontier",
+            "region_label": "Стартовое пограничье",
+            "visit_count": 1,
+            "first_entered_at": discovered_regions[0]["first_entered_at"],
+            "last_entered_at": discovered_regions[0]["last_entered_at"],
+            "first_anchor_node_id": "start_trakt",
+            "last_anchor_node_id": "craft_town",
+            "summary": "Группа впервые входит в регион Стартовое пограничье.",
+        }
+    ]
+    assert session_state.get_current_group_last_region_entry_result(sess, player_id=player_id)["result_type"] == "first_region_entry"
+
+
+def test_group_region_transition_updates_region_residency_history() -> None:
+    player_id = uuid.uuid4()
+    sess = SimpleNamespace(settings={})
+    session_state._initialize_default_group(
+        sess,
+        [player_id],
+        {"map_level": "region", "node_type": "zone", "node_id": "forest_settlement", "label": "Лесной посёлок"},
+    )
+    session_state.get_current_group_current_region_state(sess, player_id=player_id)
+    session_state.add_group_node_state_flag(
+        sess,
+        "main",
+        "forest_settlement",
+        state_flag="forest_supplies_secured",
+        summary="Лесной набор уже готов.",
+        source="test",
+    )
+
+    updated, error = session_state.resolve_group_region_transition(
+        sess,
+        "main",
+        "forest_settlement_northwatch",
+        player_id=player_id,
+        source="region_transition",
+    )
+
+    assert error is None
+    assert updated is not None
+    current_region = session_state.get_current_group_current_region_state(sess, player_id=player_id)
+    assert current_region["region_id"] == "northwatch_frontier"
+    assert current_region["region_label"] == "Северный рубеж"
+    assert current_region["current_node_id"] == "northwatch_outpost"
+    assert current_region["visit_count"] == 1
+    discovered_regions = session_state.get_current_group_discovered_regions(sess, player_id=player_id)
+    assert [item["region_id"] for item in discovered_regions] == ["starter_frontier", "northwatch_frontier"]
+    assert session_state.get_current_group_last_region_entry_result(sess, player_id=player_id)["result_type"] == "region_transition_entry"
+
+
+def test_failed_region_transition_does_not_create_fake_discovered_region() -> None:
+    player_id = uuid.uuid4()
+    sess = SimpleNamespace(settings={})
+    session_state._initialize_default_group(
+        sess,
+        [player_id],
+        {"map_level": "region", "node_type": "zone", "node_id": "forest_settlement", "label": "Лесной посёлок"},
+    )
+    session_state.get_current_group_current_region_state(sess, player_id=player_id)
+
+    updated, error = session_state.resolve_group_region_transition(
+        sess,
+        "main",
+        "forest_settlement_northwatch",
+        player_id=player_id,
+        source="test",
+    )
+
+    assert error == "Выход пока закрыт условиями этого узла."
+    assert updated is not None
+    discovered_regions = session_state.get_current_group_discovered_regions(sess, player_id=player_id)
+    assert [item["region_id"] for item in discovered_regions] == ["starter_frontier"]
