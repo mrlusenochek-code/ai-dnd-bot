@@ -50,6 +50,7 @@ def test_parse_group_command_supports_wait_camp_rest_scout_move_navigate_context
     action_world, payload_world = ws_handlers._parse_group_command("group world")
     action_focus, payload_focus = ws_handlers._parse_group_command("group focus")
     action_focus_path, payload_focus_path = ws_handlers._parse_group_command("group focus-path")
+    action_region_pursuit, payload_region_pursuit = ws_handlers._parse_group_command("group region-pursuit")
     action_arrival_region, payload_arrival_region = ws_handlers._parse_group_command("group arrival-region")
     action_region_entry, payload_region_entry = ws_handlers._parse_group_command("group region-entry")
     action_exit, payload_exit = ws_handlers._parse_group_command("group exit forest_settlement_northwatch")
@@ -57,6 +58,8 @@ def test_parse_group_command_supports_wait_camp_rest_scout_move_navigate_context
     action_transition, payload_transition = ws_handlers._parse_group_command("group transition")
     action_route_region, payload_route_region = ws_handlers._parse_group_command("group route-region northwatch_frontier")
     action_region_path, payload_region_path = ws_handlers._parse_group_command("group region-path northwatch_frontier")
+    action_pursue_region, payload_pursue_region = ws_handlers._parse_group_command("group pursue-region northwatch_frontier")
+    action_stop_region, payload_stop_region = ws_handlers._parse_group_command("group stop-region")
     action_enter, payload_enter = ws_handlers._parse_group_command("group enter замок")
     action_mode, payload_mode = ws_handlers._parse_group_command("group mode cautious")
     action_activity, payload_activity = ws_handlers._parse_group_command("group activity navigate")
@@ -120,6 +123,7 @@ def test_parse_group_command_supports_wait_camp_rest_scout_move_navigate_context
     assert (action_world, payload_world) == ("group_region_world", {})
     assert (action_focus, payload_focus) == ("group_region_focus", {})
     assert (action_focus_path, payload_focus_path) == ("group_primary_region_focus_plan", {})
+    assert (action_region_pursuit, payload_region_pursuit) == ("group_region_pursuit_status", {})
     assert (action_arrival_region, payload_arrival_region) == ("group_region_onboarding", {})
     assert (action_region_entry, payload_region_entry) == ("group_region_onboarding", {})
     assert (action_exit, payload_exit) == ("group_region_transition", {"gateway_id": "forest_settlement_northwatch"})
@@ -127,6 +131,8 @@ def test_parse_group_command_supports_wait_camp_rest_scout_move_navigate_context
     assert (action_transition, payload_transition) == ("group_region_transition_status", {})
     assert (action_route_region, payload_route_region) == ("group_region_target_plan", {"target_region_id": "northwatch_frontier"})
     assert (action_region_path, payload_region_path) == ("group_region_target_plan", {"target_region_id": "northwatch_frontier"})
+    assert (action_pursue_region, payload_pursue_region) == ("group_region_pursuit_set", {"target_region_id": "northwatch_frontier"})
+    assert (action_stop_region, payload_stop_region) == ("group_region_pursuit_clear", {})
     assert (action_enter, payload_enter) == ("group_enter", {"target_hint": "замок"})
     assert (action_mode, payload_mode) == ("group_set_mode", {"movement_mode": "cautious"})
     assert (action_activity, payload_activity) == ("group_set_activity", {"activity": "navigate"})
@@ -1562,6 +1568,87 @@ def test_handle_group_region_target_plan_and_focus_path_surfaces() -> None:
     assert handled_missing is True
     assert "target_region_id" in str(err_missing)
     assert msg_missing is None
+
+
+def test_handle_group_region_pursuit_set_status_and_clear_surfaces() -> None:
+    player_id = uuid.uuid4()
+    empty_sess = SimpleNamespace(settings={})
+    session_state._initialize_default_group(
+        empty_sess,
+        [player_id],
+        {
+            "map_level": "region",
+            "node_type": "zone",
+            "node_id": "forest_road",
+            "label": "Лесная дорога",
+        },
+    )
+    handled_empty, err_empty, msg_empty = ws_handlers._handle_group_action_request(
+        empty_sess,
+        action="group_region_pursuit_status",
+        actor_player_id=player_id,
+        payload={},
+        source="test",
+    )
+    assert handled_empty is True
+    assert err_empty is None
+    assert "нет активного region pursuit" in str(msg_empty)
+
+    sess = SimpleNamespace(settings={})
+    session_state._initialize_default_group(
+        sess,
+        [player_id],
+        {
+            "map_level": "region",
+            "node_type": "zone",
+            "node_id": "forest_road",
+            "label": "Лесная дорога",
+        },
+    )
+    session_state.get_current_group_current_region_state(sess, player_id=player_id)
+    session_state.reveal_player_map_node(sess, player_id, "forest_settlement", source="test")
+    session_state.add_group_node_state_flag(
+        sess,
+        "main",
+        "forest_settlement",
+        state_flag="forest_supplies_secured",
+        summary="Лесной набор уже готов.",
+        source="test",
+    )
+
+    handled_set, err_set, msg_set = ws_handlers._handle_group_action_request(
+        sess,
+        action="group_region_pursuit_set",
+        actor_player_id=player_id,
+        payload={"target_region_id": "northwatch_frontier"},
+        source="test",
+    )
+    assert handled_set is True
+    assert err_set is None
+    assert "Лесной посёлок" in str(msg_set)
+
+    handled_status, err_status, msg_status = ws_handlers._handle_group_action_request(
+        sess,
+        action="group_region_pursuit_status",
+        actor_player_id=player_id,
+        payload={},
+        source="test",
+    )
+    assert handled_status is True
+    assert err_status is None
+    assert "pursuing_gateway" in str(msg_status)
+    assert "group go forest_settlement" in str(msg_status)
+
+    handled_clear, err_clear, msg_clear = ws_handlers._handle_group_action_request(
+        sess,
+        action="group_region_pursuit_clear",
+        actor_player_id=player_id,
+        payload={},
+        source="test",
+    )
+    assert handled_clear is True
+    assert err_clear is None
+    assert "остановлен" in str(msg_clear)
 
 
 def test_handle_group_journey_set_advance_status_and_stop() -> None:

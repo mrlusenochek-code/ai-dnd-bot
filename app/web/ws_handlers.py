@@ -77,6 +77,8 @@ from app.web.session_state import (
     get_current_group_current_node_destination_event_state,
     get_current_group_journey_state,
     get_current_group_last_journey_result,
+    get_current_group_region_pursuit,
+    get_current_group_last_region_pursuit_result,
     get_current_group_route_planning,
     get_group_route_plan_to_node,
     get_current_group_exploration_leads,
@@ -100,6 +102,8 @@ from app.web.session_state import (
     get_current_group_region_target_options,
     get_current_group_region_world_overview,
     get_current_group_region_transition_state,
+    set_group_region_pursuit,
+    clear_group_region_pursuit,
     resolve_group_region_transition,
     set_group_journey_target,
     advance_group_journey,
@@ -1805,6 +1809,9 @@ def _parse_group_command(cmdline: str) -> tuple[str | None, dict[str, Any]]:
     if lowered in {"group focus-path", "group_focus_path"}:
         return "group_primary_region_focus_plan", {}
 
+    if lowered in {"group region-pursuit", "group_region_pursuit"}:
+        return "group_region_pursuit_status", {}
+
     if lowered in {"group arrival-region", "group_arrival_region", "group region-entry", "group_region_entry"}:
         return "group_region_onboarding", {}
 
@@ -1818,6 +1825,13 @@ def _parse_group_command(cmdline: str) -> tuple[str | None, dict[str, Any]]:
     for prefix in ("group route-region ", "group_route_region ", "group region-path ", "group_region_path "):
         if lowered.startswith(prefix):
             return "group_region_target_plan", {"target_region_id": txt[len(prefix):].strip()}
+
+    for prefix in ("group pursue-region ", "group_pursue_region "):
+        if lowered.startswith(prefix):
+            return "group_region_pursuit_set", {"target_region_id": txt[len(prefix):].strip()}
+
+    if lowered in {"group stop-region", "group_stop_region"}:
+        return "group_region_pursuit_clear", {}
 
     if lowered in {"group arrive", "group_arrive"}:
         return "group_arrive", {}
@@ -1959,6 +1973,9 @@ def _handle_group_action_request(
         "group_region_focus",
         "group_region_target_plan",
         "group_primary_region_focus_plan",
+        "group_region_pursuit_set",
+        "group_region_pursuit_clear",
+        "group_region_pursuit_status",
         "group_region_onboarding",
         "group_region_transition",
         "group_region_transition_status",
@@ -2288,6 +2305,73 @@ def _handle_group_action_request(
         if suggested_command:
             summary = f"{summary} Подсказка: {suggested_command}."
         return True, None, summary or f"Primary region focus plan группы {actor_group_key} собран."
+
+    if action == "group_region_pursuit_set":
+        if not actor_group_key:
+            return True, "Группа игрока не найдена.", None
+        target_region_id = str(payload.get("target_region_id") or "").strip()
+        if not target_region_id:
+            return True, "Нужно указать target_region_id для region pursuit.", None
+        updated, error = set_group_region_pursuit(
+            sess,
+            actor_group_key,
+            target_region_id,
+            player_id=actor_player_id,
+            source=source,
+        )
+        result = (updated or {}).get("last_region_pursuit_result") or get_current_group_last_region_pursuit_result(
+            sess,
+            player_id=actor_player_id,
+            group_id=actor_group_key,
+        ) or {}
+        if error:
+            return True, error, None
+        return True, None, str(result.get("result_summary") or f"Region pursuit группы {actor_group_key} обновлён.")
+
+    if action == "group_region_pursuit_clear":
+        if not actor_group_key:
+            return True, "Группа игрока не найдена.", None
+        cleared = clear_group_region_pursuit(
+            sess,
+            actor_group_key,
+            source=source,
+        )
+        result = (cleared or {}).get("last_region_pursuit_result") or get_current_group_last_region_pursuit_result(
+            sess,
+            player_id=actor_player_id,
+            group_id=actor_group_key,
+        ) or {}
+        if not cleared and not result:
+            return True, None, f"У группы {actor_group_key} сейчас нет активного region pursuit."
+        return True, None, str(result.get("result_summary") or f"Region pursuit группы {actor_group_key} очищен.")
+
+    if action == "group_region_pursuit_status":
+        if not actor_group_key:
+            return True, "Группа игрока не найдена.", None
+        pursuit = get_current_group_region_pursuit(
+            sess,
+            player_id=actor_player_id,
+            group_id=actor_group_key,
+        )
+        result = get_current_group_last_region_pursuit_result(
+            sess,
+            player_id=actor_player_id,
+            group_id=actor_group_key,
+        )
+        if not pursuit and not result:
+            return True, None, f"У группы {actor_group_key} сейчас нет активного region pursuit."
+        if pursuit:
+            return True, None, (
+                f"Region pursuit группы {actor_group_key}: "
+                f"{str(pursuit.get('target_region_label') or 'регион')} "
+                f"({str(pursuit.get('pursuit_status') or 'unknown')}). "
+                f"Следующий шаг: {str(pursuit.get('suggested_next_command') or 'нет')}."
+            )
+        return True, None, (
+            f"Последний region pursuit группы {actor_group_key}: "
+            f"{str((result or {}).get('target_region_label') or 'регион')} "
+            f"({str((result or {}).get('result_type') or 'unknown')})."
+        )
 
     if action == "group_region_onboarding":
         if not actor_group_key:
