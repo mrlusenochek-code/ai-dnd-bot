@@ -6088,6 +6088,91 @@ def _normalize_group_region_gateway(raw: Any) -> dict[str, Any] | None:
     }
 
 
+def _normalize_group_region_target_plan(raw: Any) -> dict[str, Any] | None:
+    if not isinstance(raw, dict):
+        return None
+    target_region_id = str(raw.get("target_region_id") or "").strip().lower()
+    target_region_label = str(raw.get("target_region_label") or target_region_id).strip()
+    plan_status = str(raw.get("plan_status") or "").strip().lower()
+    summary = str(raw.get("summary") or "").strip()
+    current_region_id = str(raw.get("current_region_id") or "").strip().lower()
+    current_region_label = str(raw.get("current_region_label") or current_region_id).strip()
+    gateway_id = str(raw.get("gateway_id") or "").strip().lower()
+    gateway_label = str(raw.get("gateway_label") or gateway_id).strip()
+    gateway_status = str(raw.get("gateway_status") or "").strip().lower()
+    gateway_source_node_id = str(raw.get("gateway_source_node_id") or "").strip().lower()
+    gateway_source_node_label = str(raw.get("gateway_source_node_label") or gateway_source_node_id).strip()
+    blocked_reason = str(raw.get("blocked_reason") or "").strip()
+    suggested_command = str(raw.get("suggested_command") or "").strip()
+    source = str(raw.get("source") or "region_target_guidance").strip() or "region_target_guidance"
+    path_node_ids = [
+        str(item).strip().lower()
+        for item in (raw.get("path_node_ids") or [])
+        if str(item or "").strip()
+    ]
+    path_route_ids = [
+        str(item).strip().lower()
+        for item in (raw.get("path_route_ids") or [])
+        if str(item or "").strip()
+    ]
+    if plan_status not in {
+        "current_region",
+        "approach_gateway",
+        "gateway_ready",
+        "gateway_blocked",
+        "gateway_locked",
+        "gateway_future_stub",
+        "target_region_undiscovered",
+        "target_region_unavailable",
+    }:
+        return None
+    if not target_region_id or not target_region_label or not summary or not current_region_id or not current_region_label:
+        return None
+    return {
+        "target_region_id": target_region_id[:120],
+        "target_region_label": target_region_label[:160],
+        "plan_status": plan_status[:60],
+        "summary": summary[:400],
+        "current_region_id": current_region_id[:120],
+        "current_region_label": current_region_label[:160],
+        "gateway_id": gateway_id[:120],
+        "gateway_label": gateway_label[:160],
+        "gateway_status": gateway_status[:40],
+        "gateway_source_node_id": gateway_source_node_id[:120],
+        "gateway_source_node_label": gateway_source_node_label[:160],
+        "path_node_ids": path_node_ids,
+        "path_route_ids": path_route_ids,
+        "path_step_count": max(0, as_int(raw.get("path_step_count"), len(path_route_ids))),
+        "reachable": bool(raw.get("reachable")),
+        "blocked_reason": blocked_reason[:240],
+        "suggested_command": suggested_command[:160],
+        "source": source[:40],
+    }
+
+
+def _normalize_group_region_target_options(raw: Any) -> dict[str, Any] | None:
+    if not isinstance(raw, dict):
+        return None
+    current_region_id = str(raw.get("current_region_id") or "").strip().lower()
+    current_region_label = str(raw.get("current_region_label") or current_region_id).strip()
+    summary = str(raw.get("summary") or "").strip()
+    primary_region_focus_plan = _normalize_group_region_target_plan(raw.get("primary_region_focus_plan"))
+    target_region_plans = [
+        plan
+        for item in (raw.get("target_region_plans") or [])
+        if (plan := _normalize_group_region_target_plan(item))
+    ]
+    if not current_region_id or not current_region_label or not summary:
+        return None
+    return {
+        "current_region_id": current_region_id[:120],
+        "current_region_label": current_region_label[:160],
+        "primary_region_focus_plan": primary_region_focus_plan,
+        "target_region_plans": target_region_plans,
+        "summary": summary[:400],
+    }
+
+
 def build_group_region_gateway(
     *,
     gateway_id: str,
@@ -6273,6 +6358,432 @@ def get_current_group_primary_region_gateway(
     if not resolved_group_id:
         return None
     return get_group_primary_region_gateway(sess, resolved_group_id)
+
+
+def _build_group_region_target_gateway_candidate(
+    sess: Session,
+    *,
+    group_key: str,
+    group: dict[str, Any],
+    definition: dict[str, Any],
+    current_position: dict[str, Any] | None,
+) -> dict[str, Any] | None:
+    source_node_id = str(definition.get("source_node_id") or "").strip().lower()
+    if not source_node_id:
+        return None
+    source_node = get_static_node(source_node_id) or {}
+    source_node_label = str(source_node.get("label") or definition.get("source_node_label") or source_node_id).strip()
+    route_id = str(definition.get("route_id") or "").strip().lower()
+    route_plan = get_group_route_plan_to_node(sess, group_key, source_node_id) or {}
+    plan_status = str(route_plan.get("plan_status") or "").strip().lower()
+    effective_route_access = get_effective_group_route_access_state(sess, group_key, route_id=route_id) if route_id else {}
+    blocked_reason = str((effective_route_access or {}).get("block_reason") or route_plan.get("blocked_reason") or "").strip()
+    node_state_map = _normalize_group_node_state_map(group.get("node_states"))
+    visit_map = _normalize_group_node_visit_state_map(group.get("node_visit_states"))
+    destination_event_map = _normalize_group_destination_event_state_map(group.get("destination_event_states"))
+    node_state_flags = list((node_state_map.get(source_node_id) or {}).get("state_flags") or [])
+    destination_event_state = destination_event_map.get(source_node_id)
+    visit_count = max(0, as_int((visit_map.get(source_node_id) or {}).get("visit_count"), 0))
+    requirements = {
+        key: definition.get(key)
+        for key in (
+            "requires_node_state_flag",
+            "requires_destination_event_id",
+            "requires_destination_event_result_type",
+            "requires_min_visit_count",
+        )
+        if definition.get(key) not in {None, ""}
+    }
+    requirement_eval = _evaluate_local_requirement_set(
+        requirements=requirements,
+        state_flags=node_state_flags,
+        destination_event_state=destination_event_state,
+        visit_count=visit_count,
+    )
+    future_stub = bool(definition.get("future_stub"))
+    reachable = plan_status in {"current_location", "reachable"}
+    blocked = bool(
+        route_id
+        and str((effective_route_access or {}).get("access_state") or "").strip().lower() == "blocked"
+    ) or plan_status == "blocked"
+    locked = bool(requirement_eval.get("locked"))
+    gateway_status = "open"
+    if future_stub:
+        gateway_status = "future_stub"
+    elif blocked:
+        gateway_status = "blocked"
+    elif locked:
+        gateway_status = "locked"
+    elif not reachable:
+        gateway_status = "unavailable"
+    summary = f"{source_node_label} выводит к региону {str(definition.get('target_region_label') or definition.get('target_region_id') or '').strip()}."
+    if gateway_status == "blocked":
+        summary = f"Выход через {source_node_label} известен, но сейчас упирается в блок на маршруте."
+    elif gateway_status == "locked":
+        summary = f"Выход через {source_node_label} уже известен, но ещё требует локальной подготовки."
+    elif gateway_status == "future_stub":
+        summary = f"У {source_node_label} отмечен будущий выход в соседний регион, но он пока остаётся только заготовкой."
+    return build_group_region_gateway(
+        gateway_id=str(definition.get("gateway_id") or ""),
+        gateway_label=str(definition.get("label") or definition.get("gateway_id") or ""),
+        gateway_status=gateway_status,
+        summary=summary,
+        source_node_id=source_node_id,
+        source_node_label=source_node_label,
+        route_id=route_id,
+        target_region_id=str(definition.get("target_region_id") or ""),
+        target_region_label=str(definition.get("target_region_label") or definition.get("target_region_id") or ""),
+        reachable=reachable,
+        blocked=blocked,
+        locked=locked,
+        blocked_reason=blocked_reason,
+        unlock_hint=str(definition.get("unlock_hint") or ""),
+        future_stub=future_stub,
+        source="region_target_guidance",
+    )
+
+
+def build_group_region_target_plan(
+    sess: Session,
+    group_id: str,
+    target_region_id: str,
+) -> dict[str, Any] | None:
+    group_key = str(group_id or "").strip()
+    normalized_target_region_id = str(target_region_id or "").strip().lower()
+    group = _get_group_states(sess).get(group_key)
+    if not isinstance(group, dict) or not normalized_target_region_id:
+        return None
+    current_position = _normalize_map_position(group.get("current_map_position"))
+    current_region_state = _normalize_group_current_region_state(group.get("current_region_state"))
+    if not current_region_state and current_position:
+        region_identity = get_static_region_identity(current_map_position=current_position)
+        if region_identity:
+            current_region_state = _normalize_group_current_region_state(
+                {
+                    "region_id": str(region_identity.get("region_id") or ""),
+                    "region_label": str(region_identity.get("region_label") or ""),
+                    "current_node_id": str(current_position.get("node_id") or ""),
+                    "visit_count": max(
+                        1,
+                        as_int(
+                            (_normalize_group_discovered_region_map(group.get("discovered_regions")).get(
+                                str(region_identity.get("region_id") or "").strip().lower()
+                            ) or {}).get("visit_count"),
+                            0,
+                        ),
+                    ),
+                    "source": "region_target_guidance",
+                }
+            )
+    if not current_region_state:
+        return None
+    current_region_id = str(current_region_state.get("region_id") or "").strip().lower()
+    current_region_label = str(current_region_state.get("region_label") or current_region_id).strip()
+    discovered_map = _normalize_group_discovered_region_map(group.get("discovered_regions"))
+    discovered_target = discovered_map.get(normalized_target_region_id)
+    target_label = str(
+        (discovered_target or {}).get("region_label")
+        or normalized_target_region_id
+    ).strip()
+    authored_gateway_definitions = [
+        item
+        for item in get_static_region_gateways(current_map_position=current_position)
+        if str(item.get("target_region_id") or "").strip().lower() == normalized_target_region_id
+    ]
+    gateways = [
+        item
+        for item in get_group_region_gateways(sess, group_key)
+        if str(item.get("target_region_id") or "").strip().lower() == normalized_target_region_id
+    ]
+    synthesized_gateways: list[dict[str, Any]] = []
+    if authored_gateway_definitions:
+        synthesized_gateways = [
+            candidate
+            for definition in authored_gateway_definitions
+            if (candidate := _build_group_region_target_gateway_candidate(
+                sess,
+                group_key=group_key,
+                group=group,
+                definition=definition,
+                current_position=current_position,
+            ))
+        ]
+    status_order = {"open": 0, "blocked": 1, "locked": 2, "future_stub": 3, "unavailable": 4}
+    gateways.sort(
+        key=lambda item: (
+            status_order.get(str(item.get("gateway_status") or ""), 99),
+            str(item.get("gateway_label") or ""),
+        )
+    )
+    synthesized_gateways.sort(
+        key=lambda item: (
+            status_order.get(str(item.get("gateway_status") or ""), 99),
+            str(item.get("gateway_label") or ""),
+        )
+    )
+    preferred_exported_gateway = gateways[0] if gateways else None
+    preferred_synthesized_gateway = synthesized_gateways[0] if synthesized_gateways else None
+    gateway = preferred_exported_gateway
+    if preferred_synthesized_gateway and (
+        not preferred_exported_gateway
+        or status_order.get(str(preferred_synthesized_gateway.get("gateway_status") or ""), 99)
+        < status_order.get(str(preferred_exported_gateway.get("gateway_status") or ""), 99)
+    ):
+        gateway = preferred_synthesized_gateway
+    if preferred_synthesized_gateway and str(preferred_synthesized_gateway.get("gateway_status") or "").strip().lower() == "open":
+        gateway = preferred_synthesized_gateway
+    if not target_label and authored_gateway_definitions:
+        target_label = str(
+            authored_gateway_definitions[0].get("target_region_label")
+            or normalized_target_region_id
+        ).strip()
+    target_label = target_label or normalized_target_region_id
+    current_node_id = str((current_position or {}).get("node_id") or "").strip().lower()
+    if normalized_target_region_id == current_region_id:
+        return _normalize_group_region_target_plan(
+            {
+                "target_region_id": normalized_target_region_id,
+                "target_region_label": target_label or current_region_label,
+                "plan_status": "current_region",
+                "summary": f"Группа уже находится в регионе {current_region_label}.",
+                "current_region_id": current_region_id,
+                "current_region_label": current_region_label,
+                "path_node_ids": [current_node_id] if current_node_id else [],
+                "path_route_ids": [],
+                "path_step_count": 0,
+                "reachable": True,
+                "blocked_reason": "",
+                "suggested_command": "",
+                "source": "region_target_guidance",
+            }
+        )
+    if not gateway:
+        if not authored_gateway_definitions and not discovered_target:
+            return _normalize_group_region_target_plan(
+                {
+                    "target_region_id": normalized_target_region_id,
+                    "target_region_label": target_label,
+                    "plan_status": "target_region_undiscovered",
+                    "summary": f"Регион {target_label} ещё не открыт, и для него пока нет известного выхода из текущего региона.",
+                    "current_region_id": current_region_id,
+                    "current_region_label": current_region_label,
+                    "path_node_ids": [],
+                    "path_route_ids": [],
+                    "path_step_count": 0,
+                    "reachable": False,
+                    "blocked_reason": "",
+                    "suggested_command": "",
+                    "source": "region_target_guidance",
+                }
+            )
+        return _normalize_group_region_target_plan(
+            {
+                "target_region_id": normalized_target_region_id,
+                "target_region_label": target_label,
+                "plan_status": "target_region_unavailable",
+                "summary": f"Сейчас нельзя собрать внятный gateway-план до региона {target_label} из {current_region_label}.",
+                "current_region_id": current_region_id,
+                "current_region_label": current_region_label,
+                "path_node_ids": [],
+                "path_route_ids": [],
+                "path_step_count": 0,
+                "reachable": False,
+                "blocked_reason": "",
+                "suggested_command": "",
+                "source": "region_target_guidance",
+            }
+        )
+    gateway_status = str(gateway.get("gateway_status") or "").strip().lower()
+    gateway_source_node_id = str(gateway.get("source_node_id") or "").strip().lower()
+    gateway_source_node_label = str(gateway.get("source_node_label") or gateway_source_node_id).strip()
+    base_plan: dict[str, Any] = {
+        "target_region_id": normalized_target_region_id,
+        "target_region_label": str(gateway.get("target_region_label") or target_label).strip() or target_label,
+        "current_region_id": current_region_id,
+        "current_region_label": current_region_label,
+        "gateway_id": str(gateway.get("gateway_id") or ""),
+        "gateway_label": str(gateway.get("gateway_label") or ""),
+        "gateway_status": gateway_status,
+        "gateway_source_node_id": gateway_source_node_id,
+        "gateway_source_node_label": gateway_source_node_label,
+        "path_node_ids": [],
+        "path_route_ids": [],
+        "path_step_count": 0,
+        "reachable": False,
+        "blocked_reason": str(gateway.get("blocked_reason") or ""),
+        "suggested_command": "",
+        "source": "region_target_guidance",
+    }
+    if gateway_status == "blocked":
+        base_plan.update(
+            {
+                "plan_status": "gateway_blocked",
+                "summary": f"Выход {base_plan['gateway_label']} к региону {base_plan['target_region_label']} известен, но сейчас заблокирован.",
+                "suggested_command": f"group path {gateway_source_node_id}" if gateway_source_node_id else "",
+            }
+        )
+        return _normalize_group_region_target_plan(base_plan)
+    if gateway_status == "locked":
+        base_plan.update(
+            {
+                "plan_status": "gateway_locked",
+                "summary": f"Выход {base_plan['gateway_label']} к региону {base_plan['target_region_label']} уже найден, но ещё закрыт локальными требованиями.",
+                "blocked_reason": str(gateway.get("unlock_hint") or gateway.get("blocked_reason") or ""),
+                "suggested_command": f"group path {gateway_source_node_id}" if gateway_source_node_id else "",
+            }
+        )
+        return _normalize_group_region_target_plan(base_plan)
+    if gateway_status == "future_stub":
+        base_plan.update(
+            {
+                "plan_status": "gateway_future_stub",
+                "summary": f"Выход {base_plan['gateway_label']} к региону {base_plan['target_region_label']} отмечен как будущая заготовка.",
+                "suggested_command": "",
+            }
+        )
+        return _normalize_group_region_target_plan(base_plan)
+    if gateway_status != "open":
+        base_plan.update(
+            {
+                "plan_status": "target_region_unavailable",
+                "summary": f"Сейчас нет пригодного gateway-подхода к региону {base_plan['target_region_label']}.",
+            }
+        )
+        return _normalize_group_region_target_plan(base_plan)
+    if gateway_source_node_id and gateway_source_node_id == current_node_id:
+        base_plan.update(
+            {
+                "plan_status": "gateway_ready",
+                "summary": f"Группа уже стоит у выхода {base_plan['gateway_label']} и может перейти в регион {base_plan['target_region_label']}.",
+                "path_node_ids": [current_node_id],
+                "reachable": True,
+                "suggested_command": f"group exit {base_plan['gateway_id']}" if base_plan["gateway_id"] else "",
+            }
+        )
+        return _normalize_group_region_target_plan(base_plan)
+    route_plan = get_group_route_plan_to_node(sess, group_key, gateway_source_node_id) or {}
+    if bool(route_plan.get("reachable")):
+        base_plan.update(
+            {
+                "plan_status": "approach_gateway",
+                "summary": f"Чтобы выйти в регион {base_plan['target_region_label']}, группе нужно сначала дойти до {gateway_source_node_label}.",
+                "path_node_ids": list(route_plan.get("path_node_ids") or []),
+                "path_route_ids": list(route_plan.get("path_route_ids") or []),
+                "path_step_count": max(0, as_int(route_plan.get("step_count"), 0)),
+                "reachable": True,
+                "blocked_reason": str(route_plan.get("blocked_reason") or ""),
+                "suggested_command": f"group go {gateway_source_node_id}",
+            }
+        )
+        return _normalize_group_region_target_plan(base_plan)
+    base_plan.update(
+        {
+            "plan_status": "target_region_unavailable",
+            "summary": f"Выход {base_plan['gateway_label']} известен, но сейчас не удаётся построить подход к {gateway_source_node_label}.",
+            "path_node_ids": list(route_plan.get("path_node_ids") or []),
+            "path_route_ids": list(route_plan.get("path_route_ids") or []),
+            "path_step_count": max(0, as_int(route_plan.get("step_count"), 0)),
+            "blocked_reason": str(route_plan.get("blocked_reason") or ""),
+            "suggested_command": f"group path {gateway_source_node_id}" if gateway_source_node_id else "",
+        }
+    )
+    return _normalize_group_region_target_plan(base_plan)
+
+
+def get_group_region_target_plan(
+    sess: Session,
+    group_id: str,
+    target_region_id: str,
+) -> dict[str, Any] | None:
+    return build_group_region_target_plan(sess, group_id, target_region_id)
+
+
+def get_current_group_region_target_plan(
+    sess: Session,
+    *,
+    target_region_id: str,
+    player_id: uuid.UUID | str | None = None,
+    group_id: str | None = None,
+) -> dict[str, Any] | None:
+    resolved_group_id = str(group_id or "").strip()
+    resolved_player_id = str(player_id or "").strip()
+    if not resolved_group_id and resolved_player_id:
+        resolved_group_id = str(_get_player_group_id(sess, resolved_player_id) or "").strip()
+    if not resolved_group_id:
+        return None
+    return get_group_region_target_plan(sess, resolved_group_id, target_region_id)
+
+
+def get_current_group_primary_region_focus_plan(
+    sess: Session,
+    *,
+    player_id: uuid.UUID | str | None = None,
+    group_id: str | None = None,
+) -> dict[str, Any] | None:
+    focus = get_current_group_primary_region_focus(sess, player_id=player_id, group_id=group_id)
+    if not focus:
+        return None
+    return get_current_group_region_target_plan(
+        sess,
+        target_region_id=str(focus.get("region_id") or ""),
+        player_id=player_id,
+        group_id=group_id,
+    )
+
+
+def get_current_group_region_target_options(
+    sess: Session,
+    *,
+    player_id: uuid.UUID | str | None = None,
+    group_id: str | None = None,
+) -> dict[str, Any] | None:
+    resolved_group_id = str(group_id or "").strip()
+    resolved_player_id = str(player_id or "").strip()
+    if not resolved_group_id and resolved_player_id:
+        resolved_group_id = str(_get_player_group_id(sess, resolved_player_id) or "").strip()
+    if not resolved_group_id:
+        return None
+    group = _get_group_states(sess).get(resolved_group_id)
+    if not isinstance(group, dict):
+        return None
+    current_region_state = _normalize_group_current_region_state(group.get("current_region_state"))
+    if not current_region_state:
+        return None
+    discovered_regions = get_current_group_discovered_regions(
+        sess,
+        player_id=resolved_player_id or None,
+        group_id=resolved_group_id,
+    )
+    target_region_plans = [
+        plan
+        for item in discovered_regions
+        if (plan := get_group_region_target_plan(sess, resolved_group_id, str(item.get("region_id") or "")))
+    ]
+    focus_plan = get_current_group_primary_region_focus_plan(
+        sess,
+        player_id=resolved_player_id or None,
+        group_id=resolved_group_id,
+    )
+    focus_region_id = str((focus_plan or {}).get("target_region_id") or "").strip().lower()
+    if focus_region_id:
+        target_region_plans.sort(
+            key=lambda item: (
+                0 if str(item.get("target_region_id") or "").strip().lower() == focus_region_id else 1,
+                str(item.get("target_region_label") or ""),
+            )
+        )
+    current_region_label = str(current_region_state.get("region_label") or "")
+    return _normalize_group_region_target_options(
+        {
+            "current_region_id": str(current_region_state.get("region_id") or ""),
+            "current_region_label": current_region_label,
+            "primary_region_focus_plan": focus_plan,
+            "target_region_plans": target_region_plans,
+            "summary": (
+                f"Из региона {current_region_label} собрано {len(target_region_plans)} canonical target-region plan(s)."
+            ),
+        }
+    )
 
 
 def build_group_region_transition_result(

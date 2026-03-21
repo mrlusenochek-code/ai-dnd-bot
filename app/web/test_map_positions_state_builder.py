@@ -154,6 +154,8 @@ def test_build_state_includes_legacy_and_structured_positions(monkeypatch) -> No
     monkeypatch.setattr(state_builder, "get_current_group_region_onboarding_states", lambda _sess, player_id=None: [])
     monkeypatch.setattr(state_builder, "get_current_group_region_world_overview", lambda _sess, player_id=None: None)
     monkeypatch.setattr(state_builder, "get_current_group_primary_region_focus", lambda _sess, player_id=None: None)
+    monkeypatch.setattr(state_builder, "get_current_group_primary_region_focus_plan", lambda _sess, player_id=None: None)
+    monkeypatch.setattr(state_builder, "get_current_group_region_target_options", lambda _sess, player_id=None: None)
     monkeypatch.setattr(state_builder, "get_current_group_last_region_transition_result", lambda _sess, player_id=None: None)
     monkeypatch.setattr(state_builder, "get_current_group_region_transition_state", lambda _sess, player_id=None: None)
     monkeypatch.setattr(
@@ -261,6 +263,8 @@ def test_build_state_includes_legacy_and_structured_positions(monkeypatch) -> No
     assert payload["game"]["current_group_region_onboarding_states"] == []
     assert payload["game"]["current_group_region_world_overview"] is None
     assert payload["game"]["current_group_primary_region_focus"] is None
+    assert payload["game"]["current_group_primary_region_focus_plan"] is None
+    assert payload["game"]["current_group_region_target_options"] is None
     assert payload["game"]["current_group_last_region_transition_result"] is None
     assert payload["game"]["current_group_region_transition_state"] is None
     assert payload["game"]["current_group_navigation_options"] == []
@@ -578,6 +582,81 @@ def test_build_state_exports_region_residency_payloads(monkeypatch) -> None:
             "summary": "Северный рубеж только что закреплён как новый регион и пока остаётся свежим стартовым плацдармом.",
         },
     )
+    monkeypatch.setattr(
+        state_builder,
+        "get_current_group_primary_region_focus_plan",
+        lambda _sess, player_id=None: {
+            "target_region_id": "northwatch_frontier",
+            "target_region_label": "Северный рубеж",
+            "plan_status": "current_region",
+            "summary": "Группа уже находится в регионе Северный рубеж.",
+            "current_region_id": "northwatch_frontier",
+            "current_region_label": "Северный рубеж",
+            "gateway_id": "",
+            "gateway_label": "",
+            "gateway_status": "",
+            "gateway_source_node_id": "",
+            "gateway_source_node_label": "",
+            "path_node_ids": ["northwatch_outpost"],
+            "path_route_ids": [],
+            "path_step_count": 0,
+            "reachable": True,
+            "blocked_reason": "",
+            "suggested_command": "",
+            "source": "region_target_guidance",
+        },
+    )
+    monkeypatch.setattr(
+        state_builder,
+        "get_current_group_region_target_options",
+        lambda _sess, player_id=None: {
+            "current_region_id": "northwatch_frontier",
+            "current_region_label": "Северный рубеж",
+            "primary_region_focus_plan": {
+                "target_region_id": "northwatch_frontier",
+                "target_region_label": "Северный рубеж",
+                "plan_status": "current_region",
+                "summary": "Группа уже находится в регионе Северный рубеж.",
+                "current_region_id": "northwatch_frontier",
+                "current_region_label": "Северный рубеж",
+                "gateway_id": "",
+                "gateway_label": "",
+                "gateway_status": "",
+                "gateway_source_node_id": "",
+                "gateway_source_node_label": "",
+                "path_node_ids": ["northwatch_outpost"],
+                "path_route_ids": [],
+                "path_step_count": 0,
+                "reachable": True,
+                "blocked_reason": "",
+                "suggested_command": "",
+                "source": "region_target_guidance",
+            },
+            "target_region_plans": [
+                {
+                    "target_region_id": "northwatch_frontier",
+                    "target_region_label": "Северный рубеж",
+                    "plan_status": "current_region",
+                    "summary": "Группа уже находится в регионе Северный рубеж.",
+                    "current_region_id": "northwatch_frontier",
+                    "current_region_label": "Северный рубеж",
+                    "gateway_id": "",
+                    "gateway_label": "",
+                    "gateway_status": "",
+                    "gateway_source_node_id": "",
+                    "gateway_source_node_label": "",
+                    "path_node_ids": ["northwatch_outpost"],
+                    "path_route_ids": [],
+                    "path_step_count": 0,
+                    "reachable": True,
+                    "blocked_reason": "",
+                    "suggested_command": "",
+                    "source": "region_target_guidance",
+                }
+            ],
+            "summary": "Из региона Северный рубеж собрано 1 canonical target-region plan(s).",
+        },
+    )
     monkeypatch.setattr(state_builder, "get_current_group_last_region_transition_result", lambda _sess, player_id=None: None)
     monkeypatch.setattr(state_builder, "get_current_group_region_transition_state", lambda _sess, player_id=None: None)
     monkeypatch.setattr(state_builder, "get_current_group_navigation_options", lambda _sess, player_id=None: [])
@@ -613,6 +692,8 @@ def test_build_state_exports_region_residency_payloads(monkeypatch) -> None:
     assert payload["game"]["current_group_region_onboarding_states"][0]["region_id"] == "northwatch_frontier"
     assert payload["game"]["current_group_region_world_overview"]["current_region_id"] == "northwatch_frontier"
     assert payload["game"]["current_group_primary_region_focus"]["region_status"] == "newly_onboarded_region"
+    assert payload["game"]["current_group_primary_region_focus_plan"]["target_region_id"] == "northwatch_frontier"
+    assert payload["game"]["current_group_region_target_options"]["current_region_id"] == "northwatch_frontier"
 
 
 def test_build_state_exports_current_player_group_id(monkeypatch) -> None:
@@ -1588,6 +1669,81 @@ def test_build_state_exports_current_player_group_id(monkeypatch) -> None:
     )
     monkeypatch.setattr(
         state_builder,
+        "get_current_group_primary_region_focus_plan",
+        lambda _sess, player_id=None: {
+            "target_region_id": "starter_frontier",
+            "target_region_label": "Стартовое пограничье",
+            "plan_status": "current_region",
+            "summary": "Группа уже находится в регионе Стартовое пограничье.",
+            "current_region_id": "starter_frontier",
+            "current_region_label": "Стартовое пограничье",
+            "gateway_id": "",
+            "gateway_label": "",
+            "gateway_status": "",
+            "gateway_source_node_id": "",
+            "gateway_source_node_label": "",
+            "path_node_ids": ["start_trakt"],
+            "path_route_ids": [],
+            "path_step_count": 0,
+            "reachable": True,
+            "blocked_reason": "",
+            "suggested_command": "",
+            "source": "region_target_guidance",
+        },
+    )
+    monkeypatch.setattr(
+        state_builder,
+        "get_current_group_region_target_options",
+        lambda _sess, player_id=None: {
+            "current_region_id": "starter_frontier",
+            "current_region_label": "Стартовое пограничье",
+            "primary_region_focus_plan": {
+                "target_region_id": "starter_frontier",
+                "target_region_label": "Стартовое пограничье",
+                "plan_status": "current_region",
+                "summary": "Группа уже находится в регионе Стартовое пограничье.",
+                "current_region_id": "starter_frontier",
+                "current_region_label": "Стартовое пограничье",
+                "gateway_id": "",
+                "gateway_label": "",
+                "gateway_status": "",
+                "gateway_source_node_id": "",
+                "gateway_source_node_label": "",
+                "path_node_ids": ["start_trakt"],
+                "path_route_ids": [],
+                "path_step_count": 0,
+                "reachable": True,
+                "blocked_reason": "",
+                "suggested_command": "",
+                "source": "region_target_guidance",
+            },
+            "target_region_plans": [
+                {
+                    "target_region_id": "starter_frontier",
+                    "target_region_label": "Стартовое пограничье",
+                    "plan_status": "current_region",
+                    "summary": "Группа уже находится в регионе Стартовое пограничье.",
+                    "current_region_id": "starter_frontier",
+                    "current_region_label": "Стартовое пограничье",
+                    "gateway_id": "",
+                    "gateway_label": "",
+                    "gateway_status": "",
+                    "gateway_source_node_id": "",
+                    "gateway_source_node_label": "",
+                    "path_node_ids": ["start_trakt"],
+                    "path_route_ids": [],
+                    "path_step_count": 0,
+                    "reachable": True,
+                    "blocked_reason": "",
+                    "suggested_command": "",
+                    "source": "region_target_guidance",
+                }
+            ],
+            "summary": "Из региона Стартовое пограничье собрано 1 canonical target-region plan(s).",
+        },
+    )
+    monkeypatch.setattr(
+        state_builder,
         "get_current_group_last_region_transition_result",
         lambda _sess, player_id=None: {
             "result_id": "transition-1",
@@ -2359,6 +2515,73 @@ def test_build_state_exports_current_player_group_id(monkeypatch) -> None:
         "region_label": "Стартовое пограничье",
         "region_status": "current_active_region",
         "summary": "Стартовое пограничье остаётся основным рабочим frontier-регионом группы.",
+    }
+    assert payload["game"]["current_group_primary_region_focus_plan"] == {
+        "target_region_id": "starter_frontier",
+        "target_region_label": "Стартовое пограничье",
+        "plan_status": "current_region",
+        "summary": "Группа уже находится в регионе Стартовое пограничье.",
+        "current_region_id": "starter_frontier",
+        "current_region_label": "Стартовое пограничье",
+        "gateway_id": "",
+        "gateway_label": "",
+        "gateway_status": "",
+        "gateway_source_node_id": "",
+        "gateway_source_node_label": "",
+        "path_node_ids": ["start_trakt"],
+        "path_route_ids": [],
+        "path_step_count": 0,
+        "reachable": True,
+        "blocked_reason": "",
+        "suggested_command": "",
+        "source": "region_target_guidance",
+    }
+    assert payload["game"]["current_group_region_target_options"] == {
+        "current_region_id": "starter_frontier",
+        "current_region_label": "Стартовое пограничье",
+        "primary_region_focus_plan": {
+            "target_region_id": "starter_frontier",
+            "target_region_label": "Стартовое пограничье",
+            "plan_status": "current_region",
+            "summary": "Группа уже находится в регионе Стартовое пограничье.",
+            "current_region_id": "starter_frontier",
+            "current_region_label": "Стартовое пограничье",
+            "gateway_id": "",
+            "gateway_label": "",
+            "gateway_status": "",
+            "gateway_source_node_id": "",
+            "gateway_source_node_label": "",
+            "path_node_ids": ["start_trakt"],
+            "path_route_ids": [],
+            "path_step_count": 0,
+            "reachable": True,
+            "blocked_reason": "",
+            "suggested_command": "",
+            "source": "region_target_guidance",
+        },
+        "target_region_plans": [
+            {
+                "target_region_id": "starter_frontier",
+                "target_region_label": "Стартовое пограничье",
+                "plan_status": "current_region",
+                "summary": "Группа уже находится в регионе Стартовое пограничье.",
+                "current_region_id": "starter_frontier",
+                "current_region_label": "Стартовое пограничье",
+                "gateway_id": "",
+                "gateway_label": "",
+                "gateway_status": "",
+                "gateway_source_node_id": "",
+                "gateway_source_node_label": "",
+                "path_node_ids": ["start_trakt"],
+                "path_route_ids": [],
+                "path_step_count": 0,
+                "reachable": True,
+                "blocked_reason": "",
+                "suggested_command": "",
+                "source": "region_target_guidance",
+            }
+        ],
+        "summary": "Из региона Стартовое пограничье собрано 1 canonical target-region plan(s).",
     }
     assert payload["game"]["current_group_last_region_transition_result"] == {
         "result_id": "transition-1",

@@ -49,11 +49,14 @@ def test_parse_group_command_supports_wait_camp_rest_scout_move_navigate_context
     action_regions, payload_regions = ws_handlers._parse_group_command("group regions")
     action_world, payload_world = ws_handlers._parse_group_command("group world")
     action_focus, payload_focus = ws_handlers._parse_group_command("group focus")
+    action_focus_path, payload_focus_path = ws_handlers._parse_group_command("group focus-path")
     action_arrival_region, payload_arrival_region = ws_handlers._parse_group_command("group arrival-region")
     action_region_entry, payload_region_entry = ws_handlers._parse_group_command("group region-entry")
     action_exit, payload_exit = ws_handlers._parse_group_command("group exit forest_settlement_northwatch")
     action_cross, payload_cross = ws_handlers._parse_group_command("group cross fortress_gate_western_road")
     action_transition, payload_transition = ws_handlers._parse_group_command("group transition")
+    action_route_region, payload_route_region = ws_handlers._parse_group_command("group route-region northwatch_frontier")
+    action_region_path, payload_region_path = ws_handlers._parse_group_command("group region-path northwatch_frontier")
     action_enter, payload_enter = ws_handlers._parse_group_command("group enter замок")
     action_mode, payload_mode = ws_handlers._parse_group_command("group mode cautious")
     action_activity, payload_activity = ws_handlers._parse_group_command("group activity navigate")
@@ -116,11 +119,14 @@ def test_parse_group_command_supports_wait_camp_rest_scout_move_navigate_context
     assert (action_regions, payload_regions) == ("group_discovered_regions", {})
     assert (action_world, payload_world) == ("group_region_world", {})
     assert (action_focus, payload_focus) == ("group_region_focus", {})
+    assert (action_focus_path, payload_focus_path) == ("group_primary_region_focus_plan", {})
     assert (action_arrival_region, payload_arrival_region) == ("group_region_onboarding", {})
     assert (action_region_entry, payload_region_entry) == ("group_region_onboarding", {})
     assert (action_exit, payload_exit) == ("group_region_transition", {"gateway_id": "forest_settlement_northwatch"})
     assert (action_cross, payload_cross) == ("group_region_transition", {"gateway_id": "fortress_gate_western_road"})
     assert (action_transition, payload_transition) == ("group_region_transition_status", {})
+    assert (action_route_region, payload_route_region) == ("group_region_target_plan", {"target_region_id": "northwatch_frontier"})
+    assert (action_region_path, payload_region_path) == ("group_region_target_plan", {"target_region_id": "northwatch_frontier"})
     assert (action_enter, payload_enter) == ("group_enter", {"target_hint": "замок"})
     assert (action_mode, payload_mode) == ("group_set_mode", {"movement_mode": "cautious"})
     assert (action_activity, payload_activity) == ("group_set_activity", {"activity": "navigate"})
@@ -1497,6 +1503,65 @@ def test_handle_group_region_world_and_focus_surfaces() -> None:
     assert handled_focus is True
     assert err_focus is None
     assert "Region focus группы main" in str(msg_focus)
+
+
+def test_handle_group_region_target_plan_and_focus_path_surfaces() -> None:
+    player_id = uuid.uuid4()
+    sess = SimpleNamespace(settings={})
+    session_state._initialize_default_group(
+        sess,
+        [player_id],
+        {
+            "map_level": "region",
+            "node_type": "zone",
+            "node_id": "forest_road",
+            "label": "Лесная дорога",
+        },
+    )
+    session_state.get_current_group_current_region_state(sess, player_id=player_id)
+    session_state.reveal_player_map_node(sess, player_id, "forest_settlement", source="test")
+    session_state.add_group_node_state_flag(
+        sess,
+        "main",
+        "forest_settlement",
+        state_flag="forest_supplies_secured",
+        summary="Лесной набор уже готов.",
+        source="test",
+    )
+
+    handled_route, err_route, msg_route = ws_handlers._handle_group_action_request(
+        sess,
+        action="group_region_target_plan",
+        actor_player_id=player_id,
+        payload={"target_region_id": "northwatch_frontier"},
+        source="test",
+    )
+    assert handled_route is True
+    assert err_route is None
+    assert "Северный рубеж" in str(msg_route)
+    assert "group go forest_settlement" in str(msg_route)
+
+    handled_focus, err_focus, msg_focus = ws_handlers._handle_group_action_request(
+        sess,
+        action="group_primary_region_focus_plan",
+        actor_player_id=player_id,
+        payload={},
+        source="test",
+    )
+    assert handled_focus is True
+    assert err_focus is None
+    assert "Стартовое пограничье" in str(msg_focus)
+
+    handled_missing, err_missing, msg_missing = ws_handlers._handle_group_action_request(
+        sess,
+        action="group_region_target_plan",
+        actor_player_id=player_id,
+        payload={},
+        source="test",
+    )
+    assert handled_missing is True
+    assert "target_region_id" in str(err_missing)
+    assert msg_missing is None
 
 
 def test_handle_group_journey_set_advance_status_and_stop() -> None:

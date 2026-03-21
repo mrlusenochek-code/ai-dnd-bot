@@ -93,8 +93,11 @@ from app.web.session_state import (
     get_current_group_last_region_entry_result,
     get_current_group_last_region_onboarding_result,
     get_current_group_primary_region_focus,
+    get_current_group_primary_region_focus_plan,
     get_current_group_last_region_transition_result,
     get_current_group_region_onboarding_states,
+    get_current_group_region_target_plan,
+    get_current_group_region_target_options,
     get_current_group_region_world_overview,
     get_current_group_region_transition_state,
     resolve_group_region_transition,
@@ -1799,6 +1802,9 @@ def _parse_group_command(cmdline: str) -> tuple[str | None, dict[str, Any]]:
     if lowered in {"group focus", "group_focus"}:
         return "group_region_focus", {}
 
+    if lowered in {"group focus-path", "group_focus_path"}:
+        return "group_primary_region_focus_plan", {}
+
     if lowered in {"group arrival-region", "group_arrival_region", "group region-entry", "group_region_entry"}:
         return "group_region_onboarding", {}
 
@@ -1808,6 +1814,10 @@ def _parse_group_command(cmdline: str) -> tuple[str | None, dict[str, Any]]:
     for prefix in ("group exit ", "group_exit ", "group cross ", "group_cross "):
         if lowered.startswith(prefix):
             return "group_region_transition", {"gateway_id": txt[len(prefix):].strip()}
+
+    for prefix in ("group route-region ", "group_route_region ", "group region-path ", "group_region_path "):
+        if lowered.startswith(prefix):
+            return "group_region_target_plan", {"target_region_id": txt[len(prefix):].strip()}
 
     if lowered in {"group arrive", "group_arrive"}:
         return "group_arrive", {}
@@ -1947,6 +1957,8 @@ def _handle_group_action_request(
         "group_discovered_regions",
         "group_region_world",
         "group_region_focus",
+        "group_region_target_plan",
+        "group_primary_region_focus_plan",
         "group_region_onboarding",
         "group_region_transition",
         "group_region_transition_status",
@@ -2233,6 +2245,49 @@ def _handle_group_action_request(
             f"({str((focus or {}).get('region_status') or 'unknown')}). "
             f"{str((focus or {}).get('summary') or '')}"
         ).strip()
+
+    if action == "group_region_target_plan":
+        if not actor_group_key:
+            return True, "Группа игрока не найдена.", None
+        target_region_id = str(payload.get("target_region_id") or "").strip()
+        if not target_region_id:
+            return True, "Нужно указать target_region_id для target-region guidance.", None
+        plan = get_current_group_region_target_plan(
+            sess,
+            player_id=actor_player_id,
+            group_id=actor_group_key,
+            target_region_id=target_region_id,
+        )
+        if not plan:
+            return True, "Не удалось собрать target-region guidance для этой цели.", None
+        options = get_current_group_region_target_options(
+            sess,
+            player_id=actor_player_id,
+            group_id=actor_group_key,
+        )
+        summary = str(plan.get("summary") or "").strip()
+        suggested_command = str(plan.get("suggested_command") or "").strip()
+        if suggested_command:
+            summary = f"{summary} Подсказка: {suggested_command}."
+        if not summary and options:
+            summary = str(options.get("summary") or "").strip()
+        return True, None, summary or f"Target-region plan группы {actor_group_key} собран."
+
+    if action == "group_primary_region_focus_plan":
+        if not actor_group_key:
+            return True, "Группа игрока не найдена.", None
+        plan = get_current_group_primary_region_focus_plan(
+            sess,
+            player_id=actor_player_id,
+            group_id=actor_group_key,
+        )
+        if not plan:
+            return True, None, f"У группы {actor_group_key} пока нет выраженного primary region focus plan."
+        summary = str(plan.get("summary") or "").strip()
+        suggested_command = str(plan.get("suggested_command") or "").strip()
+        if suggested_command:
+            summary = f"{summary} Подсказка: {suggested_command}."
+        return True, None, summary or f"Primary region focus plan группы {actor_group_key} собран."
 
     if action == "group_region_onboarding":
         if not actor_group_key:

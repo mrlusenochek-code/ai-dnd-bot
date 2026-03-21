@@ -4957,6 +4957,273 @@ def test_group_region_world_overview_synthesizes_current_and_non_current_discove
     assert focus["region_id"] == "northwatch_frontier"
 
 
+def test_group_region_target_plan_supports_current_ready_and_approach_states() -> None:
+    player_id = uuid.uuid4()
+    sess = SimpleNamespace(settings={})
+    session_state._initialize_default_group(
+        sess,
+        [player_id],
+        {
+            "map_level": "region",
+            "node_type": "zone",
+            "node_id": "forest_road",
+            "label": "Лесная дорога",
+        },
+    )
+    current_region = session_state.get_current_group_region_target_plan(
+        sess,
+        player_id=player_id,
+        target_region_id="starter_frontier",
+    )
+    session_state.get_current_group_current_region_state(sess, player_id=player_id)
+    assert current_region is not None
+    assert current_region["plan_status"] == "current_region"
+    assert current_region["reachable"] is True
+
+    session_state.reveal_player_map_node(sess, player_id, "forest_settlement", source="test")
+    session_state.add_group_node_state_flag(
+        sess,
+        "main",
+        "forest_settlement",
+        state_flag="forest_supplies_secured",
+        summary="Лесной набор уже готов.",
+        source="test",
+    )
+    approach = session_state.get_current_group_region_target_plan(
+        sess,
+        player_id=player_id,
+        target_region_id="northwatch_frontier",
+    )
+    assert approach is not None
+    assert approach["plan_status"] == "approach_gateway"
+    assert approach["gateway_id"] == "forest_settlement_northwatch"
+    assert approach["reachable"] is True
+    assert approach["path_node_ids"] == ["forest_road", "forest_settlement"]
+    assert approach["suggested_command"] == "group go forest_settlement"
+
+    ready_sess = SimpleNamespace(settings={})
+    session_state._initialize_default_group(
+        ready_sess,
+        [player_id],
+        {
+            "map_level": "region",
+            "node_type": "zone",
+            "node_id": "forest_settlement",
+            "label": "Лесной посёлок",
+        },
+    )
+    session_state.get_current_group_current_region_state(ready_sess, player_id=player_id)
+    session_state.add_group_node_state_flag(
+        ready_sess,
+        "main",
+        "forest_settlement",
+        state_flag="forest_supplies_secured",
+        summary="Лесной набор уже готов.",
+        source="test",
+    )
+    ready = session_state.get_current_group_region_target_plan(
+        ready_sess,
+        player_id=player_id,
+        target_region_id="northwatch_frontier",
+    )
+    assert ready is not None
+    assert ready["plan_status"] == "gateway_ready"
+    assert ready["suggested_command"] == "group exit forest_settlement_northwatch"
+
+def test_group_region_target_plan_supports_blocked_locked_future_and_undiscovered_states() -> None:
+    player_id = uuid.uuid4()
+
+    blocked_sess = SimpleNamespace(settings={})
+    session_state._initialize_default_group(
+        blocked_sess,
+        [player_id],
+        {
+            "map_level": "region",
+            "node_type": "zone",
+            "node_id": "forest_settlement",
+            "label": "Лесной посёлок",
+        },
+    )
+    session_state.get_current_group_current_region_state(blocked_sess, player_id=player_id)
+    session_state.add_group_node_state_flag(
+        blocked_sess,
+        "main",
+        "forest_settlement",
+        state_flag="forest_supplies_secured",
+        summary="Лесной набор уже готов.",
+        source="test",
+    )
+    session_state.set_group_route_access_state(
+        blocked_sess,
+        "main",
+        route_id="forest_settlement->old_fortress_edge:move",
+        access_state="blocked",
+        summary="Проход к северному рубежу закрыт.",
+        block_reason="Завал на дальнем тракте.",
+        source="test",
+    )
+    blocked = session_state.get_current_group_region_target_plan(
+        blocked_sess,
+        player_id=player_id,
+        target_region_id="northwatch_frontier",
+    )
+    assert blocked is not None
+    assert blocked["plan_status"] == "gateway_blocked"
+    assert blocked["blocked_reason"] == "Завал на дальнем тракте."
+
+    locked_sess = SimpleNamespace(settings={})
+    session_state._initialize_default_group(
+        locked_sess,
+        [player_id],
+        {
+            "map_level": "region",
+            "node_type": "landmark",
+            "node_id": "fortress_gate",
+            "label": "Ворота крепости",
+        },
+    )
+    session_state.get_current_group_current_region_state(locked_sess, player_id=player_id)
+    locked = session_state.get_current_group_region_target_plan(
+        locked_sess,
+        player_id=player_id,
+        target_region_id="western_road",
+    )
+    assert locked is not None
+    assert locked["plan_status"] == "gateway_locked"
+
+    future_sess = SimpleNamespace(settings={})
+    session_state._initialize_default_group(
+        future_sess,
+        [player_id],
+        {
+            "map_level": "region",
+            "node_type": "landmark",
+            "node_id": "forgotten_shrine",
+            "label": "Забытое святилище",
+        },
+    )
+    session_state.get_current_group_current_region_state(future_sess, player_id=player_id)
+    future = session_state.get_current_group_region_target_plan(
+        future_sess,
+        player_id=player_id,
+        target_region_id="sunken_reaches",
+    )
+    assert future is not None
+    assert future["plan_status"] == "gateway_future_stub"
+
+    undiscovered = session_state.get_current_group_region_target_plan(
+        future_sess,
+        player_id=player_id,
+        target_region_id="missing_region",
+    )
+    assert undiscovered is not None
+    assert undiscovered["plan_status"] == "target_region_undiscovered"
+
+
+def test_group_region_target_plan_supports_unavailable_state_for_known_region_without_gateway_guidance(monkeypatch) -> None:
+    player_id = uuid.uuid4()
+    sess = SimpleNamespace(settings={})
+    session_state._initialize_default_group(
+        sess,
+        [player_id],
+        {
+            "map_level": "region",
+            "node_type": "zone",
+            "node_id": "forest_road",
+            "label": "Лесная дорога",
+        },
+    )
+    session_state.get_current_group_current_region_state(sess, player_id=player_id)
+    monkeypatch.setattr(
+        session_state,
+        "_normalize_group_discovered_region_map",
+        lambda _raw: {
+            "starter_frontier": {
+                "region_id": "starter_frontier",
+                "region_label": "Стартовое пограничье",
+                "visit_count": 1,
+                "summary": "Группа уже знает стартовый регион.",
+            },
+            "mystic_delta": {
+                "region_id": "mystic_delta",
+                "region_label": "Туманный предел",
+                "visit_count": 1,
+                "summary": "Группа знает о Туманном пределе, но не имеет прямого выхода.",
+            },
+        },
+    )
+    monkeypatch.setattr(session_state, "get_static_region_gateways", lambda **_kwargs: [])
+
+    unavailable = session_state.get_current_group_region_target_plan(
+        sess,
+        player_id=player_id,
+        target_region_id="mystic_delta",
+    )
+
+    assert unavailable is not None
+    assert unavailable["plan_status"] == "target_region_unavailable"
+
+
+def test_group_primary_region_focus_plan_and_target_options_are_canonical_and_separate() -> None:
+    player_id = uuid.uuid4()
+    empty_sess = SimpleNamespace(settings={})
+    session_state._initialize_default_group(
+        empty_sess,
+        [player_id],
+        {
+            "map_level": "region",
+            "node_type": "zone",
+            "node_id": "forest_settlement",
+            "label": "Лесной посёлок",
+        },
+    )
+    assert session_state.get_current_group_primary_region_focus_plan(empty_sess, player_id=player_id) is None
+
+    sess = SimpleNamespace(settings={})
+    session_state._initialize_default_group(
+        sess,
+        [player_id],
+        {
+            "map_level": "region",
+            "node_type": "zone",
+            "node_id": "forest_settlement",
+            "label": "Лесной посёлок",
+        },
+    )
+    session_state.get_current_group_current_region_state(sess, player_id=player_id)
+    session_state.add_group_node_state_flag(
+        sess,
+        "main",
+        "forest_settlement",
+        state_flag="forest_supplies_secured",
+        summary="Лесной набор уже готов.",
+        source="test",
+    )
+    session_state.resolve_group_region_transition(
+        sess,
+        "main",
+        "forest_settlement_northwatch",
+        player_id=player_id,
+        source="region_transition",
+    )
+
+    focus_plan = session_state.get_current_group_primary_region_focus_plan(sess, player_id=player_id)
+    options = session_state.get_current_group_region_target_options(sess, player_id=player_id)
+    overview = session_state.get_current_group_region_world_overview(sess, player_id=player_id)
+
+    assert focus_plan is not None
+    assert focus_plan["target_region_id"] == "northwatch_frontier"
+    assert focus_plan["plan_status"] == "current_region"
+    assert options is not None
+    assert options["primary_region_focus_plan"]["target_region_id"] == "northwatch_frontier"
+    assert [item["target_region_id"] for item in options["target_region_plans"]] == [
+        "northwatch_frontier",
+        "starter_frontier",
+    ]
+    assert overview is not None
+    assert "primary_region_focus" in overview
+
+
 def test_group_region_transition_updates_region_residency_history() -> None:
     player_id = uuid.uuid4()
     sess = SimpleNamespace(settings={})

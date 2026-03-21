@@ -104,12 +104,14 @@ from app.web.session_state import (
     get_current_group_region_frontier_summary,
     get_current_group_region_gateways,
     get_current_group_primary_region_gateway,
+    get_current_group_primary_region_focus_plan,
     get_current_group_current_region_state,
     get_current_group_discovered_regions,
     get_current_group_discovered_region_summaries,
     get_current_group_last_region_entry_result,
     get_current_group_last_region_onboarding_result,
     get_current_group_primary_region_focus,
+    get_current_group_region_target_options,
     get_current_group_region_onboarding_states,
     get_current_group_region_world_overview,
     get_current_group_last_region_transition_result,
@@ -688,6 +690,16 @@ async def build_state(db: AsyncSession, sess: Session) -> dict:
         if sess.current_player_id
         else None
     )
+    current_group_primary_region_focus_plan = (
+        get_current_group_primary_region_focus_plan(sess, player_id=sess.current_player_id)
+        if sess.current_player_id
+        else None
+    )
+    current_group_region_target_options = (
+        get_current_group_region_target_options(sess, player_id=sess.current_player_id)
+        if sess.current_player_id
+        else None
+    )
 
     return {
         "type": "state",
@@ -770,6 +782,8 @@ async def build_state(db: AsyncSession, sess: Session) -> dict:
             "current_group_region_onboarding_states": current_group_region_onboarding_states,
             "current_group_region_world_overview": current_group_region_world_overview,
             "current_group_primary_region_focus": current_group_primary_region_focus,
+            "current_group_primary_region_focus_plan": current_group_primary_region_focus_plan,
+            "current_group_region_target_options": current_group_region_target_options,
             "current_group_last_region_transition_result": current_group_last_region_transition_result,
             "current_group_region_transition_state": current_group_region_transition_state,
             "current_group_navigation_options": current_group_navigation_options,
