@@ -330,9 +330,83 @@ STATIC_MAP_NODES: tuple[dict[str, Any], ...] = (
         "map_level": "region",
         "area_label": "Глубокие болота",
         "zone_band": "danger",
-        "short_description": "Болотная кромка переходит в более глухой и сырой участок, который уже считается отдельным рубежом.",
-        "inspect_summary": "Здесь старые ориентиры быстро редеют, и остаётся только узкая тропа по кочкам.",
-        "travel_note": "Первый якорь за знакомой болотной кромкой.",
+        "short_description": "За болотной кромкой земля почти сразу делается мягче, тише и менее честной: вода блестит под травой, а тропа живёт только пока её помнят.",
+        "inspect_summary": "На пороге глубоких болот ещё держатся несколько сухих кочек и следы старых меток, но дальше путь уже ведёт по сырому наитию, а не по уверенной дороге.",
+        "travel_note": "Первый якорь за знакомой болотной кромкой, где можно решить, идти ли к приюту, к старому камню или глубже в чёрную воду.",
+        "danger_note": "Туман и стоячая вода быстро стирают направление, если задержаться без опорной метки.",
+        "aliases": (
+            "глубокие болота",
+            "болотный порог",
+            "порог болот",
+        ),
+    },
+    {
+        "node_id": "reed_shelter",
+        "label": "Тростниковый приют",
+        "node_type": "zone",
+        "map_level": "region",
+        "area_label": "Тростниковый приют",
+        "zone_band": "border",
+        "short_description": "Низкий настил под тростниковым навесом даёт редкую сухую передышку тем, кто умеет вернуться к нему до полного тумана.",
+        "inspect_summary": "Приют держится на корзинах, кольях и старом болотном опыте: здесь не снабжают, а спасают от лишней сырости и дают короткий местный совет.",
+        "travel_note": "Самая тихая точка deep_marsh, где можно перевести дух и получить осторожную болотную помощь.",
+        "service_hints": ["сухой настил", "тихий кров", "болотные приметы"],
+        "services": ["safe_rest", "shrine_aid", "local_guidance"],
+        "aliases": (
+            "тростниковый приют",
+            "болотный приют",
+            "навес в тростнике",
+        ),
+    },
+    {
+        "node_id": "drowned_waystone",
+        "label": "Утопленный путевой камень",
+        "node_type": "landmark",
+        "map_level": "landmark",
+        "area_label": "Глубокие болота",
+        "zone_band": "border",
+        "short_description": "Старый камень почти ушёл в мох и воду, но на его боку ещё держатся отметки, по которым в болоте различают живую тропу и пустой круг.",
+        "inspect_summary": "У камня читаются старые болотные насечки и направление к более тёмной воде, где когда-то держали переправу.",
+        "travel_note": "Главный landmark deep_marsh, который помогает не потерять смысл направления.",
+        "aliases": (
+            "утопленный путевой камень",
+            "путевой камень",
+            "болотный камень",
+        ),
+    },
+    {
+        "node_id": "blackwater_run",
+        "label": "Чёрная протока",
+        "node_type": "zone",
+        "map_level": "region",
+        "area_label": "Чёрная протока",
+        "zone_band": "danger",
+        "short_description": "Тёмная протока режет болото узким чёрным ходом, где каждый шаг зависит от зыбкой кромки и чужих старых вешек.",
+        "inspect_summary": "Здесь болото уже не шепчет, а тянет вниз: вода закрывает берега, а дальше из тумана проступает только что-то вроде старой переправы.",
+        "travel_note": "Рискованный wetland-ход deep_marsh, куда лучше идти с понятной приметой и без долгой остановки.",
+        "danger_note": "Кочки подмыты, обзор короткий, а ошибочный шаг быстро превращает отход в борьбу с грязью.",
+        "aliases": (
+            "чёрная протока",
+            "тёмная протока",
+            "протока",
+        ),
+    },
+    {
+        "node_id": "sunken_ferry",
+        "label": "Затонувшая переправа",
+        "node_type": "landmark",
+        "map_level": "landmark",
+        "area_label": "Чёрная протока",
+        "zone_band": "danger",
+        "short_description": "Остатки старой болотной переправы торчат из чёрной воды как напоминание, что когда-то здесь ходили увереннее, чем теперь.",
+        "inspect_summary": "У сломанного настила заметны застрявшие верёвки, обломки лодочного борта и следы недавней поспешной остановки.",
+        "travel_note": "Опасная scout-ветка deep_marsh за пределом уверенного starter slice.",
+        "danger_note": "У переправы легко застрять между водой и скользкими сваями, если идти сюда без короткой цели.",
+        "aliases": (
+            "затонувшая переправа",
+            "старая переправа",
+            "переправа",
+        ),
     },
 )
 
@@ -632,6 +706,76 @@ STATIC_MAP_LINKS: tuple[dict[str, str], ...] = (
         "route_kind": "zone_move",
         "link_kind": "return",
     },
+    {
+        "from_node_id": "deep_marsh_threshold",
+        "to_node_id": "reed_shelter",
+        "action_kind": "move",
+        "route_kind": "zone_move",
+        "link_kind": "bog_track",
+    },
+    {
+        "from_node_id": "reed_shelter",
+        "to_node_id": "deep_marsh_threshold",
+        "action_kind": "move",
+        "route_kind": "zone_move",
+        "link_kind": "bog_track",
+    },
+    {
+        "from_node_id": "deep_marsh_threshold",
+        "to_node_id": "drowned_waystone",
+        "action_kind": "move",
+        "route_kind": "landmark_move",
+        "link_kind": "bog_track",
+    },
+    {
+        "from_node_id": "drowned_waystone",
+        "to_node_id": "deep_marsh_threshold",
+        "action_kind": "move",
+        "route_kind": "zone_move",
+        "link_kind": "return",
+    },
+    {
+        "from_node_id": "deep_marsh_threshold",
+        "to_node_id": "blackwater_run",
+        "action_kind": "move",
+        "route_kind": "zone_move",
+        "link_kind": "bog_track",
+    },
+    {
+        "from_node_id": "blackwater_run",
+        "to_node_id": "deep_marsh_threshold",
+        "action_kind": "move",
+        "route_kind": "zone_move",
+        "link_kind": "return",
+    },
+    {
+        "from_node_id": "drowned_waystone",
+        "to_node_id": "blackwater_run",
+        "action_kind": "move",
+        "route_kind": "zone_move",
+        "link_kind": "bog_track",
+    },
+    {
+        "from_node_id": "blackwater_run",
+        "to_node_id": "drowned_waystone",
+        "action_kind": "move",
+        "route_kind": "landmark_move",
+        "link_kind": "bog_track",
+    },
+    {
+        "from_node_id": "blackwater_run",
+        "to_node_id": "sunken_ferry",
+        "action_kind": "move",
+        "route_kind": "landmark_move",
+        "link_kind": "approach",
+    },
+    {
+        "from_node_id": "sunken_ferry",
+        "to_node_id": "blackwater_run",
+        "action_kind": "move",
+        "route_kind": "zone_move",
+        "link_kind": "return",
+    },
 )
 
 
@@ -674,6 +818,16 @@ STATIC_MAP_SCOUT_DISCOVERIES: tuple[dict[str, Any], ...] = (
         "discovered_route_ids": ["ash_pass->broken_redoubt:move"],
         "discovered_notes": [
             "С палисады становится понятнее, где среди серых откосов стоит разбитый редут и как к нему держать короткий опасный ход."
+        ],
+    },
+    {
+        "node_id": "drowned_waystone",
+        "result_type": "landmark_revealed",
+        "discovery_scope": "marsh_waymark",
+        "discovered_node_ids": ["sunken_ferry"],
+        "discovered_route_ids": ["blackwater_run->sunken_ferry:move"],
+        "discovered_notes": [
+            "По болотным зарубкам у камня становится понятнее, где за чёрной протокой проступает затонувшая переправа и как к ней держать короткий рискованный ход."
         ],
     },
 )
@@ -760,6 +914,23 @@ STATIC_MAP_CONTEXT_ACTION_EFFECTS: tuple[dict[str, Any], ...] = (
         "applied_effects": ["local_clue:northwatch_signals"],
         "node_state_flags": ["northwatch_signal_report_taken"],
         "node_state_summary": "На палисаде уже сверяли сигнальные метки и отмечали, откуда на рубеже чаще всего приходит тревога.",
+    },
+    {
+        "node_id": "drowned_waystone",
+        "action_id": "read_moss_waymarks",
+        "label": "Считать мшистые метки",
+        "action_kind": "clue",
+        "effect_type": "clue",
+        "one_shot": True,
+        "result_type": "local_clue_found",
+        "summary": "Разобрать старые болотные зарубки и мшистые насечки на путевом камне.",
+        "result_summary": "Группа сверяет болотные насечки на камне и понимает, что надёжный ход идёт не вдоль открытой воды, а в сторону старой затонувшей переправы.",
+        "discovered_notes": [
+            "Сырые зарубки на камне подсказывают: в глубоком болоте нужно держаться не широкого зеркала воды, а линии старой переправы за чёрной протокой."
+        ],
+        "applied_effects": ["local_clue:deep_marsh_waymarks"],
+        "node_state_flags": ["deep_marsh_waymarks_read"],
+        "node_state_summary": "Утопленный путевой камень уже читали как рабочую болотную метку, а не как пустую развалину.",
     },
 )
 
@@ -855,6 +1026,31 @@ STATIC_MAP_NODE_STATE_OVERLAYS: tuple[dict[str, Any], ...] = (
         "detail_note": "На столе при складе лежит свежая пометка о возвращении группы с редута, и разговор во дворе идёт уже не о догадках, а о подтверждённой тревоге.",
         "service_note": "После обратного доклада склад уже реагирует на группу как на проверенный патрульный состав, а не как на случайных путников.",
     },
+    {
+        "node_id": "deep_marsh_threshold",
+        "state_flag": "deep_marsh_mist_notice_taken",
+        "context_note": "На пороге глубоких болот уже отмечено предупреждение о тумане, чёрной воде и коротком безопасном ходе.",
+        "detail_note": "У первых кочек уже помнят, что для этой группы туман не был пустой декорацией, а стал рабочим предупреждением о глубоком болоте.",
+    },
+    {
+        "node_id": "drowned_waystone",
+        "state_flag": "deep_marsh_waymarks_read",
+        "context_note": "Утопленный камень уже читали как рабочую болотную метку, и направление к старой переправе стало понятнее.",
+        "detail_note": "Мох, зарубки и срезы на камне уже разбирали не наугад, а как настоящую болотную наводку к более тёмной воде.",
+    },
+    {
+        "node_id": "sunken_ferry",
+        "state_flag": "deep_marsh_ferry_trace_found",
+        "context_note": "У затонувшей переправы уже замечали свежие следы недавней остановки и брошенный болотный шнур.",
+        "detail_note": "На сваях у переправы уже отмечали не только старую труху, но и свежий след недавнего болотного хода.",
+    },
+    {
+        "node_id": "reed_shelter",
+        "state_flag": "deep_marsh_shelter_aid_received",
+        "context_note": "В тростниковом приюте уже дали группе сухой кров и короткую болотную поддержку после возвращения из сырого хода.",
+        "detail_note": "Под навесом ещё видны следы недавно выданного сухого места и короткой помощи именно для этой группы.",
+        "service_note": "Приют уже однажды дал этой группе тихий кров после болотного выхода и теперь скорее подтверждает знакомую помощь, чем впервые открывается.",
+    },
 )
 
 
@@ -917,6 +1113,24 @@ STATIC_MAP_NODE_ENTRY_OVERLAYS: tuple[dict[str, Any], ...] = (
         "return_entry_type": "return_entry",
         "return_entry_title": "Возвращение в зольный проход",
         "return_entry_note": "Проход узнаётся по гаревому ветру и ощущению, что запас безопасного хода снова короткий.",
+    },
+    {
+        "node_id": "deep_marsh_threshold",
+        "first_entry_type": "quiet_entry",
+        "first_entry_title": "Глубокие болота принимают неохотно",
+        "first_entry_note": "Порог глубоких болот встречает группу туманом, влажной тишиной и чувством, что дальше дорога держится только на старых метках.",
+        "return_entry_type": "return_entry",
+        "return_entry_title": "Снова на пороге глубоких болот",
+        "return_entry_note": "Первые сухие кочки узнаются сразу, но дальше болото снова требует коротких и точных решений.",
+    },
+    {
+        "node_id": "blackwater_run",
+        "first_entry_type": "quiet_entry",
+        "first_entry_title": "Чёрная протока выходит из тумана",
+        "first_entry_note": "У протоки болото перестаёт быть только сырым фоном и превращается в узкий, вязкий рискованный ход.",
+        "return_entry_type": "return_entry",
+        "return_entry_title": "Возвращение к чёрной протоке",
+        "return_entry_note": "У чёрной воды снова мало места для ошибки, и даже знакомый путь не кажется спокойным.",
     },
 )
 
@@ -1052,6 +1266,59 @@ STATIC_MAP_DESTINATION_EVENTS: tuple[dict[str, Any], ...] = (
         "tags": ["warning", "frontier", "ash_pass"],
     },
     {
+        "node_id": "deep_marsh_threshold",
+        "event_id": "deep_marsh_mist_notice",
+        "first_visit_only": True,
+        "one_shot": True,
+        "result_type": "local_warning",
+        "title": "Туман на пороге болот быстро съедает уверенность",
+        "summary": "При первом входе в deep_marsh становится ясно, что здесь держатся не за широкую дорогу, а за редкие сухие метки и короткие решения.",
+        "result_summary": "Глубокие болота встречают группу мокрым предупреждением: безопасный ход здесь короткий, а лишний круг по туману быстро делает местность чужой.",
+        "discovered_notes": [
+            "На болотном пороге лучше сначала держаться приюта и путевого камня, а в чёрную воду уходить только с понятной приметой."
+        ],
+        "intel_entry_type": "warning",
+        "intel_title": "Предупреждение у порога глубоких болот",
+        "node_state_flags": ["deep_marsh_mist_notice_taken"],
+        "node_state_summary": "На пороге глубоких болот уже отмечено первое честное предупреждение о местном тумане и коротком безопасном ходе.",
+        "applied_effects": ["destination_warning:deep_marsh_threshold", "intel:warning"],
+        "tags": ["warning", "marsh", "deep_marsh"],
+    },
+    {
+        "node_id": "blackwater_run",
+        "event_id": "blackwater_run_warning",
+        "result_type": "local_warning",
+        "title": "Чёрная вода не даёт долгой остановки",
+        "summary": "У чёрной протоки болото напоминает, что любой ход здесь должен быть коротким и собранным.",
+        "result_summary": "На чёрной протоке вода подбирается к кочкам, туман съедает край берега, и место честно предупреждает: задержка здесь опаснее, чем в обычной сырости.",
+        "discovered_notes": [
+            "Если держать путь дальше протоки, лучше цепляться не за открытую воду, а за след старой переправы."
+        ],
+        "intel_entry_type": "warning",
+        "intel_title": "Предупреждение чёрной протоки",
+        "applied_effects": ["destination_warning:blackwater_run", "intel:warning"],
+        "tags": ["warning", "marsh", "blackwater"],
+    },
+    {
+        "node_id": "sunken_ferry",
+        "event_id": "sunken_ferry_trace",
+        "first_visit_only": True,
+        "one_shot": True,
+        "result_type": "first_discovery",
+        "title": "У переправы виден свежий болотный след",
+        "summary": "Затонувшая переправа оказывается не просто старым обломком: у сваи заметны свежие верёвки, срез тростника и след недавней короткой остановки.",
+        "result_summary": "У затонувшей переправы группа находит свежий болотный след. Теперь deep_marsh читается не как пустая сырость, а как место, где по-прежнему ходят короткими тайными маршрутами.",
+        "discovered_notes": [
+            "У сломанной переправы ещё держится свежий болотный шнур и срезанный тростник: кто-то прошёл здесь совсем недавно и не задерживался надолго."
+        ],
+        "intel_entry_type": "clue",
+        "intel_title": "След у затонувшей переправы",
+        "node_state_flags": ["deep_marsh_ferry_trace_found"],
+        "node_state_summary": "У затонувшей переправы уже найден свежий след недавнего болотного хода.",
+        "applied_effects": ["destination_notice:sunken_ferry", "intel:clue"],
+        "tags": ["clue", "marsh", "ferry"],
+    },
+    {
         "node_id": "broken_redoubt",
         "event_id": "broken_redoubt_supply_trace",
         "first_visit_only": True,
@@ -1154,6 +1421,22 @@ STATIC_MAP_SERVICE_EFFECTS: tuple[dict[str, Any], ...] = (
         "node_state_flags": ["northwatch_quartermaster_supplies", "northwatch_redoubt_return_logged"],
         "node_state_summary": "На интендантском дворе уже приняли обратный доклад с редута и выдали группе рубежный набор.",
     },
+    {
+        "node_id": "reed_shelter",
+        "service_key": "shrine_aid",
+        "service_id": "reed_shelter_shrine_aid",
+        "service_kind": "shrine",
+        "one_shot": True,
+        "result_type": "lodging_received",
+        "summary": "Попросить тихий сухой кров и болотную помощь под тростниковым навесом.",
+        "result_summary": "Тростниковый приют даёт группе сухой настил, тёплую горечь от болотных трав и короткую подсказку, как не потерять обратный ход в тумане.",
+        "discovered_notes": [
+            "Хозяйка приюта советует возвращаться по собственным меткам, а не доверять открытому зеркалу воды после заката."
+        ],
+        "applied_effects": ["lodging_received", "marsh_refuge_recorded"],
+        "node_state_flags": ["deep_marsh_shelter_aid_received"],
+        "node_state_summary": "В тростниковом приюте уже дали группе тихий болотный кров после возвращения из сырого хода.",
+    },
 )
 
 
@@ -1183,6 +1466,13 @@ STATIC_MAP_SERVICE_REQUIREMENTS: tuple[dict[str, Any], ...] = (
         "return_visit_only": True,
         "min_visit_count": 2,
         "unlock_hint": "Интендант открывает рубежный склад только тем, кто уже сходил на короткую вылазку по рубежу и вернулся с первой сводкой.",
+    },
+    {
+        "node_id": "reed_shelter",
+        "service_id": "reed_shelter_shrine_aid",
+        "return_visit_only": True,
+        "min_visit_count": 2,
+        "unlock_hint": "Тростниковый приют открывает сухой настил только тем, кто уже сходил в сырой ход и вернулся до полной темноты.",
     },
 )
 
@@ -1230,6 +1520,16 @@ STATIC_MAP_REGION_GATEWAYS: tuple[dict[str, Any], ...] = (
         "label": "Тропа в глубокие болота",
         "requires_min_visit_count": 2,
         "unlock_hint": "К болотной кромке нужно вернуться хотя бы ещё раз, чтобы закрепить дальний выход.",
+    },
+    {
+        "gateway_id": "deep_marsh_threshold_starter_frontier",
+        "source_node_id": "deep_marsh_threshold",
+        "route_id": "deep_marsh_threshold->reed_shelter:move",
+        "target_region_id": "starter_frontier",
+        "target_region_label": "Стартовое пограничье",
+        "target_anchor_node_id": "marsh_edge",
+        "label": "Обратный ход к болотной кромке",
+        "unlock_hint": "Пока держатся первые сухие кочки, обратный ход к кромке болот остаётся различимым.",
     },
     {
         "gateway_id": "forgotten_shrine_sunken_reaches",
@@ -1282,7 +1582,13 @@ STATIC_MAP_REGION_IDENTITIES: tuple[dict[str, Any], ...] = (
     {
         "region_id": "deep_marsh",
         "region_label": "Глубокие болота",
-        "node_ids": ("deep_marsh_threshold",),
+        "node_ids": (
+            "deep_marsh_threshold",
+            "reed_shelter",
+            "drowned_waystone",
+            "blackwater_run",
+            "sunken_ferry",
+        ),
     },
 )
 
@@ -1321,11 +1627,18 @@ STATIC_MAP_REGION_ONBOARDING: tuple[dict[str, Any], ...] = (
         "region_id": "deep_marsh",
         "region_label": "Глубокие болота",
         "anchor_node_id": "deep_marsh_threshold",
-        "starter_reveal_node_ids": (),
-        "starter_reveal_route_ids": ("marsh_edge->forgotten_shrine:move",),
-        "intel_title": "Порог глубоких болот",
-        "intel_summary": "Вход в глубокие болота помечает первый надёжный ориентир перед дальнейшим болотным продвижением.",
-        "onboarding_note": "Глубокие болота пока раскрываются только как узкий опасный порог с одним заметным ходом.",
+        "starter_reveal_node_ids": ("reed_shelter", "drowned_waystone", "blackwater_run"),
+        "starter_reveal_route_ids": (
+            "deep_marsh_threshold->reed_shelter:move",
+            "reed_shelter->deep_marsh_threshold:move",
+            "deep_marsh_threshold->drowned_waystone:move",
+            "drowned_waystone->deep_marsh_threshold:move",
+            "deep_marsh_threshold->blackwater_run:move",
+            "blackwater_run->deep_marsh_threshold:move",
+        ),
+        "intel_title": "Первые ориентиры глубоких болот",
+        "intel_summary": "При входе в deep_marsh группа сразу закрепляет тростниковый приют, утопленный путевой камень и рискованный ход к чёрной протоке.",
+        "onboarding_note": "Глубокие болота больше не anchor-only порог: регион сразу раскрывает refuge, waymark-landmark и тёмный болотный ход.",
     },
 )
 
@@ -1358,16 +1671,16 @@ def get_static_node_metadata(node: dict[str, Any] | None) -> dict[str, Any]:
             metadata["environment_hint"] = "lakeshore" if node_id in {"eastern_bank", "craft_town"} else "roadland"
             metadata["safe_rest_hint"] = True
         elif zone_band == "border":
-            metadata["settlement_kind"] = "village" if node_id in {"chapel_village", "forest_settlement", "northwatch_outpost", "northwatch_quartermaster"} else "hamlet"
-            metadata["environment_hint"] = "wooded" if node_id in {"forest_road", "forest_settlement"} else "frontier"
-            metadata["safe_rest_hint"] = node_id in {"road_hamlet", "chapel_village", "forest_settlement", "northwatch_outpost", "northwatch_quartermaster"}
+            metadata["settlement_kind"] = "village" if node_id in {"chapel_village", "forest_settlement", "northwatch_outpost", "northwatch_quartermaster", "reed_shelter"} else "hamlet"
+            metadata["environment_hint"] = "marsh" if node_id == "reed_shelter" else ("wooded" if node_id in {"forest_road", "forest_settlement"} else "frontier")
+            metadata["safe_rest_hint"] = node_id in {"road_hamlet", "chapel_village", "forest_settlement", "northwatch_outpost", "northwatch_quartermaster", "reed_shelter"}
         elif zone_band == "danger":
             metadata["settlement_kind"] = "ruins" if node_id == "ruined_settlement" else "wilds"
-            metadata["environment_hint"] = "marsh" if node_id == "marsh_edge" else "ruined_frontier"
+            metadata["environment_hint"] = "marsh" if node_id in {"marsh_edge", "deep_marsh_threshold", "blackwater_run"} else "ruined_frontier"
             metadata["safe_rest_hint"] = False
     elif node_type == "landmark":
         metadata["poi_kind"] = "fortified" if node_id in {"fortress_gate", "old_fortress_edge", "watchtower", "northwatch_palisade", "broken_redoubt"} else "shrine"
-        metadata["environment_hint"] = "fortified" if node_id == "fortress_gate" else ("marsh" if node_id == "forgotten_shrine" else "frontier")
+        metadata["environment_hint"] = "fortified" if node_id == "fortress_gate" else ("marsh" if node_id in {"forgotten_shrine", "drowned_waystone", "sunken_ferry"} else "frontier")
         metadata["safe_rest_hint"] = node_id == "watchtower"
     elif node_type == "interior_entry":
         metadata["poi_kind"] = "mine"

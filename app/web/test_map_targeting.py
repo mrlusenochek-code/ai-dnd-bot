@@ -8,6 +8,7 @@ from app.web.map_registry import (
     get_static_node_context,
     get_static_node_destination_events,
     get_static_node_context_action_requirements,
+    get_static_node_scout_discoveries,
     get_static_node_service_effects,
     get_static_node_service_requirements,
     get_static_node_inspect_result,
@@ -348,7 +349,7 @@ def test_get_static_node_destination_events_returns_authored_arrival_events() ->
 
 def test_get_static_region_gateways_returns_authored_frontier_exit_definitions() -> None:
     all_gateways = get_static_region_gateways(region_id="region")
-    assert len(all_gateways) == 5
+    assert len(all_gateways) == 6
     assert get_static_node_region_gateways(node_id="forest_settlement") == [
         {
             "gateway_id": "forest_settlement_northwatch",
@@ -374,6 +375,19 @@ def test_get_static_region_gateways_returns_authored_frontier_exit_definitions()
             "label": "Тропа обратно к лесному посёлку",
             "future_stub": False,
             "unlock_hint": "Дозор держит обратную тропу открытой, пока погода не ломает северный подход.",
+        }
+    ]
+    assert get_static_node_region_gateways(node_id="deep_marsh_threshold") == [
+        {
+            "gateway_id": "deep_marsh_threshold_starter_frontier",
+            "source_node_id": "deep_marsh_threshold",
+            "route_id": "deep_marsh_threshold->reed_shelter:move",
+            "target_region_id": "starter_frontier",
+            "target_region_label": "Стартовое пограничье",
+            "target_anchor_node_id": "marsh_edge",
+            "label": "Обратный ход к болотной кромке",
+            "future_stub": False,
+            "unlock_hint": "Пока держатся первые сухие кочки, обратный ход к кромке болот остаётся различимым.",
         }
     ]
     assert get_static_node_region_gateways(node_id="forgotten_shrine")[0]["future_stub"] is True
@@ -428,6 +442,66 @@ def test_northwatch_nodes_expose_services_actions_and_details() -> None:
     )
     assert redoubt_effect["node_state_flags"] == ["northwatch_quartermaster_supplies", "northwatch_redoubt_return_logged"]
     assert "обратный доклад" in redoubt_effect["result_summary"]
+
+
+def test_deep_marsh_registry_content_and_onboarding_are_real() -> None:
+    identity = get_static_region_identity(node_id="reed_shelter")
+    onboarding = get_static_region_onboarding("deep_marsh")
+
+    assert identity is not None
+    assert identity["region_id"] == "deep_marsh"
+    assert set(identity["node_ids"]) >= {
+        "deep_marsh_threshold",
+        "reed_shelter",
+        "drowned_waystone",
+        "blackwater_run",
+        "sunken_ferry",
+    }
+    assert onboarding is not None
+    assert onboarding["anchor_node_id"] == "deep_marsh_threshold"
+    assert onboarding["starter_reveal_node_ids"] == [
+        "reed_shelter",
+        "drowned_waystone",
+        "blackwater_run",
+    ]
+    assert "deep_marsh_threshold->blackwater_run:move" in onboarding["starter_reveal_route_ids"]
+
+
+def test_deep_marsh_nodes_expose_services_actions_events_and_scout_discovery() -> None:
+    shelter_services = get_static_node_services(node_id="reed_shelter")
+    waystone_actions = get_current_node_context_actions(node_id="drowned_waystone")
+    waystone_scout = get_static_node_scout_discoveries(node_id="drowned_waystone")
+
+    assert [item["service_id"] for item in shelter_services] == [
+        "reed_shelter:safe_rest",
+        "reed_shelter_shrine_aid",
+        "reed_shelter:local_guidance",
+    ]
+    assert get_static_node_service_requirements(node_id="reed_shelter") == [
+        {
+            "node_id": "reed_shelter",
+            "service_id": "reed_shelter_shrine_aid",
+            "service_key": "",
+            "min_visit_count": 2,
+            "return_visit_only": True,
+            "unlock_hint": "Тростниковый приют открывает сухой настил только тем, кто уже сходил в сырой ход и вернулся до полной темноты.",
+        }
+    ]
+    assert any(item["action_id"] == "read_moss_waymarks" for item in waystone_actions)
+    assert waystone_scout == [
+        {
+            "node_id": "drowned_waystone",
+            "result_type": "landmark_revealed",
+            "discovery_scope": "marsh_waymark",
+            "discovered_node_ids": ["sunken_ferry"],
+            "discovered_route_ids": ["blackwater_run->sunken_ferry:move"],
+            "discovered_notes": [
+                "По болотным зарубкам у камня становится понятнее, где за чёрной протокой проступает затонувшая переправа и как к ней держать короткий рискованный ход."
+            ],
+        }
+    ]
+    assert get_static_node_destination_events(node_id="deep_marsh_threshold", state_flags=[], visit_count=1)[0]["event_id"] == "deep_marsh_mist_notice"
+    assert get_static_node_destination_events(node_id="sunken_ferry", state_flags=[], visit_count=1)[0]["event_id"] == "sunken_ferry_trace"
 
 
 def test_static_node_detail_and_inspect_result_expose_handcrafted_content() -> None:

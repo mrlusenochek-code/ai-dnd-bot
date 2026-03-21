@@ -5080,6 +5080,229 @@ def test_northwatch_frontier_local_progression_arc_unlocks_return_payoff() -> No
     completed_resupply = next(item for item in changed_services if item["service_id"] == "northwatch_quartermaster_resupply")
     assert completed_resupply["availability_status"] == "completed"
 
+
+def test_deep_marsh_transition_exposes_playable_local_content_and_scout_heavy_loop() -> None:
+    player_id = uuid.uuid4()
+    sess = SimpleNamespace(settings={})
+    session_state._initialize_default_group(
+        sess,
+        [player_id],
+        {"map_level": "region", "node_type": "zone", "node_id": "marsh_edge", "label": "Край болот"},
+    )
+    session_state.get_current_group_current_region_state(sess, player_id=player_id)
+    session_state.record_group_node_visit(
+        sess,
+        "main",
+        "marsh_edge",
+        node_label="Край болот",
+        result_type="first_arrival",
+        summary="Первый выход к болотной кромке.",
+    )
+    session_state.record_group_node_visit(
+        sess,
+        "main",
+        "marsh_edge",
+        node_label="Край болот",
+        result_type="return_arrival",
+        summary="Повторный выход к болотной кромке.",
+    )
+
+    updated, error = session_state.resolve_group_region_transition(
+        sess,
+        "main",
+        "marsh_edge_deep_marsh",
+        player_id=player_id,
+        source="test",
+    )
+
+    assert error is None
+    assert updated is not None
+    assert updated["current_map_position"]["node_id"] == "deep_marsh_threshold"
+    assert updated["last_destination_event_result"]["event_id"] == "deep_marsh_mist_notice"
+    assert updated["current_region_state"]["region_id"] == "deep_marsh"
+    onboarding = session_state.get_current_group_last_region_onboarding_result(sess, player_id=player_id)
+    assert onboarding["region_id"] == "deep_marsh"
+    assert onboarding["anchor_node_id"] == "deep_marsh_threshold"
+    assert onboarding["revealed_node_ids"] == [
+        "reed_shelter",
+        "drowned_waystone",
+        "blackwater_run",
+    ]
+    assert onboarding["revealed_route_ids"] == [
+        "deep_marsh_threshold->reed_shelter:move",
+        "reed_shelter->deep_marsh_threshold:move",
+        "deep_marsh_threshold->drowned_waystone:move",
+        "drowned_waystone->deep_marsh_threshold:move",
+        "deep_marsh_threshold->blackwater_run:move",
+        "blackwater_run->deep_marsh_threshold:move",
+    ]
+    assert set(session_state.get_player_revealed_node_ids(sess, player_id)) >= {
+        "deep_marsh_threshold",
+        "reed_shelter",
+        "drowned_waystone",
+        "blackwater_run",
+    }
+
+    threshold_context = session_state.get_current_group_node_context(sess, player_id=player_id)
+    assert threshold_context is not None
+    assert threshold_context["node_summary"]["node_id"] == "deep_marsh_threshold"
+    assert threshold_context["current_destination_event_type"] == "local_warning"
+    assert "deep_marsh_mist_notice_taken" in threshold_context["node_state_flags"]
+
+    group_states = session_state._get_group_states(sess)
+    group = group_states["main"]
+    group["current_map_position"] = session_state._normalize_map_position(
+        {
+            "map_level": "landmark",
+            "node_type": "landmark",
+            "node_id": "drowned_waystone",
+            "label": "Утопленный путевой камень",
+        }
+    )
+    group["area_label"] = "Глубокие болота"
+    session_state._persist_group_states(sess, group_states)
+
+    waystone_actions = session_state.get_current_group_context_action_availability(sess, player_id=player_id)
+    waymark_action = next(item for item in waystone_actions if item["action_id"] == "read_moss_waymarks")
+    assert waymark_action["availability_status"] == "available"
+    resolved_action, error = session_state.resolve_group_context_action(
+        sess,
+        "main",
+        action_id="read_moss_waymarks",
+        player_id=player_id,
+        source="test",
+    )
+    assert error is None
+    assert resolved_action is not None
+    assert resolved_action["last_context_action_result"]["result_type"] == "local_clue_found"
+    waystone_context = session_state.get_current_group_node_context(sess, player_id=player_id)
+    assert "deep_marsh_waymarks_read" in waystone_context["node_state_flags"]
+    assert any("переправ" in note.lower() for note in waystone_context["state_notes"])
+
+    scout_result, error = session_state.resolve_group_scout(sess, "main", player_id=player_id, source="test")
+    assert error is None
+    assert scout_result is not None
+    assert scout_result["last_scout_result"]["result_type"] == "landmark_revealed"
+    assert "sunken_ferry" in session_state.get_player_revealed_node_ids(sess, player_id)
+
+    group_states = session_state._get_group_states(sess)
+    group = group_states["main"]
+    group["current_map_position"] = session_state._normalize_map_position(
+        {
+            "map_level": "region",
+            "node_type": "zone",
+            "node_id": "reed_shelter",
+            "label": "Тростниковый приют",
+        }
+    )
+    group["area_label"] = "Тростниковый приют"
+    session_state._persist_group_states(sess, group_states)
+    first_visit_services = session_state.get_current_group_service_availability(sess, player_id=player_id)
+    locked_aid = next(item for item in first_visit_services if item["service_id"] == "reed_shelter_shrine_aid")
+    assert locked_aid["availability_status"] == "locked"
+    assert locked_aid["unavailable_reason"] == "return_visit_only"
+
+    session_state.record_group_node_visit(
+        sess,
+        "main",
+        "reed_shelter",
+        node_label="Тростниковый приют",
+        result_type="first_arrival",
+        summary="Группа впервые находит сухой навес в глубоком болоте.",
+    )
+
+    group_states = session_state._get_group_states(sess)
+    group = group_states["main"]
+    group["current_map_position"] = session_state._normalize_map_position(
+        {
+            "map_level": "region",
+            "node_type": "zone",
+            "node_id": "blackwater_run",
+            "label": "Чёрная протока",
+        }
+    )
+    group["area_label"] = "Чёрная протока"
+    session_state._persist_group_states(sess, group_states)
+    blackwater_visit = session_state.record_group_node_visit(
+        sess,
+        "main",
+        "blackwater_run",
+        node_label="Чёрная протока",
+        result_type="danger_arrival",
+        summary="Группа выбирается к чёрной протоке.",
+    )
+    session_state.resolve_group_destination_event(sess, "main", source="test")
+    assert blackwater_visit is not None
+    assert session_state.get_current_group_last_destination_event_result(sess, player_id=player_id)["event_id"] == "blackwater_run_warning"
+
+    group_states = session_state._get_group_states(sess)
+    group = group_states["main"]
+    group["current_map_position"] = session_state._normalize_map_position(
+        {
+            "map_level": "landmark",
+            "node_type": "landmark",
+            "node_id": "sunken_ferry",
+            "label": "Затонувшая переправа",
+        }
+    )
+    group["area_label"] = "Чёрная протока"
+    session_state._persist_group_states(sess, group_states)
+    ferry_visit = session_state.record_group_node_visit(
+        sess,
+        "main",
+        "sunken_ferry",
+        node_label="Затонувшая переправа",
+        result_type="landmark_reached",
+        summary="Группа доходит до затонувшей переправы за чёрной протокой.",
+    )
+    assert ferry_visit is not None
+    session_state.resolve_group_destination_event(sess, "main", source="test")
+    assert session_state.get_current_group_last_destination_event_result(sess, player_id=player_id)["event_id"] == "sunken_ferry_trace"
+    assert "deep_marsh_ferry_trace_found" in session_state.get_group_node_state(sess, "main", "sunken_ferry")["state_flags"]
+
+    group_states = session_state._get_group_states(sess)
+    group = group_states["main"]
+    group["current_map_position"] = session_state._normalize_map_position(
+        {
+            "map_level": "region",
+            "node_type": "zone",
+            "node_id": "reed_shelter",
+            "label": "Тростниковый приют",
+        }
+    )
+    group["area_label"] = "Тростниковый приют"
+    session_state._persist_group_states(sess, group_states)
+    session_state.record_group_node_visit(
+        sess,
+        "main",
+        "reed_shelter",
+        node_label="Тростниковый приют",
+        result_type="return_entry",
+        summary="Группа возвращается в приют после сырого болотного хода.",
+    )
+
+    revisited_services = session_state.get_current_group_service_availability(sess, player_id=player_id)
+    available_aid = next(item for item in revisited_services if item["service_id"] == "reed_shelter_shrine_aid")
+    assert available_aid["availability_status"] == "available"
+    resolved_service, error = session_state.resolve_group_service(
+        sess,
+        "main",
+        service_id="reed_shelter_shrine_aid",
+        player_id=player_id,
+        source="test",
+    )
+    assert error is None
+    assert resolved_service is not None
+    assert resolved_service["last_service_result"]["result_type"] == "lodging_received"
+    assert resolved_service["last_service_result"]["service_id"] == "reed_shelter_shrine_aid"
+
+    shelter_context = session_state.get_current_group_node_context(sess, player_id=player_id)
+    assert "deep_marsh_shelter_aid_received" in shelter_context["node_state_flags"]
+    assert any("тихий кров" in note.lower() or "сухой" in note.lower() for note in shelter_context["state_notes"])
+    summaries = session_state.get_group_discovered_region_summaries(sess, "main")
+    assert {item["region_id"] for item in summaries} == {"deep_marsh", "starter_frontier"}
+    assert any(item["region_id"] == "deep_marsh" and item["current_region"] is True for item in summaries)
+
 def test_group_discovered_region_summaries_support_current_blocked_region() -> None:
     player_id = uuid.uuid4()
     sess = SimpleNamespace(settings={})
