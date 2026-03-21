@@ -140,6 +140,7 @@ def test_build_state_includes_legacy_and_structured_positions(monkeypatch) -> No
     monkeypatch.setattr(state_builder, "get_current_group_last_journey_result", lambda _sess, player_id=None: None)
     monkeypatch.setattr(state_builder, "get_current_group_region_pursuit", lambda _sess, player_id=None: None)
     monkeypatch.setattr(state_builder, "get_current_group_last_region_pursuit_result", lambda _sess, player_id=None: None)
+    monkeypatch.setattr(state_builder, "get_current_group_last_region_pursuit_step_result", lambda _sess, player_id=None: None)
     monkeypatch.setattr(state_builder, "get_current_group_exploration_leads", lambda _sess, player_id=None: [])
     monkeypatch.setattr(state_builder, "get_current_group_primary_exploration_lead", lambda _sess, player_id=None: None)
     monkeypatch.setattr(state_builder, "get_current_group_local_interaction_surface", lambda _sess, player_id=None: None)
@@ -248,6 +249,7 @@ def test_build_state_includes_legacy_and_structured_positions(monkeypatch) -> No
     assert payload["game"]["current_group_last_journey_result"] is None
     assert payload["game"]["current_group_active_region_pursuit"] is None
     assert payload["game"]["current_group_last_region_pursuit_result"] is None
+    assert payload["game"]["current_group_last_region_pursuit_step_result"] is None
     assert payload["game"]["current_group_route_planning"] == {"reachable_destinations": [], "route_frontiers": []}
     assert payload["game"]["current_group_reachable_destinations"] == []
     assert payload["game"]["current_group_route_frontiers"] == []
@@ -418,6 +420,7 @@ def test_build_state_exports_region_residency_payloads(monkeypatch) -> None:
     monkeypatch.setattr(state_builder, "get_current_group_last_journey_result", lambda _sess, player_id=None: None)
     monkeypatch.setattr(state_builder, "get_current_group_region_pursuit", lambda _sess, player_id=None: None)
     monkeypatch.setattr(state_builder, "get_current_group_last_region_pursuit_result", lambda _sess, player_id=None: None)
+    monkeypatch.setattr(state_builder, "get_current_group_last_region_pursuit_step_result", lambda _sess, player_id=None: None)
     monkeypatch.setattr(state_builder, "get_current_group_route_planning", lambda _sess, player_id=None: {"reachable_destinations": [], "route_frontiers": []})
     monkeypatch.setattr(state_builder, "get_current_group_exploration_leads", lambda _sess, player_id=None: [])
     monkeypatch.setattr(state_builder, "get_current_group_primary_exploration_lead", lambda _sess, player_id=None: None)
@@ -1355,6 +1358,26 @@ def test_build_state_exports_current_player_group_id(monkeypatch) -> None:
     )
     monkeypatch.setattr(
         state_builder,
+        "get_current_group_last_region_pursuit_step_result",
+        lambda _sess, player_id=None: {
+            "result_id": "region-pursuit-step-1",
+            "result_type": "region_pursuit_step_gateway_ready",
+            "summary": "Группа дошла до выхода Выход к северному рубежу и готова перейти в регион Северный рубеж.",
+            "result_summary": "Подход к gateway завершён. Следующий шаг: group exit forest_settlement_northwatch",
+            "target_region_id": "northwatch_frontier",
+            "target_region_label": "Северный рубеж",
+            "pursuit_id": "pursuit-1",
+            "pursuit_status": "gateway_ready",
+            "step_kind": "journey_leg",
+            "linked_journey_id": "journey-1",
+            "gateway_id": "forest_settlement_northwatch",
+            "gateway_label": "Выход к северному рубежу",
+            "source": "region_pursuit_step",
+            "resolved_at": "2026-03-14T00:03:20+00:00",
+        },
+    )
+    monkeypatch.setattr(
+        state_builder,
         "get_current_group_exploration_leads",
         lambda _sess, player_id=None: [
             {
@@ -2283,6 +2306,22 @@ def test_build_state_exports_current_player_group_id(monkeypatch) -> None:
         "linked_journey_id": "journey-1",
         "source": "region_pursuit",
         "resolved_at": "2026-03-14T00:03:10+00:00",
+    }
+    assert payload["game"]["current_group_last_region_pursuit_step_result"] == {
+        "result_id": "region-pursuit-step-1",
+        "result_type": "region_pursuit_step_gateway_ready",
+        "summary": "Группа дошла до выхода Выход к северному рубежу и готова перейти в регион Северный рубеж.",
+        "result_summary": "Подход к gateway завершён. Следующий шаг: group exit forest_settlement_northwatch",
+        "target_region_id": "northwatch_frontier",
+        "target_region_label": "Северный рубеж",
+        "pursuit_id": "pursuit-1",
+        "pursuit_status": "gateway_ready",
+        "step_kind": "journey_leg",
+        "linked_journey_id": "journey-1",
+        "gateway_id": "forest_settlement_northwatch",
+        "gateway_label": "Выход к северному рубежу",
+        "source": "region_pursuit_step",
+        "resolved_at": "2026-03-14T00:03:20+00:00",
     }
     assert payload["game"]["current_group_route_planning"] == {
         "reachable_destinations": [

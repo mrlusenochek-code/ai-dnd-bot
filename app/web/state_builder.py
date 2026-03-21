@@ -98,6 +98,7 @@ from app.web.session_state import (
     get_current_group_route_planning,
     get_current_group_region_pursuit,
     get_current_group_last_region_pursuit_result,
+    get_current_group_last_region_pursuit_step_result,
     get_current_group_exploration_leads,
     get_current_group_primary_exploration_lead,
     get_current_group_local_interaction_surface,
@@ -607,6 +608,11 @@ async def build_state(db: AsyncSession, sess: Session) -> dict:
         if sess.current_player_id
         else None
     )
+    current_group_last_region_pursuit_step_result = (
+        get_current_group_last_region_pursuit_step_result(sess, player_id=sess.current_player_id)
+        if sess.current_player_id
+        else None
+    )
     current_group_route_planning = (
         get_current_group_route_planning(sess, player_id=sess.current_player_id)
         if sess.current_player_id
@@ -777,6 +783,7 @@ async def build_state(db: AsyncSession, sess: Session) -> dict:
             "current_group_last_journey_result": current_group_last_journey_result,
             "current_group_active_region_pursuit": current_group_active_region_pursuit,
             "current_group_last_region_pursuit_result": current_group_last_region_pursuit_result,
+            "current_group_last_region_pursuit_step_result": current_group_last_region_pursuit_step_result,
             "current_group_route_planning": current_group_route_planning,
             "current_group_reachable_destinations": list(current_group_route_planning.get("reachable_destinations") or []),
             "current_group_route_frontiers": list(current_group_route_planning.get("route_frontiers") or []),

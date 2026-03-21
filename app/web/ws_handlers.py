@@ -79,6 +79,7 @@ from app.web.session_state import (
     get_current_group_last_journey_result,
     get_current_group_region_pursuit,
     get_current_group_last_region_pursuit_result,
+    get_current_group_last_region_pursuit_step_result,
     get_current_group_route_planning,
     get_group_route_plan_to_node,
     get_current_group_exploration_leads,
@@ -104,6 +105,7 @@ from app.web.session_state import (
     get_current_group_region_transition_state,
     set_group_region_pursuit,
     clear_group_region_pursuit,
+    advance_group_region_pursuit,
     resolve_group_region_transition,
     set_group_journey_target,
     advance_group_journey,
@@ -1812,6 +1814,12 @@ def _parse_group_command(cmdline: str) -> tuple[str | None, dict[str, Any]]:
     if lowered in {"group region-pursuit", "group_region_pursuit"}:
         return "group_region_pursuit_status", {}
 
+    if lowered in {"group region-step", "group_region_step"}:
+        return "group_region_pursuit_step_status", {}
+
+    if lowered in {"group continue-region", "group_continue_region"}:
+        return "group_region_pursuit_advance", {}
+
     if lowered in {"group arrival-region", "group_arrival_region", "group region-entry", "group_region_entry"}:
         return "group_region_onboarding", {}
 
@@ -1976,6 +1984,8 @@ def _handle_group_action_request(
         "group_region_pursuit_set",
         "group_region_pursuit_clear",
         "group_region_pursuit_status",
+        "group_region_pursuit_advance",
+        "group_region_pursuit_step_status",
         "group_region_onboarding",
         "group_region_transition",
         "group_region_transition_status",
@@ -2372,6 +2382,48 @@ def _handle_group_action_request(
             f"{str((result or {}).get('target_region_label') or 'регион')} "
             f"({str((result or {}).get('result_type') or 'unknown')})."
         )
+
+    if action == "group_region_pursuit_advance":
+        if not actor_group_key:
+            return True, "Группа игрока не найдена.", None
+        updated, error = advance_group_region_pursuit(
+            sess,
+            actor_group_key,
+            player_id=actor_player_id,
+            source=source,
+        )
+        result = (updated or {}).get("last_region_pursuit_step_result") or get_current_group_last_region_pursuit_step_result(
+            sess,
+            player_id=actor_player_id,
+            group_id=actor_group_key,
+        ) or {}
+        if error and not result:
+            return True, error, None
+        return True, error, str(result.get("result_summary") or error or f"Region pursuit группы {actor_group_key} продвинут на один шаг.")
+
+    if action == "group_region_pursuit_step_status":
+        if not actor_group_key:
+            return True, "Группа игрока не найдена.", None
+        step_result = get_current_group_last_region_pursuit_step_result(
+            sess,
+            player_id=actor_player_id,
+            group_id=actor_group_key,
+        )
+        pursuit = get_current_group_region_pursuit(
+            sess,
+            player_id=actor_player_id,
+            group_id=actor_group_key,
+        )
+        if step_result:
+            return True, None, str(step_result.get("result_summary") or step_result.get("summary") or "Последний region pursuit step сохранён.")
+        if pursuit:
+            return True, None, (
+                f"Region pursuit группы {actor_group_key}: "
+                f"{str(pursuit.get('target_region_label') or 'регион')} "
+                f"({str(pursuit.get('pursuit_status') or 'unknown')}). "
+                f"Следующий шаг: {str(pursuit.get('suggested_next_command') or 'нет')}."
+            )
+        return True, None, f"У группы {actor_group_key} пока нет region pursuit step результата."
 
     if action == "group_region_onboarding":
         if not actor_group_key:

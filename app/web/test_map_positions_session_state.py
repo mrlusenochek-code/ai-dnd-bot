@@ -5422,6 +5422,197 @@ def test_group_region_pursuit_supports_ready_blocked_locked_future_and_unavailab
     assert session_state.get_current_group_last_region_pursuit_result(unavailable_sess, player_id=player_id)["result_type"] == "region_pursuit_unavailable"
 
 
+def test_advance_group_region_pursuit_advances_one_journey_leg_and_marks_gateway_ready() -> None:
+    player_id = uuid.uuid4()
+    sess = SimpleNamespace(settings={})
+    session_state._initialize_default_group(
+        sess,
+        [player_id],
+        {
+            "map_level": "region",
+            "node_type": "zone",
+            "node_id": "forest_road",
+            "label": "Лесная дорога",
+        },
+    )
+    session_state.get_current_group_current_region_state(sess, player_id=player_id)
+    session_state.reveal_player_map_node(sess, player_id, "forest_settlement", source="test")
+    session_state.add_group_node_state_flag(
+        sess,
+        "main",
+        "forest_settlement",
+        state_flag="forest_supplies_secured",
+        summary="Лесной набор уже готов.",
+        source="test",
+    )
+    session_state.set_group_region_pursuit(
+        sess,
+        "main",
+        "northwatch_frontier",
+        player_id=player_id,
+        source="test",
+    )
+
+    updated, error = session_state.advance_group_region_pursuit(
+        sess,
+        "main",
+        player_id=player_id,
+        source="test",
+    )
+
+    assert error is None
+    assert updated is not None
+    pursuit = session_state.get_current_group_region_pursuit(sess, player_id=player_id)
+    journey = session_state.get_current_group_journey_state(sess, player_id=player_id)
+    step_result = session_state.get_current_group_last_region_pursuit_step_result(sess, player_id=player_id)
+    journey_result = session_state.get_current_group_last_journey_result(sess, player_id=player_id)
+    assert pursuit is not None
+    assert pursuit["pursuit_status"] == "gateway_ready"
+    assert journey is not None
+    assert journey["journey_status"] == "arrived"
+    assert journey_result is not None
+    assert journey_result["result_type"] == "journey_arrived"
+    assert step_result is not None
+    assert step_result["result_type"] == "region_pursuit_step_gateway_ready"
+    assert step_result["step_kind"] == "journey_leg"
+    assert step_result["linked_journey_id"] == journey["journey_id"]
+
+
+def test_advance_group_region_pursuit_executes_gateway_cross_and_clears_pursuit_on_success() -> None:
+    player_id = uuid.uuid4()
+    sess = SimpleNamespace(settings={})
+    session_state._initialize_default_group(
+        sess,
+        [player_id],
+        {
+            "map_level": "region",
+            "node_type": "zone",
+            "node_id": "forest_settlement",
+            "label": "Лесной посёлок",
+        },
+    )
+    session_state.get_current_group_current_region_state(sess, player_id=player_id)
+    session_state.add_group_node_state_flag(
+        sess,
+        "main",
+        "forest_settlement",
+        state_flag="forest_supplies_secured",
+        summary="Лесной набор уже готов.",
+        source="test",
+    )
+    session_state.set_group_region_pursuit(
+        sess,
+        "main",
+        "northwatch_frontier",
+        player_id=player_id,
+        source="test",
+    )
+
+    updated, error = session_state.advance_group_region_pursuit(
+        sess,
+        "main",
+        player_id=player_id,
+        source="test",
+    )
+
+    assert error is None
+    assert updated is not None
+    assert session_state.get_current_group_region_pursuit(sess, player_id=player_id) is None
+    current_region = session_state.get_current_group_current_region_state(sess, player_id=player_id)
+    transition_result = session_state.get_current_group_last_region_transition_result(sess, player_id=player_id)
+    pursuit_result = session_state.get_current_group_last_region_pursuit_result(sess, player_id=player_id)
+    step_result = session_state.get_current_group_last_region_pursuit_step_result(sess, player_id=player_id)
+    assert current_region is not None
+    assert current_region["region_id"] == "northwatch_frontier"
+    assert transition_result is not None
+    assert transition_result["result_type"] == "region_transition_completed"
+    assert pursuit_result is not None
+    assert pursuit_result["result_type"] == "region_pursuit_gateway_ready"
+    assert step_result is not None
+    assert step_result["result_type"] == "region_pursuit_step_transitioned"
+    assert step_result["step_kind"] == "gateway_cross"
+
+
+def test_advance_group_region_pursuit_returns_honest_no_step_results_for_blocked_and_missing_pursuit() -> None:
+    player_id = uuid.uuid4()
+    empty_sess = SimpleNamespace(settings={})
+    session_state._initialize_default_group(
+        empty_sess,
+        [player_id],
+        {
+            "map_level": "region",
+            "node_type": "zone",
+            "node_id": "forest_road",
+            "label": "Лесная дорога",
+        },
+    )
+
+    empty_updated, empty_error = session_state.advance_group_region_pursuit(
+        empty_sess,
+        "main",
+        player_id=player_id,
+        source="test",
+    )
+
+    assert "нет активного region pursuit" in str(empty_error)
+    assert empty_updated is not None
+    empty_step = session_state.get_current_group_last_region_pursuit_step_result(empty_sess, player_id=player_id)
+    assert empty_step is not None
+    assert empty_step["result_type"] == "region_pursuit_step_invalid"
+    assert empty_step["step_kind"] == "no_step"
+
+    blocked_sess = SimpleNamespace(settings={})
+    session_state._initialize_default_group(
+        blocked_sess,
+        [player_id],
+        {
+            "map_level": "region",
+            "node_type": "zone",
+            "node_id": "forest_settlement",
+            "label": "Лесной посёлок",
+        },
+    )
+    session_state.get_current_group_current_region_state(blocked_sess, player_id=player_id)
+    session_state.add_group_node_state_flag(
+        blocked_sess,
+        "main",
+        "forest_settlement",
+        state_flag="forest_supplies_secured",
+        summary="Лесной набор уже готов.",
+        source="test",
+    )
+    session_state.set_group_route_access_state(
+        blocked_sess,
+        "main",
+        route_id="forest_settlement->old_fortress_edge:move",
+        access_state="blocked",
+        summary="Проход к северному рубежу закрыт.",
+        block_reason="Завал на дальнем тракте.",
+        source="test",
+    )
+    session_state.set_group_region_pursuit(
+        blocked_sess,
+        "main",
+        "northwatch_frontier",
+        player_id=player_id,
+        source="test",
+    )
+
+    blocked_updated, blocked_error = session_state.advance_group_region_pursuit(
+        blocked_sess,
+        "main",
+        player_id=player_id,
+        source="test",
+    )
+
+    assert blocked_error is None
+    assert blocked_updated is not None
+    blocked_step = session_state.get_current_group_last_region_pursuit_step_result(blocked_sess, player_id=player_id)
+    assert blocked_step is not None
+    assert blocked_step["result_type"] == "region_pursuit_step_blocked"
+    assert blocked_step["step_kind"] == "no_step"
+
+
 def test_group_region_transition_updates_region_residency_history() -> None:
     player_id = uuid.uuid4()
     sess = SimpleNamespace(settings={})

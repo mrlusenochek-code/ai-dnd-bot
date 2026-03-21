@@ -6291,6 +6291,68 @@ def _normalize_group_last_region_pursuit_result(raw: Any) -> dict[str, Any] | No
     return normalized
 
 
+def _normalize_group_last_region_pursuit_step_result(raw: Any) -> dict[str, Any] | None:
+    if not isinstance(raw, dict):
+        return None
+    result_id = str(raw.get("result_id") or "").strip()
+    result_type = str(raw.get("result_type") or "").strip().lower()
+    summary = str(raw.get("summary") or "").strip()
+    result_summary = str(raw.get("result_summary") or summary).strip()
+    target_region_id = str(raw.get("target_region_id") or "").strip().lower()
+    target_region_label = str(raw.get("target_region_label") or target_region_id).strip()
+    pursuit_id = str(raw.get("pursuit_id") or "").strip()
+    pursuit_status = str(raw.get("pursuit_status") or "").strip().lower()
+    step_kind = str(raw.get("step_kind") or "").strip().lower()
+    linked_journey_id = str(raw.get("linked_journey_id") or "").strip()
+    gateway_id = str(raw.get("gateway_id") or "").strip().lower()
+    gateway_label = str(raw.get("gateway_label") or gateway_id).strip()
+    source = str(raw.get("source") or "region_pursuit_step").strip() or "region_pursuit_step"
+    resolved_at = str(raw.get("resolved_at") or "").strip()
+    if result_type not in {
+        "region_pursuit_step_advanced",
+        "region_pursuit_step_gateway_ready",
+        "region_pursuit_step_transitioned",
+        "region_pursuit_step_blocked",
+        "region_pursuit_step_locked",
+        "region_pursuit_step_future_stub",
+        "region_pursuit_step_unavailable",
+        "region_pursuit_step_invalid",
+    }:
+        return None
+    if pursuit_status and pursuit_status not in {
+        "pursuing_gateway",
+        "gateway_ready",
+        "blocked",
+        "locked",
+        "future_stub",
+        "unavailable",
+        "cleared",
+    }:
+        return None
+    if step_kind not in {"journey_leg", "gateway_cross", "no_step"}:
+        return None
+    if not result_id or not summary or not result_summary or not target_region_id or not target_region_label:
+        return None
+    normalized = {
+        "result_id": result_id[:80],
+        "result_type": result_type[:80],
+        "summary": summary[:400],
+        "result_summary": result_summary[:400],
+        "target_region_id": target_region_id[:120],
+        "target_region_label": target_region_label[:160],
+        "pursuit_id": pursuit_id[:80],
+        "pursuit_status": pursuit_status[:40],
+        "step_kind": step_kind[:40],
+        "linked_journey_id": linked_journey_id[:80],
+        "gateway_id": gateway_id[:120],
+        "gateway_label": gateway_label[:160],
+        "source": source[:40],
+    }
+    if resolved_at:
+        normalized["resolved_at"] = resolved_at[:80]
+    return normalized
+
+
 def build_group_region_gateway(
     *,
     gateway_id: str,
@@ -7201,6 +7263,241 @@ def get_current_group_last_region_pursuit_result(
     if not isinstance(group, dict):
         return None
     return _normalize_group_last_region_pursuit_result(group.get("last_region_pursuit_result"))
+
+
+def build_group_region_pursuit_step_result(
+    *,
+    result_type: str,
+    summary: str,
+    result_summary: str,
+    target_region_id: str,
+    target_region_label: str,
+    pursuit_id: str = "",
+    pursuit_status: str = "",
+    step_kind: str = "no_step",
+    linked_journey_id: str = "",
+    gateway_id: str = "",
+    gateway_label: str = "",
+    source: str = "region_pursuit_step",
+) -> dict[str, Any] | None:
+    return _normalize_group_last_region_pursuit_step_result(
+        {
+            "result_id": f"region-pursuit-step-{uuid.uuid4().hex[:12]}",
+            "result_type": result_type,
+            "summary": summary,
+            "result_summary": result_summary,
+            "target_region_id": target_region_id,
+            "target_region_label": target_region_label,
+            "pursuit_id": pursuit_id,
+            "pursuit_status": pursuit_status,
+            "step_kind": step_kind,
+            "linked_journey_id": linked_journey_id,
+            "gateway_id": gateway_id,
+            "gateway_label": gateway_label,
+            "source": source,
+            "resolved_at": datetime.now(timezone.utc).isoformat(),
+        }
+    )
+
+
+def advance_group_region_pursuit(
+    sess: Session,
+    group_id: str,
+    *,
+    player_id: uuid.UUID | str | None = None,
+    source: str = "region_pursuit_step",
+) -> tuple[dict[str, Any] | None, str | None]:
+    groups = _get_group_states(sess)
+    group_key = str(group_id or "").strip()
+    group = groups.get(group_key)
+    if not isinstance(group, dict):
+        return None, "Группа не найдена."
+    pursuit = sync_group_region_pursuit_with_guidance(sess, group_key, source=source)
+    groups = _get_group_states(sess)
+    group = groups.get(group_key) or group
+    if not isinstance(group, dict):
+        return None, "Группа не найдена."
+    pursuit = pursuit or _normalize_group_active_region_pursuit(group.get("active_region_pursuit"))
+    if not pursuit:
+        result = build_group_region_pursuit_step_result(
+            result_type="region_pursuit_step_invalid",
+            summary="У группы нет активного region pursuit.",
+            result_summary="Сначала задайте region pursuit, чтобы продолжить движение к целевому региону.",
+            target_region_id="unknown_region",
+            target_region_label="Неизвестный регион",
+            source=source,
+        )
+        if result:
+            group["last_region_pursuit_step_result"] = result
+            groups[group_key] = group
+            _persist_group_states(sess, groups)
+            _sync_group_position_mirrors(sess, group)
+        return dict(group), "У группы нет активного region pursuit."
+
+    target_region_id = str(pursuit.get("target_region_id") or "")
+    target_region_label = str(pursuit.get("target_region_label") or target_region_id)
+    pursuit_id = str(pursuit.get("pursuit_id") or "")
+    pursuit_status = str(pursuit.get("pursuit_status") or "").strip().lower()
+    linked_journey_id = str(pursuit.get("linked_journey_id") or "")
+    gateway_id = str(pursuit.get("gateway_id") or "")
+    gateway_label = str(pursuit.get("gateway_label") or gateway_id)
+
+    def _store_step(
+        *,
+        result_type: str,
+        summary: str,
+        result_summary: str,
+        step_kind: str,
+        error: str | None = None,
+    ) -> tuple[dict[str, Any] | None, str | None]:
+        latest_groups = _get_group_states(sess)
+        latest_group = latest_groups.get(group_key) or group
+        if not isinstance(latest_group, dict):
+            return None, error
+        latest_pursuit = _normalize_group_active_region_pursuit(latest_group.get("active_region_pursuit")) or pursuit
+        result = build_group_region_pursuit_step_result(
+            result_type=result_type,
+            summary=summary,
+            result_summary=result_summary,
+            target_region_id=str((latest_pursuit or {}).get("target_region_id") or target_region_id),
+            target_region_label=str((latest_pursuit or {}).get("target_region_label") or target_region_label),
+            pursuit_id=str((latest_pursuit or {}).get("pursuit_id") or pursuit_id),
+            pursuit_status=str((latest_pursuit or {}).get("pursuit_status") or pursuit_status),
+            step_kind=step_kind,
+            linked_journey_id=str((latest_pursuit or {}).get("linked_journey_id") or linked_journey_id),
+            gateway_id=str((latest_pursuit or {}).get("gateway_id") or gateway_id),
+            gateway_label=str((latest_pursuit or {}).get("gateway_label") or gateway_label),
+            source=source,
+        )
+        if result:
+            latest_group["last_region_pursuit_step_result"] = result
+            latest_groups[group_key] = latest_group
+            _persist_group_states(sess, latest_groups)
+            _sync_group_position_mirrors(sess, latest_group)
+        return dict(latest_group), error
+
+    if pursuit_status == "pursuing_gateway":
+        updated, error = advance_group_journey(
+            sess,
+            group_key,
+            player_id=player_id,
+            source=source,
+        )
+        if error:
+            return _store_step(
+                result_type="region_pursuit_step_unavailable",
+                summary=f"Не удалось продвинуть region pursuit к {target_region_label}.",
+                result_summary=error,
+                step_kind="journey_leg",
+                error=error,
+            )
+        synced = sync_group_region_pursuit_with_guidance(sess, group_key, source=source)
+        synced_status = str((synced or {}).get("pursuit_status") or pursuit_status).strip().lower()
+        if synced_status == "gateway_ready":
+            return _store_step(
+                result_type="region_pursuit_step_gateway_ready",
+                summary=f"Группа дошла до выхода {gateway_label or 'gateway'} и готова перейти в регион {target_region_label}.",
+                result_summary=f"Подход к gateway завершён. Следующий шаг: {str((synced or {}).get('suggested_next_command') or f'group exit {gateway_id}').strip()}",
+                step_kind="journey_leg",
+            )
+        return _store_step(
+            result_type="region_pursuit_step_advanced",
+            summary=f"Группа делает один переход по пути к региону {target_region_label}.",
+            result_summary=f"Region pursuit к {target_region_label} продвинулся на один journey leg.",
+            step_kind="journey_leg",
+        )
+
+    if pursuit_status == "gateway_ready":
+        updated, error = resolve_group_region_transition(
+            sess,
+            group_key,
+            gateway_id,
+            player_id=player_id,
+            source=source,
+        )
+        transition_result = get_current_group_last_region_transition_result(sess, group_id=group_key) or {}
+        transition_summary = str(transition_result.get("result_summary") or error or "").strip()
+        transition_type = str(transition_result.get("result_type") or "").strip().lower()
+        transition_status = str(transition_result.get("transition_status") or "").strip().lower()
+        if error or transition_status != "completed":
+            step_type = "region_pursuit_step_unavailable"
+            if transition_type == "region_transition_blocked":
+                step_type = "region_pursuit_step_blocked"
+            elif transition_type == "region_transition_locked":
+                step_type = "region_pursuit_step_locked"
+            elif transition_type == "region_transition_future_stub":
+                step_type = "region_pursuit_step_future_stub"
+            elif transition_type == "region_transition_invalid":
+                step_type = "region_pursuit_step_invalid"
+            return _store_step(
+                result_type=step_type,
+                summary=f"Переход к региону {target_region_label} через {gateway_label or 'gateway'} не выполнен.",
+                result_summary=transition_summary or error or f"Переход через {gateway_label or 'gateway'} сейчас недоступен.",
+                step_kind="gateway_cross",
+                error=error,
+            )
+        latest_groups = _get_group_states(sess)
+        latest_group = latest_groups.get(group_key) or updated or group
+        if not isinstance(latest_group, dict):
+            return None, "Не удалось обновить группу после регионального перехода."
+        transition_result = _normalize_group_last_region_transition_result(latest_group.get("last_region_transition_result")) or transition_result
+        if str(transition_result.get("transition_status") or "").strip().lower() == "completed":
+            latest_group.pop("active_region_pursuit", None)
+        latest_groups[group_key] = latest_group
+        _persist_group_states(sess, latest_groups)
+        _sync_group_position_mirrors(sess, latest_group)
+        return _store_step(
+            result_type="region_pursuit_step_transitioned",
+            summary=f"Группа выполняет переход через {gateway_label or 'gateway'} в регион {target_region_label}.",
+            result_summary=str(transition_result.get("result_summary") or f"Переход в регион {target_region_label} выполнен.").strip(),
+            step_kind="gateway_cross",
+        )
+
+    if pursuit_status == "blocked":
+        return _store_step(
+            result_type="region_pursuit_step_blocked",
+            summary=f"Region pursuit к {target_region_label} сейчас упирается в блокировку.",
+            result_summary=f"Выход {gateway_label or 'gateway'} сейчас заблокирован.",
+            step_kind="no_step",
+        )
+    if pursuit_status == "locked":
+        return _store_step(
+            result_type="region_pursuit_step_locked",
+            summary=f"Region pursuit к {target_region_label} пока закрыт локальными условиями.",
+            result_summary=f"Выход {gateway_label or 'gateway'} ещё не разблокирован.",
+            step_kind="no_step",
+        )
+    if pursuit_status == "future_stub":
+        return _store_step(
+            result_type="region_pursuit_step_future_stub",
+            summary=f"Region pursuit к {target_region_label} упирается в будущий gateway stub.",
+            result_summary=f"Выход {gateway_label or 'gateway'} ещё не реализован как активный переход.",
+            step_kind="no_step",
+        )
+    return _store_step(
+        result_type="region_pursuit_step_unavailable",
+        summary=f"Region pursuit к {target_region_label} сейчас не может сделать следующий шаг.",
+        result_summary="Сейчас нет canonical следующего execution step для этого region pursuit.",
+        step_kind="no_step",
+    )
+
+
+def get_current_group_last_region_pursuit_step_result(
+    sess: Session,
+    *,
+    player_id: uuid.UUID | str | None = None,
+    group_id: str | None = None,
+) -> dict[str, Any] | None:
+    resolved_group_id = str(group_id or "").strip()
+    resolved_player_id = str(player_id or "").strip()
+    if not resolved_group_id and resolved_player_id:
+        resolved_group_id = str(_get_player_group_id(sess, resolved_player_id) or "").strip()
+    if not resolved_group_id:
+        return None
+    group = _get_group_states(sess).get(resolved_group_id)
+    if not isinstance(group, dict):
+        return None
+    return _normalize_group_last_region_pursuit_step_result(group.get("last_region_pursuit_step_result"))
 
 
 def build_group_region_transition_result(
@@ -10456,6 +10753,9 @@ def _normalize_group_state(
     last_region_pursuit_result = _normalize_group_last_region_pursuit_result(raw.get("last_region_pursuit_result"))
     if last_region_pursuit_result:
         normalized["last_region_pursuit_result"] = last_region_pursuit_result
+    last_region_pursuit_step_result = _normalize_group_last_region_pursuit_step_result(raw.get("last_region_pursuit_step_result"))
+    if last_region_pursuit_step_result:
+        normalized["last_region_pursuit_step_result"] = last_region_pursuit_step_result
     last_arrival_result = _normalize_group_last_arrival_result(raw.get("last_arrival_result"))
     if last_arrival_result:
         normalized["last_arrival_result"] = last_arrival_result
