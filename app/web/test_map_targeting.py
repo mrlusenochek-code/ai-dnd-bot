@@ -23,6 +23,8 @@ from app.web.map_registry import (
     get_static_map_nodes,
     get_static_node_metadata,
     get_static_node,
+    get_static_region_identity,
+    get_static_region_onboarding,
     resolve_static_map_node,
 )
 from app.web.map_targeting import resolve_action_target_node, resolve_group_target_route, validate_group_target_transition
@@ -339,11 +341,13 @@ def test_get_static_node_destination_events_returns_authored_arrival_events() ->
         }
     ]
     assert get_static_node_destination_events(node_id="ruined_settlement", state_flags=["mine_path_shored"], visit_count=2)[0]["result_type"] == "changed_place_notice"
+    assert get_static_node_destination_events(node_id="northwatch_outpost", state_flags=[], visit_count=1)[0]["event_id"] == "northwatch_outpost_briefing"
+    assert get_static_node_destination_events(node_id="ash_pass", state_flags=[], visit_count=1)[0]["result_type"] == "local_warning"
 
 
 def test_get_static_region_gateways_returns_authored_frontier_exit_definitions() -> None:
     all_gateways = get_static_region_gateways(region_id="region")
-    assert len(all_gateways) == 4
+    assert len(all_gateways) == 5
     assert get_static_node_region_gateways(node_id="forest_settlement") == [
         {
             "gateway_id": "forest_settlement_northwatch",
@@ -358,7 +362,65 @@ def test_get_static_region_gateways_returns_authored_frontier_exit_definitions()
             "requires_node_state_flag": "forest_supplies_secured",
         }
     ]
+    assert get_static_node_region_gateways(node_id="northwatch_outpost") == [
+        {
+            "gateway_id": "northwatch_outpost_starter_frontier",
+            "source_node_id": "northwatch_outpost",
+            "route_id": "northwatch_outpost->northwatch_quartermaster:move",
+            "target_region_id": "starter_frontier",
+            "target_region_label": "Стартовое пограничье",
+            "target_anchor_node_id": "forest_settlement",
+            "label": "Тропа обратно к лесному посёлку",
+            "future_stub": False,
+            "unlock_hint": "Дозор держит обратную тропу открытой, пока погода не ломает северный подход.",
+        }
+    ]
     assert get_static_node_region_gateways(node_id="forgotten_shrine")[0]["future_stub"] is True
+
+
+def test_northwatch_frontier_registry_content_and_onboarding_are_real() -> None:
+    identity = get_static_region_identity(node_id="northwatch_quartermaster")
+    onboarding = get_static_region_onboarding("northwatch_frontier")
+
+    assert identity is not None
+    assert identity["region_id"] == "northwatch_frontier"
+    assert set(identity["node_ids"]) >= {
+        "northwatch_outpost",
+        "northwatch_quartermaster",
+        "northwatch_palisade",
+        "ash_pass",
+        "broken_redoubt",
+    }
+    assert onboarding is not None
+    assert onboarding["anchor_node_id"] == "northwatch_outpost"
+    assert onboarding["starter_reveal_node_ids"] == [
+        "northwatch_quartermaster",
+        "northwatch_palisade",
+        "ash_pass",
+    ]
+    assert "northwatch_outpost->ash_pass:move" in onboarding["starter_reveal_route_ids"]
+
+
+def test_northwatch_nodes_expose_services_actions_and_details() -> None:
+    quartermaster_services = get_static_node_services(node_id="northwatch_quartermaster")
+    palisade_actions = get_current_node_context_actions(node_id="northwatch_palisade")
+
+    assert [item["service_id"] for item in quartermaster_services] == [
+        "northwatch_quartermaster:safe_rest",
+        "northwatch_quartermaster_resupply",
+        "northwatch_quartermaster:local_guidance",
+    ]
+    assert get_static_node_service_requirements(node_id="northwatch_quartermaster") == [
+        {
+            "node_id": "northwatch_quartermaster",
+            "service_id": "northwatch_quartermaster_resupply",
+            "service_key": "",
+            "return_visit_only": True,
+            "unlock_hint": "Интендант открывает рубежный склад только тем, кто уже примелькался на посту и вернулся с первой ходки.",
+        }
+    ]
+    assert get_static_node_context_action_requirements(node_id="northwatch_palisade") == []
+    assert any(item["action_id"] == "review_signal_chalk" for item in palisade_actions)
 
 
 def test_static_node_detail_and_inspect_result_expose_handcrafted_content() -> None:

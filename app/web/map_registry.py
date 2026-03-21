@@ -233,9 +233,84 @@ STATIC_MAP_NODES: tuple[dict[str, Any], ...] = (
         "map_level": "region",
         "area_label": "Северный рубеж",
         "zone_band": "border",
-        "short_description": "Пограничная стоянка на северном рубеже отмечает первый безопасный якорь за старой дорогой.",
-        "inspect_summary": "Здесь видно, где старый путь выходит из знакомого леса в новый участок рубежа.",
-        "travel_note": "Минимальная опорная точка за пределом стартового региона.",
+        "short_description": "Небольшой дозорный узел с костром, навесами и сторожевой линией отмечает первый обжитой рубеж за старой дорогой.",
+        "inspect_summary": "Здесь быстро становится ясно, где держится безопасная линия патруля, где выдают снабжение и куда уходит тёмный проход в зольный распадок.",
+        "travel_note": "Первый устойчивый якорь за пределом стартового региона и точка сбора для дальнейших ходов по северному рубежу.",
+        "service_hints": ["караульный костёр", "сводки дозора", "короткий отдых под навесом"],
+        "services": ["safe_rest", "local_guidance"],
+        "aliases": (
+            "северный рубеж",
+            "северный дозор",
+            "рубежный пост",
+        ),
+    },
+    {
+        "node_id": "northwatch_quartermaster",
+        "label": "Интендантский двор",
+        "node_type": "zone",
+        "map_level": "region",
+        "area_label": "Интендантский двор",
+        "zone_band": "border",
+        "short_description": "Под навесами двора разбиты ящики, сушатся плащи и ведётся скромная выдача дорожного добра для тех, кого дозор уже знает.",
+        "inspect_summary": "Здесь видно, что рубеж держится не героикой, а порядком: склад, вода, бинты и короткие указания по ходу патруля.",
+        "travel_note": "Лучшее место региона, чтобы перевести дух, сверить маршрут и получить снабжение перед опасным вылазом.",
+        "service_hints": ["паёк", "бинты", "патрульные сводки"],
+        "services": ["safe_rest", "resupply", "local_guidance"],
+        "aliases": (
+            "интендантский двор",
+            "склад рубежа",
+            "двор снабжения",
+        ),
+    },
+    {
+        "node_id": "northwatch_palisade",
+        "label": "Сигнальная палисада",
+        "node_type": "landmark",
+        "map_level": "landmark",
+        "area_label": "Северный рубеж",
+        "zone_band": "border",
+        "short_description": "Палисад с сигнальными щитами и старым рогом смотрит на рубеж и на дальнюю, уже не такую тихую землю.",
+        "inspect_summary": "С палисады читается линия дозора, видно, где зольный проход темнеет сильнее обычного, и где на склоне стоит битый редут.",
+        "travel_note": "Главная обзорная точка рубежа перед выходом на опасный фронтир.",
+        "aliases": (
+            "сигнальная палисада",
+            "палисада",
+            "дозорная палисада",
+        ),
+    },
+    {
+        "node_id": "ash_pass",
+        "label": "Зольный проход",
+        "node_type": "zone",
+        "map_level": "region",
+        "area_label": "Зольный проход",
+        "zone_band": "danger",
+        "short_description": "Узкий тёмный ход между серыми откосами пахнет гарью и сырой глиной, а дозор держит его как самую нервную ветку рубежа.",
+        "inspect_summary": "Здесь уже нет мирного ритма поста: проход сыплется, ветер тянет пеплом, а старый редут на отлёте выглядит почти брошенным.",
+        "travel_note": "Опасный frontier-ход, куда стоит идти только после короткой подготовки на рубеже.",
+        "danger_note": "Плохая видимость, осыпи и риск наткнуться на тревожный след раньше, чем успеешь развернуться.",
+        "aliases": (
+            "зольный проход",
+            "зольная тропа",
+            "проход в пепле",
+        ),
+    },
+    {
+        "node_id": "broken_redoubt",
+        "label": "Разбитый редут",
+        "node_type": "landmark",
+        "map_level": "landmark",
+        "area_label": "Зольный проход",
+        "zone_band": "danger",
+        "short_description": "Каменный редут на краю прохода пережил худшие годы рубежа, но теперь стоит пустой, пробитый ветром и старыми ударами.",
+        "inspect_summary": "Отсюда видно, как рубеж держится на тонкой линии между дозором и заброшенным фронтиром; место даёт обзор, но не обещает покоя.",
+        "travel_note": "Рискованный ориентир за пределом спокойного дозорного узла.",
+        "danger_note": "Под стеной легко застрять без обзора, а у разрушенной кладки слышно каждый шаг.",
+        "aliases": (
+            "разбитый редут",
+            "старый редут",
+            "редут",
+        ),
     },
     {
         "node_id": "western_road_watch",
@@ -487,6 +562,76 @@ STATIC_MAP_LINKS: tuple[dict[str, str], ...] = (
         "route_kind": "enter_location",
         "link_kind": "entrance",
     },
+    {
+        "from_node_id": "northwatch_outpost",
+        "to_node_id": "northwatch_quartermaster",
+        "action_kind": "move",
+        "route_kind": "zone_move",
+        "link_kind": "branch_road",
+    },
+    {
+        "from_node_id": "northwatch_quartermaster",
+        "to_node_id": "northwatch_outpost",
+        "action_kind": "move",
+        "route_kind": "zone_move",
+        "link_kind": "branch_road",
+    },
+    {
+        "from_node_id": "northwatch_outpost",
+        "to_node_id": "northwatch_palisade",
+        "action_kind": "move",
+        "route_kind": "landmark_move",
+        "link_kind": "approach",
+    },
+    {
+        "from_node_id": "northwatch_palisade",
+        "to_node_id": "northwatch_outpost",
+        "action_kind": "move",
+        "route_kind": "zone_move",
+        "link_kind": "return",
+    },
+    {
+        "from_node_id": "northwatch_outpost",
+        "to_node_id": "ash_pass",
+        "action_kind": "move",
+        "route_kind": "zone_move",
+        "link_kind": "forest_track",
+    },
+    {
+        "from_node_id": "ash_pass",
+        "to_node_id": "northwatch_outpost",
+        "action_kind": "move",
+        "route_kind": "zone_move",
+        "link_kind": "forest_track",
+    },
+    {
+        "from_node_id": "northwatch_quartermaster",
+        "to_node_id": "ash_pass",
+        "action_kind": "move",
+        "route_kind": "zone_move",
+        "link_kind": "forest_track",
+    },
+    {
+        "from_node_id": "ash_pass",
+        "to_node_id": "northwatch_quartermaster",
+        "action_kind": "move",
+        "route_kind": "zone_move",
+        "link_kind": "forest_track",
+    },
+    {
+        "from_node_id": "ash_pass",
+        "to_node_id": "broken_redoubt",
+        "action_kind": "move",
+        "route_kind": "landmark_move",
+        "link_kind": "approach",
+    },
+    {
+        "from_node_id": "broken_redoubt",
+        "to_node_id": "ash_pass",
+        "action_kind": "move",
+        "route_kind": "zone_move",
+        "link_kind": "return",
+    },
 )
 
 
@@ -519,6 +664,16 @@ STATIC_MAP_SCOUT_DISCOVERIES: tuple[dict[str, Any], ...] = (
         "discovered_route_ids": ["forest_road->ruined_settlement"],
         "discovered_notes": [
             "В стороне от лесной дороги открывается старая тропа к разрушенному посёлку."
+        ],
+    },
+    {
+        "node_id": "northwatch_palisade",
+        "result_type": "landmark_revealed",
+        "discovery_scope": "frontier_overwatch",
+        "discovered_node_ids": ["broken_redoubt"],
+        "discovered_route_ids": ["ash_pass->broken_redoubt:move"],
+        "discovered_notes": [
+            "С палисады становится понятнее, где среди серых откосов стоит разбитый редут и как к нему держать короткий опасный ход."
         ],
     },
 )
@@ -588,6 +743,23 @@ STATIC_MAP_CONTEXT_ACTION_EFFECTS: tuple[dict[str, Any], ...] = (
         "node_state_flags": ["chapel_watch_clue_taken"],
         "node_state_summary": "Дозорные у часовни уже поделились с группой своей короткой дорожной наводкой.",
     },
+    {
+        "node_id": "northwatch_palisade",
+        "action_id": "review_signal_chalk",
+        "label": "Сверить сигнальные метки",
+        "action_kind": "clue",
+        "effect_type": "clue",
+        "one_shot": True,
+        "result_type": "local_clue_found",
+        "summary": "Сверить свежие сигнальные метки на палисаде с последней сводкой дозора.",
+        "result_summary": "Группа разбирает свежие метки на палисаде и уточняет, откуда на зольном проходе чаще всего приходит тревога.",
+        "discovered_notes": [
+            "По свежим меткам видно: дозор чаще всего смотрит не в сам проход, а чуть западнее, к разбитому редуту на склоне."
+        ],
+        "applied_effects": ["local_clue:northwatch_signals"],
+        "node_state_flags": ["northwatch_signal_report_taken"],
+        "node_state_summary": "На палисаде уже сверяли сигнальные метки и отмечали, откуда на рубеже чаще всего приходит тревога.",
+    },
 )
 
 
@@ -649,6 +821,26 @@ STATIC_MAP_NODE_STATE_OVERLAYS: tuple[dict[str, Any], ...] = (
         "detail_note": "У охотничьих сараев видно, что запас для выхода к руинам уже готовили и выдавали совсем недавно.",
         "service_note": "Основной лесной набор уже собран; дальше здесь скорее пополняют мелочи, чем собирают новый комплект.",
     },
+    {
+        "node_id": "northwatch_outpost",
+        "state_flag": "northwatch_briefing_taken",
+        "context_note": "На северном рубеже уже отметили для группы короткую вводную по линии дозора и опасному проходу.",
+        "detail_note": "Смена дозора уже проговаривала этой группе, где держится безопасная линия и почему зольный проход считают нервным направлением.",
+        "service_note": "Короткая вводная по рубежу уже собрана; теперь дозор скорее уточняет детали, чем начинает рассказ заново.",
+    },
+    {
+        "node_id": "northwatch_quartermaster",
+        "state_flag": "northwatch_quartermaster_supplies",
+        "context_note": "На интендантском дворе уже отмечена выданная группе рубежная выкладка.",
+        "detail_note": "На ящиках у навеса видно, что для этой группы уже собирали короткий северный комплект и записывали выдачу.",
+        "service_note": "Полный рубежный набор уже выдавали; дальше здесь скорее добавят мелочь, чем снова откроют склад как в первый раз.",
+    },
+    {
+        "node_id": "northwatch_palisade",
+        "state_flag": "northwatch_signal_report_taken",
+        "context_note": "На палисаде уже разобрали сигнальные метки и поняли, куда чаще всего уходит тревожный взгляд дозора.",
+        "detail_note": "Метки на досках и воск на сигнальных щитах уже читались этой группой как часть последней сводки рубежа.",
+    },
 )
 
 
@@ -693,6 +885,24 @@ STATIC_MAP_NODE_ENTRY_OVERLAYS: tuple[dict[str, Any], ...] = (
         "return_entry_type": "return_entry",
         "return_entry_title": "Снова в дорожном хуторе",
         "return_entry_note": "Хутор уже знаком и воспринимается скорее как тихая отметка на маршруте.",
+    },
+    {
+        "node_id": "northwatch_outpost",
+        "first_entry_type": "settlement_welcome",
+        "first_entry_title": "Северный рубеж принимает группу",
+        "first_entry_note": "Дозорный костёр и навесы быстро дают понять: это уже новый участок карты, но ещё живой и обжитой.",
+        "return_entry_type": "return_entry",
+        "return_entry_title": "Снова на северном рубеже",
+        "return_entry_note": "Пост узнаётся сразу, и группа быстро возвращает себе прежний ритм рубежного узла.",
+    },
+    {
+        "node_id": "ash_pass",
+        "first_entry_type": "quiet_entry",
+        "first_entry_title": "Зольный проход открыт перед группой",
+        "first_entry_note": "На шаге от рубежа место уже встречает не порядком поста, а сухой гарью и тревожной тишиной.",
+        "return_entry_type": "return_entry",
+        "return_entry_title": "Возвращение в зольный проход",
+        "return_entry_note": "Проход узнаётся по гаревому ветру и ощущению, что запас безопасного хода снова короткий.",
     },
 )
 
@@ -790,6 +1000,42 @@ STATIC_MAP_DESTINATION_EVENTS: tuple[dict[str, Any], ...] = (
         "applied_effects": ["destination_notice:ruined_settlement", "intel:warning"],
         "tags": ["ruins", "changed_place", "mine"],
     },
+    {
+        "node_id": "northwatch_outpost",
+        "event_id": "northwatch_outpost_briefing",
+        "label": "Короткая сводка северного дозора",
+        "first_visit_only": True,
+        "one_shot": True,
+        "result_type": "settlement_notice",
+        "title": "Дозор быстро вводит группу в обстановку",
+        "summary": "При первом входе дозорные коротко отмечают безопасную линию рубежа, склад снабжения и тревожный зольный проход.",
+        "result_summary": "Северный рубеж встречает группу не тишиной, а рабочей сводкой: где держится пост, где брать помощь и куда не идти без подготовки.",
+        "discovered_notes": [
+            "Смена дозора советует сначала освоиться у поста и интендантского двора, а в зольный проход выходить только с коротким запасом и ясной целью."
+        ],
+        "intel_entry_type": "guidance",
+        "intel_title": "Сводка северного дозора",
+        "node_state_flags": ["northwatch_briefing_taken"],
+        "node_state_summary": "На северном рубеже уже отмечено первое дозорное введение для этой группы.",
+        "applied_effects": ["destination_notice:northwatch_outpost", "intel:guidance"],
+        "tags": ["frontier", "guidance", "northwatch"],
+    },
+    {
+        "node_id": "ash_pass",
+        "event_id": "ash_pass_warning",
+        "label": "Гарь и осыпь на проходе",
+        "result_type": "local_warning",
+        "title": "Проход встречает гаревым ветром",
+        "summary": "Зольный проход каждый раз напоминает, что это уже не спокойный дозорный узел, а нервная frontier-ветка.",
+        "result_summary": "На входе в зольный проход ветер тянет гарью и мелкой осыпью: место честно предупреждает, что рубеж здесь уже тонкий.",
+        "discovered_notes": [
+            "На проходе не стоит тянуть с решением: ветер быстро съедает обзор, а под ногами осыпается сухой склон."
+        ],
+        "intel_entry_type": "warning",
+        "intel_title": "Предупреждение зольного прохода",
+        "applied_effects": ["destination_warning:ash_pass", "intel:warning"],
+        "tags": ["warning", "frontier", "ash_pass"],
+    },
 )
 
 
@@ -843,6 +1089,36 @@ STATIC_MAP_SERVICE_EFFECTS: tuple[dict[str, Any], ...] = (
         "node_state_flags": ["forest_supplies_secured"],
         "node_state_summary": "В лесном посёлке уже подготовлен и выдан дорожный набор для этой группы.",
     },
+    {
+        "node_id": "northwatch_outpost",
+        "service_key": "local_guidance",
+        "service_id": "northwatch_outpost_guidance",
+        "service_kind": "guidance",
+        "one_shot": True,
+        "result_type": "guidance_received",
+        "summary": "Получить у дозора короткое уточнение по линии рубежа.",
+        "result_summary": "Дозор отмечает для группы, где на рубеже держится надёжный отход и почему зольный проход лучше не растягивать в долгую прогулку.",
+        "discovered_notes": [
+            "На рубеже советуют возвращаться к костру до полной темноты: дальше линии навесов земля уже не прощает долгих пауз."
+        ],
+        "applied_effects": ["guidance_recorded:northwatch_outpost"],
+    },
+    {
+        "node_id": "northwatch_quartermaster",
+        "service_key": "resupply",
+        "service_id": "northwatch_quartermaster_resupply",
+        "service_kind": "supplies",
+        "one_shot": True,
+        "result_type": "supplies_secured",
+        "summary": "Собрать короткий рубежный комплект перед выходом в опасный ход.",
+        "result_summary": "Интендантский двор выдаёт группе компактный северный набор и помечает, что склад уже однажды открывали для этого состава.",
+        "discovered_notes": [
+            "Кладовщик советует не тратить рубежный комплект на длинную вылазку: его собирают для короткого уверенного хода и такого же отхода."
+        ],
+        "applied_effects": ["supplies_secured:northwatch_quartermaster"],
+        "node_state_flags": ["northwatch_quartermaster_supplies"],
+        "node_state_summary": "На интендантском дворе уже выдали этой группе один рубежный набор.",
+    },
 )
 
 
@@ -866,6 +1142,12 @@ STATIC_MAP_SERVICE_REQUIREMENTS: tuple[dict[str, Any], ...] = (
         "min_visit_count": 2,
         "unlock_hint": "Полный лесной набор выдают только после того, как группа уже показала повторный заход в посёлок.",
     },
+    {
+        "node_id": "northwatch_quartermaster",
+        "service_id": "northwatch_quartermaster_resupply",
+        "return_visit_only": True,
+        "unlock_hint": "Интендант открывает рубежный склад только тем, кто уже примелькался на посту и вернулся с первой ходки.",
+    },
 )
 
 
@@ -880,6 +1162,16 @@ STATIC_MAP_REGION_GATEWAYS: tuple[dict[str, Any], ...] = (
         "label": "Выход к северному рубежу",
         "requires_node_state_flag": "forest_supplies_secured",
         "unlock_hint": "Сначала собрать лесные припасы перед дальним выходом к северному рубежу.",
+    },
+    {
+        "gateway_id": "northwatch_outpost_starter_frontier",
+        "source_node_id": "northwatch_outpost",
+        "route_id": "northwatch_outpost->northwatch_quartermaster:move",
+        "target_region_id": "starter_frontier",
+        "target_region_label": "Стартовое пограничье",
+        "target_anchor_node_id": "forest_settlement",
+        "label": "Тропа обратно к лесному посёлку",
+        "unlock_hint": "Дозор держит обратную тропу открытой, пока погода не ломает северный подход.",
     },
     {
         "gateway_id": "fortress_gate_western_road",
@@ -938,7 +1230,13 @@ STATIC_MAP_REGION_IDENTITIES: tuple[dict[str, Any], ...] = (
     {
         "region_id": "northwatch_frontier",
         "region_label": "Северный рубеж",
-        "node_ids": ("northwatch_outpost",),
+        "node_ids": (
+            "northwatch_outpost",
+            "northwatch_quartermaster",
+            "northwatch_palisade",
+            "ash_pass",
+            "broken_redoubt",
+        ),
     },
     {
         "region_id": "western_road",
@@ -970,11 +1268,18 @@ STATIC_MAP_REGION_ONBOARDING: tuple[dict[str, Any], ...] = (
         "region_id": "northwatch_frontier",
         "region_label": "Северный рубеж",
         "anchor_node_id": "northwatch_outpost",
-        "starter_reveal_node_ids": (),
-        "starter_reveal_route_ids": ("forest_settlement->old_fortress_edge:move",),
-        "intel_title": "Северный рубеж отмечен как новый якорь",
-        "intel_summary": "Северный рубеж закрепляется как первый ориентир за пределом стартового региона.",
-        "onboarding_note": "Северный рубеж пока даёт только якорную точку входа и заметку о новом frontier-участке.",
+        "starter_reveal_node_ids": ("northwatch_quartermaster", "northwatch_palisade", "ash_pass"),
+        "starter_reveal_route_ids": (
+            "northwatch_outpost->northwatch_quartermaster:move",
+            "northwatch_quartermaster->northwatch_outpost:move",
+            "northwatch_outpost->northwatch_palisade:move",
+            "northwatch_palisade->northwatch_outpost:move",
+            "northwatch_outpost->ash_pass:move",
+            "ash_pass->northwatch_outpost:move",
+        ),
+        "intel_title": "Северный рубеж раскрывает первую линию дозора",
+        "intel_summary": "При входе на северный рубеж группа сразу закрепляет пост, интендантский двор, обзорную палисаду и опасный зольный проход.",
+        "onboarding_note": "Северный рубеж больше не пустой якорь: пост сразу раскрывает рабочий дозорный узел и первую опасную frontier-ветку.",
     },
     {
         "region_id": "deep_marsh",
@@ -1017,15 +1322,15 @@ def get_static_node_metadata(node: dict[str, Any] | None) -> dict[str, Any]:
             metadata["environment_hint"] = "lakeshore" if node_id in {"eastern_bank", "craft_town"} else "roadland"
             metadata["safe_rest_hint"] = True
         elif zone_band == "border":
-            metadata["settlement_kind"] = "village" if node_id in {"chapel_village", "forest_settlement"} else "hamlet"
+            metadata["settlement_kind"] = "village" if node_id in {"chapel_village", "forest_settlement", "northwatch_outpost", "northwatch_quartermaster"} else "hamlet"
             metadata["environment_hint"] = "wooded" if node_id in {"forest_road", "forest_settlement"} else "frontier"
-            metadata["safe_rest_hint"] = node_id in {"road_hamlet", "chapel_village", "forest_settlement"}
+            metadata["safe_rest_hint"] = node_id in {"road_hamlet", "chapel_village", "forest_settlement", "northwatch_outpost", "northwatch_quartermaster"}
         elif zone_band == "danger":
             metadata["settlement_kind"] = "ruins" if node_id == "ruined_settlement" else "wilds"
             metadata["environment_hint"] = "marsh" if node_id == "marsh_edge" else "ruined_frontier"
             metadata["safe_rest_hint"] = False
     elif node_type == "landmark":
-        metadata["poi_kind"] = "fortified" if node_id in {"fortress_gate", "old_fortress_edge", "watchtower"} else "shrine"
+        metadata["poi_kind"] = "fortified" if node_id in {"fortress_gate", "old_fortress_edge", "watchtower", "northwatch_palisade", "broken_redoubt"} else "shrine"
         metadata["environment_hint"] = "fortified" if node_id == "fortress_gate" else ("marsh" if node_id == "forgotten_shrine" else "frontier")
         metadata["safe_rest_hint"] = node_id == "watchtower"
     elif node_type == "interior_entry":

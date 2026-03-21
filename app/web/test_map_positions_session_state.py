@@ -4848,7 +4848,19 @@ def test_group_region_transition_triggers_region_onboarding_without_fake_reapply
     assert onboarding["region_id"] == "northwatch_frontier"
     assert onboarding["result_type"] == "anchor_reveal_applied"
     assert onboarding["anchor_node_id"] == "northwatch_outpost"
-    assert onboarding["revealed_route_ids"] == ["forest_settlement->old_fortress_edge:move"]
+    assert onboarding["revealed_node_ids"] == [
+        "northwatch_quartermaster",
+        "northwatch_palisade",
+        "ash_pass",
+    ]
+    assert onboarding["revealed_route_ids"] == [
+        "northwatch_outpost->northwatch_quartermaster:move",
+        "northwatch_quartermaster->northwatch_outpost:move",
+        "northwatch_outpost->northwatch_palisade:move",
+        "northwatch_palisade->northwatch_outpost:move",
+        "northwatch_outpost->ash_pass:move",
+        "ash_pass->northwatch_outpost:move",
+    ]
     assert any(entry["region_id"] == "northwatch_frontier" for entry in session_state.get_current_group_region_onboarding_states(sess, player_id=player_id))
 
     group_states = session_state._get_group_states(sess)
@@ -4864,6 +4876,129 @@ def test_group_region_transition_triggers_region_onboarding_without_fake_reapply
     assert repeated["result_type"] == "repeat_region_onboarding"
     assert len(session_state.get_current_group_region_onboarding_states(sess, player_id=player_id)) == 2
 
+
+def test_northwatch_frontier_transition_exposes_playable_local_content_and_gating() -> None:
+    player_id = uuid.uuid4()
+    sess = SimpleNamespace(settings={})
+    session_state._initialize_default_group(
+        sess,
+        [player_id],
+        {"map_level": "region", "node_type": "zone", "node_id": "forest_settlement", "label": "Лесной посёлок"},
+    )
+    session_state.get_current_group_current_region_state(sess, player_id=player_id)
+    session_state.add_group_node_state_flag(
+        sess,
+        "main",
+        "forest_settlement",
+        state_flag="forest_supplies_secured",
+        summary="Лесной набор уже готов.",
+        source="test",
+    )
+
+    updated, error = session_state.resolve_group_region_transition(
+        sess,
+        "main",
+        "forest_settlement_northwatch",
+        player_id=player_id,
+        source="test",
+    )
+
+    assert error is None
+    assert updated is not None
+    assert updated["current_map_position"]["node_id"] == "northwatch_outpost"
+    assert updated["last_destination_event_result"]["event_id"] == "northwatch_outpost_briefing"
+    assert updated["last_destination_event_result"]["result_type"] == "settlement_notice"
+    assert set(session_state.get_player_revealed_node_ids(sess, player_id)) >= {
+        "northwatch_outpost",
+        "northwatch_quartermaster",
+        "northwatch_palisade",
+        "ash_pass",
+    }
+
+    outpost_context = session_state.get_current_group_node_context(sess, player_id=player_id)
+    assert outpost_context is not None
+    assert outpost_context["node_summary"]["node_id"] == "northwatch_outpost"
+    assert any(item["service_id"] == "northwatch_outpost_guidance" for item in outpost_context["available_services"])
+
+    group_states = session_state._get_group_states(sess)
+    group = group_states["main"]
+    group["current_map_position"] = session_state._normalize_map_position(
+        {
+            "map_level": "region",
+            "node_type": "zone",
+            "node_id": "northwatch_quartermaster",
+            "label": "Интендантский двор",
+        }
+    )
+    group["area_label"] = "Интендантский двор"
+    session_state._persist_group_states(sess, group_states)
+
+    first_visit_services = session_state.get_current_group_service_availability(sess, player_id=player_id)
+    locked_resupply = next(item for item in first_visit_services if item["service_id"] == "northwatch_quartermaster_resupply")
+    assert locked_resupply["availability_status"] == "locked"
+    assert locked_resupply["unavailable_reason"] == "return_visit_only"
+
+    session_state.record_group_node_visit(
+        sess,
+        "main",
+        "northwatch_quartermaster",
+        node_label="Интендантский двор",
+        result_type="settlement_arrival",
+        summary="Группа впервые дошла до интендантского двора.",
+    )
+    session_state.record_group_node_visit(
+        sess,
+        "main",
+        "northwatch_quartermaster",
+        node_label="Интендантский двор",
+        result_type="return_entry",
+        summary="Группа вернулась к складу после первой вылазки.",
+    )
+
+    revisited_services = session_state.get_current_group_service_availability(sess, player_id=player_id)
+    available_resupply = next(item for item in revisited_services if item["service_id"] == "northwatch_quartermaster_resupply")
+    assert available_resupply["availability_status"] == "available"
+
+    group_states = session_state._get_group_states(sess)
+    group = group_states["main"]
+    group["current_map_position"] = session_state._normalize_map_position(
+        {
+            "map_level": "landmark",
+            "node_type": "landmark",
+            "node_id": "northwatch_palisade",
+            "label": "Сигнальная палисада",
+        }
+    )
+    group["area_label"] = "Северный рубеж"
+    session_state._persist_group_states(sess, group_states)
+
+    palisade_actions = session_state.get_current_group_context_action_availability(sess, player_id=player_id)
+    signal_action = next(item for item in palisade_actions if item["action_id"] == "review_signal_chalk")
+    assert signal_action["availability_status"] == "available"
+
+    group_states = session_state._get_group_states(sess)
+    group = group_states["main"]
+    group["current_map_position"] = session_state._normalize_map_position(
+        {
+            "map_level": "region",
+            "node_type": "zone",
+            "node_id": "ash_pass",
+            "label": "Зольный проход",
+        }
+    )
+    group["area_label"] = "Зольный проход"
+    session_state._persist_group_states(sess, group_states)
+    ash_visit = session_state.record_group_node_visit(
+        sess,
+        "main",
+        "ash_pass",
+        node_label="Зольный проход",
+        result_type="danger_arrival",
+        summary="Группа выходит в опасный зольный проход.",
+    )
+    session_state.resolve_group_destination_event(sess, "main", source="test")
+    assert ash_visit is not None
+    assert session_state.get_current_group_last_destination_event_result(sess, player_id=player_id)["event_id"] == "ash_pass_warning"
 
 def test_group_discovered_region_summaries_support_current_blocked_region() -> None:
     player_id = uuid.uuid4()
