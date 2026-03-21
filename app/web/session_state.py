@@ -5489,6 +5489,15 @@ def get_current_group_service_availability(
         service_id = str(item.get("service_id") or item.get("service_key") or "").strip().lower()
         if service_id:
             requirement_map[service_id] = dict(item)
+    effect_map = {
+        str(item.get("service_id") or item.get("service_key") or "").strip().lower(): dict(item)
+        for item in get_static_node_service_effects(
+            current_map_position=current_map_position,
+            state_flags=context.get("node_state_flags"),
+            group_state_flags=context.get("group_state_flags"),
+        )
+        if isinstance(item, dict) and str(item.get("service_id") or item.get("service_key") or "").strip()
+    }
     availability: list[dict[str, Any]] = []
     for service in get_static_node_services(current_map_position=current_map_position):
         if not isinstance(service, dict):
@@ -5516,7 +5525,16 @@ def get_current_group_service_availability(
         availability_status = str(gate.get("availability_status") or "available").strip().lower()
         annotated.update(gate)
         annotated["service_id"] = service_id or annotated.get("service_id") or annotated.get("service_key")
-        annotated["source"] = str(service.get("source") or annotated.get("source") or "registry")
+        effect = effect_map.get(service_id) or effect_map.get(str(annotated.get("service_key") or "").strip().lower())
+        if effect:
+            effect_summary = str(effect.get("summary") or "").strip()
+            if effect_summary:
+                annotated["summary"] = effect_summary
+            annotated["service_kind"] = str(effect.get("service_kind") or annotated.get("service_kind") or annotated.get("service_type") or "service")
+            annotated["source"] = str(effect.get("source") or service.get("source") or annotated.get("source") or "registry")
+            annotated["one_shot"] = bool(effect.get("one_shot"))
+        else:
+            annotated["source"] = str(service.get("source") or annotated.get("source") or "registry")
         annotated["status"] = availability_status
         annotated["available"] = bool(gate.get("available"))
         if availability_status == "completed" and not annotated.get("unavailable_reason"):

@@ -1426,7 +1426,7 @@ def test_get_current_group_node_context_returns_node_summary_and_contextual_acti
                 "label": "Местные указания",
                 "service_type": "guidance",
                 "service_kind": "guidance",
-                "summary": "Здесь можно получить ориентиры, слухи и безопасные подсказки по ближайшим дорогам.",
+                "summary": "Получить у местных проверенную дорожную наводку.",
                 "source": "registry",
                 "interaction_kind": "service",
                 "interaction_id": "craft_town_local_guidance",
@@ -2211,6 +2211,139 @@ def test_forest_settlement_frontier_support_escalates_with_report_stages() -> No
     node_progress = session_state.get_current_group_current_node_progress(sess, player_id=player_id)
     assert node_progress is not None
     assert node_progress["completed_service_count"] >= 1
+
+
+def test_outward_frontier_support_changes_northwatch_quartermaster_by_stage() -> None:
+    player_id = uuid.uuid4()
+
+    def _build_session(stage_flag: str) -> SimpleNamespace:
+        sess = SimpleNamespace(settings={})
+        session_state._initialize_default_group(
+            sess,
+            [player_id],
+            {"map_level": "region", "node_type": "zone", "node_id": "northwatch_quartermaster", "label": "Интендантский двор"},
+        )
+        session_state.record_group_node_visit(sess, "main", "northwatch_quartermaster", node_label="Интендантский двор", result_type="settlement_arrival", summary="Первый визит.")
+        session_state.record_group_node_visit(sess, "main", "northwatch_quartermaster", node_label="Интендантский двор", result_type="return_arrival", summary="Возврат.")
+        session_state.add_group_node_state_flag(sess, "main", "forest_settlement", state_flag=stage_flag, summary="Подготовка базы.", source="test")
+        return sess
+
+    prepared_sess = _build_session("frontier_support_prepared")
+    prepared_services = session_state.get_current_group_service_availability(prepared_sess, player_id=player_id)
+    prepared = next(item for item in prepared_services if item["service_id"] == "northwatch_quartermaster_resupply")
+    assert "первым внешним backing" in prepared["summary"].lower()
+    prepared_result, error = session_state.resolve_group_service(prepared_sess, "main", service_id="northwatch_quartermaster_resupply", player_id=player_id, source="test")
+    assert error is None
+    assert "первую поддержку с базы" in prepared_result["last_service_result"]["result_summary"].lower()
+    prepared_context = session_state.get_current_group_node_context(prepared_sess, player_id=player_id)
+    assert "northwatch_support_prepared" in prepared_context["node_state_flags"]
+
+    ready_sess = _build_session("frontier_support_ready")
+    ready_services = session_state.get_current_group_service_availability(ready_sess, player_id=player_id)
+    ready = next(item for item in ready_services if item["service_id"] == "northwatch_quartermaster_resupply")
+    assert "организованный рубежный набор" in ready["summary"].lower()
+    ready_result, error = session_state.resolve_group_service(ready_sess, "main", service_id="northwatch_quartermaster_resupply", player_id=player_id, source="test")
+    assert error is None
+    assert "заметно организованнее" in ready_result["last_service_result"]["result_summary"].lower()
+    ready_context = session_state.get_current_group_node_context(ready_sess, player_id=player_id)
+    assert "northwatch_support_ready" in ready_context["node_state_flags"]
+
+    committed_sess = _build_session("frontier_support_committed")
+    committed_services = session_state.get_current_group_service_availability(committed_sess, player_id=player_id)
+    committed = next(item for item in committed_services if item["service_id"] == "northwatch_quartermaster_resupply")
+    assert "лучший рубежный набор" in committed["summary"].lower()
+    committed_result, error = session_state.resolve_group_service(committed_sess, "main", service_id="northwatch_quartermaster_resupply", player_id=player_id, source="test")
+    assert error is None
+    assert "лучшую полевую версию" in committed_result["last_service_result"]["result_summary"].lower()
+    committed_context = session_state.get_current_group_node_context(committed_sess, player_id=player_id)
+    assert "northwatch_support_committed" in committed_context["node_state_flags"]
+
+
+def test_outward_frontier_support_changes_deep_marsh_refuge_by_stage() -> None:
+    player_id = uuid.uuid4()
+
+    def _build_session(stage_flag: str) -> SimpleNamespace:
+        sess = SimpleNamespace(settings={})
+        session_state._initialize_default_group(
+            sess,
+            [player_id],
+            {"map_level": "region", "node_type": "zone", "node_id": "reed_shelter", "label": "Тростниковый приют"},
+        )
+        session_state.record_group_node_visit(sess, "main", "reed_shelter", node_label="Тростниковый приют", result_type="settlement_arrival", summary="Первый визит.")
+        session_state.record_group_node_visit(sess, "main", "reed_shelter", node_label="Тростниковый приют", result_type="return_arrival", summary="Возврат.")
+        session_state.add_group_node_state_flag(sess, "main", "forest_settlement", state_flag=stage_flag, summary="Подготовка базы.", source="test")
+        return sess
+
+    prepared_sess = _build_session("frontier_support_prepared")
+    prepared_services = session_state.get_current_group_service_availability(prepared_sess, player_id=player_id)
+    prepared = next(item for item in prepared_services if item["service_id"] == "reed_shelter_shrine_aid")
+    assert "поддержанную с базы" in prepared["summary"].lower()
+    prepared_result, error = session_state.resolve_group_service(prepared_sess, "main", service_id="reed_shelter_shrine_aid", player_id=player_id, source="test")
+    assert error is None
+    assert "с базы начали тянуть поддержку наружу" in prepared_result["last_service_result"]["result_summary"].lower()
+    assert "deep_marsh_support_prepared" in session_state.get_current_group_node_context(prepared_sess, player_id=player_id)["node_state_flags"]
+
+    ready_sess = _build_session("frontier_support_ready")
+    ready_services = session_state.get_current_group_service_availability(ready_sess, player_id=player_id)
+    ready = next(item for item in ready_services if item["service_id"] == "reed_shelter_shrine_aid")
+    assert "надёжную refuge-поддержку" in ready["summary"].lower()
+    ready_result, error = session_state.resolve_group_service(ready_sess, "main", service_id="reed_shelter_shrine_aid", player_id=player_id, source="test")
+    assert error is None
+    assert "становится надёжнее" in ready_result["last_service_result"]["result_summary"].lower()
+    assert "deep_marsh_support_ready" in session_state.get_current_group_node_context(ready_sess, player_id=player_id)["node_state_flags"]
+
+    committed_sess = _build_session("frontier_support_committed")
+    committed_services = session_state.get_current_group_service_availability(committed_sess, player_id=player_id)
+    committed = next(item for item in committed_services if item["service_id"] == "reed_shelter_shrine_aid")
+    assert "лучший болотный refuge-response" in committed["summary"].lower()
+    committed_result, error = session_state.resolve_group_service(committed_sess, "main", service_id="reed_shelter_shrine_aid", player_id=player_id, source="test")
+    assert error is None
+    assert "лучшую версию своей помощи" in committed_result["last_service_result"]["result_summary"].lower()
+    assert "deep_marsh_support_committed" in session_state.get_current_group_node_context(committed_sess, player_id=player_id)["node_state_flags"]
+
+
+def test_outward_frontier_support_changes_western_road_waystation_by_stage() -> None:
+    player_id = uuid.uuid4()
+
+    def _build_session(stage_flag: str) -> SimpleNamespace:
+        sess = SimpleNamespace(settings={})
+        session_state._initialize_default_group(
+            sess,
+            [player_id],
+            {"map_level": "region", "node_type": "zone", "node_id": "waystation_yard", "label": "Постоялый двор"},
+        )
+        session_state.record_group_node_visit(sess, "main", "waystation_yard", node_label="Постоялый двор", result_type="settlement_arrival", summary="Первый визит.")
+        session_state.record_group_node_visit(sess, "main", "waystation_yard", node_label="Постоялый двор", result_type="return_arrival", summary="Возврат.")
+        session_state.add_group_node_state_flag(sess, "main", "forest_settlement", state_flag=stage_flag, summary="Подготовка базы.", source="test")
+        return sess
+
+    prepared_sess = _build_session("frontier_support_prepared")
+    prepared_services = session_state.get_current_group_service_availability(prepared_sess, player_id=player_id)
+    prepared = next(item for item in prepared_services if item["service_id"] == "waystation_yard_resupply")
+    assert "усиленный первым backing" in prepared["summary"].lower()
+    prepared_result, error = session_state.resolve_group_service(prepared_sess, "main", service_id="waystation_yard_resupply", player_id=player_id, source="test")
+    assert error is None
+    assert "первой поддержкой с базы" in prepared_result["last_service_result"]["result_summary"].lower()
+    assert "western_road_support_prepared" in session_state.get_current_group_node_context(prepared_sess, player_id=player_id)["node_state_flags"]
+
+    ready_sess = _build_session("frontier_support_ready")
+    ready_services = session_state.get_current_group_service_availability(ready_sess, player_id=player_id)
+    ready = next(item for item in ready_services if item["service_id"] == "waystation_yard_resupply")
+    assert "ready-stage поддержке" in ready["summary"].lower()
+    ready_result, error = session_state.resolve_group_service(ready_sess, "main", service_id="waystation_yard_resupply", player_id=player_id, source="test")
+    assert error is None
+    assert "заметно dependable" in ready_result["last_service_result"]["result_summary"].lower()
+    assert "western_road_support_ready" in session_state.get_current_group_node_context(ready_sess, player_id=player_id)["node_state_flags"]
+
+    committed_sess = _build_session("frontier_support_committed")
+    committed_services = session_state.get_current_group_service_availability(committed_sess, player_id=player_id)
+    committed = next(item for item in committed_services if item["service_id"] == "waystation_yard_resupply")
+    assert "лучший дорожный набор" in committed["summary"].lower()
+    committed_result, error = session_state.resolve_group_service(committed_sess, "main", service_id="waystation_yard_resupply", player_id=player_id, source="test")
+    assert error is None
+    assert "best frontier support" not in committed_result["last_service_result"]["result_summary"].lower()
+    assert "лучшую версию своей дорожной помощи" in committed_result["last_service_result"]["result_summary"].lower()
+    assert "western_road_support_committed" in session_state.get_current_group_node_context(committed_sess, player_id=player_id)["node_state_flags"]
 
 
 def test_local_interaction_gating_enforces_locked_execution_without_side_effects() -> None:

@@ -541,6 +541,25 @@ def test_western_road_nodes_expose_services_actions_events_and_scout_discovery()
     assert get_static_node_destination_events(node_id="western_road_watch", state_flags=[], visit_count=1)[0]["event_id"] == "western_road_watch_delay_notice"
     assert get_static_node_destination_events(node_id="broken_waycart", state_flags=[], visit_count=1)[0]["event_id"] == "broken_waycart_trace"
 
+    northwatch_effects = [
+        item
+        for item in get_static_node_service_effects(node_id="northwatch_quartermaster")
+        if item["service_id"] == "northwatch_quartermaster_resupply"
+    ]
+    deep_marsh_effects = [
+        item
+        for item in get_static_node_service_effects(node_id="reed_shelter")
+        if item["service_id"] == "reed_shelter_shrine_aid"
+    ]
+    western_effects = [
+        item
+        for item in get_static_node_service_effects(node_id="waystation_yard")
+        if item["service_id"] == "waystation_yard_resupply"
+    ]
+    assert len(northwatch_effects) == 4
+    assert len(deep_marsh_effects) == 4
+    assert len(western_effects) == 4
+
 
 def test_deep_marsh_nodes_expose_services_actions_events_and_scout_discovery() -> None:
     shelter_services = get_static_node_services(node_id="reed_shelter")

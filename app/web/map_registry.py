@@ -1350,6 +1350,27 @@ STATIC_MAP_NODE_STATE_OVERLAYS: tuple[dict[str, Any], ...] = (
         "service_note": "После обратного доклада склад уже реагирует на группу как на проверенный патрульный состав, а не как на случайных путников.",
     },
     {
+        "node_id": "northwatch_quartermaster",
+        "state_flag": "northwatch_support_prepared",
+        "context_note": "На интендантском дворе уже чувствуют первую поддержку, пришедшую с базы на северный рубеж.",
+        "detail_note": "Северный склад уже работает чуть собраннее: по двору видно, что внешняя база начала подпира́ть рубеж не только словами, но и ритмом снабжения.",
+        "service_note": "С первым outward support deployment северный двор уже выдаёт помощь не как одинокую импровизацию, а как часть начавшейся линии поддержки.",
+    },
+    {
+        "node_id": "northwatch_quartermaster",
+        "state_flag": "northwatch_support_ready",
+        "context_note": "Интендантский двор уже держит более надёжный порядок снабжения по готовой support-линии с базы.",
+        "detail_note": "На рубеже стало заметно больше организованности: выдача идёт быстрее, а сам двор выглядит как точка preparedness, а не как место постоянного аврала.",
+        "service_note": "С ready-stage поддержкой северный двор стал заметно увереннее и полезнее для повторных коротких рубежных ходов.",
+    },
+    {
+        "node_id": "northwatch_quartermaster",
+        "state_flag": "northwatch_support_committed",
+        "context_note": "Северный рубеж уже получает лучший field-facing support tier с базы.",
+        "detail_note": "По складу видно, что рубеж теперь встроен в общую линию frontier support: порядок снабжения ощущается крепче и шире, чем раньше.",
+        "service_note": "Полный support deployment делает северный двор лучшей версией самого себя: это уже не только выдержка дозора, но и реальная организованная опора.",
+    },
+    {
         "node_id": "deep_marsh_threshold",
         "state_flag": "deep_marsh_mist_notice_taken",
         "context_note": "На пороге глубоких болот уже отмечено предупреждение о тумане, чёрной воде и коротком безопасном ходе.",
@@ -1387,6 +1408,27 @@ STATIC_MAP_NODE_STATE_OVERLAYS: tuple[dict[str, Any], ...] = (
         "service_note": "После обратного рассказа двор уже реагирует на группу как на тех, кто реально сходил по следу обоза, а не просто просит помощь с дороги.",
     },
     {
+        "node_id": "waystation_yard",
+        "state_flag": "western_road_support_prepared",
+        "context_note": "На постоялом дворе уже чувствуют первый внешний backing, пришедший с базы на тракт.",
+        "detail_note": "Двор работает чуть спокойнее: возчики уже знают, что дальний road support начал тянуться не только изнутри тракта, но и с базовой линии.",
+        "service_note": "С первым support stage двор уже выглядит менее случайным и более готовым к следующим дорожным возвратам.",
+    },
+    {
+        "node_id": "waystation_yard",
+        "state_flag": "western_road_support_ready",
+        "context_note": "Постоялый двор уже держит более надёжный road-support tier благодаря готовой базе.",
+        "detail_note": "Под навесами стало больше порядка и уверенности: yard feels like a working corridor node, а не как временный дорожный костыль.",
+        "service_note": "Ready-stage support делает западный тракт ощутимо надёжнее для тех, кто возвращается со следа.",
+    },
+    {
+        "node_id": "waystation_yard",
+        "state_flag": "western_road_support_committed",
+        "context_note": "На постоялом дворе уже действует лучший дорожный support tier, дошедший с базы.",
+        "detail_note": "Западный тракт теперь ощущается частью общей support-линии: двор держит лучший ритм помощи, а caravan-узел стал заметно устойчивее.",
+        "service_note": "Полный support deployment делает waystation настоящей внешней опорой тракта, а не только местом случайной передышки.",
+    },
+    {
         "node_id": "sunken_ferry",
         "state_flag": "deep_marsh_ferry_trace_found",
         "context_note": "У затонувшей переправы уже замечали свежие следы недавней остановки и брошенный болотный шнур.",
@@ -1398,6 +1440,27 @@ STATIC_MAP_NODE_STATE_OVERLAYS: tuple[dict[str, Any], ...] = (
         "context_note": "В тростниковом приюте уже дали группе сухой кров и короткую болотную поддержку после возвращения из сырого хода.",
         "detail_note": "Под навесом ещё видны следы недавно выданного сухого места и короткой помощи именно для этой группы.",
         "service_note": "Приют уже однажды дал этой группе тихий кров после болотного выхода и теперь скорее подтверждает знакомую помощь, чем впервые открывается.",
+    },
+    {
+        "node_id": "reed_shelter",
+        "state_flag": "deep_marsh_support_prepared",
+        "context_note": "В тростниковом приюте уже чувствуют первую осторожную поддержку, дошедшую с базы.",
+        "detail_note": "Даже болотный refuge выглядит чуть спокойнее: хозяйка уже не так бережёт каждый сухой пучок, потому что знает о первом внешнем backing.",
+        "service_note": "С первым support stage приют отвечает теплее и увереннее, хотя по-прежнему держится тихо и бережно.",
+    },
+    {
+        "node_id": "reed_shelter",
+        "state_flag": "deep_marsh_support_ready",
+        "context_note": "Тростниковый приют уже держит более надёжную refuge-помощь благодаря готовой базе.",
+        "detail_note": "В приюте стало меньше нервной экономии и больше спокойной готовности помочь тем, кто возвращается из сырого хода.",
+        "service_note": "Ready-stage support делает болотный refuge ощутимо надёжнее и человечнее на возвращении.",
+    },
+    {
+        "node_id": "reed_shelter",
+        "state_flag": "deep_marsh_support_committed",
+        "context_note": "В тростниковом приюте уже действует лучший refuge-support tier, дошедший с базы.",
+        "detail_note": "Болотный приют теперь ощущается не забытым краем, а настоящей тихой внешней опорой, которую база сумела дотянуть до самой сырой линии.",
+        "service_note": "Полный support deployment делает refuge в deep_marsh лучшей версией его тихой помощи: мягкой, но уже не хрупкой.",
     },
 )
 
@@ -1927,6 +1990,57 @@ STATIC_MAP_SERVICE_EFFECTS: tuple[dict[str, Any], ...] = (
         "node_state_summary": "На интендантском дворе уже приняли обратный доклад с редута и выдали группе рубежный набор.",
     },
     {
+        "node_id": "northwatch_quartermaster",
+        "service_key": "resupply",
+        "service_id": "northwatch_quartermaster_resupply",
+        "service_kind": "supplies",
+        "one_shot": True,
+        "result_type": "supplies_secured",
+        "summary": "Получить рубежный набор с первым внешним backing от лесного посёлка.",
+        "result_summary": "Интендантский двор уже чувствует первую поддержку с базы: набор собран чуть увереннее, а рубежный доклад принимают как часть большей линии помощи, а не только местной импровизации.",
+        "discovered_notes": [
+            "На северном рубеже уже знают, что лесной посёлок начал поддерживать дальние выходы, и потому интендант держит первый более собранный набор под короткие вылазки."
+        ],
+        "applied_effects": ["supplies_secured:northwatch_quartermaster", "support_note:northwatch_deployment"],
+        "node_state_flags": ["northwatch_quartermaster_supplies", "northwatch_redoubt_return_logged", "northwatch_support_prepared"],
+        "node_state_summary": "На северном рубеже уже ощущается первый внешний support deployment с базы.",
+        "requires_any_group_node_state_flags": ["frontier_support_prepared"],
+    },
+    {
+        "node_id": "northwatch_quartermaster",
+        "service_key": "resupply",
+        "service_id": "northwatch_quartermaster_resupply",
+        "service_kind": "supplies",
+        "one_shot": True,
+        "result_type": "supplies_secured",
+        "summary": "Получить более организованный рубежный набор после готовности базы.",
+        "result_summary": "Когда лесной посёлок уже держит готовую линию поддержки, северный интендант отвечает заметно организованнее: набор полнее, порядок выдачи быстрее, а readiness рубежа ощущается не на словах, а в ритме самого двора.",
+        "discovered_notes": [
+            "Северный двор перестал работать от случая к случаю: с готовой поддержкой с базы рубеж держит более надёжный порядок снабжения."
+        ],
+        "applied_effects": ["supplies_secured:northwatch_quartermaster", "support_note:northwatch_ready"],
+        "node_state_flags": ["northwatch_quartermaster_supplies", "northwatch_redoubt_return_logged", "northwatch_support_ready"],
+        "node_state_summary": "На северном рубеже уже держат более организованную supply-readiness по внешней поддержке с базы.",
+        "requires_any_group_node_state_flags": ["frontier_support_ready"],
+    },
+    {
+        "node_id": "northwatch_quartermaster",
+        "service_key": "resupply",
+        "service_id": "northwatch_quartermaster_resupply",
+        "service_kind": "supplies",
+        "one_shot": True,
+        "result_type": "supplies_secured",
+        "summary": "Получить лучший рубежный набор после полной поддержки с базы.",
+        "result_summary": "При полной поддержке с базы северный двор даёт лучшую полевую версию своего снабжения: быстрый приём, чёткий комплект и ощутимое чувство, что рубеж теперь держат как часть общей frontier-линии, а не одиночным упрямством.",
+        "discovered_notes": [
+            "После полной сводки и полной поддержки с базы северный рубеж выглядит уже не только стойким, но и по-настоящему снабжаемым."
+        ],
+        "applied_effects": ["supplies_secured:northwatch_quartermaster", "support_note:northwatch_committed"],
+        "node_state_flags": ["northwatch_quartermaster_supplies", "northwatch_redoubt_return_logged", "northwatch_support_committed"],
+        "node_state_summary": "На северном рубеже уже действует лучший support tier, пришедший из лесного посёлка.",
+        "requires_any_group_node_state_flags": ["frontier_support_committed"],
+    },
+    {
         "node_id": "reed_shelter",
         "service_key": "shrine_aid",
         "service_id": "reed_shelter_shrine_aid",
@@ -1943,6 +2057,57 @@ STATIC_MAP_SERVICE_EFFECTS: tuple[dict[str, Any], ...] = (
         "node_state_summary": "В тростниковом приюте уже дали группе тихий болотный кров после возвращения из сырого хода.",
     },
     {
+        "node_id": "reed_shelter",
+        "service_key": "shrine_aid",
+        "service_id": "reed_shelter_shrine_aid",
+        "service_kind": "shrine",
+        "one_shot": True,
+        "result_type": "lodging_received",
+        "summary": "Попросить тихую болотную помощь, уже поддержанную с базы.",
+        "result_summary": "Тростниковый приют даёт более уверенный тихий кров: хозяйка уже знает, что с базы начали тянуть поддержку наружу, и refuge feels less improvised, even in this wet dark edge.",
+        "discovered_notes": [
+            "Даже на болотной кромке чувствуется первый внешний backing: приют легче решается расходовать сухие травы и хороший настил на тех, кто возвращается с дальнего хода."
+        ],
+        "applied_effects": ["lodging_received", "marsh_refuge_recorded", "support_note:deep_marsh_prepared"],
+        "node_state_flags": ["deep_marsh_shelter_aid_received", "deep_marsh_support_prepared"],
+        "node_state_summary": "В тростниковом приюте уже чувствуют первую осторожную поддержку, пришедшую с базы.",
+        "requires_any_group_node_state_flags": ["frontier_support_prepared"],
+    },
+    {
+        "node_id": "reed_shelter",
+        "service_key": "shrine_aid",
+        "service_id": "reed_shelter_shrine_aid",
+        "service_kind": "shrine",
+        "one_shot": True,
+        "result_type": "lodging_received",
+        "summary": "Попросить более надёжную refuge-поддержку при готовой базе.",
+        "result_summary": "Когда база уже держит готовую линию помощи, болотный refuge становится надёжнее: сухой настил, тёплая горечь и обратные метки готовят спокойнее и без прежней нервной экономии.",
+        "discovered_notes": [
+            "С ready-stage поддержкой приют уже меньше боится тратить хорошие болотные припасы на вернувшихся ходоков."
+        ],
+        "applied_effects": ["lodging_received", "marsh_refuge_recorded", "support_note:deep_marsh_ready"],
+        "node_state_flags": ["deep_marsh_shelter_aid_received", "deep_marsh_support_ready"],
+        "node_state_summary": "В тростниковом приюте уже держат более надёжную refuge-помощь благодаря готовой внешней поддержке.",
+        "requires_any_group_node_state_flags": ["frontier_support_ready"],
+    },
+    {
+        "node_id": "reed_shelter",
+        "service_key": "shrine_aid",
+        "service_id": "reed_shelter_shrine_aid",
+        "service_kind": "shrine",
+        "one_shot": True,
+        "result_type": "lodging_received",
+        "summary": "Попросить лучший болотный refuge-response после полной поддержки с базы.",
+        "result_summary": "При полной поддержке с базы тростниковый приют даёт лучшую версию своей помощи: хороший сухой настил, не скупую травяную горечь и уверенный тихий advice на обратный ход через туман.",
+        "discovered_notes": [
+            "Полный support tier с базы делает болотный refuge ощутимо крепче: приют уже действует не на остатках, а с уверенностью, что дальний край не забыт."
+        ],
+        "applied_effects": ["lodging_received", "marsh_refuge_recorded", "support_note:deep_marsh_committed"],
+        "node_state_flags": ["deep_marsh_shelter_aid_received", "deep_marsh_support_committed"],
+        "node_state_summary": "В тростниковом приюте уже действует лучший refuge-support tier, дошедший с базы.",
+        "requires_any_group_node_state_flags": ["frontier_support_committed"],
+    },
+    {
         "node_id": "waystation_yard",
         "service_key": "resupply",
         "service_id": "waystation_yard_resupply",
@@ -1957,6 +2122,57 @@ STATIC_MAP_SERVICE_EFFECTS: tuple[dict[str, Any], ...] = (
         "applied_effects": ["supplies_secured:waystation_yard", "support_note:western_road_return"],
         "node_state_flags": ["western_road_waystation_aid_received"],
         "node_state_summary": "На постоялом дворе уже приняли рассказ о дорожной задержке и выдали группе дорожный набор.",
+    },
+    {
+        "node_id": "waystation_yard",
+        "service_key": "resupply",
+        "service_id": "waystation_yard_resupply",
+        "service_kind": "supplies",
+        "one_shot": True,
+        "result_type": "supplies_secured",
+        "summary": "Получить дорожный набор, уже усиленный первым backing с базы.",
+        "result_summary": "Постоялый двор работает спокойнее и надёжнее: с первой поддержкой с базы возчики держат лучший дорожный порядок и выдают набор не как редкую удачу, а как начало более устойчивой линии помощи на тракте.",
+        "discovered_notes": [
+            "На западном тракте уже знают, что лесной посёлок начал поддерживать дальние выходы, и двор охотнее держит собранный набор под тех, кто реально вернулся со следа."
+        ],
+        "applied_effects": ["supplies_secured:waystation_yard", "support_note:western_road_prepared"],
+        "node_state_flags": ["western_road_waystation_aid_received", "western_road_support_prepared"],
+        "node_state_summary": "На постоялом дворе уже чувствуют первый внешний backing с базы.",
+        "requires_any_group_node_state_flags": ["frontier_support_prepared"],
+    },
+    {
+        "node_id": "waystation_yard",
+        "service_key": "resupply",
+        "service_id": "waystation_yard_resupply",
+        "service_kind": "supplies",
+        "one_shot": True,
+        "result_type": "supplies_secured",
+        "summary": "Получить более надёжный дорожный набор при ready-stage поддержке.",
+        "result_summary": "Когда база уже держит готовую линию поддержки, постоялый двор становится заметно dependable: запас готовят быстрее, дорожные пометки сходятся лучше, а сам yard feels like a working corridor node instead of a strained stopgap.",
+        "discovered_notes": [
+            "С ready-stage backing дорожный двор уже держит тракт не на одной привычке возчиков, а на более устойчивом support rhythm."
+        ],
+        "applied_effects": ["supplies_secured:waystation_yard", "support_note:western_road_ready"],
+        "node_state_flags": ["western_road_waystation_aid_received", "western_road_support_ready"],
+        "node_state_summary": "На постоялом дворе уже работает более надёжный road-support tier благодаря готовой базе.",
+        "requires_any_group_node_state_flags": ["frontier_support_ready"],
+    },
+    {
+        "node_id": "waystation_yard",
+        "service_key": "resupply",
+        "service_id": "waystation_yard_resupply",
+        "service_kind": "supplies",
+        "one_shot": True,
+        "result_type": "supplies_secured",
+        "summary": "Получить лучший дорожный набор после полной поддержки с базы.",
+        "result_summary": "При полной поддержке с базы постоялый двор выдаёт лучшую версию своей дорожной помощи: dependable caravan notes, быстрый сбор и явное чувство, что западный тракт теперь встроен в общую линию frontier support, а не держится в одиночку.",
+        "discovered_notes": [
+            "Полный support tier с базы делает тракт ощутимо надёжнее: двор уже работает как настоящая внешняя опора, а не как случайный спасительный навес."
+        ],
+        "applied_effects": ["supplies_secured:waystation_yard", "support_note:western_road_committed"],
+        "node_state_flags": ["western_road_waystation_aid_received", "western_road_support_committed"],
+        "node_state_summary": "На постоялом дворе уже действует лучший дорожный support tier, дошедший с базы.",
+        "requires_any_group_node_state_flags": ["frontier_support_committed"],
     },
 )
 
@@ -2781,6 +2997,18 @@ def get_static_node_service_effects(
         required_state_flags = _normalized_text_list(item.get("required_state_flags"))
         if required_state_flags:
             effect["required_state_flags"] = required_state_flags
+        requires_any_group_node_state_flags = _normalized_text_list(item.get("requires_any_group_node_state_flags"))
+        if requires_any_group_node_state_flags:
+            effect["requires_any_group_node_state_flags"] = requires_any_group_node_state_flags
+        requires_all_group_node_state_flags = _normalized_text_list(item.get("requires_all_group_node_state_flags"))
+        if requires_all_group_node_state_flags:
+            effect["requires_all_group_node_state_flags"] = requires_all_group_node_state_flags
+        requires_min_group_node_state_flags = int(item.get("requires_min_group_node_state_flags") or 0)
+        if requires_min_group_node_state_flags > 0:
+            effect["requires_min_group_node_state_flags"] = requires_min_group_node_state_flags
+        group_node_state_flag_pool = _normalized_text_list(item.get("group_node_state_flag_pool"))
+        if group_node_state_flag_pool:
+            effect["group_node_state_flag_pool"] = group_node_state_flag_pool
         if service_key and service_id:
             effects.append(effect)
     if state_flags is None and group_state_flags is None:
