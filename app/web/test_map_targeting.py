@@ -352,7 +352,7 @@ def test_get_static_node_destination_events_returns_authored_arrival_events() ->
 
 def test_get_static_region_gateways_returns_authored_frontier_exit_definitions() -> None:
     all_gateways = get_static_region_gateways(region_id="region")
-    assert len(all_gateways) == 11
+    assert len(all_gateways) == 13
     assert get_static_node_region_gateways(node_id="forest_settlement") == [
         {
             "gateway_id": "forest_settlement_northwatch",
@@ -397,6 +397,23 @@ def test_get_static_region_gateways_returns_authored_frontier_exit_definitions()
             ],
         }
     ]
+    assert get_static_node_region_gateways(node_id="ash_pass") == [
+        {
+            "gateway_id": "ash_pass_deep_marsh",
+            "source_node_id": "ash_pass",
+            "route_id": "northwatch_quartermaster->ash_pass:move",
+            "target_region_id": "deep_marsh",
+            "target_region_label": "Глубокие болота",
+            "target_anchor_node_id": "reed_shelter",
+            "label": "Боковая линия к тростниковому приюту",
+            "future_stub": False,
+            "unlock_hint": "Боковая watch-marsh линия держится только когда и северный рубеж, и болотный край подтвердили выполненную полевую стабилизацию.",
+            "requires_all_group_node_state_flags": [
+                "northwatch_directive_fulfilled",
+                "deep_marsh_directive_fulfilled",
+            ],
+        }
+    ]
     assert get_static_node_region_gateways(node_id="deep_marsh_threshold") == [
         {
             "gateway_id": "deep_marsh_threshold_starter_frontier",
@@ -424,6 +441,23 @@ def test_get_static_region_gateways_returns_authored_frontier_exit_definitions()
             "requires_all_group_node_state_flags": [
                 "deep_marsh_directive_fulfilled",
                 "western_road_directive_fulfilled",
+            ],
+        }
+    ]
+    assert get_static_node_region_gateways(node_id="reed_shelter") == [
+        {
+            "gateway_id": "reed_shelter_northwatch",
+            "source_node_id": "reed_shelter",
+            "route_id": "deep_marsh_threshold->reed_shelter:move",
+            "target_region_id": "northwatch_frontier",
+            "target_region_label": "Северный рубеж",
+            "target_anchor_node_id": "ash_pass",
+            "label": "Боковая линия к северному рубежу",
+            "future_stub": False,
+            "unlock_hint": "Боковой marsh-watch проход держится только после того, как и рубеж, и болотная линия подтвердили выполненную стабилизацию.",
+            "requires_all_group_node_state_flags": [
+                "northwatch_directive_fulfilled",
+                "deep_marsh_directive_fulfilled",
             ],
         }
     ]

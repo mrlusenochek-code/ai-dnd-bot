@@ -2296,6 +2296,12 @@ STATIC_MAP_NODE_STATE_OVERLAYS: tuple[dict[str, Any], ...] = (
         "service_note": "Northwatch теперь ощущается не только как получатель directive, а как рубеж, который реально выполнил redoubt watch order и подготовил боковой frontier line.",
     },
     {
+        "node_id": "ash_pass",
+        "state_flag": "northwatch_directive_fulfilled",
+        "context_note": "На ash_pass уже держат не только ход к редуту, но и reopened боковую линию к болотной протоке.",
+        "detail_note": "После выполненной рубежной директивы ash_pass читается не как тупиковый тревожный ход, а как рабочая watch-side линия к deep_marsh.",
+    },
+    {
         "node_id": "deep_marsh_threshold",
         "state_flag": "deep_marsh_mist_notice_taken",
         "context_note": "На пороге глубоких болот уже отмечено предупреждение о тумане, чёрной воде и коротком безопасном ходе.",
@@ -2406,8 +2412,8 @@ STATIC_MAP_NODE_STATE_OVERLAYS: tuple[dict[str, Any], ...] = (
     {
         "node_id": "blackwater_run",
         "state_flag": "deep_marsh_directive_fulfilled",
-        "context_note": "У чёрной протоки уже держат не только quiet crossing line, но и reopened боковой ход к западному тракту.",
-        "detail_note": "После выполненной болотной директивы протока снова читается как рабочий frontier-side выход: осторожный болотный ход теперь доведён до прямой боковой линии в сторону western_road.",
+        "context_note": "У чёрной протоки уже держат не только quiet crossing line, но и reopened боковые ходы к тракту и северному рубежу.",
+        "detail_note": "После выполненной болотной директивы протока снова читается как рабочий frontier-side выход: осторожный болотный ход теперь доведён до прямых боковых линий в сторону western_road и northwatch_frontier.",
     },
     {
         "node_id": "reed_shelter",
@@ -3327,6 +3333,20 @@ STATIC_MAP_REGION_GATEWAYS: tuple[dict[str, Any], ...] = (
         "unlock_hint": "Боковая frontier-линия между северным рубежом и трактом открывается только когда обе стороны реально выполнили своё stabilization work.",
     },
     {
+        "gateway_id": "ash_pass_deep_marsh",
+        "source_node_id": "ash_pass",
+        "route_id": "northwatch_quartermaster->ash_pass:move",
+        "target_region_id": "deep_marsh",
+        "target_region_label": "Глубокие болота",
+        "target_anchor_node_id": "reed_shelter",
+        "label": "Боковая линия к тростниковому приюту",
+        "requires_all_group_node_state_flags": [
+            "northwatch_directive_fulfilled",
+            "deep_marsh_directive_fulfilled",
+        ],
+        "unlock_hint": "Боковая watch-marsh линия держится только когда и северный рубеж, и болотный край подтвердили выполненную полевую стабилизацию.",
+    },
+    {
         "gateway_id": "fortress_gate_western_road",
         "source_node_id": "fortress_gate",
         "route_id": "start_trakt->fortress_gate:move",
@@ -3409,6 +3429,20 @@ STATIC_MAP_REGION_GATEWAYS: tuple[dict[str, Any], ...] = (
             "western_road_directive_fulfilled",
         ],
         "unlock_hint": "Тихий боковой ход к тракту удерживается только после того, как и болотная линия, и дорожный двор подтвердили выполненную стабилизацию.",
+    },
+    {
+        "gateway_id": "reed_shelter_northwatch",
+        "source_node_id": "reed_shelter",
+        "route_id": "deep_marsh_threshold->reed_shelter:move",
+        "target_region_id": "northwatch_frontier",
+        "target_region_label": "Северный рубеж",
+        "target_anchor_node_id": "ash_pass",
+        "label": "Боковая линия к северному рубежу",
+        "requires_all_group_node_state_flags": [
+            "northwatch_directive_fulfilled",
+            "deep_marsh_directive_fulfilled",
+        ],
+        "unlock_hint": "Боковой marsh-watch проход держится только после того, как и рубеж, и болотная линия подтвердили выполненную стабилизацию.",
     },
     {
         "gateway_id": "forgotten_shrine_sunken_reaches",
