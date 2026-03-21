@@ -1661,6 +1661,69 @@ STATIC_MAP_CONTEXT_ACTION_EFFECTS: tuple[dict[str, Any], ...] = (
         "node_state_summary": "На постоялом дворе уже отметили присланное с базы corridor directive.",
     },
     {
+        "node_id": "northwatch_quartermaster",
+        "action_id": "confirm_redoubt_watch",
+        "label": "Подтвердить redoubt watch",
+        "action_kind": "support",
+        "effect_type": "support",
+        "one_shot": True,
+        "result_type": "route_cleared",
+        "summary": "Провести директиву до реального redoubt watch и закрепить ход к редуту как координируемую линию дозора.",
+        "result_summary": "Северный двор не просто раскладывает приказ, а реально проводит его в поле: redoubt watch подтверждён, ash_pass к редуту читается как удерживаемый дозорный ход, а не как одинокий рискованный выход.",
+        "discovered_notes": [
+            "Northwatch выполняет домашнюю директиву в поле: теперь путь к broken_redoubt держится как подтверждённая watch-line, а не только как найденная опасная ветка."
+        ],
+        "applied_effects": ["frontier_directive:northwatch_fulfilled", "route:ash_pass_redoubt:secured"],
+        "node_state_flags": ["northwatch_directive_fulfilled"],
+        "node_state_summary": "На северном рубеже уже подтвердили redoubt watch и закрепили ash_pass как рабочую линию дозора.",
+        "route_access_updates": [
+            {
+                "route_id": "ash_pass->broken_redoubt:move",
+                "access_state": "cleared",
+                "summary": "Под redoubt watch ash_pass к редуту теперь держится как подтверждённый дозорный ход.",
+            },
+            {
+                "route_id": "broken_redoubt->ash_pass:move",
+                "access_state": "cleared",
+                "summary": "Обратный ход от редута к ash_pass теперь закреплён как подтверждённая линия дозора.",
+            },
+        ],
+    },
+    {
+        "node_id": "reed_shelter",
+        "action_id": "secure_crossing_line",
+        "label": "Закрепить crossing line",
+        "action_kind": "support",
+        "effect_type": "support",
+        "one_shot": True,
+        "result_type": "local_support_applied",
+        "summary": "Провести болотную директиву до реальной secured crossing line у quiet water.",
+        "result_summary": "Тростниковый приют доводит присланное предписание до дела: crossing line у сырой воды закреплена, возврат через переправу читается осторожнее и надёжнее, чем прежде.",
+        "discovered_notes": [
+            "Deep_marsh не только получил crossing order, но и действительно закрепил его как тихую working line для осторожного возврата."
+        ],
+        "applied_effects": ["frontier_directive:deep_marsh_fulfilled", "crossing:secured"],
+        "node_state_flags": ["deep_marsh_directive_fulfilled"],
+        "node_state_summary": "У тростникового приюта уже закрепили quiet crossing line по присланной директиве.",
+    },
+    {
+        "node_id": "waystation_yard",
+        "action_id": "stabilize_corridor_handling",
+        "label": "Упорядочить corridor handling",
+        "action_kind": "support",
+        "effect_type": "support",
+        "one_shot": True,
+        "result_type": "local_support_applied",
+        "summary": "Провести corridor order до реального detour handling на дворе.",
+        "result_summary": "На постоялом дворе доводят corridor directive до дела: detour handling больше не держится на случайной спешке, а закрепляется как понятный возвратный порядок для тракта.",
+        "discovered_notes": [
+            "Western_road теперь не только получил corridor order, но и действительно закрепил его как рабочий порядок двора и detour line."
+        ],
+        "applied_effects": ["frontier_directive:western_road_fulfilled", "corridor:stabilized"],
+        "node_state_flags": ["western_road_directive_fulfilled"],
+        "node_state_summary": "На постоялом дворе уже закрепили detour handling по присланной corridor directive.",
+    },
+    {
         "node_id": "forest_settlement",
         "action_id": "compile_frontier_report",
         "label": "Сверить frontier сводки",
@@ -1860,6 +1923,24 @@ STATIC_MAP_CONTEXT_ACTION_REQUIREMENTS: tuple[dict[str, Any], ...] = (
         "action_id": "chalk_corridor_orders",
         "requires_any_group_node_state_flags": ["western_road_field_directive_issued"],
         "unlock_hint": "Сначала вернуть дорожный evidence домой и дождаться, пока база отправит назад corridor directive.",
+    },
+    {
+        "node_id": "northwatch_quartermaster",
+        "action_id": "confirm_redoubt_watch",
+        "requires_node_state_flag": "northwatch_directive_posted",
+        "unlock_hint": "Сначала разложить присланный redoubt order на интендантском дворе и только потом закреплять watch-line в поле.",
+    },
+    {
+        "node_id": "reed_shelter",
+        "action_id": "secure_crossing_line",
+        "requires_node_state_flag": "deep_marsh_directive_posted",
+        "unlock_hint": "Сначала связать присланный crossing order у приюта и только потом закреплять quiet crossing line.",
+    },
+    {
+        "node_id": "waystation_yard",
+        "action_id": "stabilize_corridor_handling",
+        "requires_node_state_flag": "western_road_directive_posted",
+        "unlock_hint": "Сначала отметить corridor order на дворе и только потом закреплять detour handling как рабочий порядок.",
     },
 )
 
@@ -2089,6 +2170,13 @@ STATIC_MAP_NODE_STATE_OVERLAYS: tuple[dict[str, Any], ...] = (
         "service_note": "Northwatch теперь держит не только support-line, но и явный coordinated order с базы по redoubt response.",
     },
     {
+        "node_id": "northwatch_quartermaster",
+        "state_flag": "northwatch_directive_fulfilled",
+        "context_note": "На северном дворе уже не просто вывесили redoubt order, а реально закрепили watch-line к редуту.",
+        "detail_note": "Приказ с базы уже довели до поля: ash_pass к broken_redoubt теперь держится как подтверждённый дозорный ход, а не просто как опасный след.",
+        "service_note": "Northwatch теперь ощущается не только как получатель directive, а как рубеж, который реально выполнил redoubt watch order.",
+    },
+    {
         "node_id": "deep_marsh_threshold",
         "state_flag": "deep_marsh_mist_notice_taken",
         "context_note": "На пороге глубоких болот уже отмечено предупреждение о тумане, чёрной воде и коротком безопасном ходе.",
@@ -2178,6 +2266,13 @@ STATIC_MAP_NODE_STATE_OVERLAYS: tuple[dict[str, Any], ...] = (
         "service_note": "Western_road теперь держит не только поддержку, но и явный coordinated corridor order с базы.",
     },
     {
+        "node_id": "waystation_yard",
+        "state_flag": "western_road_directive_fulfilled",
+        "context_note": "На дворе уже не только отметили corridor order, но и закрепили detour handling как рабочий порядок.",
+        "detail_note": "Western_road теперь держит не просто chalked directive, а реально проведённый порядок двора: detour line читается собраннее и спокойнее.",
+        "service_note": "Постоялый двор уже выполнил corridor directive и ведёт detour response как подтверждённый полевой порядок.",
+    },
+    {
         "node_id": "sunken_ferry",
         "state_flag": "deep_marsh_ferry_trace_found",
         "context_note": "У затонувшей переправы уже замечали свежие следы недавней остановки и брошенный болотный шнур.",
@@ -2241,6 +2336,13 @@ STATIC_MAP_NODE_STATE_OVERLAYS: tuple[dict[str, Any], ...] = (
         "context_note": "У тростникового приюта уже связали присланный с базы crossing directive по возвращённому болотному evidence.",
         "detail_note": "Приют теперь держит не только quiet wayline, но и прямое домашнее указание о том, как вести осторожный болотный возврат после crossing-memory trace.",
         "service_note": "Deep_marsh теперь чувствует не только support, но и явный coordinated crossing order с базы.",
+    },
+    {
+        "node_id": "reed_shelter",
+        "state_flag": "deep_marsh_directive_fulfilled",
+        "context_note": "У тростникового приюта уже не только связали directive, но и закрепили quiet crossing line.",
+        "detail_note": "Болотный order довели до поля: приют теперь держит не только память о переправе, а подтверждённую quiet crossing line для осторожного возврата.",
+        "service_note": "Deep_marsh уже выполнил crossing directive и держит у приюта реально закреплённую return line.",
     },
 )
 

@@ -2452,6 +2452,131 @@ def test_waystation_yard_reacts_to_frontier_directive_dispatch() -> None:
     assert any("corridor directive" in note.lower() or "домашнее предписание" in note.lower() for note in context["state_notes"])
 
 
+def test_northwatch_directive_becomes_fulfillable_and_secures_redoubt_watch_line() -> None:
+    player_id = uuid.uuid4()
+    sess = SimpleNamespace(settings={})
+    session_state._initialize_default_group(
+        sess,
+        [player_id],
+        {"map_level": "region", "node_type": "zone", "node_id": "northwatch_quartermaster", "label": "Интендантский двор"},
+    )
+    session_state.get_current_group_current_region_state(sess, player_id=player_id)
+
+    locked_actions = session_state.get_current_group_context_action_availability(sess, player_id=player_id)
+    locked = next(item for item in locked_actions if item["action_id"] == "confirm_redoubt_watch")
+    assert locked["availability_status"] == "locked"
+    assert locked["unavailable_reason"] == "requires_node_state_flag"
+
+    session_state.add_group_node_state_flag(
+        sess,
+        "main",
+        "northwatch_quartermaster",
+        state_flag="northwatch_directive_posted",
+        summary="На дворе уже разложили redoubt order.",
+        source="test",
+    )
+    available_actions = session_state.get_current_group_context_action_availability(sess, player_id=player_id)
+    available = next(item for item in available_actions if item["action_id"] == "confirm_redoubt_watch")
+    assert available["availability_status"] == "available"
+    resolved, error = session_state.resolve_group_context_action(
+        sess,
+        "main",
+        action_id="confirm_redoubt_watch",
+        player_id=player_id,
+        source="test",
+    )
+    assert error is None
+    assert resolved is not None
+    assert resolved["last_context_action_result"]["result_type"] == "route_cleared"
+    context = session_state.get_current_group_node_context(sess, player_id=player_id)
+    assert "northwatch_directive_fulfilled" in context["node_state_flags"]
+    assert any("watch-line" in note.lower() or "дозорный ход" in note.lower() for note in context["state_notes"])
+    assert session_state.get_group_route_access_state(sess, "main", "ash_pass->broken_redoubt:move")["access_state"] == "cleared"
+    assert session_state.get_group_route_access_state(sess, "main", "broken_redoubt->ash_pass:move")["access_state"] == "cleared"
+
+
+def test_deep_marsh_directive_becomes_fulfillable_and_secures_crossing_line() -> None:
+    player_id = uuid.uuid4()
+    sess = SimpleNamespace(settings={})
+    session_state._initialize_default_group(
+        sess,
+        [player_id],
+        {"map_level": "region", "node_type": "zone", "node_id": "reed_shelter", "label": "Тростниковый приют"},
+    )
+    session_state.get_current_group_current_region_state(sess, player_id=player_id)
+
+    locked_actions = session_state.get_current_group_context_action_availability(sess, player_id=player_id)
+    locked = next(item for item in locked_actions if item["action_id"] == "secure_crossing_line")
+    assert locked["availability_status"] == "locked"
+    assert locked["unavailable_reason"] == "requires_node_state_flag"
+
+    session_state.add_group_node_state_flag(
+        sess,
+        "main",
+        "reed_shelter",
+        state_flag="deep_marsh_directive_posted",
+        summary="У приюта уже связали crossing order.",
+        source="test",
+    )
+    available_actions = session_state.get_current_group_context_action_availability(sess, player_id=player_id)
+    available = next(item for item in available_actions if item["action_id"] == "secure_crossing_line")
+    assert available["availability_status"] == "available"
+    resolved, error = session_state.resolve_group_context_action(
+        sess,
+        "main",
+        action_id="secure_crossing_line",
+        player_id=player_id,
+        source="test",
+    )
+    assert error is None
+    assert resolved is not None
+    assert resolved["last_context_action_result"]["result_type"] == "local_support_applied"
+    context = session_state.get_current_group_node_context(sess, player_id=player_id)
+    assert "deep_marsh_directive_fulfilled" in context["node_state_flags"]
+    assert any("crossing line" in note.lower() or "quiet crossing" in note.lower() for note in context["state_notes"])
+
+
+def test_western_road_directive_becomes_fulfillable_and_stabilizes_corridor_handling() -> None:
+    player_id = uuid.uuid4()
+    sess = SimpleNamespace(settings={})
+    session_state._initialize_default_group(
+        sess,
+        [player_id],
+        {"map_level": "region", "node_type": "zone", "node_id": "waystation_yard", "label": "Постоялый двор"},
+    )
+    session_state.get_current_group_current_region_state(sess, player_id=player_id)
+
+    locked_actions = session_state.get_current_group_context_action_availability(sess, player_id=player_id)
+    locked = next(item for item in locked_actions if item["action_id"] == "stabilize_corridor_handling")
+    assert locked["availability_status"] == "locked"
+    assert locked["unavailable_reason"] == "requires_node_state_flag"
+
+    session_state.add_group_node_state_flag(
+        sess,
+        "main",
+        "waystation_yard",
+        state_flag="western_road_directive_posted",
+        summary="На дворе уже отметили corridor order.",
+        source="test",
+    )
+    available_actions = session_state.get_current_group_context_action_availability(sess, player_id=player_id)
+    available = next(item for item in available_actions if item["action_id"] == "stabilize_corridor_handling")
+    assert available["availability_status"] == "available"
+    resolved, error = session_state.resolve_group_context_action(
+        sess,
+        "main",
+        action_id="stabilize_corridor_handling",
+        player_id=player_id,
+        source="test",
+    )
+    assert error is None
+    assert resolved is not None
+    assert resolved["last_context_action_result"]["result_type"] == "local_support_applied"
+    context = session_state.get_current_group_node_context(sess, player_id=player_id)
+    assert "western_road_directive_fulfilled" in context["node_state_flags"]
+    assert any("detour handling" in note.lower() or "рабочий порядок" in note.lower() for note in context["state_notes"])
+
+
 def test_forest_settlement_frontier_support_stays_locked_before_report() -> None:
     player_id = uuid.uuid4()
     sess = SimpleNamespace(settings={})

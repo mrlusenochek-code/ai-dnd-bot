@@ -478,6 +478,16 @@ def test_northwatch_nodes_expose_services_actions_and_details() -> None:
     )
     assert redoubt_effect["node_state_flags"] == ["northwatch_quartermaster_supplies", "northwatch_redoubt_return_logged"]
     assert "обратный доклад" in redoubt_effect["result_summary"]
+    quartermaster_actions = get_current_node_context_actions(node_id="northwatch_quartermaster")
+    quartermaster_action_requirements = get_static_node_context_action_requirements(node_id="northwatch_quartermaster")
+    assert any(item["action_id"] == "post_redoubt_orders" for item in quartermaster_actions)
+    assert any(item["action_id"] == "confirm_redoubt_watch" for item in quartermaster_actions)
+    assert {
+        "node_id": "northwatch_quartermaster",
+        "action_id": "confirm_redoubt_watch",
+        "requires_node_state_flag": "northwatch_directive_posted",
+        "unlock_hint": "Сначала разложить присланный redoubt order на интендантском дворе и только потом закреплять watch-line в поле.",
+    } in quartermaster_action_requirements
     redoubt_actions = get_current_node_context_actions(node_id="broken_redoubt")
     redoubt_requirements = get_static_node_context_action_requirements(node_id="broken_redoubt")
     assert any(item["action_id"] == "log_redoubt_signal_cache" for item in redoubt_actions)
@@ -545,6 +555,8 @@ def test_western_road_registry_content_and_onboarding_are_real() -> None:
 
 def test_western_road_nodes_expose_services_actions_events_and_scout_discovery() -> None:
     yard_services = get_static_node_services(node_id="waystation_yard")
+    yard_actions = get_current_node_context_actions(node_id="waystation_yard")
+    yard_action_requirements = get_static_node_context_action_requirements(node_id="waystation_yard")
     marker_actions = get_current_node_context_actions(node_id="mile_marker_arch")
     marker_requirements = get_static_node_context_action_requirements(node_id="mile_marker_arch")
     marker_effects = [
@@ -568,6 +580,14 @@ def test_western_road_nodes_expose_services_actions_events_and_scout_discovery()
             "unlock_hint": "Постоялый двор собирает полный дорожный набор только тем, кто уже сходил по следу задержанного обоза и вернулся с дороги.",
         }
     ]
+    assert any(item["action_id"] == "chalk_corridor_orders" for item in yard_actions)
+    assert any(item["action_id"] == "stabilize_corridor_handling" for item in yard_actions)
+    assert {
+        "node_id": "waystation_yard",
+        "action_id": "stabilize_corridor_handling",
+        "requires_node_state_flag": "western_road_directive_posted",
+        "unlock_hint": "Сначала отметить corridor order на дворе и только потом закреплять detour handling как рабочий порядок.",
+    } in yard_action_requirements
     assert any(item["action_id"] == "read_waybill_marks" for item in marker_actions)
     assert any(item["action_id"] == "reset_detour_markers" for item in marker_actions)
     assert marker_requirements == [
@@ -672,6 +692,8 @@ def test_deep_marsh_nodes_expose_services_actions_events_and_scout_discovery() -
     ]
     assert any(item["action_id"] == "read_moss_waymarks" for item in waystone_actions)
     assert any(item["action_id"] == "braid_reed_wayline" for item in shelter_actions)
+    assert any(item["action_id"] == "tie_crossing_orders" for item in shelter_actions)
+    assert any(item["action_id"] == "secure_crossing_line" for item in shelter_actions)
     assert {
         "node_id": "reed_shelter",
         "action_id": "braid_reed_wayline",
@@ -681,6 +703,12 @@ def test_deep_marsh_nodes_expose_services_actions_events_and_scout_discovery() -
             "frontier_support_ready",
             "frontier_support_committed",
         ],
+    } in shelter_requirements
+    assert {
+        "node_id": "reed_shelter",
+        "action_id": "secure_crossing_line",
+        "requires_node_state_flag": "deep_marsh_directive_posted",
+        "unlock_hint": "Сначала связать присланный crossing order у приюта и только потом закреплять quiet crossing line.",
     } in shelter_requirements
     assert len(shelter_effects) == 3
     assert all(item["reveal_node_ids"] == ["sunken_ferry"] for item in shelter_effects)
@@ -809,29 +837,50 @@ def test_starter_frontier_nodes_expose_local_progression_arc_surfaces() -> None:
     northwatch_actions = get_current_node_context_actions(node_id="northwatch_quartermaster")
     northwatch_action_requirements = get_static_node_context_action_requirements(node_id="northwatch_quartermaster")
     assert any(item["action_id"] == "post_redoubt_orders" for item in northwatch_actions)
+    assert any(item["action_id"] == "confirm_redoubt_watch" for item in northwatch_actions)
     assert {
         "node_id": "northwatch_quartermaster",
         "action_id": "post_redoubt_orders",
         "requires_any_group_node_state_flags": ["northwatch_field_directive_issued"],
         "unlock_hint": "Сначала вернуть evidence домой и дождаться, пока база отправит назад redoubt directive на северный рубеж.",
     } in northwatch_action_requirements
+    assert {
+        "node_id": "northwatch_quartermaster",
+        "action_id": "confirm_redoubt_watch",
+        "requires_node_state_flag": "northwatch_directive_posted",
+        "unlock_hint": "Сначала разложить присланный redoubt order на интендантском дворе и только потом закреплять watch-line в поле.",
+    } in northwatch_action_requirements
     marsh_actions = get_current_node_context_actions(node_id="reed_shelter")
     marsh_action_requirements = get_static_node_context_action_requirements(node_id="reed_shelter")
     assert any(item["action_id"] == "tie_crossing_orders" for item in marsh_actions)
+    assert any(item["action_id"] == "secure_crossing_line" for item in marsh_actions)
     assert {
         "node_id": "reed_shelter",
         "action_id": "tie_crossing_orders",
         "requires_any_group_node_state_flags": ["deep_marsh_field_directive_issued"],
         "unlock_hint": "Сначала вернуть болотный evidence домой и дождаться, пока база отправит назад crossing directive.",
     } in marsh_action_requirements
+    assert {
+        "node_id": "reed_shelter",
+        "action_id": "secure_crossing_line",
+        "requires_node_state_flag": "deep_marsh_directive_posted",
+        "unlock_hint": "Сначала связать присланный crossing order у приюта и только потом закреплять quiet crossing line.",
+    } in marsh_action_requirements
     road_actions = get_current_node_context_actions(node_id="waystation_yard")
     road_action_requirements = get_static_node_context_action_requirements(node_id="waystation_yard")
     assert any(item["action_id"] == "chalk_corridor_orders" for item in road_actions)
+    assert any(item["action_id"] == "stabilize_corridor_handling" for item in road_actions)
     assert {
         "node_id": "waystation_yard",
         "action_id": "chalk_corridor_orders",
         "requires_any_group_node_state_flags": ["western_road_field_directive_issued"],
         "unlock_hint": "Сначала вернуть дорожный evidence домой и дождаться, пока база отправит назад corridor directive.",
+    } in road_action_requirements
+    assert {
+        "node_id": "waystation_yard",
+        "action_id": "stabilize_corridor_handling",
+        "requires_node_state_flag": "western_road_directive_posted",
+        "unlock_hint": "Сначала отметить corridor order на дворе и только потом закреплять detour handling как рабочий порядок.",
     } in road_action_requirements
     assert any(item["action_id"] == "clear_old_road" for item in get_current_node_context_actions(node_id="forest_road"))
 
