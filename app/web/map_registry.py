@@ -1725,6 +1725,75 @@ STATIC_MAP_CONTEXT_ACTION_EFFECTS: tuple[dict[str, Any], ...] = (
     },
     {
         "node_id": "forest_settlement",
+        "action_id": "review_frontier_stabilization",
+        "label": "Сверить frontier stabilization",
+        "action_kind": "support",
+        "effect_type": "support",
+        "one_shot": False,
+        "result_type": "local_support_applied",
+        "summary": "Зафиксировать первую подтверждённую stabilization measure на одном краю frontier.",
+        "result_summary": "Лесной посёлок впервые читает frontier не только по reports, evidence и directives, но и по реально выполненной stabilization measure: один край уже держится на подтверждённой полевой работе, а не только на обещании ответа.",
+        "discovered_notes": [
+            "Первое confirmed stabilization review меняет тон базы: теперь сюда возвращают не только следы и приказы, но и подтверждение того, что на краю frontier уже реально сработала field measure."
+        ],
+        "applied_effects": ["frontier_stabilization:started", "intel:frontier_stabilization"],
+        "node_state_flags": ["frontier_stabilization_started"],
+        "node_state_summary": "В лесном посёлке уже зафиксировали первую подтверждённую stabilization measure с одного края frontier.",
+        "requires_min_group_node_state_flags": 1,
+        "group_node_state_flag_pool": [
+            "northwatch_directive_fulfilled",
+            "deep_marsh_directive_fulfilled",
+            "western_road_directive_fulfilled",
+        ],
+    },
+    {
+        "node_id": "forest_settlement",
+        "action_id": "review_frontier_stabilization",
+        "label": "Сверить frontier stabilization",
+        "action_kind": "support",
+        "effect_type": "support",
+        "one_shot": False,
+        "result_type": "local_support_applied",
+        "summary": "Сравнить две разные подтверждённые stabilization measures по разным краям frontier.",
+        "result_summary": "Когда база видит уже две подтверждённые field measures, в посёлке появляется comparative stabilization reading: разные края удерживаются по-разному, но теперь видно, где coordinated response уже действительно начал работать.",
+        "discovered_notes": [
+            "Две fulfilled directives дают базе не только чувство движения, а сравнительное понимание того, как frontier начинает стабилизироваться на разных внешних краях."
+        ],
+        "applied_effects": ["frontier_stabilization:compared", "intel:frontier_stabilization_comparison"],
+        "node_state_flags": ["frontier_stabilization_compared"],
+        "node_state_summary": "В лесном посёлке уже сравнили две подтверждённые stabilization measures по разным frontier edges.",
+        "requires_min_group_node_state_flags": 2,
+        "group_node_state_flag_pool": [
+            "northwatch_directive_fulfilled",
+            "deep_marsh_directive_fulfilled",
+            "western_road_directive_fulfilled",
+        ],
+    },
+    {
+        "node_id": "forest_settlement",
+        "action_id": "review_frontier_stabilization",
+        "label": "Сверить frontier stabilization",
+        "action_kind": "support",
+        "effect_type": "support",
+        "one_shot": False,
+        "result_type": "local_support_applied",
+        "summary": "Свести полную stabilization picture по всем трём подтверждённым field measures.",
+        "result_summary": "После трёх fulfilled directives лесной посёлок получает полную frontier stabilization picture: северная watch-line, quiet crossing line и corridor handling уже читаются как подтверждённая внешняя работа, а не только как серия намерений.",
+        "discovered_notes": [
+            "Полный stabilization review замыкает цикл frontier: база уже видит не только pressure, evidence и directives, но и подтверждённую картину реально выполненной полевой стабилизации."
+        ],
+        "applied_effects": ["frontier_stabilization:compiled", "intel:frontier_stabilization_full"],
+        "node_state_flags": ["frontier_stabilization_compiled"],
+        "node_state_summary": "В лесном посёлке уже собрали полную frontier stabilization picture по всем трём подтверждённым field measures.",
+        "requires_min_group_node_state_flags": 3,
+        "group_node_state_flag_pool": [
+            "northwatch_directive_fulfilled",
+            "deep_marsh_directive_fulfilled",
+            "western_road_directive_fulfilled",
+        ],
+    },
+    {
+        "node_id": "forest_settlement",
         "action_id": "compile_frontier_report",
         "label": "Сверить frontier сводки",
         "action_kind": "clue",
@@ -1839,6 +1908,16 @@ STATIC_MAP_CONTEXT_ACTION_REQUIREMENTS: tuple[dict[str, Any], ...] = (
             "western_road_waycart_manifest_logged",
         ],
         "unlock_hint": "Сначала собрать хотя бы первую returned frontier evidence picture по activated field proofs.",
+    },
+    {
+        "node_id": "forest_settlement",
+        "action_id": "review_frontier_stabilization",
+        "requires_any_group_node_state_flags": [
+            "northwatch_directive_fulfilled",
+            "deep_marsh_directive_fulfilled",
+            "western_road_directive_fulfilled",
+        ],
+        "unlock_hint": "Сначала получить хотя бы одно подтверждение, что field directive уже реально выполнен на внешнем краю.",
     },
     {
         "node_id": "northwatch_palisade",
@@ -2056,6 +2135,25 @@ STATIC_MAP_NODE_STATE_OVERLAYS: tuple[dict[str, Any], ...] = (
         "context_note": "В лесном посёлке уже выдали полный coordinated frontier dispatch по всем трём внешним краям.",
         "detail_note": "У навесов frontier system теперь читают и отправляют обратно как coordinated response: evidence превращается здесь в region-aware orders по всему внешнему кругу.",
         "service_note": "После полного dispatch лесной посёлок ведёт себя уже не только как база reports и evidence, а как coordinating base для всего frontier ring.",
+    },
+    {
+        "node_id": "forest_settlement",
+        "state_flag": "frontier_stabilization_started",
+        "context_note": "В посёлке уже видят первый подтверждённый результат полевой стабилизации на одном краю frontier.",
+        "detail_note": "У навесов уже сверяют не только reports и directives: один внешний край теперь читается как реально удержанный подтверждённой field measure.",
+    },
+    {
+        "node_id": "forest_settlement",
+        "state_flag": "frontier_stabilization_compared",
+        "context_note": "В лесном посёлке уже сравнивают подтверждённую стабилизацию по двум разным frontier edges.",
+        "detail_note": "База теперь видит не только evidence picture, но и comparative stabilization reading: разные края уже по-разному удержаны, и это читается как подтверждённый результат работы в поле.",
+    },
+    {
+        "node_id": "forest_settlement",
+        "state_flag": "frontier_stabilization_compiled",
+        "context_note": "В лесном посёлке уже собрали полную frontier stabilization picture по всем трём внешним краям.",
+        "detail_note": "У навесов теперь лежит не только картина давления и evidence, но и подтверждённая сводка того, как северный рубеж, болота и тракт реально удержаны выполненными field measures.",
+        "service_note": "После полного stabilization review лесной посёлок выглядит уже не только coordinating base, а местом, где frontier cycle замыкается подтверждённой работой из поля.",
     },
     {
         "node_id": "forest_settlement",

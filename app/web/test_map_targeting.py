@@ -801,6 +801,7 @@ def test_starter_frontier_nodes_expose_local_progression_arc_surfaces() -> None:
     assert any(item["action_id"] == "compile_frontier_report" for item in forest_actions)
     assert any(item["action_id"] == "arrange_frontier_evidence" for item in forest_actions)
     assert any(item["action_id"] == "issue_frontier_directives" for item in forest_actions)
+    assert any(item["action_id"] == "review_frontier_stabilization" for item in forest_actions)
     assert forest_action_requirements == [
         {
             "node_id": "forest_settlement",
@@ -831,6 +832,16 @@ def test_starter_frontier_nodes_expose_local_progression_arc_surfaces() -> None:
                 "northwatch_redoubt_cache_logged",
                 "deep_marsh_ferry_moorings_logged",
                 "western_road_waycart_manifest_logged",
+            ],
+        },
+        {
+            "node_id": "forest_settlement",
+            "action_id": "review_frontier_stabilization",
+            "unlock_hint": "Сначала получить хотя бы одно подтверждение, что field directive уже реально выполнен на внешнем краю.",
+            "requires_any_group_node_state_flags": [
+                "northwatch_directive_fulfilled",
+                "deep_marsh_directive_fulfilled",
+                "western_road_directive_fulfilled",
             ],
         },
     ]

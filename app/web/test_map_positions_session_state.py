@@ -2577,6 +2577,124 @@ def test_western_road_directive_becomes_fulfillable_and_stabilizes_corridor_hand
     assert any("detour handling" in note.lower() or "рабочий порядок" in note.lower() for note in context["state_notes"])
 
 
+def test_forest_settlement_stabilization_review_stays_locked_before_fulfilled_directive() -> None:
+    player_id = uuid.uuid4()
+    sess = SimpleNamespace(settings={})
+    session_state._initialize_default_group(
+        sess,
+        [player_id],
+        {"map_level": "region", "node_type": "zone", "node_id": "forest_settlement", "label": "Лесной посёлок"},
+    )
+    session_state.get_current_group_current_region_state(sess, player_id=player_id)
+
+    actions = session_state.get_current_group_context_action_availability(sess, player_id=player_id)
+    review = next(item for item in actions if item["action_id"] == "review_frontier_stabilization")
+    assert review["availability_status"] == "locked"
+    assert review["unavailable_reason"] == "requires_any_group_node_state_flags"
+    assert "field directive уже реально выполнен" in review["unlock_hint"]
+
+
+def test_forest_settlement_stabilization_review_escalates_from_one_to_three_distinct_fulfillments() -> None:
+    player_id = uuid.uuid4()
+    sess = SimpleNamespace(settings={})
+    session_state._initialize_default_group(
+        sess,
+        [player_id],
+        {"map_level": "region", "node_type": "zone", "node_id": "forest_settlement", "label": "Лесной посёлок"},
+    )
+    session_state.get_current_group_current_region_state(sess, player_id=player_id)
+
+    session_state.add_group_node_state_flag(
+        sess,
+        "main",
+        "northwatch_quartermaster",
+        state_flag="northwatch_directive_fulfilled",
+        summary="Северный рубеж уже подтвердил выполненный redoubt watch.",
+        source="test",
+    )
+    first_actions = session_state.get_current_group_context_action_availability(sess, player_id=player_id)
+    first = next(item for item in first_actions if item["action_id"] == "review_frontier_stabilization")
+    assert first["availability_status"] == "available"
+    resolved_first, error = session_state.resolve_group_context_action(
+        sess,
+        "main",
+        action_id="review_frontier_stabilization",
+        player_id=player_id,
+        source="test",
+    )
+    assert error is None
+    assert resolved_first is not None
+    assert "stabilization measure" in resolved_first["last_context_action_result"]["result_summary"].lower()
+    context = session_state.get_current_group_node_context(sess, player_id=player_id)
+    assert "frontier_stabilization_started" in context["node_state_flags"]
+    assert "frontier_stabilization_compared" not in context["node_state_flags"]
+
+    session_state.add_group_node_state_flag(
+        sess,
+        "main",
+        "northwatch_quartermaster",
+        state_flag="northwatch_directive_fulfilled",
+        summary="Повторное северное подтверждение не должно эскалировать review.",
+        source="test",
+    )
+    duplicate, error = session_state.resolve_group_context_action(
+        sess,
+        "main",
+        action_id="review_frontier_stabilization",
+        player_id=player_id,
+        source="test",
+    )
+    assert error is None
+    assert duplicate is not None
+    assert "comparative stabilization reading" not in duplicate["last_context_action_result"]["result_summary"].lower()
+    assert "frontier_stabilization_compared" not in session_state.get_current_group_node_context(sess, player_id=player_id)["node_state_flags"]
+
+    session_state.add_group_node_state_flag(
+        sess,
+        "main",
+        "reed_shelter",
+        state_flag="deep_marsh_directive_fulfilled",
+        summary="Болотный край уже закрепил quiet crossing line.",
+        source="test",
+    )
+    resolved_second, error = session_state.resolve_group_context_action(
+        sess,
+        "main",
+        action_id="review_frontier_stabilization",
+        player_id=player_id,
+        source="test",
+    )
+    assert error is None
+    assert resolved_second is not None
+    assert "comparative stabilization reading" in resolved_second["last_context_action_result"]["result_summary"].lower()
+    context = session_state.get_current_group_node_context(sess, player_id=player_id)
+    assert "frontier_stabilization_compared" in context["node_state_flags"]
+
+    session_state.add_group_node_state_flag(
+        sess,
+        "main",
+        "waystation_yard",
+        state_flag="western_road_directive_fulfilled",
+        summary="Западный тракт уже закрепил detour handling.",
+        source="test",
+    )
+    resolved_third, error = session_state.resolve_group_context_action(
+        sess,
+        "main",
+        action_id="review_frontier_stabilization",
+        player_id=player_id,
+        source="test",
+    )
+    assert error is None
+    assert resolved_third is not None
+    assert "frontier stabilization picture" in resolved_third["last_context_action_result"]["result_summary"].lower()
+    final_context = session_state.get_current_group_node_context(sess, player_id=player_id)
+    assert "frontier_stabilization_compiled" in final_context["node_state_flags"]
+    assert any("stabilization picture" in note.lower() or "выполненными field measures" in note.lower() for note in final_context["state_notes"])
+    intel_entries = session_state.get_current_group_map_intel(sess, player_id=player_id)
+    assert any(entry["source_kind"] == "context_action" and entry["source_id"] == "review_frontier_stabilization" for entry in intel_entries)
+
+
 def test_forest_settlement_frontier_support_stays_locked_before_report() -> None:
     player_id = uuid.uuid4()
     sess = SimpleNamespace(settings={})
