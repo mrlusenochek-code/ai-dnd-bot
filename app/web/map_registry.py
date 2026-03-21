@@ -2291,9 +2291,9 @@ STATIC_MAP_NODE_STATE_OVERLAYS: tuple[dict[str, Any], ...] = (
     {
         "node_id": "northwatch_quartermaster",
         "state_flag": "northwatch_directive_fulfilled",
-        "context_note": "На северном дворе уже не просто вывесили redoubt order, а реально закрепили watch-line к редуту.",
-        "detail_note": "Приказ с базы уже довели до поля: ash_pass к broken_redoubt теперь держится как подтверждённый дозорный ход, а не просто как опасный след.",
-        "service_note": "Northwatch теперь ощущается не только как получатель directive, а как рубеж, который реально выполнил redoubt watch order.",
+        "context_note": "На северном дворе уже не просто вывесили redoubt order, а реально закрепили watch-line к редуту и боковую линию к тракту.",
+        "detail_note": "Приказ с базы уже довели до поля: ash_pass к broken_redoubt держится как подтверждённый дозорный ход, а сам рубеж уже готов держать reopened side line к western_road.",
+        "service_note": "Northwatch теперь ощущается не только как получатель directive, а как рубеж, который реально выполнил redoubt watch order и подготовил боковой frontier line.",
     },
     {
         "node_id": "deep_marsh_threshold",
@@ -2387,9 +2387,9 @@ STATIC_MAP_NODE_STATE_OVERLAYS: tuple[dict[str, Any], ...] = (
     {
         "node_id": "waystation_yard",
         "state_flag": "western_road_directive_fulfilled",
-        "context_note": "На дворе уже не только отметили corridor order, но и закрепили detour handling как рабочий порядок.",
-        "detail_note": "Western_road теперь держит не просто chalked directive, а реально проведённый порядок двора: detour line читается собраннее и спокойнее.",
-        "service_note": "Постоялый двор уже выполнил corridor directive и ведёт detour response как подтверждённый полевой порядок.",
+        "context_note": "На дворе уже не только отметили corridor order, но и закрепили detour handling как рабочий порядок для reopened side line.",
+        "detail_note": "Western_road теперь держит не просто chalked directive, а реально проведённый порядок двора: detour line читается собраннее, а боковой проход к северному рубежу выглядит снова рабочим.",
+        "service_note": "Постоялый двор уже выполнил corridor directive и ведёт detour response как подтверждённый полевой порядок, готовый держать боковую frontier line.",
     },
     {
         "node_id": "sunken_ferry",
@@ -3307,6 +3307,20 @@ STATIC_MAP_REGION_GATEWAYS: tuple[dict[str, Any], ...] = (
         "unlock_hint": "Дозор держит обратную тропу открытой, пока погода не ломает северный подход.",
     },
     {
+        "gateway_id": "northwatch_quartermaster_western_road",
+        "source_node_id": "northwatch_quartermaster",
+        "route_id": "northwatch_quartermaster->ash_pass:move",
+        "target_region_id": "western_road",
+        "target_region_label": "Западный тракт",
+        "target_anchor_node_id": "waystation_yard",
+        "label": "Боковая линия к западному тракту",
+        "requires_all_group_node_state_flags": [
+            "northwatch_directive_fulfilled",
+            "western_road_directive_fulfilled",
+        ],
+        "unlock_hint": "Боковая frontier-линия между северным рубежом и трактом открывается только когда обе стороны реально выполнили своё stabilization work.",
+    },
+    {
         "gateway_id": "fortress_gate_western_road",
         "source_node_id": "fortress_gate",
         "route_id": "start_trakt->fortress_gate:move",
@@ -3326,6 +3340,20 @@ STATIC_MAP_REGION_GATEWAYS: tuple[dict[str, Any], ...] = (
         "target_anchor_node_id": "fortress_gate",
         "label": "Возврат к воротам крепости",
         "unlock_hint": "Пока тракт читается по первым дорожным меткам, обратный ход к воротам остаётся явным.",
+    },
+    {
+        "gateway_id": "waystation_yard_northwatch",
+        "source_node_id": "waystation_yard",
+        "route_id": "waystation_yard->rutted_detour:move",
+        "target_region_id": "northwatch_frontier",
+        "target_region_label": "Северный рубеж",
+        "target_anchor_node_id": "northwatch_quartermaster",
+        "label": "Боковая линия к северному рубежу",
+        "requires_all_group_node_state_flags": [
+            "northwatch_directive_fulfilled",
+            "western_road_directive_fulfilled",
+        ],
+        "unlock_hint": "Боковой frontier-проход к северному рубежу держится только после того, как и двор, и рубеж подтвердили выполненную стабилизацию.",
     },
     {
         "gateway_id": "marsh_edge_deep_marsh",
@@ -4208,6 +4236,12 @@ def get_static_region_gateways(
         requires_destination_event_result_type = _normalized_text(item.get("requires_destination_event_result_type"))
         if requires_destination_event_result_type:
             gateway["requires_destination_event_result_type"] = requires_destination_event_result_type
+        requires_any_group_node_state_flags = _normalized_text_list(item.get("requires_any_group_node_state_flags"))
+        if requires_any_group_node_state_flags:
+            gateway["requires_any_group_node_state_flags"] = requires_any_group_node_state_flags
+        requires_all_group_node_state_flags = _normalized_text_list(item.get("requires_all_group_node_state_flags"))
+        if requires_all_group_node_state_flags:
+            gateway["requires_all_group_node_state_flags"] = requires_all_group_node_state_flags
         min_visit_count = int(item.get("requires_min_visit_count") or item.get("min_visit_count") or 0)
         if min_visit_count > 0:
             gateway["requires_min_visit_count"] = min_visit_count

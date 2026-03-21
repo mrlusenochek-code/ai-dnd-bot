@@ -6131,6 +6131,49 @@ def test_group_region_gateways_honor_node_state_and_visit_requirements() -> None
     assert open_marsh_gateway[0]["gateway_id"] == "marsh_edge_deep_marsh"
 
 
+def test_group_region_gateways_open_lateral_frontier_link_only_after_both_field_fulfillments() -> None:
+    player_id = uuid.uuid4()
+    sess = SimpleNamespace(settings={})
+    session_state._initialize_default_group(
+        sess,
+        [player_id],
+        {
+            "map_level": "region",
+            "node_type": "zone",
+            "node_id": "northwatch_quartermaster",
+            "label": "Склад северного двора",
+        },
+    )
+
+    locked_gateway = session_state.get_current_group_region_gateways(sess, player_id=player_id)
+    assert len(locked_gateway) == 1
+    assert locked_gateway[0]["gateway_id"] == "northwatch_quartermaster_western_road"
+    assert locked_gateway[0]["gateway_status"] == "locked"
+
+    session_state.add_group_node_state_flag(
+        sess,
+        "main",
+        "northwatch_quartermaster",
+        state_flag="northwatch_directive_fulfilled",
+        summary="Северный рубеж выполнил свою директиву.",
+        source="test",
+    )
+    still_locked_gateway = session_state.get_current_group_region_gateways(sess, player_id=player_id)
+    assert still_locked_gateway[0]["gateway_status"] == "locked"
+
+    session_state.add_group_node_state_flag(
+        sess,
+        "main",
+        "waystation_yard",
+        state_flag="western_road_directive_fulfilled",
+        summary="Западный тракт выполнил свою директиву.",
+        source="test",
+    )
+    open_gateway = session_state.get_current_group_region_gateways(sess, player_id=player_id)
+    assert open_gateway[0]["gateway_status"] == "open"
+    assert open_gateway[0]["target_region_id"] == "western_road"
+
+
 def test_group_region_transition_completes_and_reuses_arrival_pipeline() -> None:
     player_id = uuid.uuid4()
     sess = SimpleNamespace(settings={})
@@ -8798,3 +8841,118 @@ def test_failed_region_transition_does_not_create_fake_gateway_history_or_region
     assert session_state.get_current_group_region_link_states(sess, player_id=player_id) == []
     assert session_state.get_current_group_last_region_link_result(sess, player_id=player_id) is None
     assert session_state.get_current_group_last_region_onboarding_result(sess, player_id=player_id)["region_id"] == "starter_frontier"
+
+
+def test_lateral_region_transition_records_non_starter_direct_link_and_updates_region_state() -> None:
+    player_id = uuid.uuid4()
+    sess = SimpleNamespace(settings={})
+    session_state._initialize_default_group(
+        sess,
+        [player_id],
+        {
+            "map_level": "region",
+            "node_type": "zone",
+            "node_id": "northwatch_quartermaster",
+            "label": "Склад северного двора",
+        },
+    )
+    session_state.get_current_group_current_region_state(sess, player_id=player_id)
+    session_state.add_group_node_state_flag(
+        sess,
+        "main",
+        "northwatch_quartermaster",
+        state_flag="northwatch_directive_fulfilled",
+        summary="Северный рубеж выполнил свою директиву.",
+        source="test",
+    )
+    session_state.add_group_node_state_flag(
+        sess,
+        "main",
+        "waystation_yard",
+        state_flag="western_road_directive_fulfilled",
+        summary="Западный тракт выполнил свою директиву.",
+        source="test",
+    )
+
+    assert session_state.get_current_group_region_link_states(sess, player_id=player_id) == []
+
+    updated, error = session_state.resolve_group_region_transition(
+        sess,
+        "main",
+        "northwatch_quartermaster_western_road",
+        player_id=player_id,
+        source="region_transition",
+    )
+
+    assert error is None
+    assert updated is not None
+    current_region = session_state.get_current_group_current_region_state(sess, player_id=player_id)
+    assert current_region is not None
+    assert current_region["region_id"] == "western_road"
+    assert current_region["current_node_id"] == "waystation_yard"
+    crossings = session_state.get_current_group_gateway_traversal_states(sess, player_id=player_id)
+    links = session_state.get_current_group_region_link_states(sess, player_id=player_id)
+    transition_result = session_state.get_current_group_last_region_transition_result(sess, player_id=player_id)
+    link_result = session_state.get_current_group_last_region_link_result(sess, player_id=player_id)
+    assert crossings[-1]["gateway_id"] == "northwatch_quartermaster_western_road"
+    direct_link = next(link for link in links if link["link_id"] == "region-link:northwatch_frontier::western_road")
+    assert direct_link["gateway_ids"] == ["northwatch_quartermaster_western_road"]
+    assert transition_result is not None
+    assert transition_result["gateway_id"] == "northwatch_quartermaster_western_road"
+    assert link_result is not None
+    assert link_result["link_id"] == "region-link:northwatch_frontier::western_road"
+    current_context = session_state.get_current_group_node_context(sess, player_id=player_id)
+    assert current_context is not None
+    assert any("side line" in note.lower() or "боков" in note.lower() for note in current_context["state_notes"])
+
+
+def test_known_region_route_uses_discovered_lateral_link_directly_between_northwatch_and_western_road() -> None:
+    player_id = uuid.uuid4()
+    sess = SimpleNamespace(settings={})
+    session_state._initialize_default_group(
+        sess,
+        [player_id],
+        {
+            "map_level": "region",
+            "node_type": "zone",
+            "node_id": "northwatch_quartermaster",
+            "label": "Склад северного двора",
+        },
+    )
+    session_state.get_current_group_current_region_state(sess, player_id=player_id)
+    session_state.add_group_node_state_flag(
+        sess,
+        "main",
+        "northwatch_quartermaster",
+        state_flag="northwatch_directive_fulfilled",
+        summary="Северный рубеж выполнил свою директиву.",
+        source="test",
+    )
+    session_state.add_group_node_state_flag(
+        sess,
+        "main",
+        "waystation_yard",
+        state_flag="western_road_directive_fulfilled",
+        summary="Западный тракт выполнил свою директиву.",
+        source="test",
+    )
+
+    updated, error = session_state.resolve_group_region_transition(
+        sess,
+        "main",
+        "northwatch_quartermaster_western_road",
+        player_id=player_id,
+        source="region_transition",
+    )
+
+    assert error is None
+    assert updated is not None
+    direct_route = session_state.get_current_group_known_region_route(
+        sess,
+        player_id=player_id,
+        target_region_id="northwatch_frontier",
+    )
+    assert direct_route is not None
+    assert direct_route["route_status"] == "direct_route"
+    assert direct_route["region_path_ids"] == ["western_road", "northwatch_frontier"]
+    assert direct_route["next_gateway_id"] == "waystation_yard_northwatch"

@@ -5362,6 +5362,17 @@ def _evaluate_local_requirement_set(
     }
 
 
+def _collect_group_node_state_flags(group: dict[str, Any] | None) -> set[str]:
+    if not isinstance(group, dict):
+        return set()
+    return {
+        str(flag).strip().lower()
+        for node_state in (_normalize_group_node_state_map(group.get("node_states"))).values()
+        for flag in (dict(node_state).get("state_flags") or [])
+        if str(flag or "").strip()
+    }
+
+
 def _get_current_group_local_interaction_context(
     sess: Session,
     group_id: str,
@@ -6800,6 +6811,7 @@ def get_group_region_gateways(sess: Session, group_id: str) -> list[dict[str, An
     node_state_map = _normalize_group_node_state_map(group.get("node_states"))
     visit_map = _normalize_group_node_visit_state_map(group.get("node_visit_states"))
     destination_event_map = _normalize_group_destination_event_state_map(group.get("destination_event_states"))
+    group_state_flags = _collect_group_node_state_flags(group)
     gateways: list[dict[str, Any]] = []
     for definition in get_static_region_gateways(region_id=region_id, current_map_position=current_position):
         if not isinstance(definition, dict):
@@ -6819,19 +6831,23 @@ def get_group_region_gateways(sess: Session, group_id: str) -> list[dict[str, An
         node_state_flags = list((node_state_map.get(source_node_id) or {}).get("state_flags") or [])
         destination_event_state = destination_event_map.get(source_node_id)
         visit_count = max(0, as_int((visit_map.get(source_node_id) or {}).get("visit_count"), 0))
-        requirements = {
-            key: definition.get(key)
-            for key in (
-                "requires_node_state_flag",
-                "requires_destination_event_id",
-                "requires_destination_event_result_type",
-                "requires_min_visit_count",
-            )
-            if definition.get(key) not in {None, ""}
-        }
+        requirements: dict[str, Any] = {}
+        for key in (
+            "requires_node_state_flag",
+            "requires_destination_event_id",
+            "requires_destination_event_result_type",
+            "requires_any_group_node_state_flags",
+            "requires_all_group_node_state_flags",
+            "requires_min_visit_count",
+        ):
+            value = definition.get(key)
+            if value is None or value == "":
+                continue
+            requirements[key] = value
         requirement_eval = _evaluate_local_requirement_set(
             requirements=requirements,
             state_flags=node_state_flags,
+            group_state_flags=group_state_flags,
             destination_event_state=destination_event_state,
             visit_count=visit_count,
         )
@@ -6955,22 +6971,27 @@ def _build_group_region_target_gateway_candidate(
     node_state_map = _normalize_group_node_state_map(group.get("node_states"))
     visit_map = _normalize_group_node_visit_state_map(group.get("node_visit_states"))
     destination_event_map = _normalize_group_destination_event_state_map(group.get("destination_event_states"))
+    group_state_flags = _collect_group_node_state_flags(group)
     node_state_flags = list((node_state_map.get(source_node_id) or {}).get("state_flags") or [])
     destination_event_state = destination_event_map.get(source_node_id)
     visit_count = max(0, as_int((visit_map.get(source_node_id) or {}).get("visit_count"), 0))
-    requirements = {
-        key: definition.get(key)
-        for key in (
-            "requires_node_state_flag",
-            "requires_destination_event_id",
-            "requires_destination_event_result_type",
-            "requires_min_visit_count",
-        )
-        if definition.get(key) not in {None, ""}
-    }
+    requirements: dict[str, Any] = {}
+    for key in (
+        "requires_node_state_flag",
+        "requires_destination_event_id",
+        "requires_destination_event_result_type",
+        "requires_any_group_node_state_flags",
+        "requires_all_group_node_state_flags",
+        "requires_min_visit_count",
+    ):
+        value = definition.get(key)
+        if value is None or value == "":
+            continue
+        requirements[key] = value
     requirement_eval = _evaluate_local_requirement_set(
         requirements=requirements,
         state_flags=node_state_flags,
+        group_state_flags=group_state_flags,
         destination_event_state=destination_event_state,
         visit_count=visit_count,
     )

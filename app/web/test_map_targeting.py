@@ -352,7 +352,7 @@ def test_get_static_node_destination_events_returns_authored_arrival_events() ->
 
 def test_get_static_region_gateways_returns_authored_frontier_exit_definitions() -> None:
     all_gateways = get_static_region_gateways(region_id="region")
-    assert len(all_gateways) == 7
+    assert len(all_gateways) == 9
     assert get_static_node_region_gateways(node_id="forest_settlement") == [
         {
             "gateway_id": "forest_settlement_northwatch",
@@ -380,6 +380,23 @@ def test_get_static_region_gateways_returns_authored_frontier_exit_definitions()
             "unlock_hint": "Дозор держит обратную тропу открытой, пока погода не ломает северный подход.",
         }
     ]
+    assert get_static_node_region_gateways(node_id="northwatch_quartermaster") == [
+        {
+            "gateway_id": "northwatch_quartermaster_western_road",
+            "source_node_id": "northwatch_quartermaster",
+            "route_id": "northwatch_quartermaster->ash_pass:move",
+            "target_region_id": "western_road",
+            "target_region_label": "Западный тракт",
+            "target_anchor_node_id": "waystation_yard",
+            "label": "Боковая линия к западному тракту",
+            "future_stub": False,
+            "unlock_hint": "Боковая frontier-линия между северным рубежом и трактом открывается только когда обе стороны реально выполнили своё stabilization work.",
+            "requires_all_group_node_state_flags": [
+                "northwatch_directive_fulfilled",
+                "western_road_directive_fulfilled",
+            ],
+        }
+    ]
     assert get_static_node_region_gateways(node_id="deep_marsh_threshold") == [
         {
             "gateway_id": "deep_marsh_threshold_starter_frontier",
@@ -404,6 +421,23 @@ def test_get_static_region_gateways_returns_authored_frontier_exit_definitions()
             "label": "Возврат к воротам крепости",
             "future_stub": False,
             "unlock_hint": "Пока тракт читается по первым дорожным меткам, обратный ход к воротам остаётся явным.",
+        }
+    ]
+    assert get_static_node_region_gateways(node_id="waystation_yard") == [
+        {
+            "gateway_id": "waystation_yard_northwatch",
+            "source_node_id": "waystation_yard",
+            "route_id": "waystation_yard->rutted_detour:move",
+            "target_region_id": "northwatch_frontier",
+            "target_region_label": "Северный рубеж",
+            "target_anchor_node_id": "northwatch_quartermaster",
+            "label": "Боковая линия к северному рубежу",
+            "future_stub": False,
+            "unlock_hint": "Боковой frontier-проход к северному рубежу держится только после того, как и двор, и рубеж подтвердили выполненную стабилизацию.",
+            "requires_all_group_node_state_flags": [
+                "northwatch_directive_fulfilled",
+                "western_road_directive_fulfilled",
+            ],
         }
     ]
     assert get_static_node_region_gateways(node_id="forgotten_shrine")[0]["future_stub"] is True
