@@ -2695,6 +2695,148 @@ def test_forest_settlement_stabilization_review_escalates_from_one_to_three_dist
     assert any(entry["source_kind"] == "context_action" and entry["source_id"] == "review_frontier_stabilization" for entry in intel_entries)
 
 
+def test_forest_settlement_mesh_review_stays_locked_before_lateral_link_discovery() -> None:
+    player_id = uuid.uuid4()
+    sess = SimpleNamespace(settings={})
+    session_state._initialize_default_group(
+        sess,
+        [player_id],
+        {"map_level": "region", "node_type": "zone", "node_id": "forest_settlement", "label": "Лесной посёлок"},
+    )
+    session_state.get_current_group_current_region_state(sess, player_id=player_id)
+
+    actions = session_state.get_current_group_context_action_availability(sess, player_id=player_id)
+    review = next(item for item in actions if item["action_id"] == "review_frontier_mesh")
+    assert review["availability_status"] == "locked"
+    assert review["unavailable_reason"] == "requires_any_region_link_ids"
+    assert "боковой переход" in review["unlock_hint"].lower()
+
+
+def test_forest_settlement_mesh_review_escalates_from_one_to_three_discovered_lateral_links() -> None:
+    player_id = uuid.uuid4()
+    sess = SimpleNamespace(settings={})
+    session_state._initialize_default_group(
+        sess,
+        [player_id],
+        {"map_level": "region", "node_type": "zone", "node_id": "forest_settlement", "label": "Лесной посёлок"},
+    )
+    session_state.get_current_group_current_region_state(sess, player_id=player_id)
+    group = session_state._get_group_states(sess)["main"]
+    group.setdefault("region_link_states", {})
+
+    group["region_link_states"]["region-link:northwatch_frontier::western_road"] = {
+        "link_id": "region-link:northwatch_frontier::western_road",
+        "region_a_id": "northwatch_frontier",
+        "region_a_label": "Northwatch Frontier",
+        "region_b_id": "western_road",
+        "region_b_label": "Western Road",
+        "gateway_ids": ["northwatch_quartermaster_western_road"],
+        "traversal_count": 1,
+        "first_discovered_at": "2026-03-22T00:00:00+00:00",
+        "last_traversed_at": "2026-03-22T00:00:00+00:00",
+        "summary": "Открыт прямой боковой ход между северным рубежом и западным трактом.",
+    }
+    session_state.settings_set(sess, "groups", {"main": group})
+
+    first_actions = session_state.get_current_group_context_action_availability(sess, player_id=player_id)
+    first = next(item for item in first_actions if item["action_id"] == "review_frontier_mesh")
+    assert first["availability_status"] == "available"
+    resolved_first, error = session_state.resolve_group_context_action(
+        sess,
+        "main",
+        action_id="review_frontier_mesh",
+        player_id=player_id,
+        source="test",
+    )
+    assert error is None
+    assert resolved_first is not None
+    assert "spoke-like" in resolved_first["last_context_action_result"]["result_summary"].lower()
+    context = session_state.get_current_group_node_context(sess, player_id=player_id)
+    assert "frontier_mesh_started" in context["node_state_flags"]
+    assert "frontier_mesh_spanning" not in context["node_state_flags"]
+
+    group["region_link_states"]["region-link:northwatch_frontier::western_road"] = {
+        "link_id": "region-link:northwatch_frontier::western_road",
+        "region_a_id": "northwatch_frontier",
+        "region_a_label": "Northwatch Frontier",
+        "region_b_id": "western_road",
+        "region_b_label": "Western Road",
+        "gateway_ids": ["northwatch_quartermaster_western_road", "northwatch_quartermaster_western_road"],
+        "traversal_count": 2,
+        "first_discovered_at": "2026-03-22T00:00:00+00:00",
+        "last_traversed_at": "2026-03-22T01:00:00+00:00",
+        "summary": "Тот же боковой ход использовали повторно.",
+    }
+    session_state.settings_set(sess, "groups", {"main": group})
+    duplicate, error = session_state.resolve_group_context_action(
+        sess,
+        "main",
+        action_id="review_frontier_mesh",
+        player_id=player_id,
+        source="test",
+    )
+    assert error is None
+    assert duplicate is not None
+    assert "spanning side-network" not in duplicate["last_context_action_result"]["result_summary"].lower()
+    assert "frontier_mesh_spanning" not in session_state.get_current_group_node_context(sess, player_id=player_id)["node_state_flags"]
+
+    group["region_link_states"]["region-link:deep_marsh::western_road"] = {
+        "link_id": "region-link:deep_marsh::western_road",
+        "region_a_id": "deep_marsh",
+        "region_a_label": "Deep Marsh",
+        "region_b_id": "western_road",
+        "region_b_label": "Western Road",
+        "gateway_ids": ["blackwater_run_western_road"],
+        "traversal_count": 1,
+        "first_discovered_at": "2026-03-22T02:00:00+00:00",
+        "last_traversed_at": "2026-03-22T02:00:00+00:00",
+        "summary": "Открыт прямой marsh-road боковой ход.",
+    }
+    session_state.settings_set(sess, "groups", {"main": group})
+    resolved_second, error = session_state.resolve_group_context_action(
+        sess,
+        "main",
+        action_id="review_frontier_mesh",
+        player_id=player_id,
+        source="test",
+    )
+    assert error is None
+    assert resolved_second is not None
+    assert "spanning side-network" in resolved_second["last_context_action_result"]["result_summary"].lower()
+    context = session_state.get_current_group_node_context(sess, player_id=player_id)
+    assert "frontier_mesh_spanning" in context["node_state_flags"]
+
+    group["region_link_states"]["region-link:deep_marsh::northwatch_frontier"] = {
+        "link_id": "region-link:deep_marsh::northwatch_frontier",
+        "region_a_id": "deep_marsh",
+        "region_a_label": "Deep Marsh",
+        "region_b_id": "northwatch_frontier",
+        "region_b_label": "Northwatch Frontier",
+        "gateway_ids": ["ash_pass_deep_marsh"],
+        "traversal_count": 1,
+        "first_discovered_at": "2026-03-22T03:00:00+00:00",
+        "last_traversed_at": "2026-03-22T03:00:00+00:00",
+        "summary": "Открыт прямой болотный боковой ход к северному рубежу.",
+    }
+    session_state.settings_set(sess, "groups", {"main": group})
+    resolved_third, error = session_state.resolve_group_context_action(
+        sess,
+        "main",
+        action_id="review_frontier_mesh",
+        player_id=player_id,
+        source="test",
+    )
+    assert error is None
+    assert resolved_third is not None
+    assert "closed frontier mesh picture" in resolved_third["last_context_action_result"]["result_summary"].lower()
+
+    final_context = session_state.get_current_group_node_context(sess, player_id=player_id)
+    assert "frontier_mesh_closed" in final_context["node_state_flags"]
+    assert any("mesh picture" in note.lower() or "внешний треугольник" in note.lower() for note in final_context["state_notes"])
+    intel_entries = session_state.get_current_group_map_intel(sess, player_id=player_id)
+    assert any(entry["source_kind"] == "context_action" and entry["source_id"] == "review_frontier_mesh" for entry in intel_entries)
+
+
 def test_forest_settlement_frontier_support_stays_locked_before_report() -> None:
     player_id = uuid.uuid4()
     sess = SimpleNamespace(settings={})

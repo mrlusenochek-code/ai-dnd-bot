@@ -922,6 +922,7 @@ def test_starter_frontier_nodes_expose_local_progression_arc_surfaces() -> None:
     assert any(item["action_id"] == "arrange_frontier_evidence" for item in forest_actions)
     assert any(item["action_id"] == "issue_frontier_directives" for item in forest_actions)
     assert any(item["action_id"] == "review_frontier_stabilization" for item in forest_actions)
+    assert any(item["action_id"] == "review_frontier_mesh" for item in forest_actions)
     assert forest_action_requirements == [
         {
             "node_id": "forest_settlement",
@@ -962,6 +963,16 @@ def test_starter_frontier_nodes_expose_local_progression_arc_surfaces() -> None:
                 "northwatch_directive_fulfilled",
                 "deep_marsh_directive_fulfilled",
                 "western_road_directive_fulfilled",
+            ],
+        },
+        {
+            "node_id": "forest_settlement",
+            "action_id": "review_frontier_mesh",
+            "unlock_hint": "Сначала реально открыть хотя бы один боковой переход между соседними frontier regions, а не только знать о готовом gateway.",
+            "requires_any_region_link_ids": [
+                "region-link:northwatch_frontier::western_road",
+                "region-link:deep_marsh::western_road",
+                "region-link:deep_marsh::northwatch_frontier",
             ],
         },
     ]

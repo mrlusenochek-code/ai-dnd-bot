@@ -5168,6 +5168,7 @@ def build_group_interaction_gate_result(
     requirements: dict[str, Any] | None = None,
     state_flags: list[str] | set[str] | None = None,
     group_state_flags: list[str] | set[str] | None = None,
+    region_link_ids: list[str] | set[str] | None = None,
     destination_event_state: dict[str, Any] | None = None,
     visit_count: int = 0,
     completed: bool = False,
@@ -5191,6 +5192,7 @@ def build_group_interaction_gate_result(
         requirements=requirement_map,
         state_flags=state_flags,
         group_state_flags=group_state_flags,
+        region_link_ids=region_link_ids,
         destination_event_state=destination_state,
         visit_count=visit_count,
     )
@@ -5230,6 +5232,7 @@ def _evaluate_local_requirement_set(
     requirements: dict[str, Any] | None = None,
     state_flags: list[str] | set[str] | None = None,
     group_state_flags: list[str] | set[str] | None = None,
+    region_link_ids: list[str] | set[str] | None = None,
     destination_event_state: dict[str, Any] | None = None,
     visit_count: int = 0,
 ) -> dict[str, Any]:
@@ -5244,6 +5247,11 @@ def _evaluate_local_requirement_set(
         str(flag or "").strip().lower()
         for flag in (group_state_flags or [])
         if str(flag or "").strip()
+    }
+    available_region_link_ids = {
+        str(link_id or "").strip().lower()
+        for link_id in (region_link_ids or [])
+        if str(link_id or "").strip()
     }
     resolved_visit_count = max(0, int(visit_count or 0))
     missing_requirements: list[str] = []
@@ -5324,6 +5332,43 @@ def _evaluate_local_requirement_set(
             missing_value=f"min_group_node_state_count:{required_min_group_flag_count}",
             satisfied_value=f"min_group_node_state_count:{required_min_group_flag_count}",
         )
+    required_any_region_link_ids = {
+        str(link_id or "").strip().lower()
+        for link_id in (requirement_map.get("requires_any_region_link_ids") or [])
+        if str(link_id or "").strip()
+    }
+    if required_any_region_link_ids:
+        _requirement_met(
+            "requires_any_region_link_ids",
+            bool(required_any_region_link_ids & available_region_link_ids),
+            missing_value=f"any_region_link:{','.join(sorted(required_any_region_link_ids))}",
+            satisfied_value=f"any_region_link:{','.join(sorted(required_any_region_link_ids & available_region_link_ids))}",
+        )
+    required_all_region_link_ids = {
+        str(link_id or "").strip().lower()
+        for link_id in (requirement_map.get("requires_all_region_link_ids") or [])
+        if str(link_id or "").strip()
+    }
+    if required_all_region_link_ids:
+        _requirement_met(
+            "requires_all_region_link_ids",
+            required_all_region_link_ids.issubset(available_region_link_ids),
+            missing_value=f"all_region_link:{','.join(sorted(required_all_region_link_ids))}",
+            satisfied_value=f"all_region_link:{','.join(sorted(required_all_region_link_ids))}",
+        )
+    required_min_region_link_count = max(0, as_int(requirement_map.get("requires_min_region_link_count"), 0))
+    if required_min_region_link_count > 0:
+        region_link_id_pool = {
+            str(link_id or "").strip().lower()
+            for link_id in (requirement_map.get("region_link_id_pool") or [])
+            if str(link_id or "").strip()
+        }
+        _requirement_met(
+            "requires_min_region_link_count",
+            len(region_link_id_pool & available_region_link_ids) >= required_min_region_link_count,
+            missing_value=f"min_region_link_count:{required_min_region_link_count}",
+            satisfied_value=f"min_region_link_count:{required_min_region_link_count}",
+        )
     if bool(requirement_map.get("first_visit_only")):
         _requirement_met(
             "first_visit_only",
@@ -5373,6 +5418,16 @@ def _collect_group_node_state_flags(group: dict[str, Any] | None) -> set[str]:
     }
 
 
+def _collect_group_region_link_ids(group: dict[str, Any] | None) -> set[str]:
+    if not isinstance(group, dict):
+        return set()
+    return {
+        str(link_id).strip().lower()
+        for link_id in _normalize_group_region_link_state_map(group.get("region_link_states")).keys()
+        if str(link_id or "").strip()
+    }
+
+
 def _get_current_group_local_interaction_context(
     sess: Session,
     group_id: str,
@@ -5398,12 +5453,14 @@ def _get_current_group_local_interaction_context(
             if str(flag or "").strip()
         }
     )
+    region_link_ids = sorted(_collect_group_region_link_ids(group))
     return {
         "group": group,
         "current_map_position": current_map_position,
         "current_node_id": current_node_id,
         "node_state_flags": list((current_node_state or {}).get("state_flags") or []),
         "group_state_flags": group_state_flags,
+        "region_link_ids": region_link_ids,
         "visit_count": max(0, as_int((current_visit_state or {}).get("visit_count"), 0)),
         "destination_event_state": current_destination_event_state,
         "context_action_states": _normalize_group_context_action_state_map(group.get("context_action_states")),
@@ -5437,6 +5494,7 @@ def get_current_group_context_action_availability(
             current_map_position=current_map_position,
             state_flags=context.get("node_state_flags"),
             group_state_flags=context.get("group_state_flags"),
+            region_link_ids=context.get("region_link_ids"),
         )
         if isinstance(item, dict) and str(item.get("action_id") or "").strip()
     }
@@ -5455,6 +5513,7 @@ def get_current_group_context_action_availability(
             requirements=requirement_map.get(action_id),
             state_flags=context.get("node_state_flags"),
             group_state_flags=context.get("group_state_flags"),
+            region_link_ids=context.get("region_link_ids"),
             destination_event_state=context.get("destination_event_state"),
             visit_count=int(context.get("visit_count") or 0),
             completed=completed,
@@ -5525,6 +5584,7 @@ def get_current_group_service_availability(
             requirements=requirements,
             state_flags=context.get("node_state_flags"),
             group_state_flags=context.get("group_state_flags"),
+            region_link_ids=context.get("region_link_ids"),
             destination_event_state=context.get("destination_event_state"),
             visit_count=int(context.get("visit_count") or 0),
             completed=completed,
@@ -6838,16 +6898,24 @@ def get_group_region_gateways(sess: Session, group_id: str) -> list[dict[str, An
             "requires_destination_event_result_type",
             "requires_any_group_node_state_flags",
             "requires_all_group_node_state_flags",
+            "requires_any_region_link_ids",
+            "requires_all_region_link_ids",
             "requires_min_visit_count",
         ):
             value = definition.get(key)
             if value is None or value == "":
                 continue
             requirements[key] = value
+        for key in ("requires_min_region_link_count", "region_link_id_pool"):
+            value = definition.get(key)
+            if value is None or value == "" or value == []:
+                continue
+            requirements[key] = value
         requirement_eval = _evaluate_local_requirement_set(
             requirements=requirements,
             state_flags=node_state_flags,
             group_state_flags=group_state_flags,
+            region_link_ids=sorted(_collect_group_region_link_ids(group)),
             destination_event_state=destination_event_state,
             visit_count=visit_count,
         )
@@ -6982,16 +7050,24 @@ def _build_group_region_target_gateway_candidate(
         "requires_destination_event_result_type",
         "requires_any_group_node_state_flags",
         "requires_all_group_node_state_flags",
+        "requires_any_region_link_ids",
+        "requires_all_region_link_ids",
         "requires_min_visit_count",
     ):
         value = definition.get(key)
         if value is None or value == "":
             continue
         requirements[key] = value
+    for key in ("requires_min_region_link_count", "region_link_id_pool"):
+        value = definition.get(key)
+        if value is None or value == "" or value == []:
+            continue
+        requirements[key] = value
     requirement_eval = _evaluate_local_requirement_set(
         requirements=requirements,
         state_flags=node_state_flags,
         group_state_flags=group_state_flags,
+        region_link_ids=sorted(_collect_group_region_link_ids(group)),
         destination_event_state=destination_event_state,
         visit_count=visit_count,
     )
@@ -10810,6 +10886,7 @@ def resolve_group_context_action(
             current_map_position=current_map_position,
             state_flags=context.get("node_state_flags"),
             group_state_flags=context.get("group_state_flags"),
+            region_link_ids=context.get("region_link_ids"),
         )
         if isinstance(effect, dict) and str(effect.get("action_id") or "").strip()
     }

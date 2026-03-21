@@ -1794,6 +1794,75 @@ STATIC_MAP_CONTEXT_ACTION_EFFECTS: tuple[dict[str, Any], ...] = (
     },
     {
         "node_id": "forest_settlement",
+        "action_id": "review_frontier_mesh",
+        "label": "Сверить frontier mesh",
+        "action_kind": "clue",
+        "effect_type": "clue",
+        "one_shot": False,
+        "result_type": "local_clue_found",
+        "summary": "Зафиксировать первый реально открытый lateral side-line между соседними frontier regions.",
+        "result_summary": "Лесной посёлок впервые видит, что frontier уже держится не только spoke-like ходами через домашний край: один настоящий боковой переход между соседними регионами подтверждает, что рубеж начал срастаться в небольшую side-network.",
+        "discovered_notes": [
+            "Первый discovered lateral link меняет взгляд на frontier: теперь это не только набор возвратов к базе, а уже начинающаяся сеть боковых ходов между внешними краями."
+        ],
+        "applied_effects": ["frontier_mesh:started", "intel:frontier_mesh"],
+        "node_state_flags": ["frontier_mesh_started"],
+        "node_state_summary": "В лесном посёлке уже зафиксировали первый реально открытый lateral side-line между соседними frontier regions.",
+        "requires_min_region_link_count": 1,
+        "region_link_id_pool": [
+            "region-link:northwatch_frontier::western_road",
+            "region-link:deep_marsh::western_road",
+            "region-link:deep_marsh::northwatch_frontier",
+        ],
+    },
+    {
+        "node_id": "forest_settlement",
+        "action_id": "review_frontier_mesh",
+        "label": "Сверить frontier mesh",
+        "action_kind": "clue",
+        "effect_type": "clue",
+        "one_shot": False,
+        "result_type": "local_clue_found",
+        "summary": "Сопоставить два discovered side-lines и увидеть spanning frontier side-network.",
+        "result_summary": "Когда по краям frontier уже открыты два разных lateral links, в лесном посёлке видят не случайное исключение, а настоящую spanning side-network: соседние регионы начинают держаться между собой напрямую, а не только через домашний узел.",
+        "discovered_notes": [
+            "Два discovered lateral links позволяют базе читать frontier уже не как один боковой проход, а как растущую сеть прямых внешних связей между соседними краями."
+        ],
+        "applied_effects": ["frontier_mesh:spanning", "intel:frontier_mesh_spanning"],
+        "node_state_flags": ["frontier_mesh_spanning"],
+        "node_state_summary": "В лесном посёлке уже сверили два discovered side-lines и увидели spanning frontier side-network.",
+        "requires_min_region_link_count": 2,
+        "region_link_id_pool": [
+            "region-link:northwatch_frontier::western_road",
+            "region-link:deep_marsh::western_road",
+            "region-link:deep_marsh::northwatch_frontier",
+        ],
+    },
+    {
+        "node_id": "forest_settlement",
+        "action_id": "review_frontier_mesh",
+        "label": "Сверить frontier mesh",
+        "action_kind": "clue",
+        "effect_type": "clue",
+        "one_shot": False,
+        "result_type": "local_clue_found",
+        "summary": "Собрать полную local frontier mesh picture по всем трём discovered side-lines.",
+        "result_summary": "После трёх реальных lateral crossings лесной посёлок получает первую closed frontier mesh picture: northwatch, deep_marsh и western_road уже связаны между собой прямыми боковыми линиями, а starter frontier видит вокруг себя не spokes, а замкнутый внешний треугольник.",
+        "discovered_notes": [
+            "Полная frontier mesh picture меняет структурное понимание рубежа: три соседних внешних края теперь держатся не только на возвратах в базу, а на реально открытой local mesh topology."
+        ],
+        "applied_effects": ["frontier_mesh:closed", "intel:frontier_mesh_closed"],
+        "node_state_flags": ["frontier_mesh_closed"],
+        "node_state_summary": "В лесном посёлке уже собрали полную local frontier mesh picture по всем трём discovered lateral links.",
+        "requires_min_region_link_count": 3,
+        "region_link_id_pool": [
+            "region-link:northwatch_frontier::western_road",
+            "region-link:deep_marsh::western_road",
+            "region-link:deep_marsh::northwatch_frontier",
+        ],
+    },
+    {
+        "node_id": "forest_settlement",
         "action_id": "compile_frontier_report",
         "label": "Сверить frontier сводки",
         "action_kind": "clue",
@@ -1918,6 +1987,16 @@ STATIC_MAP_CONTEXT_ACTION_REQUIREMENTS: tuple[dict[str, Any], ...] = (
             "western_road_directive_fulfilled",
         ],
         "unlock_hint": "Сначала получить хотя бы одно подтверждение, что field directive уже реально выполнен на внешнем краю.",
+    },
+    {
+        "node_id": "forest_settlement",
+        "action_id": "review_frontier_mesh",
+        "requires_any_region_link_ids": [
+            "region-link:northwatch_frontier::western_road",
+            "region-link:deep_marsh::western_road",
+            "region-link:deep_marsh::northwatch_frontier",
+        ],
+        "unlock_hint": "Сначала реально открыть хотя бы один боковой переход между соседними frontier regions, а не только знать о готовом gateway.",
     },
     {
         "node_id": "northwatch_palisade",
@@ -2175,6 +2254,25 @@ STATIC_MAP_NODE_STATE_OVERLAYS: tuple[dict[str, Any], ...] = (
         "context_note": "В лесном посёлке уже собран полный frontier-readiness tier после полной stabilization picture.",
         "detail_note": "Полная подтверждённая stabilization picture замкнула внешний цикл в домашнюю готовность: база теперь выглядит по-настоящему собранной под следующий frontier response.",
         "service_note": "Лучший readiness tier делает посёлок не только местом сводок и координации, а реально подготовленной домашней опорой всего frontier cycle.",
+    },
+    {
+        "node_id": "forest_settlement",
+        "state_flag": "frontier_mesh_started",
+        "context_note": "В лесном посёлке уже понимают, что frontier перестал быть чисто spoke-like: один боковой line между внешними краями действительно открыт.",
+        "detail_note": "У навесов уже отмечен первый discovered side-line между соседними frontier regions, и база смотрит на внешний край уже как на начавшую срастаться сеть, а не только на ряд возвратов домой.",
+    },
+    {
+        "node_id": "forest_settlement",
+        "state_flag": "frontier_mesh_spanning",
+        "context_note": "Лесной посёлок уже видит spanning side-network по двум разным lateral links между внешними краями.",
+        "detail_note": "Два реальных боковых перехода меняют structural reading frontier: starter frontier уже окружён не единичным исключением, а растущей сетью прямых внешних связей.",
+    },
+    {
+        "node_id": "forest_settlement",
+        "state_flag": "frontier_mesh_closed",
+        "context_note": "В лесном посёлке уже собрали полную closed frontier mesh picture по northwatch, deep_marsh и western_road.",
+        "detail_note": "Три discovered lateral links замкнули первый внешний треугольник вокруг базы: frontier теперь читается здесь не только по событиям и стабилизации, но и по реально возвращённой topology.",
+        "service_note": "После полного mesh review посёлок ведёт себя как база, которая понимает уже не только cycle давления и ответа, а саму reclaimed frontier topology вокруг себя.",
     },
     {
         "node_id": "forest_settlement",
@@ -3598,6 +3696,7 @@ def _matches_group_state_requirement_variant(
     *,
     state_flags: list[str] | set[str] | None = None,
     group_state_flags: list[str] | set[str] | None = None,
+    region_link_ids: list[str] | set[str] | None = None,
 ) -> bool:
     local_flags = {
         str(flag).strip().lower()
@@ -3608,6 +3707,11 @@ def _matches_group_state_requirement_variant(
         str(flag).strip().lower()
         for flag in (group_state_flags or [])
         if str(flag or "").strip()
+    }
+    available_region_link_ids = {
+        str(link_id).strip().lower()
+        for link_id in (region_link_ids or [])
+        if str(link_id or "").strip()
     }
     required_state_flags = set(_normalized_text_list(item.get("required_state_flags")))
     if required_state_flags and not required_state_flags.issubset(local_flags):
@@ -3623,11 +3727,25 @@ def _matches_group_state_requirement_variant(
         group_flag_pool = set(_normalized_text_list(item.get("group_node_state_flag_pool")))
         if len(group_flag_pool & global_flags) < required_min_group_flags:
             return False
+    requires_any_region_link_ids = set(_normalized_text_list(item.get("requires_any_region_link_ids")))
+    if requires_any_region_link_ids and not (requires_any_region_link_ids & available_region_link_ids):
+        return False
+    requires_all_region_link_ids = set(_normalized_text_list(item.get("requires_all_region_link_ids")))
+    if requires_all_region_link_ids and not requires_all_region_link_ids.issubset(available_region_link_ids):
+        return False
+    requires_min_region_link_count = max(0, int(item.get("requires_min_region_link_count") or 0))
+    if requires_min_region_link_count > 0:
+        region_link_id_pool = set(_normalized_text_list(item.get("region_link_id_pool")))
+        if len(region_link_id_pool & available_region_link_ids) < requires_min_region_link_count:
+            return False
     return True
 
 
-def _group_state_requirement_specificity(item: dict[str, Any]) -> tuple[int, int, int, int]:
+def _group_state_requirement_specificity(item: dict[str, Any]) -> tuple[int, int, int, int, int, int, int]:
     return (
+        max(0, int(item.get("requires_min_region_link_count") or 0)),
+        len(_normalized_text_list(item.get("requires_all_region_link_ids"))),
+        len(_normalized_text_list(item.get("requires_any_region_link_ids"))),
         max(0, int(item.get("requires_min_group_node_state_flags") or 0)),
         len(_normalized_text_list(item.get("requires_all_group_node_state_flags"))),
         len(_normalized_text_list(item.get("requires_any_group_node_state_flags"))),
@@ -3828,6 +3946,7 @@ def get_static_node_context_action_effects(
     current_map_position: dict[str, Any] | None = None,
     state_flags: list[str] | set[str] | None = None,
     group_state_flags: list[str] | set[str] | None = None,
+    region_link_ids: list[str] | set[str] | None = None,
 ) -> list[dict[str, Any]]:
     resolved_node_id = _normalized_text(node_id)
     if not resolved_node_id and isinstance(current_map_position, dict):
@@ -3916,9 +4035,21 @@ def get_static_node_context_action_effects(
         group_node_state_flag_pool = _normalized_text_list(item.get("group_node_state_flag_pool"))
         if group_node_state_flag_pool:
             effect["group_node_state_flag_pool"] = group_node_state_flag_pool
+        requires_any_region_link_ids = _normalized_text_list(item.get("requires_any_region_link_ids"))
+        if requires_any_region_link_ids:
+            effect["requires_any_region_link_ids"] = requires_any_region_link_ids
+        requires_all_region_link_ids = _normalized_text_list(item.get("requires_all_region_link_ids"))
+        if requires_all_region_link_ids:
+            effect["requires_all_region_link_ids"] = requires_all_region_link_ids
+        requires_min_region_link_count = int(item.get("requires_min_region_link_count") or 0)
+        if requires_min_region_link_count > 0:
+            effect["requires_min_region_link_count"] = requires_min_region_link_count
+        region_link_id_pool = _normalized_text_list(item.get("region_link_id_pool"))
+        if region_link_id_pool:
+            effect["region_link_id_pool"] = region_link_id_pool
         if effect["action_id"] and effect["label"]:
             effects.append(effect)
-    if state_flags is None and group_state_flags is None:
+    if state_flags is None and group_state_flags is None and region_link_ids is None:
         return effects
     best_effects: dict[str, dict[str, Any]] = {}
     for effect in effects:
@@ -3929,6 +4060,7 @@ def get_static_node_context_action_effects(
             effect,
             state_flags=state_flags,
             group_state_flags=group_state_flags,
+            region_link_ids=region_link_ids,
         ):
             continue
         current_best = best_effects.get(action_id)
@@ -3980,6 +4112,18 @@ def get_static_node_context_action_requirements(
         group_node_state_flag_pool = _normalized_text_list(item.get("group_node_state_flag_pool"))
         if group_node_state_flag_pool:
             requirement["group_node_state_flag_pool"] = group_node_state_flag_pool
+        requires_any_region_link_ids = _normalized_text_list(item.get("requires_any_region_link_ids"))
+        if requires_any_region_link_ids:
+            requirement["requires_any_region_link_ids"] = requires_any_region_link_ids
+        requires_all_region_link_ids = _normalized_text_list(item.get("requires_all_region_link_ids"))
+        if requires_all_region_link_ids:
+            requirement["requires_all_region_link_ids"] = requires_all_region_link_ids
+        requires_min_region_link_count = int(item.get("requires_min_region_link_count") or 0)
+        if requires_min_region_link_count > 0:
+            requirement["requires_min_region_link_count"] = requires_min_region_link_count
+        region_link_id_pool = _normalized_text_list(item.get("region_link_id_pool"))
+        if region_link_id_pool:
+            requirement["region_link_id_pool"] = region_link_id_pool
         if bool(item.get("first_visit_only")):
             requirement["first_visit_only"] = True
         if bool(item.get("return_visit_only")):
