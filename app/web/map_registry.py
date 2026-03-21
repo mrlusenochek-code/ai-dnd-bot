@@ -1724,6 +1724,60 @@ STATIC_MAP_CONTEXT_ACTION_EFFECTS: tuple[dict[str, Any], ...] = (
         "node_state_summary": "На постоялом дворе уже закрепили detour handling по присланной corridor directive.",
     },
     {
+        "node_id": "northwatch_quartermaster",
+        "action_id": "check_watchroad_courier_slate",
+        "label": "Сверить courier slate",
+        "action_kind": "clue",
+        "effect_type": "clue",
+        "one_shot": True,
+        "result_type": "local_clue_found",
+        "summary": "Сверить courier slate по reopened watch-road line между северным двором и западным трактом.",
+        "result_summary": "На интендантском дворе сверяют courier slate по прямой боковой линии к western_road: reopened watch-road link теперь оставляет не только путь на карте, но и рабочий ритм коротких связных выходов между двором и трактом.",
+        "discovered_notes": [
+            "У северного двора появился настоящий watch-road courier trace: боковая линия к western_road теперь читается как рабочий relay line, а не как редкий случайный проход."
+        ],
+        "applied_effects": ["frontier_mesh_line:northwatch_western", "intel:watchroad_line"],
+        "node_state_flags": ["northwatch_watchroad_slate_logged"],
+        "node_state_summary": "На северном дворе уже сверили courier slate по reopened боковой линии к western_road.",
+        "requires_any_region_link_ids": ["region-link:northwatch_frontier::western_road"],
+    },
+    {
+        "node_id": "blackwater_run",
+        "action_id": "mark_marshroad_sidepass",
+        "label": "Отметить side-pass reeds",
+        "action_kind": "clue",
+        "effect_type": "clue",
+        "one_shot": True,
+        "result_type": "local_clue_found",
+        "summary": "Отметить cautious reeds по reopened marsh-road side-pass к western_road.",
+        "result_summary": "У чёрной протоки снова плетут side-pass reeds для прямой линии к western_road: болотный край отмечает не общую надежду на возврат, а конкретный осторожный проход, который теперь держится как remembered marsh-road pass.",
+        "discovered_notes": [
+            "На blackwater_run закрепили новый marsh-road side-pass sign: reopened линия к western_road теперь оставляет у протоки рабочую память о том, как держать осторожный прямой выход."
+        ],
+        "applied_effects": ["frontier_mesh_line:deep_marsh_western", "intel:marshroad_sidepass"],
+        "node_state_flags": ["deep_marsh_sidepass_marked"],
+        "node_state_summary": "У чёрной протоки уже отметили reeds по reopened marsh-road side-pass к western_road.",
+        "requires_any_region_link_ids": ["region-link:deep_marsh::western_road"],
+    },
+    {
+        "node_id": "ash_pass",
+        "action_id": "trace_marsh_watch_sign",
+        "label": "Сверить marsh-watch sign",
+        "action_kind": "clue",
+        "effect_type": "clue",
+        "one_shot": True,
+        "result_type": "local_clue_found",
+        "summary": "Сверить sign по reopened watch-marsh line между ash_pass и deep_marsh.",
+        "result_summary": "На ash_pass находят свежий marsh-watch sign по reopened линии к deep_marsh: край редута и сырая протока теперь связаны не только travel option, а понятной пограничной меткой о том, как держать мокрый боковой watch-line.",
+        "discovered_notes": [
+            "У ash_pass отмечен реальный watch-marsh trace: reopened линия к deep_marsh теперь оставляет собственный edge-sign, достойный дальнейшей frontier memory."
+        ],
+        "applied_effects": ["frontier_mesh_line:northwatch_deep_marsh", "intel:marsh_watch_edge"],
+        "node_state_flags": ["northwatch_marsh_watch_sign_logged"],
+        "node_state_summary": "На ash_pass уже сверили sign по reopened watch-marsh line к deep_marsh.",
+        "requires_any_region_link_ids": ["region-link:deep_marsh::northwatch_frontier"],
+    },
+    {
         "node_id": "forest_settlement",
         "action_id": "review_frontier_stabilization",
         "label": "Сверить frontier stabilization",
@@ -1997,6 +2051,24 @@ STATIC_MAP_CONTEXT_ACTION_REQUIREMENTS: tuple[dict[str, Any], ...] = (
             "region-link:deep_marsh::northwatch_frontier",
         ],
         "unlock_hint": "Сначала реально открыть хотя бы один боковой переход между соседними frontier regions, а не только знать о готовом gateway.",
+    },
+    {
+        "node_id": "northwatch_quartermaster",
+        "action_id": "check_watchroad_courier_slate",
+        "requires_any_region_link_ids": ["region-link:northwatch_frontier::western_road"],
+        "unlock_hint": "Сначала реально пройти боковую линию между northwatch и western_road, чтобы на дворе появился настоящий courier slate по watch-road line.",
+    },
+    {
+        "node_id": "blackwater_run",
+        "action_id": "mark_marshroad_sidepass",
+        "requires_any_region_link_ids": ["region-link:deep_marsh::western_road"],
+        "unlock_hint": "Сначала реально открыть marsh-road боковую линию к western_road, а уже потом отмечать cautious reeds у чёрной протоки.",
+    },
+    {
+        "node_id": "ash_pass",
+        "action_id": "trace_marsh_watch_sign",
+        "requires_any_region_link_ids": ["region-link:deep_marsh::northwatch_frontier"],
+        "unlock_hint": "Сначала реально пройти боковую watch-marsh линию между northwatch и deep_marsh, чтобы на ash_pass появился свежий edge-sign.",
     },
     {
         "node_id": "northwatch_palisade",
@@ -2394,10 +2466,22 @@ STATIC_MAP_NODE_STATE_OVERLAYS: tuple[dict[str, Any], ...] = (
         "service_note": "Northwatch теперь ощущается не только как получатель directive, а как рубеж, который реально выполнил redoubt watch order и подготовил боковой frontier line.",
     },
     {
+        "node_id": "northwatch_quartermaster",
+        "state_flag": "northwatch_watchroad_slate_logged",
+        "context_note": "На интендантском дворе уже сверили courier slate по reopened watch-road line к western_road.",
+        "detail_note": "На столе у склада лежит свежая slate-пометка по связным выходам на тракт: боковая линия к western_road теперь помнится здесь как рабочий relay rhythm, а не как случайное открытие.",
+    },
+    {
         "node_id": "ash_pass",
         "state_flag": "northwatch_directive_fulfilled",
         "context_note": "На ash_pass уже держат не только ход к редуту, но и reopened боковую линию к болотной протоке.",
         "detail_note": "После выполненной рубежной директивы ash_pass читается не как тупиковый тревожный ход, а как рабочая watch-side линия к deep_marsh.",
+    },
+    {
+        "node_id": "ash_pass",
+        "state_flag": "northwatch_marsh_watch_sign_logged",
+        "context_note": "На ash_pass уже сверили свежий sign по reopened watch-marsh line к deep_marsh.",
+        "detail_note": "У края прохода уже знают, как читать болотную боковую линию не только по памяти дозора, но и по свежему edge-sign, который остался после прямого marsh crossing.",
     },
     {
         "node_id": "deep_marsh_threshold",
@@ -2512,6 +2596,12 @@ STATIC_MAP_NODE_STATE_OVERLAYS: tuple[dict[str, Any], ...] = (
         "state_flag": "deep_marsh_directive_fulfilled",
         "context_note": "У чёрной протоки уже держат не только quiet crossing line, но и reopened боковые ходы к тракту и северному рубежу.",
         "detail_note": "После выполненной болотной директивы протока снова читается как рабочий frontier-side выход: осторожный болотный ход теперь доведён до прямых боковых линий в сторону western_road и northwatch_frontier.",
+    },
+    {
+        "node_id": "blackwater_run",
+        "state_flag": "deep_marsh_sidepass_marked",
+        "context_note": "У чёрной протоки уже отметили reeds по reopened marsh-road side-pass к western_road.",
+        "detail_note": "На чёрной воде теперь видна не только память о quiet crossing, но и свежая осторожная отметка по боковой линии к тракту: болотный side-pass действительно вошёл в local habit.",
     },
     {
         "node_id": "reed_shelter",

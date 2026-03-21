@@ -581,14 +581,30 @@ def test_northwatch_nodes_expose_services_actions_and_details() -> None:
     assert "обратный доклад" in redoubt_effect["result_summary"]
     quartermaster_actions = get_current_node_context_actions(node_id="northwatch_quartermaster")
     quartermaster_action_requirements = get_static_node_context_action_requirements(node_id="northwatch_quartermaster")
+    ash_pass_actions = get_current_node_context_actions(node_id="ash_pass")
+    ash_pass_requirements = get_static_node_context_action_requirements(node_id="ash_pass")
     assert any(item["action_id"] == "post_redoubt_orders" for item in quartermaster_actions)
     assert any(item["action_id"] == "confirm_redoubt_watch" for item in quartermaster_actions)
+    assert any(item["action_id"] == "check_watchroad_courier_slate" for item in quartermaster_actions)
+    assert any(item["action_id"] == "trace_marsh_watch_sign" for item in ash_pass_actions)
     assert {
         "node_id": "northwatch_quartermaster",
         "action_id": "confirm_redoubt_watch",
         "requires_node_state_flag": "northwatch_directive_posted",
         "unlock_hint": "Сначала разложить присланный redoubt order на интендантском дворе и только потом закреплять watch-line в поле.",
     } in quartermaster_action_requirements
+    assert {
+        "node_id": "northwatch_quartermaster",
+        "action_id": "check_watchroad_courier_slate",
+        "requires_any_region_link_ids": ["region-link:northwatch_frontier::western_road"],
+        "unlock_hint": "Сначала реально пройти боковую линию между northwatch и western_road, чтобы на дворе появился настоящий courier slate по watch-road line.",
+    } in quartermaster_action_requirements
+    assert {
+        "node_id": "ash_pass",
+        "action_id": "trace_marsh_watch_sign",
+        "requires_any_region_link_ids": ["region-link:deep_marsh::northwatch_frontier"],
+        "unlock_hint": "Сначала реально пройти боковую watch-marsh линию между northwatch и deep_marsh, чтобы на ash_pass появился свежий edge-sign.",
+    } in ash_pass_requirements
     redoubt_actions = get_current_node_context_actions(node_id="broken_redoubt")
     redoubt_requirements = get_static_node_context_action_requirements(node_id="broken_redoubt")
     assert any(item["action_id"] == "log_redoubt_signal_cache" for item in redoubt_actions)
@@ -770,6 +786,8 @@ def test_deep_marsh_nodes_expose_services_actions_events_and_scout_discovery() -
     waystone_scout = get_static_node_scout_discoveries(node_id="drowned_waystone")
     shelter_actions = get_current_node_context_actions(node_id="reed_shelter")
     shelter_requirements = get_static_node_context_action_requirements(node_id="reed_shelter")
+    blackwater_actions = get_current_node_context_actions(node_id="blackwater_run")
+    blackwater_requirements = get_static_node_context_action_requirements(node_id="blackwater_run")
     shelter_effects = [
         item
         for item in get_static_node_context_action_effects(node_id="reed_shelter")
@@ -792,9 +810,16 @@ def test_deep_marsh_nodes_expose_services_actions_events_and_scout_discovery() -
         }
     ]
     assert any(item["action_id"] == "read_moss_waymarks" for item in waystone_actions)
+    assert any(item["action_id"] == "mark_marshroad_sidepass" for item in blackwater_actions)
     assert any(item["action_id"] == "braid_reed_wayline" for item in shelter_actions)
     assert any(item["action_id"] == "tie_crossing_orders" for item in shelter_actions)
     assert any(item["action_id"] == "secure_crossing_line" for item in shelter_actions)
+    assert {
+        "node_id": "blackwater_run",
+        "action_id": "mark_marshroad_sidepass",
+        "requires_any_region_link_ids": ["region-link:deep_marsh::western_road"],
+        "unlock_hint": "Сначала реально открыть marsh-road боковую линию к western_road, а уже потом отмечать cautious reeds у чёрной протоки.",
+    } in blackwater_requirements
     assert {
         "node_id": "reed_shelter",
         "action_id": "braid_reed_wayline",

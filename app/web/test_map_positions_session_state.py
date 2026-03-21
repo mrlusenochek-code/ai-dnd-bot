@@ -2837,6 +2837,158 @@ def test_forest_settlement_mesh_review_escalates_from_one_to_three_discovered_la
     assert any(entry["source_kind"] == "context_action" and entry["source_id"] == "review_frontier_mesh" for entry in intel_entries)
 
 
+def test_northwatch_watchroad_line_follow_up_unlocks_after_lateral_link_discovery() -> None:
+    player_id = uuid.uuid4()
+    sess = SimpleNamespace(settings={})
+    session_state._initialize_default_group(
+        sess,
+        [player_id],
+        {"map_level": "region", "node_type": "zone", "node_id": "northwatch_quartermaster", "label": "Интендантский двор"},
+    )
+    session_state.get_current_group_current_region_state(sess, player_id=player_id)
+
+    locked_actions = session_state.get_current_group_context_action_availability(sess, player_id=player_id)
+    locked = next(item for item in locked_actions if item["action_id"] == "check_watchroad_courier_slate")
+    assert locked["availability_status"] == "locked"
+    assert locked["unavailable_reason"] == "requires_any_region_link_ids"
+
+    group = session_state._get_group_states(sess)["main"]
+    group["region_link_states"] = {
+        "region-link:northwatch_frontier::western_road": {
+            "link_id": "region-link:northwatch_frontier::western_road",
+            "region_a_id": "northwatch_frontier",
+            "region_a_label": "Northwatch Frontier",
+            "region_b_id": "western_road",
+            "region_b_label": "Western Road",
+            "gateway_ids": ["northwatch_quartermaster_western_road"],
+            "traversal_count": 1,
+            "first_discovered_at": "2026-03-22T00:00:00+00:00",
+            "last_traversed_at": "2026-03-22T00:00:00+00:00",
+            "summary": "Открыт прямой боковой ход между северным рубежом и западным трактом.",
+        }
+    }
+    session_state.settings_set(sess, "groups", {"main": group})
+
+    available_actions = session_state.get_current_group_context_action_availability(sess, player_id=player_id)
+    available = next(item for item in available_actions if item["action_id"] == "check_watchroad_courier_slate")
+    assert available["availability_status"] == "available"
+    resolved, error = session_state.resolve_group_context_action(
+        sess,
+        "main",
+        action_id="check_watchroad_courier_slate",
+        player_id=player_id,
+        source="test",
+    )
+    assert error is None
+    assert resolved is not None
+    assert "watch-road link" in resolved["last_context_action_result"]["result_summary"].lower()
+    context = session_state.get_current_group_node_context(sess, player_id=player_id)
+    assert "northwatch_watchroad_slate_logged" in context["node_state_flags"]
+    assert any("courier slate" in note.lower() or "relay rhythm" in note.lower() for note in context["state_notes"])
+    intel_entries = session_state.get_current_group_map_intel(sess, player_id=player_id)
+    assert any(entry["source_kind"] == "context_action" and entry["source_id"] == "check_watchroad_courier_slate" for entry in intel_entries)
+
+
+def test_blackwater_run_line_follow_up_unlocks_after_marsh_road_link_discovery() -> None:
+    player_id = uuid.uuid4()
+    sess = SimpleNamespace(settings={})
+    session_state._initialize_default_group(
+        sess,
+        [player_id],
+        {"map_level": "region", "node_type": "zone", "node_id": "blackwater_run", "label": "Чёрная протока"},
+    )
+    session_state.get_current_group_current_region_state(sess, player_id=player_id)
+
+    locked_actions = session_state.get_current_group_context_action_availability(sess, player_id=player_id)
+    locked = next(item for item in locked_actions if item["action_id"] == "mark_marshroad_sidepass")
+    assert locked["availability_status"] == "locked"
+    assert locked["unavailable_reason"] == "requires_any_region_link_ids"
+
+    group = session_state._get_group_states(sess)["main"]
+    group["region_link_states"] = {
+        "region-link:deep_marsh::western_road": {
+            "link_id": "region-link:deep_marsh::western_road",
+            "region_a_id": "deep_marsh",
+            "region_a_label": "Deep Marsh",
+            "region_b_id": "western_road",
+            "region_b_label": "Western Road",
+            "gateway_ids": ["blackwater_run_western_road"],
+            "traversal_count": 1,
+            "first_discovered_at": "2026-03-22T00:00:00+00:00",
+            "last_traversed_at": "2026-03-22T00:00:00+00:00",
+            "summary": "Открыт прямой marsh-road боковой ход.",
+        }
+    }
+    session_state.settings_set(sess, "groups", {"main": group})
+
+    available_actions = session_state.get_current_group_context_action_availability(sess, player_id=player_id)
+    available = next(item for item in available_actions if item["action_id"] == "mark_marshroad_sidepass")
+    assert available["availability_status"] == "available"
+    resolved, error = session_state.resolve_group_context_action(
+        sess,
+        "main",
+        action_id="mark_marshroad_sidepass",
+        player_id=player_id,
+        source="test",
+    )
+    assert error is None
+    assert resolved is not None
+    assert "marsh-road pass" in resolved["last_context_action_result"]["result_summary"].lower()
+    context = session_state.get_current_group_node_context(sess, player_id=player_id)
+    assert "deep_marsh_sidepass_marked" in context["node_state_flags"]
+    assert any("side-pass" in note.lower() or "боковой линии к тракту" in note.lower() for note in context["state_notes"])
+
+
+def test_ash_pass_line_follow_up_unlocks_after_watch_marsh_link_discovery() -> None:
+    player_id = uuid.uuid4()
+    sess = SimpleNamespace(settings={})
+    session_state._initialize_default_group(
+        sess,
+        [player_id],
+        {"map_level": "region", "node_type": "zone", "node_id": "ash_pass", "label": "Пепельный проход"},
+    )
+    session_state.get_current_group_current_region_state(sess, player_id=player_id)
+
+    locked_actions = session_state.get_current_group_context_action_availability(sess, player_id=player_id)
+    locked = next(item for item in locked_actions if item["action_id"] == "trace_marsh_watch_sign")
+    assert locked["availability_status"] == "locked"
+    assert locked["unavailable_reason"] == "requires_any_region_link_ids"
+
+    group = session_state._get_group_states(sess)["main"]
+    group["region_link_states"] = {
+        "region-link:deep_marsh::northwatch_frontier": {
+            "link_id": "region-link:deep_marsh::northwatch_frontier",
+            "region_a_id": "deep_marsh",
+            "region_a_label": "Deep Marsh",
+            "region_b_id": "northwatch_frontier",
+            "region_b_label": "Northwatch Frontier",
+            "gateway_ids": ["ash_pass_deep_marsh"],
+            "traversal_count": 1,
+            "first_discovered_at": "2026-03-22T00:00:00+00:00",
+            "last_traversed_at": "2026-03-22T00:00:00+00:00",
+            "summary": "Открыт прямой болотный боковой ход к северному рубежу.",
+        }
+    }
+    session_state.settings_set(sess, "groups", {"main": group})
+
+    available_actions = session_state.get_current_group_context_action_availability(sess, player_id=player_id)
+    available = next(item for item in available_actions if item["action_id"] == "trace_marsh_watch_sign")
+    assert available["availability_status"] == "available"
+    resolved, error = session_state.resolve_group_context_action(
+        sess,
+        "main",
+        action_id="trace_marsh_watch_sign",
+        player_id=player_id,
+        source="test",
+    )
+    assert error is None
+    assert resolved is not None
+    assert "marsh-watch sign" in resolved["last_context_action_result"]["result_summary"].lower()
+    context = session_state.get_current_group_node_context(sess, player_id=player_id)
+    assert "northwatch_marsh_watch_sign_logged" in context["node_state_flags"]
+    assert any("edge-sign" in note.lower() or "marsh line" in note.lower() for note in context["state_notes"])
+
+
 def test_forest_settlement_frontier_support_stays_locked_before_report() -> None:
     player_id = uuid.uuid4()
     sess = SimpleNamespace(settings={})
