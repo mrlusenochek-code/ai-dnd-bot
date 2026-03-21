@@ -478,6 +478,23 @@ def test_northwatch_nodes_expose_services_actions_and_details() -> None:
     )
     assert redoubt_effect["node_state_flags"] == ["northwatch_quartermaster_supplies", "northwatch_redoubt_return_logged"]
     assert "обратный доклад" in redoubt_effect["result_summary"]
+    redoubt_actions = get_current_node_context_actions(node_id="broken_redoubt")
+    redoubt_requirements = get_static_node_context_action_requirements(node_id="broken_redoubt")
+    assert any(item["action_id"] == "log_redoubt_signal_cache" for item in redoubt_actions)
+    assert redoubt_requirements == [
+        {
+            "node_id": "broken_redoubt",
+            "action_id": "log_redoubt_signal_cache",
+            "unlock_hint": "Сначала активировать relay-дозор на палисаде и уже на месте увидеть свежий след у редута.",
+            "requires_any_group_node_state_flags": [
+                "northwatch_relay_watch_prepared",
+                "northwatch_relay_watch_ready",
+                "northwatch_relay_watch_committed",
+            ],
+            "requires_destination_event_id": "broken_redoubt_supply_trace",
+            "requires_destination_event_result_type": "first_discovery",
+        }
+    ]
 
 
 def test_deep_marsh_registry_content_and_onboarding_are_real() -> None:
@@ -607,6 +624,23 @@ def test_western_road_nodes_expose_services_actions_events_and_scout_discovery()
     assert len(northwatch_effects) == 4
     assert len(deep_marsh_effects) == 4
     assert len(western_effects) == 4
+    waycart_actions = get_current_node_context_actions(node_id="broken_waycart")
+    waycart_requirements = get_static_node_context_action_requirements(node_id="broken_waycart")
+    assert any(item["action_id"] == "sort_waycart_manifest" for item in waycart_actions)
+    assert waycart_requirements == [
+        {
+            "node_id": "broken_waycart",
+            "action_id": "sort_waycart_manifest",
+            "unlock_hint": "Сначала обновить detour-маркеры у арки и уже у повозки найти свежий дорожный след.",
+            "requires_any_group_node_state_flags": [
+                "western_road_detour_markers_prepared",
+                "western_road_detour_markers_ready",
+                "western_road_detour_markers_committed",
+            ],
+            "requires_destination_event_id": "broken_waycart_trace",
+            "requires_destination_event_result_type": "first_discovery",
+        }
+    ]
 
 
 def test_deep_marsh_nodes_expose_services_actions_events_and_scout_discovery() -> None:
@@ -673,6 +707,23 @@ def test_deep_marsh_nodes_expose_services_actions_events_and_scout_discovery() -
     ]
     assert get_static_node_destination_events(node_id="deep_marsh_threshold", state_flags=[], visit_count=1)[0]["event_id"] == "deep_marsh_mist_notice"
     assert get_static_node_destination_events(node_id="sunken_ferry", state_flags=[], visit_count=1)[0]["event_id"] == "sunken_ferry_trace"
+    ferry_actions = get_current_node_context_actions(node_id="sunken_ferry")
+    ferry_requirements = get_static_node_context_action_requirements(node_id="sunken_ferry")
+    assert any(item["action_id"] == "trace_ferry_moorings" for item in ferry_actions)
+    assert ferry_requirements == [
+        {
+            "node_id": "sunken_ferry",
+            "action_id": "trace_ferry_moorings",
+            "unlock_hint": "Сначала протянуть wayline от приюта и уже на переправе увидеть свежий болотный след.",
+            "requires_any_group_node_state_flags": [
+                "deep_marsh_wayline_prepared",
+                "deep_marsh_wayline_ready",
+                "deep_marsh_wayline_committed",
+            ],
+            "requires_destination_event_id": "sunken_ferry_trace",
+            "requires_destination_event_result_type": "first_discovery",
+        }
+    ]
 
 
 def test_starter_frontier_nodes_expose_local_progression_arc_surfaces() -> None:

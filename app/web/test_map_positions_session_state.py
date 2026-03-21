@@ -2517,6 +2517,157 @@ def test_support_enabled_western_road_field_unlock_updates_marker_line() -> None
     assert any("corridor-marker" in note.lower() or "marker line" in note.lower() for note in committed_context["state_notes"])
 
 
+def test_broken_redoubt_follow_up_unlocks_only_after_activation_and_creates_return_worthy_signal() -> None:
+    player_id = uuid.uuid4()
+    sess = SimpleNamespace(settings={})
+    session_state._initialize_default_group(
+        sess,
+        [player_id],
+        {"map_level": "landmark", "node_type": "landmark", "node_id": "broken_redoubt", "label": "Разбитый редут"},
+    )
+    session_state.record_group_node_visit(
+        sess,
+        "main",
+        "broken_redoubt",
+        node_label="Разбитый редут",
+        result_type="landmark_reached",
+        summary="Группа доходит до редута после короткого опасного хода.",
+    )
+    session_state.resolve_group_destination_event(sess, "main", source="test")
+
+    locked_actions = session_state.get_current_group_context_action_availability(sess, player_id=player_id)
+    locked = next(item for item in locked_actions if item["action_id"] == "log_redoubt_signal_cache")
+    assert locked["availability_status"] == "locked"
+    assert locked["unavailable_reason"] == "requires_any_group_node_state_flags"
+
+    session_state.add_group_node_state_flag(
+        sess,
+        "main",
+        "northwatch_palisade",
+        state_flag="northwatch_relay_watch_ready",
+        summary="На палисаде уже держат устойчивый relay-дозор.",
+        source="test",
+    )
+    available_actions = session_state.get_current_group_context_action_availability(sess, player_id=player_id)
+    available = next(item for item in available_actions if item["action_id"] == "log_redoubt_signal_cache")
+    assert available["availability_status"] == "available"
+
+    resolved, error = session_state.resolve_group_context_action(
+        sess,
+        "main",
+        action_id="log_redoubt_signal_cache",
+        player_id=player_id,
+        source="test",
+    )
+    assert error is None
+    assert resolved is not None
+    assert resolved["last_context_action_result"]["result_type"] == "local_clue_found"
+    assert "стоит нести назад на пост" in resolved["last_context_action_result"]["result_summary"].lower()
+    context = session_state.get_current_group_node_context(sess, player_id=player_id)
+    assert "northwatch_redoubt_cache_logged" in context["node_state_flags"]
+    assert any("сигнальный тайник" in note.lower() or "watch-отхода" in note.lower() for note in context["state_notes"])
+    intel_entries = session_state.get_current_group_map_intel(sess, player_id=player_id)
+    assert any(entry["source_kind"] == "context_action" and entry["source_id"] == "log_redoubt_signal_cache" for entry in intel_entries)
+
+
+def test_sunken_ferry_follow_up_depends_on_wayline_activation_and_changes_destination_state() -> None:
+    player_id = uuid.uuid4()
+    sess = SimpleNamespace(settings={})
+    session_state._initialize_default_group(
+        sess,
+        [player_id],
+        {"map_level": "landmark", "node_type": "landmark", "node_id": "sunken_ferry", "label": "Затонувшая переправа"},
+    )
+    session_state.record_group_node_visit(
+        sess,
+        "main",
+        "sunken_ferry",
+        node_label="Затонувшая переправа",
+        result_type="landmark_reached",
+        summary="Группа выходит к затонувшей переправе.",
+    )
+    session_state.resolve_group_destination_event(sess, "main", source="test")
+
+    locked_actions = session_state.get_current_group_context_action_availability(sess, player_id=player_id)
+    locked = next(item for item in locked_actions if item["action_id"] == "trace_ferry_moorings")
+    assert locked["availability_status"] == "locked"
+
+    session_state.add_group_node_state_flag(
+        sess,
+        "main",
+        "reed_shelter",
+        state_flag="deep_marsh_wayline_ready",
+        summary="Приют уже держит надёжную marsh-wayline.",
+        source="test",
+    )
+    available_actions = session_state.get_current_group_context_action_availability(sess, player_id=player_id)
+    available = next(item for item in available_actions if item["action_id"] == "trace_ferry_moorings")
+    assert available["availability_status"] == "available"
+
+    resolved, error = session_state.resolve_group_context_action(
+        sess,
+        "main",
+        action_id="trace_ferry_moorings",
+        player_id=player_id,
+        source="test",
+    )
+    assert error is None
+    assert resolved is not None
+    assert "память перехода" in resolved["last_context_action_result"]["result_summary"].lower()
+    context = session_state.get_current_group_node_context(sess, player_id=player_id)
+    assert "deep_marsh_ferry_moorings_logged" in context["node_state_flags"]
+    assert any("crossing-memory" in note.lower() or "швартовые" in note.lower() for note in context["state_notes"])
+
+
+def test_broken_waycart_follow_up_depends_on_detour_markers_and_changes_destination_state() -> None:
+    player_id = uuid.uuid4()
+    sess = SimpleNamespace(settings={})
+    session_state._initialize_default_group(
+        sess,
+        [player_id],
+        {"map_level": "landmark", "node_type": "landmark", "node_id": "broken_waycart", "label": "Брошенная повозка"},
+    )
+    session_state.record_group_node_visit(
+        sess,
+        "main",
+        "broken_waycart",
+        node_label="Брошенная повозка",
+        result_type="landmark_reached",
+        summary="Группа доходит до брошенной повозки на объезде.",
+    )
+    session_state.resolve_group_destination_event(sess, "main", source="test")
+
+    locked_actions = session_state.get_current_group_context_action_availability(sess, player_id=player_id)
+    locked = next(item for item in locked_actions if item["action_id"] == "sort_waycart_manifest")
+    assert locked["availability_status"] == "locked"
+
+    session_state.add_group_node_state_flag(
+        sess,
+        "main",
+        "mile_marker_arch",
+        state_flag="western_road_detour_markers_ready",
+        summary="У арки уже держат надёжную marker-line для объезда.",
+        source="test",
+    )
+    available_actions = session_state.get_current_group_context_action_availability(sess, player_id=player_id)
+    available = next(item for item in available_actions if item["action_id"] == "sort_waycart_manifest")
+    assert available["availability_status"] == "available"
+
+    resolved, error = session_state.resolve_group_context_action(
+        sess,
+        "main",
+        action_id="sort_waycart_manifest",
+        player_id=player_id,
+        source="test",
+    )
+    assert error is None
+    assert resolved is not None
+    assert "нести назад во двор" in resolved["last_context_action_result"]["result_summary"].lower()
+    context = session_state.get_current_group_node_context(sess, player_id=player_id)
+    assert "western_road_waycart_manifest_logged" in context["node_state_flags"]
+    assert any("ведомости" in note.lower() or "corridor-proof" in note.lower() for note in context["state_notes"])
+
+
 def test_local_interaction_gating_enforces_locked_execution_without_side_effects() -> None:
     player_id = uuid.uuid4()
     sess = SimpleNamespace(settings={})

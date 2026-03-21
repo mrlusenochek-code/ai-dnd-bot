@@ -1357,6 +1357,57 @@ STATIC_MAP_CONTEXT_ACTION_EFFECTS: tuple[dict[str, Any], ...] = (
         "requires_any_group_node_state_flags": ["frontier_support_committed"],
     },
     {
+        "node_id": "broken_redoubt",
+        "action_id": "log_redoubt_signal_cache",
+        "label": "Сверить сигнальный тайник редута",
+        "action_kind": "clue",
+        "effect_type": "clue",
+        "one_shot": True,
+        "result_type": "local_clue_found",
+        "summary": "Разобрать уцелевшие сигнальные бирки и остатки тайника у разбитой кладки.",
+        "result_summary": "У разбитого редута группа находит не просто брошенный ящик, а аккуратно собранный сигнальный тайник: обрывок watch-rotation slate и складская бирка показывают, что рубеж пытались держать организованно до самого последнего короткого отхода. Такой след уже стоит нести назад на пост.",
+        "discovered_notes": [
+            "В тайнике редута сохранились сигнальная бирка и короткая watch-rotation slate: это уже не случайный мусор, а организованный след, который стоит унести обратно к северному двору."
+        ],
+        "applied_effects": ["local_clue:northwatch_signal_cache", "intel:return_worthy:northwatch"],
+        "node_state_flags": ["northwatch_redoubt_cache_logged"],
+        "node_state_summary": "У разбитого редута уже сверили сигнальный тайник и собрали организованный след последнего дозорного отхода.",
+    },
+    {
+        "node_id": "sunken_ferry",
+        "action_id": "trace_ferry_moorings",
+        "label": "Проверить швартовые метки",
+        "action_kind": "clue",
+        "effect_type": "clue",
+        "one_shot": True,
+        "result_type": "local_clue_found",
+        "summary": "Сверить уцелевшие швартовые метки и понять, как переправа держала короткий болотный ход.",
+        "result_summary": "У затонувшей переправы группа находит не только свежий след, но и рабочую память перехода: на сваях сохранились тихие швартовые метки и срез тростника, по которым видно, где здесь держали осторожный возврат через чёрную воду.",
+        "discovered_notes": [
+            "На старых сваях ещё читаются тихие швартовые метки: deep_marsh помнит эту переправу не как легенду, а как осторожный рабочий crossing-memory."
+        ],
+        "applied_effects": ["local_clue:deep_marsh_moorings", "intel:return_worthy:deep_marsh"],
+        "node_state_flags": ["deep_marsh_ferry_moorings_logged"],
+        "node_state_summary": "У затонувшей переправы уже сверили швартовые метки и подтвердили старую crossing-memory болота.",
+    },
+    {
+        "node_id": "broken_waycart",
+        "action_id": "sort_waycart_manifest",
+        "label": "Разобрать обозную ведомость",
+        "action_kind": "clue",
+        "effect_type": "clue",
+        "one_shot": True,
+        "result_type": "local_clue_found",
+        "summary": "Собрать уцелевшие грузовые бирки и понять, что именно сорвало дорожный ритм на объезде.",
+        "result_summary": "У брошенной повозки группа находит не просто поломку, а понятный дорожный срыв: обрывок waybill и мел на мешочном крюке показывают, что обоз разгружали по спешке, чтобы любой ценой вернуть ход на тракт. Такой след уже стоит нести назад во двор у дороги.",
+        "discovered_notes": [
+            "У повозки сохранился обрывок waybill с пометкой о срочной перегрузке: западный тракт получил не слух, а настоящий corridor-proof того, как именно сорвался обоз."
+        ],
+        "applied_effects": ["local_clue:western_road_manifest", "intel:return_worthy:western_road"],
+        "node_state_flags": ["western_road_waycart_manifest_logged"],
+        "node_state_summary": "У брошенной повозки уже разобрали обрывок обозной ведомости и закрепили понятный след дорожного срыва.",
+    },
+    {
         "node_id": "forest_settlement",
         "action_id": "compile_frontier_report",
         "label": "Сверить frontier сводки",
@@ -1481,6 +1532,42 @@ STATIC_MAP_CONTEXT_ACTION_REQUIREMENTS: tuple[dict[str, Any], ...] = (
             "frontier_support_committed",
         ],
         "unlock_hint": "Detour-маркеры обновляют только когда с базы уже дошёл хотя бы первый practical support tier для дальних выходов.",
+    },
+    {
+        "node_id": "broken_redoubt",
+        "action_id": "log_redoubt_signal_cache",
+        "requires_any_group_node_state_flags": [
+            "northwatch_relay_watch_prepared",
+            "northwatch_relay_watch_ready",
+            "northwatch_relay_watch_committed",
+        ],
+        "requires_destination_event_id": "broken_redoubt_supply_trace",
+        "requires_destination_event_result_type": "first_discovery",
+        "unlock_hint": "Сначала активировать relay-дозор на палисаде и уже на месте увидеть свежий след у редута.",
+    },
+    {
+        "node_id": "sunken_ferry",
+        "action_id": "trace_ferry_moorings",
+        "requires_any_group_node_state_flags": [
+            "deep_marsh_wayline_prepared",
+            "deep_marsh_wayline_ready",
+            "deep_marsh_wayline_committed",
+        ],
+        "requires_destination_event_id": "sunken_ferry_trace",
+        "requires_destination_event_result_type": "first_discovery",
+        "unlock_hint": "Сначала протянуть wayline от приюта и уже на переправе увидеть свежий болотный след.",
+    },
+    {
+        "node_id": "broken_waycart",
+        "action_id": "sort_waycart_manifest",
+        "requires_any_group_node_state_flags": [
+            "western_road_detour_markers_prepared",
+            "western_road_detour_markers_ready",
+            "western_road_detour_markers_committed",
+        ],
+        "requires_destination_event_id": "broken_waycart_trace",
+        "requires_destination_event_result_type": "first_discovery",
+        "unlock_hint": "Сначала обновить detour-маркеры у арки и уже у повозки найти свежий дорожный след.",
     },
 )
 
@@ -1631,6 +1718,12 @@ STATIC_MAP_NODE_STATE_OVERLAYS: tuple[dict[str, Any], ...] = (
         "detail_note": "Под разбитой кладкой нашли следы торопливой стоянки и обрывки складской метки, которые уже нельзя принять за старый мусор.",
     },
     {
+        "node_id": "broken_redoubt",
+        "state_flag": "northwatch_redoubt_cache_logged",
+        "context_note": "У редута уже сверили сигнальный тайник, и место читается как след организованного watch-отхода, а не просто как брошенная точка тревоги.",
+        "detail_note": "Под кладкой уже разобрали сигнальные бирки и watch-rotation slate: у редута сохранилась не только паника, но и след последнего собранного рубежного порядка.",
+    },
+    {
         "node_id": "northwatch_quartermaster",
         "state_flag": "northwatch_redoubt_return_logged",
         "context_note": "Во дворе уже приняли обратный доклад с редута, и интендант смотрит на группу как на тех, кто сходил туда не зря.",
@@ -1707,6 +1800,12 @@ STATIC_MAP_NODE_STATE_OVERLAYS: tuple[dict[str, Any], ...] = (
         "detail_note": "У сломанной оси уже отмечены свежие ремни, следы переноски груза и короткая стоянка, после которой обоз ушёл дальше налегке.",
     },
     {
+        "node_id": "broken_waycart",
+        "state_flag": "western_road_waycart_manifest_logged",
+        "context_note": "У повозки уже разобрали обрывок обозной ведомости, и место читается как понятный corridor-proof дорожного срыва.",
+        "detail_note": "Возле сломанной оси уже собрали waybill scrap и меловую пометку перегрузки: поломка выглядит не случайностью, а зафиксированным следом спешного caravan-отхода.",
+    },
+    {
         "node_id": "waystation_yard",
         "state_flag": "western_road_waystation_aid_received",
         "context_note": "Во дворе уже приняли обратный рассказ о задержке на объезде и выдали группе дорожную поддержку как знакомому составу.",
@@ -1739,6 +1838,12 @@ STATIC_MAP_NODE_STATE_OVERLAYS: tuple[dict[str, Any], ...] = (
         "state_flag": "deep_marsh_ferry_trace_found",
         "context_note": "У затонувшей переправы уже замечали свежие следы недавней остановки и брошенный болотный шнур.",
         "detail_note": "На сваях у переправы уже отмечали не только старую труху, но и свежий след недавнего болотного хода.",
+    },
+    {
+        "node_id": "sunken_ferry",
+        "state_flag": "deep_marsh_ferry_moorings_logged",
+        "context_note": "У переправы уже сверили швартовые метки, и место читается как старая working crossing-memory, а не как просто затонувший настил.",
+        "detail_note": "На сваях уже разобрали тихие швартовые метки и срез тростника: у переправы сохранилась осторожная болотная память о том, как здесь держали короткий ход через воду.",
     },
     {
         "node_id": "reed_shelter",
