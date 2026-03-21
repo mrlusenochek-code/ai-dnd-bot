@@ -343,6 +343,7 @@ def test_get_static_node_destination_events_returns_authored_arrival_events() ->
     assert get_static_node_destination_events(node_id="ruined_settlement", state_flags=["mine_path_shored"], visit_count=2)[0]["result_type"] == "changed_place_notice"
     assert get_static_node_destination_events(node_id="northwatch_outpost", state_flags=[], visit_count=1)[0]["event_id"] == "northwatch_outpost_briefing"
     assert get_static_node_destination_events(node_id="ash_pass", state_flags=[], visit_count=1)[0]["result_type"] == "local_warning"
+    assert get_static_node_destination_events(node_id="broken_redoubt", state_flags=[], visit_count=1)[0]["event_id"] == "broken_redoubt_supply_trace"
 
 
 def test_get_static_region_gateways_returns_authored_frontier_exit_definitions() -> None:
@@ -415,12 +416,18 @@ def test_northwatch_nodes_expose_services_actions_and_details() -> None:
             "node_id": "northwatch_quartermaster",
             "service_id": "northwatch_quartermaster_resupply",
             "service_key": "",
+            "min_visit_count": 2,
             "return_visit_only": True,
-            "unlock_hint": "Интендант открывает рубежный склад только тем, кто уже примелькался на посту и вернулся с первой ходки.",
+            "unlock_hint": "Интендант открывает рубежный склад только тем, кто уже сходил на короткую вылазку по рубежу и вернулся с первой сводкой.",
         }
     ]
     assert get_static_node_context_action_requirements(node_id="northwatch_palisade") == []
     assert any(item["action_id"] == "review_signal_chalk" for item in palisade_actions)
+    redoubt_effect = next(
+        item for item in get_static_node_service_effects(node_id="northwatch_quartermaster") if item["service_id"] == "northwatch_quartermaster_resupply"
+    )
+    assert redoubt_effect["node_state_flags"] == ["northwatch_quartermaster_supplies", "northwatch_redoubt_return_logged"]
+    assert "обратный доклад" in redoubt_effect["result_summary"]
 
 
 def test_static_node_detail_and_inspect_result_expose_handcrafted_content() -> None:

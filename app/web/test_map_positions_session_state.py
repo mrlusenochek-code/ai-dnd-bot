@@ -4877,7 +4877,7 @@ def test_group_region_transition_triggers_region_onboarding_without_fake_reapply
     assert len(session_state.get_current_group_region_onboarding_states(sess, player_id=player_id)) == 2
 
 
-def test_northwatch_frontier_transition_exposes_playable_local_content_and_gating() -> None:
+def test_northwatch_frontier_local_progression_arc_unlocks_return_payoff() -> None:
     player_id = uuid.uuid4()
     sess = SimpleNamespace(settings={})
     session_state._initialize_default_group(
@@ -4908,6 +4908,7 @@ def test_northwatch_frontier_transition_exposes_playable_local_content_and_gatin
     assert updated["current_map_position"]["node_id"] == "northwatch_outpost"
     assert updated["last_destination_event_result"]["event_id"] == "northwatch_outpost_briefing"
     assert updated["last_destination_event_result"]["result_type"] == "settlement_notice"
+    assert "палисад" in updated["last_destination_event_result"]["result_summary"].lower()
     assert set(session_state.get_player_revealed_node_ids(sess, player_id)) >= {
         "northwatch_outpost",
         "northwatch_quartermaster",
@@ -4919,6 +4920,7 @@ def test_northwatch_frontier_transition_exposes_playable_local_content_and_gatin
     assert outpost_context is not None
     assert outpost_context["node_summary"]["node_id"] == "northwatch_outpost"
     assert any(item["service_id"] == "northwatch_outpost_guidance" for item in outpost_context["available_services"])
+    assert "northwatch_briefing_taken" in outpost_context["node_state_flags"]
 
     group_states = session_state._get_group_states(sess)
     group = group_states["main"]
@@ -4937,6 +4939,7 @@ def test_northwatch_frontier_transition_exposes_playable_local_content_and_gatin
     locked_resupply = next(item for item in first_visit_services if item["service_id"] == "northwatch_quartermaster_resupply")
     assert locked_resupply["availability_status"] == "locked"
     assert locked_resupply["unavailable_reason"] == "return_visit_only"
+    assert "вылазку" in locked_resupply["unlock_hint"]
 
     session_state.record_group_node_visit(
         sess,
@@ -4946,18 +4949,6 @@ def test_northwatch_frontier_transition_exposes_playable_local_content_and_gatin
         result_type="settlement_arrival",
         summary="Группа впервые дошла до интендантского двора.",
     )
-    session_state.record_group_node_visit(
-        sess,
-        "main",
-        "northwatch_quartermaster",
-        node_label="Интендантский двор",
-        result_type="return_entry",
-        summary="Группа вернулась к складу после первой вылазки.",
-    )
-
-    revisited_services = session_state.get_current_group_service_availability(sess, player_id=player_id)
-    available_resupply = next(item for item in revisited_services if item["service_id"] == "northwatch_quartermaster_resupply")
-    assert available_resupply["availability_status"] == "available"
 
     group_states = session_state._get_group_states(sess)
     group = group_states["main"]
@@ -4975,6 +4966,26 @@ def test_northwatch_frontier_transition_exposes_playable_local_content_and_gatin
     palisade_actions = session_state.get_current_group_context_action_availability(sess, player_id=player_id)
     signal_action = next(item for item in palisade_actions if item["action_id"] == "review_signal_chalk")
     assert signal_action["availability_status"] == "available"
+    resolved_action, error = session_state.resolve_group_context_action(
+        sess,
+        "main",
+        action_id="review_signal_chalk",
+        player_id=player_id,
+        source="test",
+    )
+    assert error is None
+    assert resolved_action is not None
+    assert resolved_action["last_context_action_result"]["action_id"] == "review_signal_chalk"
+    assert resolved_action["last_context_action_result"]["result_type"] == "local_clue_found"
+    palisade_context = session_state.get_current_group_node_context(sess, player_id=player_id)
+    assert "northwatch_signal_report_taken" in palisade_context["node_state_flags"]
+    assert any("редут" in note.lower() for note in palisade_context["state_notes"])
+
+    scout_result, error = session_state.resolve_group_scout(sess, "main", player_id=player_id, source="test")
+    assert error is None
+    assert scout_result is not None
+    assert scout_result["last_scout_result"]["result_type"] == "landmark_revealed"
+    assert "broken_redoubt" in session_state.get_player_revealed_node_ids(sess, player_id)
 
     group_states = session_state._get_group_states(sess)
     group = group_states["main"]
@@ -4999,6 +5010,75 @@ def test_northwatch_frontier_transition_exposes_playable_local_content_and_gatin
     session_state.resolve_group_destination_event(sess, "main", source="test")
     assert ash_visit is not None
     assert session_state.get_current_group_last_destination_event_result(sess, player_id=player_id)["event_id"] == "ash_pass_warning"
+
+    group_states = session_state._get_group_states(sess)
+    group = group_states["main"]
+    group["current_map_position"] = session_state._normalize_map_position(
+        {
+            "map_level": "landmark",
+            "node_type": "landmark",
+            "node_id": "broken_redoubt",
+            "label": "Разбитый редут",
+        }
+    )
+    group["area_label"] = "Зольный проход"
+    session_state._persist_group_states(sess, group_states)
+    redoubt_visit = session_state.record_group_node_visit(
+        sess,
+        "main",
+        "broken_redoubt",
+        node_label="Разбитый редут",
+        result_type="landmark_reached",
+        summary="Группа доходит до разбитого редута над зольным проходом.",
+    )
+    assert redoubt_visit is not None
+    session_state.resolve_group_destination_event(sess, "main", source="test")
+    assert session_state.get_current_group_last_destination_event_result(sess, player_id=player_id)["event_id"] == "broken_redoubt_supply_trace"
+    assert "northwatch_redoubt_trace_found" in session_state.get_group_node_state(sess, "main", "broken_redoubt")["state_flags"]
+
+    group_states = session_state._get_group_states(sess)
+    group = group_states["main"]
+    group["current_map_position"] = session_state._normalize_map_position(
+        {
+            "map_level": "region",
+            "node_type": "zone",
+            "node_id": "northwatch_quartermaster",
+            "label": "Интендантский двор",
+        }
+    )
+    group["area_label"] = "Интендантский двор"
+    session_state._persist_group_states(sess, group_states)
+    session_state.record_group_node_visit(
+        sess,
+        "main",
+        "northwatch_quartermaster",
+        node_label="Интендантский двор",
+        result_type="return_entry",
+        summary="Группа возвращается во двор после короткой вылазки к редуту.",
+    )
+
+    revisited_services = session_state.get_current_group_service_availability(sess, player_id=player_id)
+    available_resupply = next(item for item in revisited_services if item["service_id"] == "northwatch_quartermaster_resupply")
+    assert available_resupply["availability_status"] == "available"
+    resolved_service, error = session_state.resolve_group_service(
+        sess,
+        "main",
+        service_id="northwatch_quartermaster_resupply",
+        player_id=player_id,
+        source="test",
+    )
+    assert error is None
+    assert resolved_service is not None
+    assert resolved_service["last_service_result"]["service_id"] == "northwatch_quartermaster_resupply"
+    assert resolved_service["last_service_result"]["result_type"] == "supplies_secured"
+    assert "обратный доклад" in resolved_service["last_service_result"]["result_summary"]
+
+    changed_quartermaster_context = session_state.get_current_group_node_context(sess, player_id=player_id)
+    assert "northwatch_redoubt_return_logged" in changed_quartermaster_context["node_state_flags"]
+    assert any("обратный доклад" in note.lower() for note in changed_quartermaster_context["state_notes"])
+    changed_services = session_state.get_current_group_service_availability(sess, player_id=player_id)
+    completed_resupply = next(item for item in changed_services if item["service_id"] == "northwatch_quartermaster_resupply")
+    assert completed_resupply["availability_status"] == "completed"
 
 def test_group_discovered_region_summaries_support_current_blocked_region() -> None:
     player_id = uuid.uuid4()
