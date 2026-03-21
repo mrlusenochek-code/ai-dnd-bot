@@ -352,7 +352,7 @@ def test_get_static_node_destination_events_returns_authored_arrival_events() ->
 
 def test_get_static_region_gateways_returns_authored_frontier_exit_definitions() -> None:
     all_gateways = get_static_region_gateways(region_id="region")
-    assert len(all_gateways) == 9
+    assert len(all_gateways) == 11
     assert get_static_node_region_gateways(node_id="forest_settlement") == [
         {
             "gateway_id": "forest_settlement_northwatch",
@@ -410,6 +410,23 @@ def test_get_static_region_gateways_returns_authored_frontier_exit_definitions()
             "unlock_hint": "Пока держатся первые сухие кочки, обратный ход к кромке болот остаётся различимым.",
         }
     ]
+    assert get_static_node_region_gateways(node_id="blackwater_run") == [
+        {
+            "gateway_id": "blackwater_run_western_road",
+            "source_node_id": "blackwater_run",
+            "route_id": "blackwater_run->sunken_ferry:move",
+            "target_region_id": "western_road",
+            "target_region_label": "Западный тракт",
+            "target_anchor_node_id": "waystation_yard",
+            "label": "Боковая линия к западному тракту",
+            "future_stub": False,
+            "unlock_hint": "Тихий боковой ход к тракту удерживается только после того, как и болотная линия, и дорожный двор подтвердили выполненную стабилизацию.",
+            "requires_all_group_node_state_flags": [
+                "deep_marsh_directive_fulfilled",
+                "western_road_directive_fulfilled",
+            ],
+        }
+    ]
     assert get_static_node_region_gateways(node_id="western_road_watch") == [
         {
             "gateway_id": "western_road_watch_starter_frontier",
@@ -436,6 +453,22 @@ def test_get_static_region_gateways_returns_authored_frontier_exit_definitions()
             "unlock_hint": "Боковой frontier-проход к северному рубежу держится только после того, как и двор, и рубеж подтвердили выполненную стабилизацию.",
             "requires_all_group_node_state_flags": [
                 "northwatch_directive_fulfilled",
+                "western_road_directive_fulfilled",
+            ],
+        }
+        ,
+        {
+            "gateway_id": "waystation_yard_deep_marsh",
+            "source_node_id": "waystation_yard",
+            "route_id": "waystation_yard->rutted_detour:move",
+            "target_region_id": "deep_marsh",
+            "target_region_label": "Глубокие болота",
+            "target_anchor_node_id": "blackwater_run",
+            "label": "Боковая линия к чёрной протоке",
+            "future_stub": False,
+            "unlock_hint": "Боковой marsh-road проход держится только когда и болотная линия, и тракт подтвердили выполненную полевую стабилизацию.",
+            "requires_all_group_node_state_flags": [
+                "deep_marsh_directive_fulfilled",
                 "western_road_directive_fulfilled",
             ],
         }

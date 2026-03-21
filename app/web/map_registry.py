@@ -2388,8 +2388,8 @@ STATIC_MAP_NODE_STATE_OVERLAYS: tuple[dict[str, Any], ...] = (
         "node_id": "waystation_yard",
         "state_flag": "western_road_directive_fulfilled",
         "context_note": "На дворе уже не только отметили corridor order, но и закрепили detour handling как рабочий порядок для reopened side line.",
-        "detail_note": "Western_road теперь держит не просто chalked directive, а реально проведённый порядок двора: detour line читается собраннее, а боковой проход к северному рубежу выглядит снова рабочим.",
-        "service_note": "Постоялый двор уже выполнил corridor directive и ведёт detour response как подтверждённый полевой порядок, готовый держать боковую frontier line.",
+        "detail_note": "Western_road теперь держит не просто chalked directive, а реально проведённый порядок двора: detour line читается собраннее, а боковые проходы к северному рубежу и болотной линии выглядят снова рабочими.",
+        "service_note": "Постоялый двор уже выполнил corridor directive и ведёт detour response как подтверждённый полевой порядок, готовый держать боковые frontier lines.",
     },
     {
         "node_id": "sunken_ferry",
@@ -2402,6 +2402,12 @@ STATIC_MAP_NODE_STATE_OVERLAYS: tuple[dict[str, Any], ...] = (
         "state_flag": "deep_marsh_ferry_moorings_logged",
         "context_note": "У переправы уже сверили швартовые метки, и место читается как старая working crossing-memory, а не как просто затонувший настил.",
         "detail_note": "На сваях уже разобрали тихие швартовые метки и срез тростника: у переправы сохранилась осторожная болотная память о том, как здесь держали короткий ход через воду.",
+    },
+    {
+        "node_id": "blackwater_run",
+        "state_flag": "deep_marsh_directive_fulfilled",
+        "context_note": "У чёрной протоки уже держат не только quiet crossing line, но и reopened боковой ход к западному тракту.",
+        "detail_note": "После выполненной болотной директивы протока снова читается как рабочий frontier-side выход: осторожный болотный ход теперь доведён до прямой боковой линии в сторону western_road.",
     },
     {
         "node_id": "reed_shelter",
@@ -3356,6 +3362,20 @@ STATIC_MAP_REGION_GATEWAYS: tuple[dict[str, Any], ...] = (
         "unlock_hint": "Боковой frontier-проход к северному рубежу держится только после того, как и двор, и рубеж подтвердили выполненную стабилизацию.",
     },
     {
+        "gateway_id": "waystation_yard_deep_marsh",
+        "source_node_id": "waystation_yard",
+        "route_id": "waystation_yard->rutted_detour:move",
+        "target_region_id": "deep_marsh",
+        "target_region_label": "Глубокие болота",
+        "target_anchor_node_id": "blackwater_run",
+        "label": "Боковая линия к чёрной протоке",
+        "requires_all_group_node_state_flags": [
+            "deep_marsh_directive_fulfilled",
+            "western_road_directive_fulfilled",
+        ],
+        "unlock_hint": "Боковой marsh-road проход держится только когда и болотная линия, и тракт подтвердили выполненную полевую стабилизацию.",
+    },
+    {
         "gateway_id": "marsh_edge_deep_marsh",
         "source_node_id": "marsh_edge",
         "route_id": "ruined_settlement->marsh_edge:move",
@@ -3375,6 +3395,20 @@ STATIC_MAP_REGION_GATEWAYS: tuple[dict[str, Any], ...] = (
         "target_anchor_node_id": "marsh_edge",
         "label": "Обратный ход к болотной кромке",
         "unlock_hint": "Пока держатся первые сухие кочки, обратный ход к кромке болот остаётся различимым.",
+    },
+    {
+        "gateway_id": "blackwater_run_western_road",
+        "source_node_id": "blackwater_run",
+        "route_id": "blackwater_run->sunken_ferry:move",
+        "target_region_id": "western_road",
+        "target_region_label": "Западный тракт",
+        "target_anchor_node_id": "waystation_yard",
+        "label": "Боковая линия к западному тракту",
+        "requires_all_group_node_state_flags": [
+            "deep_marsh_directive_fulfilled",
+            "western_road_directive_fulfilled",
+        ],
+        "unlock_hint": "Тихий боковой ход к тракту удерживается только после того, как и болотная линия, и дорожный двор подтвердили выполненную стабилизацию.",
     },
     {
         "gateway_id": "forgotten_shrine_sunken_reaches",
