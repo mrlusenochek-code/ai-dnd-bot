@@ -5224,6 +5224,325 @@ def test_group_primary_region_focus_plan_and_target_options_are_canonical_and_se
     assert "primary_region_focus" in overview
 
 
+def test_group_known_region_route_supports_current_direct_multi_undiscovered_and_disconnected() -> None:
+    player_id = uuid.uuid4()
+    current_sess = SimpleNamespace(settings={})
+    session_state._initialize_default_group(
+        current_sess,
+        [player_id],
+        {"map_level": "region", "node_type": "zone", "node_id": "forest_road", "label": "Лесная дорога"},
+    )
+    session_state.get_current_group_current_region_state(current_sess, player_id=player_id)
+    current_route = session_state.get_current_group_known_region_route(
+        current_sess,
+        player_id=player_id,
+        target_region_id="starter_frontier",
+    )
+    assert current_route is not None
+    assert current_route["route_status"] == "current_region"
+
+    direct_sess = SimpleNamespace(settings={})
+    session_state._initialize_default_group(
+        direct_sess,
+        [player_id],
+        {"map_level": "region", "node_type": "zone", "node_id": "forest_road", "label": "Лесная дорога"},
+    )
+    session_state.get_current_group_current_region_state(direct_sess, player_id=player_id)
+    session_state.reveal_player_map_node(direct_sess, player_id, "forest_settlement", source="test")
+    session_state.add_group_node_state_flag(
+        direct_sess,
+        "main",
+        "forest_settlement",
+        state_flag="forest_supplies_secured",
+        summary="Лесной набор уже готов.",
+        source="test",
+    )
+    session_state.record_group_gateway_traversal(
+        direct_sess,
+        "main",
+        gateway_id="forest_settlement_northwatch",
+        gateway_label="Выход к северному рубежу",
+        source_region_id="starter_frontier",
+        source_region_label="Стартовое пограничье",
+        target_region_id="northwatch_frontier",
+        target_region_label="Северный рубеж",
+        source="test",
+    )
+    groups = session_state._get_group_states(direct_sess)
+    group = groups["main"]
+    group["discovered_regions"]["northwatch_frontier"] = {
+        "region_id": "northwatch_frontier",
+        "region_label": "Северный рубеж",
+        "visit_count": 1,
+        "first_entered_at": "2025-01-02T00:00:00+00:00",
+        "last_entered_at": "2025-01-02T00:00:00+00:00",
+        "first_anchor_node_id": "northwatch_outpost",
+        "last_anchor_node_id": "northwatch_outpost",
+        "summary": "Группа ранее входила в регион Северный рубеж.",
+    }
+    session_state._persist_group_states(direct_sess, groups)
+    session_state._sync_group_position_mirrors(direct_sess, group)
+    direct_route = session_state.get_current_group_known_region_route(
+        direct_sess,
+        player_id=player_id,
+        target_region_id="northwatch_frontier",
+    )
+    assert direct_route is not None
+    assert direct_route["route_status"] == "direct_route"
+    assert direct_route["region_path_ids"] == ["starter_frontier", "northwatch_frontier"]
+    assert direct_route["next_gateway_id"] == "forest_settlement_northwatch"
+
+    multi_sess = SimpleNamespace(settings={})
+    session_state._initialize_default_group(
+        multi_sess,
+        [player_id],
+        {"map_level": "region", "node_type": "zone", "node_id": "forest_road", "label": "Лесная дорога"},
+    )
+    session_state.get_current_group_current_region_state(multi_sess, player_id=player_id)
+    session_state.reveal_player_map_node(multi_sess, player_id, "forest_settlement", source="test")
+    session_state.add_group_node_state_flag(
+        multi_sess,
+        "main",
+        "forest_settlement",
+        state_flag="forest_supplies_secured",
+        summary="Лесной набор уже готов.",
+        source="test",
+    )
+    session_state.record_group_gateway_traversal(
+        multi_sess,
+        "main",
+        gateway_id="forest_settlement_northwatch",
+        gateway_label="Выход к северному рубежу",
+        source_region_id="starter_frontier",
+        source_region_label="Стартовое пограничье",
+        target_region_id="northwatch_frontier",
+        target_region_label="Северный рубеж",
+        source="test",
+    )
+    groups = session_state._get_group_states(multi_sess)
+    group = groups["main"]
+    group["discovered_regions"]["northwatch_frontier"] = {
+        "region_id": "northwatch_frontier",
+        "region_label": "Северный рубеж",
+        "visit_count": 1,
+        "first_entered_at": "2025-01-02T00:00:00+00:00",
+        "last_entered_at": "2025-01-02T00:00:00+00:00",
+        "first_anchor_node_id": "northwatch_outpost",
+        "last_anchor_node_id": "northwatch_outpost",
+        "summary": "Группа ранее входила в регион Северный рубеж.",
+    }
+    group["discovered_regions"]["western_road"] = {
+        "region_id": "western_road",
+        "region_label": "Западный тракт",
+        "visit_count": 1,
+        "first_entered_at": "2025-01-03T00:00:00+00:00",
+        "last_entered_at": "2025-01-03T00:00:00+00:00",
+        "first_anchor_node_id": "old_western_mile",
+        "last_anchor_node_id": "old_western_mile",
+        "summary": "Группа ранее входила в регион Западный тракт.",
+    }
+    group["region_link_states"]["region-link:northwatch_frontier::western_road"] = {
+        "link_id": "region-link:northwatch_frontier::western_road",
+        "region_a_id": "northwatch_frontier",
+        "region_a_label": "Северный рубеж",
+        "region_b_id": "western_road",
+        "region_b_label": "Западный тракт",
+        "gateway_ids": ["northwatch_western_stub"],
+        "traversal_count": 1,
+        "first_discovered_at": "2025-01-03T00:00:00+00:00",
+        "last_traversed_at": "2025-01-03T00:00:00+00:00",
+        "summary": "Связь между Северным рубежом и Западным трактом уже подтверждена.",
+    }
+    session_state._persist_group_states(multi_sess, groups)
+    session_state._sync_group_position_mirrors(multi_sess, group)
+    multi_route = session_state.get_current_group_known_region_route(
+        multi_sess,
+        player_id=player_id,
+        target_region_id="western_road",
+    )
+    assert multi_route is not None
+    assert multi_route["route_status"] == "multi_region_route"
+    assert multi_route["region_path_ids"] == ["starter_frontier", "northwatch_frontier", "western_road"]
+    assert multi_route["next_gateway_id"] == "forest_settlement_northwatch"
+
+    undiscovered_route = session_state.get_current_group_known_region_route(
+        multi_sess,
+        player_id=player_id,
+        target_region_id="missing_region",
+    )
+    assert undiscovered_route is not None
+    assert undiscovered_route["route_status"] == "target_region_undiscovered"
+
+    disconnected_sess = SimpleNamespace(settings={})
+    session_state._initialize_default_group(
+        disconnected_sess,
+        [player_id],
+        {"map_level": "region", "node_type": "zone", "node_id": "forest_road", "label": "Лесная дорога"},
+    )
+    session_state.get_current_group_current_region_state(disconnected_sess, player_id=player_id)
+    groups = session_state._get_group_states(disconnected_sess)
+    group = groups["main"]
+    group["discovered_regions"]["mystic_delta"] = {
+        "region_id": "mystic_delta",
+        "region_label": "Мистическая дельта",
+        "visit_count": 1,
+        "first_entered_at": "2025-01-04T00:00:00+00:00",
+        "last_entered_at": "2025-01-04T00:00:00+00:00",
+        "first_anchor_node_id": "delta_edge",
+        "last_anchor_node_id": "delta_edge",
+        "summary": "Группа помнит Мистическую дельту как отдельный регион.",
+    }
+    session_state._persist_group_states(disconnected_sess, groups)
+    session_state._sync_group_position_mirrors(disconnected_sess, group)
+    disconnected_route = session_state.get_current_group_known_region_route(
+        disconnected_sess,
+        player_id=player_id,
+        target_region_id="mystic_delta",
+    )
+    assert disconnected_route is not None
+    assert disconnected_route["route_status"] == "no_known_route"
+
+
+def test_group_known_region_route_reflects_next_gateway_statuses_and_primary_route() -> None:
+    player_id = uuid.uuid4()
+    blocked_sess = SimpleNamespace(settings={})
+    session_state._initialize_default_group(
+        blocked_sess,
+        [player_id],
+        {"map_level": "region", "node_type": "zone", "node_id": "forest_road", "label": "Лесная дорога"},
+    )
+    session_state.get_current_group_current_region_state(blocked_sess, player_id=player_id)
+    session_state.record_group_gateway_traversal(
+        blocked_sess,
+        "main",
+        gateway_id="forest_settlement_northwatch",
+        gateway_label="Выход к северному рубежу",
+        source_region_id="starter_frontier",
+        source_region_label="Стартовое пограничье",
+        target_region_id="northwatch_frontier",
+        target_region_label="Северный рубеж",
+        source="test",
+    )
+    groups = session_state._get_group_states(blocked_sess)
+    group = groups["main"]
+    group["discovered_regions"]["northwatch_frontier"] = {
+        "region_id": "northwatch_frontier",
+        "region_label": "Северный рубеж",
+        "visit_count": 1,
+        "first_entered_at": "2025-01-02T00:00:00+00:00",
+        "last_entered_at": "2025-01-02T00:00:00+00:00",
+        "first_anchor_node_id": "northwatch_outpost",
+        "last_anchor_node_id": "northwatch_outpost",
+        "summary": "Группа ранее входила в регион Северный рубеж.",
+    }
+    session_state._persist_group_states(blocked_sess, groups)
+    session_state._sync_group_position_mirrors(blocked_sess, group)
+    session_state.set_group_route_access_state(
+        blocked_sess,
+        "main",
+        route_id="forest_settlement->old_fortress_edge:move",
+        access_state="blocked",
+        summary="Проход к северному рубежу закрыт.",
+        block_reason="Завал на дальнем тракте.",
+        source="test",
+    )
+    blocked_route = session_state.get_current_group_known_region_route(
+        blocked_sess,
+        player_id=player_id,
+        target_region_id="northwatch_frontier",
+    )
+    assert blocked_route is not None
+    assert blocked_route["route_status"] == "blocked_next_gateway"
+
+    locked_sess = SimpleNamespace(settings={})
+    session_state._initialize_default_group(
+        locked_sess,
+        [player_id],
+        {"map_level": "region", "node_type": "landmark", "node_id": "fortress_gate", "label": "Ворота крепости"},
+    )
+    session_state.get_current_group_current_region_state(locked_sess, player_id=player_id)
+    session_state.record_group_gateway_traversal(
+        locked_sess,
+        "main",
+        gateway_id="fortress_gate_western_road",
+        gateway_label="Западные ворота",
+        source_region_id="starter_frontier",
+        source_region_label="Стартовое пограничье",
+        target_region_id="western_road",
+        target_region_label="Западный тракт",
+        source="test",
+    )
+    groups = session_state._get_group_states(locked_sess)
+    group = groups["main"]
+    group["discovered_regions"]["western_road"] = {
+        "region_id": "western_road",
+        "region_label": "Западный тракт",
+        "visit_count": 1,
+        "first_entered_at": "2025-01-03T00:00:00+00:00",
+        "last_entered_at": "2025-01-03T00:00:00+00:00",
+        "first_anchor_node_id": "old_western_mile",
+        "last_anchor_node_id": "old_western_mile",
+        "summary": "Группа ранее входила в регион Западный тракт.",
+    }
+    session_state._persist_group_states(locked_sess, groups)
+    session_state._sync_group_position_mirrors(locked_sess, group)
+    locked_route = session_state.get_current_group_known_region_route(
+        locked_sess,
+        player_id=player_id,
+        target_region_id="western_road",
+    )
+    assert locked_route is not None
+    assert locked_route["route_status"] == "locked_next_gateway"
+
+    future_sess = SimpleNamespace(settings={})
+    session_state._initialize_default_group(
+        future_sess,
+        [player_id],
+        {"map_level": "region", "node_type": "landmark", "node_id": "forgotten_shrine", "label": "Забытое святилище"},
+    )
+    session_state.get_current_group_current_region_state(future_sess, player_id=player_id)
+    session_state.record_group_gateway_traversal(
+        future_sess,
+        "main",
+        gateway_id="forgotten_shrine_sunken_reaches",
+        gateway_label="Провал к затопленным пределам",
+        source_region_id="starter_frontier",
+        source_region_label="Стартовое пограничье",
+        target_region_id="sunken_reaches",
+        target_region_label="Затопленные пределы",
+        source="test",
+    )
+    groups = session_state._get_group_states(future_sess)
+    group = groups["main"]
+    group["discovered_regions"]["sunken_reaches"] = {
+        "region_id": "sunken_reaches",
+        "region_label": "Затопленные пределы",
+        "visit_count": 1,
+        "first_entered_at": "2025-01-04T00:00:00+00:00",
+        "last_entered_at": "2025-01-04T00:00:00+00:00",
+        "first_anchor_node_id": "sunken_shore",
+        "last_anchor_node_id": "sunken_shore",
+        "summary": "Группа ранее входила в Затопленные пределы.",
+    }
+    session_state._persist_group_states(future_sess, groups)
+    session_state._sync_group_position_mirrors(future_sess, group)
+    future_route = session_state.get_current_group_known_region_route(
+        future_sess,
+        player_id=player_id,
+        target_region_id="sunken_reaches",
+    )
+    assert future_route is not None
+    assert future_route["route_status"] == "future_stub_next_gateway"
+
+    assert session_state.get_current_group_primary_region_route(SimpleNamespace(settings={}), player_id=player_id) is None
+    primary_route = session_state.get_current_group_primary_region_route(blocked_sess, player_id=player_id)
+    assert primary_route is not None
+    options = session_state.get_current_group_known_region_route_options(blocked_sess, player_id=player_id)
+    assert options is not None
+    assert options["primary_region_route"] is not None
+    assert options["primary_region_route"]["target_region_id"] == primary_route["target_region_id"]
+
+
 def test_group_region_pursuit_set_links_existing_journey_and_clear_stops_it() -> None:
     player_id = uuid.uuid4()
     sess = SimpleNamespace(settings={})

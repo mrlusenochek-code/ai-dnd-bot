@@ -97,6 +97,7 @@ from app.web.session_state import (
     get_current_group_last_region_onboarding_result,
     get_current_group_primary_region_focus,
     get_current_group_primary_region_focus_plan,
+    get_current_group_primary_region_route,
     get_current_group_last_region_transition_result,
     get_current_group_region_onboarding_states,
     get_current_group_region_target_plan,
@@ -106,6 +107,8 @@ from app.web.session_state import (
     get_current_group_gateway_traversal_states,
     get_current_group_region_link_states,
     get_current_group_last_region_link_result,
+    get_current_group_known_region_route,
+    get_current_group_known_region_route_options,
     set_group_region_pursuit,
     clear_group_region_pursuit,
     advance_group_region_pursuit,
@@ -1817,6 +1820,9 @@ def _parse_group_command(cmdline: str) -> tuple[str | None, dict[str, Any]]:
     if lowered in {"group focus", "group_focus"}:
         return "group_region_focus", {}
 
+    if lowered in {"group focus-route", "group_focus_route"}:
+        return "group_primary_region_route", {}
+
     if lowered in {"group focus-path", "group_focus_path"}:
         return "group_primary_region_focus_plan", {}
 
@@ -1842,6 +1848,10 @@ def _parse_group_command(cmdline: str) -> tuple[str | None, dict[str, Any]]:
     for prefix in ("group route-region ", "group_route_region ", "group region-path ", "group_region_path "):
         if lowered.startswith(prefix):
             return "group_region_target_plan", {"target_region_id": txt[len(prefix):].strip()}
+
+    for prefix in ("group route-known-region ", "group_route_known_region ", "group known-path ", "group_known_path "):
+        if lowered.startswith(prefix):
+            return "group_known_region_route", {"target_region_id": txt[len(prefix):].strip()}
 
     for prefix in ("group pursue-region ", "group_pursue_region "):
         if lowered.startswith(prefix):
@@ -1990,8 +2000,10 @@ def _handle_group_action_request(
         "group_region_links",
         "group_gateway_history",
         "group_region_focus",
+        "group_known_region_route",
         "group_region_target_plan",
         "group_primary_region_focus_plan",
+        "group_primary_region_route",
         "group_region_pursuit_set",
         "group_region_pursuit_clear",
         "group_region_pursuit_status",
@@ -2351,6 +2363,33 @@ def _handle_group_action_request(
             summary = str(options.get("summary") or "").strip()
         return True, None, summary or f"Target-region plan группы {actor_group_key} собран."
 
+    if action == "group_known_region_route":
+        if not actor_group_key:
+            return True, "Группа игрока не найдена.", None
+        target_region_id = str(payload.get("target_region_id") or "").strip()
+        if not target_region_id:
+            return True, "Нужно указать target_region_id для known-region route.", None
+        route = get_current_group_known_region_route(
+            sess,
+            player_id=actor_player_id,
+            group_id=actor_group_key,
+            target_region_id=target_region_id,
+        )
+        if not route:
+            return True, "Не удалось собрать known-region route для этой цели.", None
+        options = get_current_group_known_region_route_options(
+            sess,
+            player_id=actor_player_id,
+            group_id=actor_group_key,
+        )
+        summary = str(route.get("summary") or "").strip()
+        suggested_command = str(route.get("suggested_command") or "").strip()
+        if suggested_command:
+            summary = f"{summary} Подсказка: {suggested_command}."
+        if not summary and options:
+            summary = str(options.get("summary") or "").strip()
+        return True, None, summary or f"Known-region route группы {actor_group_key} собран."
+
     if action == "group_primary_region_focus_plan":
         if not actor_group_key:
             return True, "Группа игрока не найдена.", None
@@ -2366,6 +2405,22 @@ def _handle_group_action_request(
         if suggested_command:
             summary = f"{summary} Подсказка: {suggested_command}."
         return True, None, summary or f"Primary region focus plan группы {actor_group_key} собран."
+
+    if action == "group_primary_region_route":
+        if not actor_group_key:
+            return True, "Группа игрока не найдена.", None
+        route = get_current_group_primary_region_route(
+            sess,
+            player_id=actor_player_id,
+            group_id=actor_group_key,
+        )
+        if not route:
+            return True, None, f"У группы {actor_group_key} пока нет выраженного primary region route."
+        summary = str(route.get("summary") or "").strip()
+        suggested_command = str(route.get("suggested_command") or "").strip()
+        if suggested_command:
+            summary = f"{summary} Подсказка: {suggested_command}."
+        return True, None, summary or f"Primary region route группы {actor_group_key} собран."
 
     if action == "group_region_pursuit_set":
         if not actor_group_key:

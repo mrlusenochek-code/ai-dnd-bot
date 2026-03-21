@@ -51,6 +51,7 @@ def test_parse_group_command_supports_wait_camp_rest_scout_move_navigate_context
     action_links, payload_links = ws_handlers._parse_group_command("group links")
     action_crossings, payload_crossings = ws_handlers._parse_group_command("group crossings")
     action_focus, payload_focus = ws_handlers._parse_group_command("group focus")
+    action_focus_route, payload_focus_route = ws_handlers._parse_group_command("group focus-route")
     action_focus_path, payload_focus_path = ws_handlers._parse_group_command("group focus-path")
     action_region_pursuit, payload_region_pursuit = ws_handlers._parse_group_command("group region-pursuit")
     action_region_step, payload_region_step = ws_handlers._parse_group_command("group region-step")
@@ -62,6 +63,8 @@ def test_parse_group_command_supports_wait_camp_rest_scout_move_navigate_context
     action_transition, payload_transition = ws_handlers._parse_group_command("group transition")
     action_route_region, payload_route_region = ws_handlers._parse_group_command("group route-region northwatch_frontier")
     action_region_path, payload_region_path = ws_handlers._parse_group_command("group region-path northwatch_frontier")
+    action_route_known_region, payload_route_known_region = ws_handlers._parse_group_command("group route-known-region northwatch_frontier")
+    action_known_path, payload_known_path = ws_handlers._parse_group_command("group known-path northwatch_frontier")
     action_pursue_region, payload_pursue_region = ws_handlers._parse_group_command("group pursue-region northwatch_frontier")
     action_stop_region, payload_stop_region = ws_handlers._parse_group_command("group stop-region")
     action_enter, payload_enter = ws_handlers._parse_group_command("group enter замок")
@@ -128,6 +131,7 @@ def test_parse_group_command_supports_wait_camp_rest_scout_move_navigate_context
     assert (action_links, payload_links) == ("group_region_links", {})
     assert (action_crossings, payload_crossings) == ("group_gateway_history", {})
     assert (action_focus, payload_focus) == ("group_region_focus", {})
+    assert (action_focus_route, payload_focus_route) == ("group_primary_region_route", {})
     assert (action_focus_path, payload_focus_path) == ("group_primary_region_focus_plan", {})
     assert (action_region_pursuit, payload_region_pursuit) == ("group_region_pursuit_status", {})
     assert (action_region_step, payload_region_step) == ("group_region_pursuit_step_status", {})
@@ -139,6 +143,8 @@ def test_parse_group_command_supports_wait_camp_rest_scout_move_navigate_context
     assert (action_transition, payload_transition) == ("group_region_transition_status", {})
     assert (action_route_region, payload_route_region) == ("group_region_target_plan", {"target_region_id": "northwatch_frontier"})
     assert (action_region_path, payload_region_path) == ("group_region_target_plan", {"target_region_id": "northwatch_frontier"})
+    assert (action_route_known_region, payload_route_known_region) == ("group_known_region_route", {"target_region_id": "northwatch_frontier"})
+    assert (action_known_path, payload_known_path) == ("group_known_region_route", {"target_region_id": "northwatch_frontier"})
     assert (action_pursue_region, payload_pursue_region) == ("group_region_pursuit_set", {"target_region_id": "northwatch_frontier"})
     assert (action_stop_region, payload_stop_region) == ("group_region_pursuit_clear", {})
     assert (action_enter, payload_enter) == ("group_enter", {"target_hint": "замок"})
@@ -1424,6 +1430,101 @@ def test_handle_group_region_links_and_gateway_history_surfaces() -> None:
     assert handled_crossings is True
     assert err_crossings is None
     assert "Выход к северному рубежу" in str(msg_crossings)
+
+
+def test_handle_group_known_region_route_and_primary_route_surfaces() -> None:
+    player_id = uuid.uuid4()
+    empty_sess = SimpleNamespace(settings={})
+    session_state._initialize_default_group(
+        empty_sess,
+        [player_id],
+        {
+            "map_level": "region",
+            "node_type": "zone",
+            "node_id": "forest_road",
+            "label": "Лесная дорога",
+        },
+    )
+    handled_empty_focus, err_empty_focus, msg_empty_focus = ws_handlers._handle_group_action_request(
+        empty_sess,
+        action="group_primary_region_route",
+        actor_player_id=player_id,
+        payload={},
+        source="test",
+    )
+    assert handled_empty_focus is True
+    assert err_empty_focus is None
+    assert "нет выраженного primary region route" in str(msg_empty_focus)
+
+    sess = SimpleNamespace(settings={})
+    session_state._initialize_default_group(
+        sess,
+        [player_id],
+        {
+            "map_level": "region",
+            "node_type": "zone",
+            "node_id": "forest_road",
+            "label": "Лесная дорога",
+        },
+    )
+    session_state.get_current_group_current_region_state(sess, player_id=player_id)
+    session_state.reveal_player_map_node(sess, player_id, "forest_settlement", source="test")
+    session_state.add_group_node_state_flag(
+        sess,
+        "main",
+        "forest_settlement",
+        state_flag="forest_supplies_secured",
+        summary="Лесной набор уже готов.",
+        source="test",
+    )
+    session_state.record_group_gateway_traversal(
+        sess,
+        "main",
+        gateway_id="forest_settlement_northwatch",
+        gateway_label="Выход к северному рубежу",
+        source_region_id="starter_frontier",
+        source_region_label="Стартовое пограничье",
+        target_region_id="northwatch_frontier",
+        target_region_label="Северный рубеж",
+        source="test",
+    )
+    groups = session_state._get_group_states(sess)
+    group = groups["main"]
+    group["discovered_regions"]["northwatch_frontier"] = {
+        "region_id": "northwatch_frontier",
+        "region_label": "Северный рубеж",
+        "visit_count": 1,
+        "first_entered_at": "2025-01-02T00:00:00+00:00",
+        "last_entered_at": "2025-01-02T00:00:00+00:00",
+        "first_anchor_node_id": "northwatch_outpost",
+        "last_anchor_node_id": "northwatch_outpost",
+        "summary": "Группа ранее входила в регион Северный рубеж.",
+    }
+    session_state._persist_group_states(sess, groups)
+    session_state._sync_group_position_mirrors(sess, group)
+
+    handled_route, err_route, msg_route = ws_handlers._handle_group_action_request(
+        sess,
+        action="group_known_region_route",
+        actor_player_id=player_id,
+        payload={"target_region_id": "northwatch_frontier"},
+        source="test",
+    )
+    assert handled_route is True
+    assert err_route is None
+    assert "Северный рубеж" in str(msg_route)
+    assert "group go forest_settlement" in str(msg_route)
+
+    handled_focus, err_focus, msg_focus = ws_handlers._handle_group_action_request(
+        sess,
+        action="group_primary_region_route",
+        actor_player_id=player_id,
+        payload={},
+        source="test",
+    )
+    assert handled_focus is True
+    assert err_focus is None
+    assert "Стартовое пограничье" in str(msg_focus) or "Северный рубеж" in str(msg_focus)
 
 
 def test_handle_group_region_status_and_discovered_regions_surface() -> None:

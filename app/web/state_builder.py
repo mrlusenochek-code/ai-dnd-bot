@@ -117,6 +117,8 @@ from app.web.session_state import (
     get_current_group_last_region_onboarding_result,
     get_current_group_primary_region_focus,
     get_current_group_region_target_options,
+    get_current_group_primary_region_route,
+    get_current_group_known_region_route_options,
     get_current_group_region_onboarding_states,
     get_current_group_region_world_overview,
     get_current_group_last_region_transition_result,
@@ -735,8 +737,18 @@ async def build_state(db: AsyncSession, sess: Session) -> dict:
         if sess.current_player_id
         else None
     )
+    current_group_primary_region_route = (
+        get_current_group_primary_region_route(sess, player_id=sess.current_player_id)
+        if sess.current_player_id
+        else None
+    )
     current_group_region_target_options = (
         get_current_group_region_target_options(sess, player_id=sess.current_player_id)
+        if sess.current_player_id
+        else None
+    )
+    current_group_known_region_route_options = (
+        get_current_group_known_region_route_options(sess, player_id=sess.current_player_id)
         if sess.current_player_id
         else None
     )
@@ -826,7 +838,9 @@ async def build_state(db: AsyncSession, sess: Session) -> dict:
             "current_group_region_world_overview": current_group_region_world_overview,
             "current_group_primary_region_focus": current_group_primary_region_focus,
             "current_group_primary_region_focus_plan": current_group_primary_region_focus_plan,
+            "current_group_primary_region_route": current_group_primary_region_route,
             "current_group_region_target_options": current_group_region_target_options,
+            "current_group_known_region_route_options": current_group_known_region_route_options,
             "current_group_last_region_transition_result": current_group_last_region_transition_result,
             "current_group_region_transition_state": current_group_region_transition_state,
             "current_group_gateway_traversal_states": current_group_gateway_traversal_states,
