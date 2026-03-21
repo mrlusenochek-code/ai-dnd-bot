@@ -994,6 +994,20 @@ STATIC_MAP_NODE_STATE_OVERLAYS: tuple[dict[str, Any], ...] = (
         "service_note": "Основной лесной набор уже собран; дальше здесь скорее пополняют мелочи, чем собирают новый комплект.",
     },
     {
+        "node_id": "forest_settlement",
+        "state_flag": "forest_hunters_warning_taken",
+        "context_note": "В лесном посёлке уже предупреждали группу о старой дороге, руинах и тревожном следе у шахтного направления.",
+        "detail_note": "У сараев и у костра уже помнят, что этой группе объясняли, почему старую дорогу к руинам не стоит считать обычной прогулкой.",
+        "service_note": "Основное предупреждение о старой дороге уже выдано; дальше охотники скорее уточняют детали, чем начинают рассказ заново.",
+    },
+    {
+        "node_id": "forest_settlement",
+        "state_flag": "forest_return_report_logged",
+        "context_note": "В посёлке уже приняли обратный рассказ о старой дороге и руинах, так что на группу смотрят как на тех, кто действительно проверил дальний ход.",
+        "detail_note": "У охотничьих навесов лежит свежая пометка о возвращении группы с линии старой дороги, и разговор здесь уже идёт не на слухах, а на подтверждённом обходе.",
+        "service_note": "После обратного доклада посёлок выдаёт помощь уже как знакомому составу, который сходил к руинам и вернулся с полезным наблюдением.",
+    },
+    {
         "node_id": "northwatch_outpost",
         "state_flag": "northwatch_briefing_taken",
         "context_note": "На северном рубеже уже отметили для группы короткую вводную по линии дозора и опасному проходу.",
@@ -1037,6 +1051,12 @@ STATIC_MAP_NODE_STATE_OVERLAYS: tuple[dict[str, Any], ...] = (
         "state_flag": "deep_marsh_waymarks_read",
         "context_note": "Утопленный камень уже читали как рабочую болотную метку, и направление к старой переправе стало понятнее.",
         "detail_note": "Мох, зарубки и срезы на камне уже разбирали не наугад, а как настоящую болотную наводку к более тёмной воде.",
+    },
+    {
+        "node_id": "ruined_settlement",
+        "state_flag": "ruined_watchfire_trace_found",
+        "context_note": "В руинах уже отмечали свежий след короткой стоянки и тревожный проход к шахтному направлению.",
+        "detail_note": "Среди пустых дворов уже нашли недавний след костра и свежие метки, из-за которых руины ощущаются не просто старыми, а всё ещё живыми для чужого хода.",
     },
     {
         "node_id": "sunken_ferry",
@@ -1229,6 +1249,25 @@ STATIC_MAP_DESTINATION_EVENTS: tuple[dict[str, Any], ...] = (
         "tags": ["ruins", "changed_place", "mine"],
     },
     {
+        "node_id": "forest_settlement",
+        "event_id": "forest_settlement_hunters_warning",
+        "first_visit_only": True,
+        "one_shot": True,
+        "result_type": "settlement_notice",
+        "title": "Охотники быстро отмечают старую дорогу",
+        "summary": "При первом заходе в лесной посёлок местные сразу предупреждают о старой дороге к руинам, тревожном шахтном следе и том, что идти туда лучше коротким ходом.",
+        "result_summary": "Лесной посёлок встречает группу не только тёплым двором, но и рабочим предупреждением: старая дорога к руинам снова привлекает внимание, и идти туда стоит с понятной целью и возможностью быстро вернуться.",
+        "discovered_notes": [
+            "Охотники советуют сперва проверить старую дорогу, потом смотреть на руины и уже только после этого решать, стоит ли приближаться к шахтному входу."
+        ],
+        "intel_entry_type": "warning",
+        "intel_title": "Предупреждение охотников о старой дороге",
+        "node_state_flags": ["forest_hunters_warning_taken"],
+        "node_state_summary": "В лесном посёлке уже отмечено первое предупреждение о старой дороге и руинах.",
+        "applied_effects": ["destination_notice:forest_settlement", "intel:warning"],
+        "tags": ["warning", "forest", "ruins"],
+    },
+    {
         "node_id": "northwatch_outpost",
         "event_id": "northwatch_outpost_briefing",
         "label": "Короткая сводка северного дозора",
@@ -1264,6 +1303,25 @@ STATIC_MAP_DESTINATION_EVENTS: tuple[dict[str, Any], ...] = (
         "intel_title": "Предупреждение зольного прохода",
         "applied_effects": ["destination_warning:ash_pass", "intel:warning"],
         "tags": ["warning", "frontier", "ash_pass"],
+    },
+    {
+        "node_id": "ruined_settlement",
+        "event_id": "ruined_settlement_watchfire_trace",
+        "first_visit_only": True,
+        "one_shot": True,
+        "result_type": "first_discovery",
+        "title": "В руинах заметен свежий след костра",
+        "summary": "Первый заход в руины показывает, что место не совсем мертво: среди пустых дворов виден свежий след короткой стоянки и тревожный ход к шахтному направлению.",
+        "result_summary": "У разрушенного посёлка группа находит свежий след костра и понимает, что старая дорога ведёт не к пустому воспоминанию, а к месту, где кто-то бывал совсем недавно.",
+        "discovered_notes": [
+            "След короткой стоянки у руин подсказывает, что шахтное направление ещё тянет к себе чужие ходы, и возвращаться к посёлку теперь есть с чем."
+        ],
+        "intel_entry_type": "clue",
+        "intel_title": "Свежий след у руин",
+        "node_state_flags": ["ruined_watchfire_trace_found"],
+        "node_state_summary": "У разрушенного посёлка уже найден свежий след короткой стоянки и тревожного прохода к шахтному направлению.",
+        "applied_effects": ["destination_notice:ruined_settlement", "intel:clue"],
+        "tags": ["clue", "ruins", "forest"],
     },
     {
         "node_id": "deep_marsh_threshold",
@@ -1382,14 +1440,14 @@ STATIC_MAP_SERVICE_EFFECTS: tuple[dict[str, Any], ...] = (
         "service_kind": "supplies",
         "one_shot": True,
         "result_type": "supplies_secured",
-        "summary": "Собрать лесные дорожные припасы перед выходом к руинам.",
-        "result_summary": "Посёлок собирает для группы крепкий набор лесных припасов и помечает, что помощь уже выдана.",
+        "summary": "Собрать лесные дорожные припасы после короткого обхода старой дороги и руин.",
+        "result_summary": "Посёлок принимает обратный рассказ о старой дороге и руинах, собирает для группы крепкий лесной набор и отмечает, что помощь выдана уже после реального выхода, а не на одних разговорах.",
         "discovered_notes": [
-            "Охотники советуют не тянуть с выходом после пополнения запасов: дальше дорога к руинам быстро становится пустой."
+            "Охотники советуют не растягивать следующий выход: старая дорога и руины уже проверены, а значит запас стоит тратить на уверенный короткий ход."
         ],
-        "applied_effects": ["supplies_secured"],
-        "node_state_flags": ["forest_supplies_secured"],
-        "node_state_summary": "В лесном посёлке уже подготовлен и выдан дорожный набор для этой группы.",
+        "applied_effects": ["supplies_secured", "support_note:forest_return"],
+        "node_state_flags": ["forest_supplies_secured", "forest_return_report_logged"],
+        "node_state_summary": "В лесном посёлке уже приняли обратный рассказ о старой дороге и выдали дорожный набор этой группе.",
     },
     {
         "node_id": "northwatch_outpost",
@@ -1457,8 +1515,10 @@ STATIC_MAP_SERVICE_REQUIREMENTS: tuple[dict[str, Any], ...] = (
     {
         "node_id": "forest_settlement",
         "service_id": "forest_settlement_resupply",
+        "requires_destination_event_id": "forest_settlement_hunters_warning",
+        "requires_destination_event_result_type": "settlement_notice",
         "min_visit_count": 2,
-        "unlock_hint": "Полный лесной набор выдают только после того, как группа уже показала повторный заход в посёлок.",
+        "unlock_hint": "Полный лесной набор выдают только после первой охотничьей сводки и повторного захода в посёлок.",
     },
     {
         "node_id": "northwatch_quartermaster",

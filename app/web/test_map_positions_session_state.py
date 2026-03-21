@@ -1791,6 +1791,7 @@ def test_local_interaction_gating_honors_return_visit_and_min_visit_count() -> N
         result_type="first_arrival",
         summary="Первый визит в лесной посёлок.",
     )
+    session_state.resolve_group_destination_event(sess, "main", source="test")
     session_state.record_group_node_visit(
         sess,
         "main",
@@ -1801,6 +1802,170 @@ def test_local_interaction_gating_honors_return_visit_and_min_visit_count() -> N
     )
     forest_services_after = session_state.get_current_group_service_availability(sess, player_id=player_id)
     assert next(item for item in forest_services_after if item["service_id"] == "forest_settlement_resupply")["availability_status"] == "available"
+
+
+def test_starter_frontier_local_progression_arc_unlocks_return_payoff() -> None:
+    player_id = uuid.uuid4()
+    sess = SimpleNamespace(settings={})
+    session_state._initialize_default_group(
+        sess,
+        [player_id],
+        {"map_level": "region", "node_type": "zone", "node_id": "forest_settlement", "label": "Лесной посёлок"},
+    )
+    session_state.get_current_group_current_region_state(sess, player_id=player_id)
+
+    settlement_visit = session_state.record_group_node_visit(
+        sess,
+        "main",
+        "forest_settlement",
+        node_label="Лесной посёлок",
+        result_type="first_arrival",
+        summary="Группа впервые приходит в лесной посёлок.",
+    )
+    assert settlement_visit is not None
+    session_state.resolve_group_destination_event(sess, "main", source="test")
+    first_event = session_state.get_current_group_last_destination_event_result(sess, player_id=player_id)
+    assert first_event["event_id"] == "forest_settlement_hunters_warning"
+    assert first_event["result_type"] == "settlement_notice"
+
+    settlement_context = session_state.get_current_group_node_context(sess, player_id=player_id)
+    assert "forest_hunters_warning_taken" in settlement_context["node_state_flags"]
+    first_services = session_state.get_current_group_service_availability(sess, player_id=player_id)
+    locked_resupply = next(item for item in first_services if item["service_id"] == "forest_settlement_resupply")
+    assert locked_resupply["availability_status"] == "locked"
+    assert locked_resupply["unavailable_reason"] == "min_visit_count"
+
+    group_states = session_state._get_group_states(sess)
+    group = group_states["main"]
+    group["current_map_position"] = session_state._normalize_map_position(
+        {
+            "map_level": "region",
+            "node_type": "zone",
+            "node_id": "forest_road",
+            "label": "Лесная дорога",
+        }
+    )
+    group["area_label"] = "Лесная дорога"
+    session_state._persist_group_states(sess, group_states)
+    session_state.set_group_route_access_state(
+        sess,
+        "main",
+        "forest_road->ruined_settlement:move",
+        access_state="blocked",
+        summary="Старая дорога завалена.",
+        block_reason="fallen_trees",
+        source="test",
+    )
+
+    road_actions = session_state.get_current_group_context_action_availability(sess, player_id=player_id)
+    clear_action = next(item for item in road_actions if item["action_id"] == "clear_old_road")
+    assert clear_action["availability_status"] == "available"
+    cleared, error = session_state.resolve_group_context_action(
+        sess,
+        "main",
+        action_id="clear_old_road",
+        player_id=player_id,
+        source="test",
+    )
+    assert error is None
+    assert cleared is not None
+    assert cleared["last_context_action_result"]["result_type"] == "route_cleared"
+    assert session_state.get_group_route_access_state(sess, "main", "forest_road->ruined_settlement:move")["access_state"] == "cleared"
+    road_context = session_state.get_current_group_node_context(sess, player_id=player_id)
+    assert "old_road_cleared" in road_context["node_state_flags"]
+
+    group_states = session_state._get_group_states(sess)
+    group = group_states["main"]
+    group["current_map_position"] = session_state._normalize_map_position(
+        {
+            "map_level": "region",
+            "node_type": "zone",
+            "node_id": "ruined_settlement",
+            "label": "Разрушенный посёлок",
+        }
+    )
+    group["area_label"] = "Разрушенный посёлок"
+    session_state._persist_group_states(sess, group_states)
+    ruined_visit = session_state.record_group_node_visit(
+        sess,
+        "main",
+        "ruined_settlement",
+        node_label="Разрушенный посёлок",
+        result_type="danger_arrival",
+        summary="Группа выходит к разрушенному посёлку по очищенной дороге.",
+    )
+    assert ruined_visit is not None
+    session_state.resolve_group_destination_event(sess, "main", source="test")
+    ruined_event = session_state.get_current_group_last_destination_event_result(sess, player_id=player_id)
+    assert ruined_event["event_id"] == "ruined_settlement_watchfire_trace"
+    assert "ruined_watchfire_trace_found" in session_state.get_group_node_state(sess, "main", "ruined_settlement")["state_flags"]
+
+    group_states = session_state._get_group_states(sess)
+    group = group_states["main"]
+    group["current_map_position"] = session_state._normalize_map_position(
+        {
+            "map_level": "interior",
+            "node_type": "interior_entry",
+            "node_id": "mine_entrance",
+            "label": "Шахтный вход",
+        }
+    )
+    group["area_label"] = "Разрушенный посёлок"
+    session_state._persist_group_states(sess, group_states)
+    mine_visit = session_state.record_group_node_visit(
+        sess,
+        "main",
+        "mine_entrance",
+        node_label="Шахтный вход",
+        result_type="landmark_reached",
+        summary="Группа доходит до шахтного входа после обхода руин.",
+    )
+    assert mine_visit is not None
+    session_state.resolve_group_destination_event(sess, "main", source="test")
+    assert session_state.get_current_group_last_destination_event_result(sess, player_id=player_id)["event_id"] == "mine_entrance_air_warning"
+
+    group_states = session_state._get_group_states(sess)
+    group = group_states["main"]
+    group["current_map_position"] = session_state._normalize_map_position(
+        {
+            "map_level": "region",
+            "node_type": "zone",
+            "node_id": "forest_settlement",
+            "label": "Лесной посёлок",
+        }
+    )
+    group["area_label"] = "Лесной посёлок"
+    session_state._persist_group_states(sess, group_states)
+    session_state.record_group_node_visit(
+        sess,
+        "main",
+        "forest_settlement",
+        node_label="Лесной посёлок",
+        result_type="return_arrival",
+        summary="Группа возвращается в посёлок после короткого обхода старой дороги и руин.",
+    )
+
+    return_services = session_state.get_current_group_service_availability(sess, player_id=player_id)
+    available_resupply = next(item for item in return_services if item["service_id"] == "forest_settlement_resupply")
+    assert available_resupply["availability_status"] == "available"
+    resolved_service, error = session_state.resolve_group_service(
+        sess,
+        "main",
+        service_id="forest_settlement_resupply",
+        player_id=player_id,
+        source="test",
+    )
+    assert error is None
+    assert resolved_service is not None
+    assert resolved_service["last_service_result"]["result_type"] == "supplies_secured"
+    assert "обратный рассказ" in resolved_service["last_service_result"]["result_summary"]
+
+    changed_settlement_context = session_state.get_current_group_node_context(sess, player_id=player_id)
+    assert "forest_return_report_logged" in changed_settlement_context["node_state_flags"]
+    assert any("обратный рассказ" in note.lower() or "подтвержд" in note.lower() for note in changed_settlement_context["state_notes"])
+    changed_services = session_state.get_current_group_service_availability(sess, player_id=player_id)
+    completed_resupply = next(item for item in changed_services if item["service_id"] == "forest_settlement_resupply")
+    assert completed_resupply["availability_status"] == "completed"
 
 
 def test_local_interaction_gating_enforces_locked_execution_without_side_effects() -> None:

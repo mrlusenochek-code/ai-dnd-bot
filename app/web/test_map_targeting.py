@@ -342,6 +342,8 @@ def test_get_static_node_destination_events_returns_authored_arrival_events() ->
         }
     ]
     assert get_static_node_destination_events(node_id="ruined_settlement", state_flags=["mine_path_shored"], visit_count=2)[0]["result_type"] == "changed_place_notice"
+    assert get_static_node_destination_events(node_id="forest_settlement", state_flags=[], visit_count=1)[0]["event_id"] == "forest_settlement_hunters_warning"
+    assert get_static_node_destination_events(node_id="ruined_settlement", state_flags=[], visit_count=1)[0]["event_id"] == "ruined_settlement_watchfire_trace"
     assert get_static_node_destination_events(node_id="northwatch_outpost", state_flags=[], visit_count=1)[0]["event_id"] == "northwatch_outpost_briefing"
     assert get_static_node_destination_events(node_id="ash_pass", state_flags=[], visit_count=1)[0]["result_type"] == "local_warning"
     assert get_static_node_destination_events(node_id="broken_redoubt", state_flags=[], visit_count=1)[0]["event_id"] == "broken_redoubt_supply_trace"
@@ -502,6 +504,28 @@ def test_deep_marsh_nodes_expose_services_actions_events_and_scout_discovery() -
     ]
     assert get_static_node_destination_events(node_id="deep_marsh_threshold", state_flags=[], visit_count=1)[0]["event_id"] == "deep_marsh_mist_notice"
     assert get_static_node_destination_events(node_id="sunken_ferry", state_flags=[], visit_count=1)[0]["event_id"] == "sunken_ferry_trace"
+
+
+def test_starter_frontier_nodes_expose_local_progression_arc_surfaces() -> None:
+    forest_requirements = get_static_node_service_requirements(node_id="forest_settlement")
+    forest_effect = next(
+        item for item in get_static_node_service_effects(node_id="forest_settlement") if item["service_id"] == "forest_settlement_resupply"
+    )
+
+    assert forest_requirements == [
+        {
+            "node_id": "forest_settlement",
+            "service_id": "forest_settlement_resupply",
+            "service_key": "",
+            "requires_destination_event_id": "forest_settlement_hunters_warning",
+            "requires_destination_event_result_type": "settlement_notice",
+            "min_visit_count": 2,
+            "unlock_hint": "Полный лесной набор выдают только после первой охотничьей сводки и повторного захода в посёлок.",
+        }
+    ]
+    assert forest_effect["node_state_flags"] == ["forest_supplies_secured", "forest_return_report_logged"]
+    assert "обратный рассказ" in forest_effect["result_summary"]
+    assert any(item["action_id"] == "clear_old_road" for item in get_current_node_context_actions(node_id="forest_road"))
 
 
 def test_static_node_detail_and_inspect_result_expose_handcrafted_content() -> None:
