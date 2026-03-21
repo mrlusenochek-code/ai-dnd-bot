@@ -672,18 +672,16 @@ def test_deep_marsh_nodes_expose_services_actions_events_and_scout_discovery() -
     ]
     assert any(item["action_id"] == "read_moss_waymarks" for item in waystone_actions)
     assert any(item["action_id"] == "braid_reed_wayline" for item in shelter_actions)
-    assert shelter_requirements == [
-        {
-            "node_id": "reed_shelter",
-            "action_id": "braid_reed_wayline",
-            "unlock_hint": "Тростниковую wayline имеет смысл плести только после того, как база реально начала поддерживать дальние возвраты.",
-            "requires_any_group_node_state_flags": [
-                "frontier_support_prepared",
-                "frontier_support_ready",
-                "frontier_support_committed",
-            ],
-        }
-    ]
+    assert {
+        "node_id": "reed_shelter",
+        "action_id": "braid_reed_wayline",
+        "unlock_hint": "Тростниковую wayline имеет смысл плести только после того, как база реально начала поддерживать дальние возвраты.",
+        "requires_any_group_node_state_flags": [
+            "frontier_support_prepared",
+            "frontier_support_ready",
+            "frontier_support_committed",
+        ],
+    } in shelter_requirements
     assert len(shelter_effects) == 3
     assert all(item["reveal_node_ids"] == ["sunken_ferry"] for item in shelter_effects)
     assert all(
@@ -774,6 +772,7 @@ def test_starter_frontier_nodes_expose_local_progression_arc_surfaces() -> None:
     ]
     assert any(item["action_id"] == "compile_frontier_report" for item in forest_actions)
     assert any(item["action_id"] == "arrange_frontier_evidence" for item in forest_actions)
+    assert any(item["action_id"] == "issue_frontier_directives" for item in forest_actions)
     assert forest_action_requirements == [
         {
             "node_id": "forest_settlement",
@@ -795,7 +794,45 @@ def test_starter_frontier_nodes_expose_local_progression_arc_surfaces() -> None:
                 "western_road_waycart_manifest_logged",
             ],
         },
+        {
+            "node_id": "forest_settlement",
+            "action_id": "issue_frontier_directives",
+            "unlock_hint": "Сначала собрать хотя бы первую returned frontier evidence picture по activated field proofs.",
+            "requires_node_state_flag": "frontier_evidence_started",
+            "requires_any_group_node_state_flags": [
+                "northwatch_redoubt_cache_logged",
+                "deep_marsh_ferry_moorings_logged",
+                "western_road_waycart_manifest_logged",
+            ],
+        },
     ]
+    northwatch_actions = get_current_node_context_actions(node_id="northwatch_quartermaster")
+    northwatch_action_requirements = get_static_node_context_action_requirements(node_id="northwatch_quartermaster")
+    assert any(item["action_id"] == "post_redoubt_orders" for item in northwatch_actions)
+    assert {
+        "node_id": "northwatch_quartermaster",
+        "action_id": "post_redoubt_orders",
+        "requires_any_group_node_state_flags": ["northwatch_field_directive_issued"],
+        "unlock_hint": "Сначала вернуть evidence домой и дождаться, пока база отправит назад redoubt directive на северный рубеж.",
+    } in northwatch_action_requirements
+    marsh_actions = get_current_node_context_actions(node_id="reed_shelter")
+    marsh_action_requirements = get_static_node_context_action_requirements(node_id="reed_shelter")
+    assert any(item["action_id"] == "tie_crossing_orders" for item in marsh_actions)
+    assert {
+        "node_id": "reed_shelter",
+        "action_id": "tie_crossing_orders",
+        "requires_any_group_node_state_flags": ["deep_marsh_field_directive_issued"],
+        "unlock_hint": "Сначала вернуть болотный evidence домой и дождаться, пока база отправит назад crossing directive.",
+    } in marsh_action_requirements
+    road_actions = get_current_node_context_actions(node_id="waystation_yard")
+    road_action_requirements = get_static_node_context_action_requirements(node_id="waystation_yard")
+    assert any(item["action_id"] == "chalk_corridor_orders" for item in road_actions)
+    assert {
+        "node_id": "waystation_yard",
+        "action_id": "chalk_corridor_orders",
+        "requires_any_group_node_state_flags": ["western_road_field_directive_issued"],
+        "unlock_hint": "Сначала вернуть дорожный evidence домой и дождаться, пока база отправит назад corridor directive.",
+    } in road_action_requirements
     assert any(item["action_id"] == "clear_old_road" for item in get_current_node_context_actions(node_id="forest_road"))
 
 

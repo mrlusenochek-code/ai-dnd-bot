@@ -2196,6 +2196,262 @@ def test_forest_settlement_returned_frontier_evidence_stages_from_one_to_three_d
     assert any(entry["source_kind"] == "context_action" and entry["source_id"] == "arrange_frontier_evidence" for entry in intel_entries)
 
 
+def test_forest_settlement_frontier_directives_stay_locked_before_returned_evidence() -> None:
+    player_id = uuid.uuid4()
+    sess = SimpleNamespace(settings={})
+    session_state._initialize_default_group(
+        sess,
+        [player_id],
+        {"map_level": "region", "node_type": "zone", "node_id": "forest_settlement", "label": "Лесной посёлок"},
+    )
+    session_state.get_current_group_current_region_state(sess, player_id=player_id)
+
+    actions = session_state.get_current_group_context_action_availability(sess, player_id=player_id)
+    directive = next(item for item in actions if item["action_id"] == "issue_frontier_directives")
+    assert directive["availability_status"] == "locked"
+    assert directive["unavailable_reason"] == "requires_node_state_flag"
+    assert "returned frontier evidence picture" in directive["unlock_hint"].lower()
+
+
+def test_forest_settlement_frontier_directives_escalate_from_one_to_three_distinct_proofs() -> None:
+    player_id = uuid.uuid4()
+    sess = SimpleNamespace(settings={})
+    session_state._initialize_default_group(
+        sess,
+        [player_id],
+        {"map_level": "region", "node_type": "zone", "node_id": "forest_settlement", "label": "Лесной посёлок"},
+    )
+    session_state.get_current_group_current_region_state(sess, player_id=player_id)
+
+    session_state.add_group_node_state_flag(
+        sess,
+        "main",
+        "broken_redoubt",
+        state_flag="northwatch_redoubt_cache_logged",
+        summary="С северного рубежа уже принесли signal cache для coordinated response.",
+        source="test",
+    )
+    evidence_started, error = session_state.resolve_group_context_action(
+        sess,
+        "main",
+        action_id="arrange_frontier_evidence",
+        player_id=player_id,
+        source="test",
+    )
+    assert error is None
+    assert evidence_started is not None
+
+    first_actions = session_state.get_current_group_context_action_availability(sess, player_id=player_id)
+    first = next(item for item in first_actions if item["action_id"] == "issue_frontier_directives")
+    assert first["availability_status"] == "available"
+    resolved_first, error = session_state.resolve_group_context_action(
+        sess,
+        "main",
+        action_id="issue_frontier_directives",
+        player_id=player_id,
+        source="test",
+    )
+    assert error is None
+    assert resolved_first is not None
+    assert "northwatch directive" in resolved_first["last_context_action_result"]["result_summary"].lower()
+    context = session_state.get_current_group_node_context(sess, player_id=player_id)
+    assert "frontier_directive_started" in context["node_state_flags"]
+    assert "northwatch_field_directive_issued" in context["node_state_flags"]
+    assert "deep_marsh_field_directive_issued" not in context["node_state_flags"]
+
+    session_state.add_group_node_state_flag(
+        sess,
+        "main",
+        "sunken_ferry",
+        state_flag="deep_marsh_ferry_moorings_logged",
+        summary="С болот уже принесли crossing-memory для сравнительного dispatch.",
+        source="test",
+    )
+    evidence_compared, error = session_state.resolve_group_context_action(
+        sess,
+        "main",
+        action_id="arrange_frontier_evidence",
+        player_id=player_id,
+        source="test",
+    )
+    assert error is None
+    assert evidence_compared is not None
+    resolved_second, error = session_state.resolve_group_context_action(
+        sess,
+        "main",
+        action_id="issue_frontier_directives",
+        player_id=player_id,
+        source="test",
+    )
+    assert error is None
+    assert resolved_second is not None
+    assert "comparative directive picture" in resolved_second["last_context_action_result"]["result_summary"].lower()
+    context = session_state.get_current_group_node_context(sess, player_id=player_id)
+    assert "frontier_directive_expanded" in context["node_state_flags"]
+    assert "northwatch_field_directive_issued" in context["node_state_flags"]
+    assert "deep_marsh_field_directive_issued" in context["node_state_flags"]
+    assert "western_road_field_directive_issued" not in context["node_state_flags"]
+
+    session_state.add_group_node_state_flag(
+        sess,
+        "main",
+        "broken_waycart",
+        state_flag="western_road_waycart_manifest_logged",
+        summary="С тракта уже принесли corridor-proof для полного dispatch.",
+        source="test",
+    )
+    evidence_compiled, error = session_state.resolve_group_context_action(
+        sess,
+        "main",
+        action_id="arrange_frontier_evidence",
+        player_id=player_id,
+        source="test",
+    )
+    assert error is None
+    assert evidence_compiled is not None
+    resolved_third, error = session_state.resolve_group_context_action(
+        sess,
+        "main",
+        action_id="issue_frontier_directives",
+        player_id=player_id,
+        source="test",
+    )
+    assert error is None
+    assert resolved_third is not None
+    assert "coordinated directives" in resolved_third["last_context_action_result"]["result_summary"].lower()
+    final_context = session_state.get_current_group_node_context(sess, player_id=player_id)
+    assert "frontier_directive_coordinated" in final_context["node_state_flags"]
+    assert "northwatch_field_directive_issued" in final_context["node_state_flags"]
+    assert "deep_marsh_field_directive_issued" in final_context["node_state_flags"]
+    assert "western_road_field_directive_issued" in final_context["node_state_flags"]
+    assert any("coordinated frontier dispatch" in note.lower() or "region-aware orders" in note.lower() for note in final_context["state_notes"])
+    intel_entries = session_state.get_current_group_map_intel(sess, player_id=player_id)
+    assert any(entry["source_kind"] == "context_action" and entry["source_id"] == "issue_frontier_directives" for entry in intel_entries)
+
+
+def test_northwatch_quartermaster_reacts_to_frontier_directive_dispatch() -> None:
+    player_id = uuid.uuid4()
+    sess = SimpleNamespace(settings={})
+    session_state._initialize_default_group(
+        sess,
+        [player_id],
+        {"map_level": "region", "node_type": "zone", "node_id": "northwatch_quartermaster", "label": "Интендантский двор"},
+    )
+    session_state.get_current_group_current_region_state(sess, player_id=player_id)
+
+    locked_actions = session_state.get_current_group_context_action_availability(sess, player_id=player_id)
+    locked = next(item for item in locked_actions if item["action_id"] == "post_redoubt_orders")
+    assert locked["availability_status"] == "locked"
+    assert locked["unavailable_reason"] == "requires_any_group_node_state_flags"
+
+    session_state.add_group_node_state_flag(
+        sess,
+        "main",
+        "forest_settlement",
+        state_flag="northwatch_field_directive_issued",
+        summary="С базы пришло redoubt directive.",
+        source="test",
+    )
+    available_actions = session_state.get_current_group_context_action_availability(sess, player_id=player_id)
+    available = next(item for item in available_actions if item["action_id"] == "post_redoubt_orders")
+    assert available["availability_status"] == "available"
+    resolved, error = session_state.resolve_group_context_action(
+        sess,
+        "main",
+        action_id="post_redoubt_orders",
+        player_id=player_id,
+        source="test",
+    )
+    assert error is None
+    assert resolved is not None
+    assert resolved["last_context_action_result"]["result_type"] == "local_support_applied"
+    context = session_state.get_current_group_node_context(sess, player_id=player_id)
+    assert "northwatch_directive_posted" in context["node_state_flags"]
+    assert any("redoubt directive" in note.lower() or "домашний order" in note.lower() for note in context["state_notes"])
+
+
+def test_reed_shelter_reacts_to_frontier_directive_dispatch() -> None:
+    player_id = uuid.uuid4()
+    sess = SimpleNamespace(settings={})
+    session_state._initialize_default_group(
+        sess,
+        [player_id],
+        {"map_level": "region", "node_type": "zone", "node_id": "reed_shelter", "label": "Тростниковый приют"},
+    )
+    session_state.get_current_group_current_region_state(sess, player_id=player_id)
+
+    locked_actions = session_state.get_current_group_context_action_availability(sess, player_id=player_id)
+    locked = next(item for item in locked_actions if item["action_id"] == "tie_crossing_orders")
+    assert locked["availability_status"] == "locked"
+    assert locked["unavailable_reason"] == "requires_any_group_node_state_flags"
+
+    session_state.add_group_node_state_flag(
+        sess,
+        "main",
+        "forest_settlement",
+        state_flag="deep_marsh_field_directive_issued",
+        summary="С базы пришло crossing directive.",
+        source="test",
+    )
+    available_actions = session_state.get_current_group_context_action_availability(sess, player_id=player_id)
+    available = next(item for item in available_actions if item["action_id"] == "tie_crossing_orders")
+    assert available["availability_status"] == "available"
+    resolved, error = session_state.resolve_group_context_action(
+        sess,
+        "main",
+        action_id="tie_crossing_orders",
+        player_id=player_id,
+        source="test",
+    )
+    assert error is None
+    assert resolved is not None
+    assert resolved["last_context_action_result"]["result_type"] == "local_support_applied"
+    context = session_state.get_current_group_node_context(sess, player_id=player_id)
+    assert "deep_marsh_directive_posted" in context["node_state_flags"]
+    assert any("crossing directive" in note.lower() or "домашнее указание" in note.lower() for note in context["state_notes"])
+
+
+def test_waystation_yard_reacts_to_frontier_directive_dispatch() -> None:
+    player_id = uuid.uuid4()
+    sess = SimpleNamespace(settings={})
+    session_state._initialize_default_group(
+        sess,
+        [player_id],
+        {"map_level": "region", "node_type": "zone", "node_id": "waystation_yard", "label": "Постоялый двор"},
+    )
+    session_state.get_current_group_current_region_state(sess, player_id=player_id)
+
+    locked_actions = session_state.get_current_group_context_action_availability(sess, player_id=player_id)
+    locked = next(item for item in locked_actions if item["action_id"] == "chalk_corridor_orders")
+    assert locked["availability_status"] == "locked"
+    assert locked["unavailable_reason"] == "requires_any_group_node_state_flags"
+
+    session_state.add_group_node_state_flag(
+        sess,
+        "main",
+        "forest_settlement",
+        state_flag="western_road_field_directive_issued",
+        summary="С базы пришло corridor directive.",
+        source="test",
+    )
+    available_actions = session_state.get_current_group_context_action_availability(sess, player_id=player_id)
+    available = next(item for item in available_actions if item["action_id"] == "chalk_corridor_orders")
+    assert available["availability_status"] == "available"
+    resolved, error = session_state.resolve_group_context_action(
+        sess,
+        "main",
+        action_id="chalk_corridor_orders",
+        player_id=player_id,
+        source="test",
+    )
+    assert error is None
+    assert resolved is not None
+    assert resolved["last_context_action_result"]["result_type"] == "local_support_applied"
+    context = session_state.get_current_group_node_context(sess, player_id=player_id)
+    assert "western_road_directive_posted" in context["node_state_flags"]
+    assert any("corridor directive" in note.lower() or "домашнее предписание" in note.lower() for note in context["state_notes"])
+
+
 def test_forest_settlement_frontier_support_stays_locked_before_report() -> None:
     player_id = uuid.uuid4()
     sess = SimpleNamespace(settings={})
