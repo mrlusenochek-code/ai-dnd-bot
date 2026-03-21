@@ -109,8 +109,8 @@ STATIC_MAP_NODES: tuple[dict[str, Any], ...] = (
         "short_description": "Лесной посёлок на краю чащи, где охотники и сборщики держат последние безопасные дворы.",
         "inspect_summary": "Отсюда видно, где лес ещё под контролем людей, а где начинаются старые опасные руины.",
         "travel_note": "Последняя относительно спокойная стоянка перед дорогой к старой крепости.",
-        "service_hints": ["охотничьи припасы", "ночлег под крышей"],
-        "services": ["safe_rest", "resupply", "local_guidance"],
+        "service_hints": ["охотничьи припасы", "ночлег под крышей", "рубежная поддержка"],
+        "services": ["safe_rest", "resupply", "local_guidance", "frontier_support"],
         "aliases": (
             "лесной посёлок",
             "посёлок в лесу",
@@ -1290,6 +1290,27 @@ STATIC_MAP_NODE_STATE_OVERLAYS: tuple[dict[str, Any], ...] = (
         "service_note": "После полной сводки лесной посёлок реагирует на группу как на тех, кто помог собрать общую frontier-картину, а не просто вернулся с одного дальнего хода.",
     },
     {
+        "node_id": "forest_settlement",
+        "state_flag": "frontier_support_prepared",
+        "context_note": "В посёлке уже начали собирать осторожную рубежную поддержку под первый внешний доклад.",
+        "detail_note": "У сараев уже отмечен первый практический отклик на дальние сводки: короткий охотничий набор, трезвая наводка и готовность держать быстрый возвратный ход.",
+        "service_note": "После первого frontier report посёлок уже не только слушает, но и даёт осторожную практическую поддержку под следующий короткий выход.",
+    },
+    {
+        "node_id": "forest_settlement",
+        "state_flag": "frontier_support_ready",
+        "context_note": "Лесной посёлок уже держит более собранную рубежную поддержку по повторяющемуся frontier pattern.",
+        "detail_note": "По двум сводкам подряд у охотничьих навесов уже собирают не импровизацию, а осмысленную линию поддержки: отмеченные ходы, ускоренный сбор и более точный возвратный порядок.",
+        "service_note": "После второго stage посёлок реагирует уже как настоящий frontier base: помощь стала точнее и сознательнее, чем первый осторожный отклик.",
+    },
+    {
+        "node_id": "forest_settlement",
+        "state_flag": "frontier_support_committed",
+        "context_note": "В посёлке уже держат полный tier frontier support под общую сводку со всех соседних рубежей.",
+        "detail_note": "После полной frontier summary лесной посёлок перешёл к лучшей версии своей практической поддержки: дорожные наборы, маршрутные пометки и ритм возвратов уже собраны как единый ответ на давление по всей линии.",
+        "service_note": "Теперь посёлок не просто понимает картину рубежа, а организованно действует под неё: это лучший tier local frontier support, который он может дать без превращения в отдельную систему снабжения.",
+    },
+    {
         "node_id": "western_road_watch",
         "state_flag": "western_road_delay_notice_taken",
         "context_note": "На западном тракте уже предупредили группу о задержанном обозе, дорожной арке и разбитом объезде.",
@@ -1828,6 +1849,54 @@ STATIC_MAP_SERVICE_EFFECTS: tuple[dict[str, Any], ...] = (
         "node_state_summary": "В лесном посёлке уже приняли обратный рассказ о старой дороге и выдали дорожный набор этой группе.",
     },
     {
+        "node_id": "forest_settlement",
+        "service_key": "frontier_support",
+        "service_id": "forest_settlement_frontier_support",
+        "service_kind": "support",
+        "result_type": "guidance_received",
+        "summary": "Запросить первую осторожную frontier-поддержку после внешнего доклада.",
+        "result_summary": "Лесной посёлок собирает для группы осторожную первую рубежную поддержку: короткую охотничью выкладку, сдержанную наводку и подготовку под быстрый возврат с края.",
+        "discovered_notes": [
+            "После первого внешнего доклада в посёлке уже не отмахиваются от дальних тревог и начинают собирать для группы практичный, но ещё осторожный выходной набор."
+        ],
+        "applied_effects": ["frontier_support:tier1", "intel:frontier_support"],
+        "node_state_flags": ["frontier_support_prepared"],
+        "node_state_summary": "В лесном посёлке уже собрали первый tier frontier support под единичный внешний доклад.",
+        "required_state_flags": ["frontier_report_started"],
+    },
+    {
+        "node_id": "forest_settlement",
+        "service_key": "frontier_support",
+        "service_id": "forest_settlement_frontier_support",
+        "service_kind": "support",
+        "result_type": "guidance_received",
+        "summary": "Запросить усиленную frontier-поддержку после распознанного pattern.",
+        "result_summary": "Когда повторяющийся frontier pattern уже подтверждён, посёлок даёт группе более собранную поддержку: уточнённые возвратные ориентиры, более уверенный сбор и чёткую готовность под нервный внешний ход.",
+        "discovered_notes": [
+            "После двух независимых сводок помощь в посёлке становится осмысленнее: теперь это не просто осторожность, а уже собранный ответ на повторяющийся рисунок frontier pressure."
+        ],
+        "applied_effects": ["frontier_support:tier2", "intel:frontier_support_pattern"],
+        "node_state_flags": ["frontier_support_ready"],
+        "node_state_summary": "В лесном посёлке уже держат второй tier frontier support под повторяющийся внешний pattern.",
+        "required_state_flags": ["frontier_pattern_seen"],
+    },
+    {
+        "node_id": "forest_settlement",
+        "service_key": "frontier_support",
+        "service_id": "forest_settlement_frontier_support",
+        "service_kind": "support",
+        "result_type": "guidance_received",
+        "summary": "Запросить полный local frontier support после общей сводки по всем рубежам.",
+        "result_summary": "После полной frontier summary посёлок выдаёт лучший tier local frontier support: согласованные дорожные пометки, приоритетный охотничий набор и понятный ритм возвратов под общий внешний нажим.",
+        "discovered_notes": [
+            "Когда картина сходится по всем трём соседним рубежам, посёлок отвечает уже не частным советом, а лучшей доступной local support-подготовкой под весь внешний край."
+        ],
+        "applied_effects": ["frontier_support:tier3", "intel:frontier_support_full"],
+        "node_state_flags": ["frontier_support_committed"],
+        "node_state_summary": "В лесном посёлке уже собран лучший tier frontier support под общую сводку со всех соседних рубежей.",
+        "required_state_flags": ["frontier_full_pattern_logged"],
+    },
+    {
         "node_id": "northwatch_outpost",
         "service_key": "local_guidance",
         "service_id": "northwatch_outpost_guidance",
@@ -1913,6 +1982,12 @@ STATIC_MAP_SERVICE_REQUIREMENTS: tuple[dict[str, Any], ...] = (
         "requires_destination_event_result_type": "settlement_notice",
         "min_visit_count": 2,
         "unlock_hint": "Полный лесной набор выдают только после первой охотничьей сводки и повторного захода в посёлок.",
+    },
+    {
+        "node_id": "forest_settlement",
+        "service_id": "forest_settlement_frontier_support",
+        "requires_node_state_flag": "frontier_report_started",
+        "unlock_hint": "Сначала свести хотя бы первую frontier-сводку по внешнему рубежу.",
     },
     {
         "node_id": "northwatch_quartermaster",
@@ -2657,6 +2732,8 @@ def get_static_node_service_effects(
     *,
     node_id: str | None = None,
     current_map_position: dict[str, Any] | None = None,
+    state_flags: list[str] | set[str] | None = None,
+    group_state_flags: list[str] | set[str] | None = None,
 ) -> list[dict[str, Any]]:
     resolved_node_id = _normalized_text(node_id)
     if not resolved_node_id and isinstance(current_map_position, dict):
@@ -2701,9 +2778,28 @@ def get_static_node_service_effects(
             ],
             "node_state_summary": str(item.get("node_state_summary") or "").strip(),
         }
+        required_state_flags = _normalized_text_list(item.get("required_state_flags"))
+        if required_state_flags:
+            effect["required_state_flags"] = required_state_flags
         if service_key and service_id:
             effects.append(effect)
-    return effects
+    if state_flags is None and group_state_flags is None:
+        return effects
+    best_effects: dict[str, dict[str, Any]] = {}
+    for effect in effects:
+        service_ref = str(effect.get("service_id") or effect.get("service_key") or "").strip().lower()
+        if not service_ref:
+            continue
+        if not _matches_group_state_requirement_variant(
+            effect,
+            state_flags=state_flags,
+            group_state_flags=group_state_flags,
+        ):
+            continue
+        current_best = best_effects.get(service_ref)
+        if not current_best or _group_state_requirement_specificity(effect) >= _group_state_requirement_specificity(current_best):
+            best_effects[service_ref] = effect
+    return [dict(best_effects[service_ref]) for service_ref in sorted(best_effects.keys())]
 
 
 def get_static_node_service_requirements(
@@ -2739,6 +2835,18 @@ def get_static_node_service_requirements(
         requires_destination_event_result_type = _normalized_text(item.get("requires_destination_event_result_type"))
         if requires_destination_event_result_type:
             requirement["requires_destination_event_result_type"] = requires_destination_event_result_type
+        requires_any_group_node_state_flags = _normalized_text_list(item.get("requires_any_group_node_state_flags"))
+        if requires_any_group_node_state_flags:
+            requirement["requires_any_group_node_state_flags"] = requires_any_group_node_state_flags
+        requires_all_group_node_state_flags = _normalized_text_list(item.get("requires_all_group_node_state_flags"))
+        if requires_all_group_node_state_flags:
+            requirement["requires_all_group_node_state_flags"] = requires_all_group_node_state_flags
+        requires_min_group_node_state_flags = int(item.get("requires_min_group_node_state_flags") or 0)
+        if requires_min_group_node_state_flags > 0:
+            requirement["requires_min_group_node_state_flags"] = requires_min_group_node_state_flags
+        group_node_state_flag_pool = _normalized_text_list(item.get("group_node_state_flag_pool"))
+        if group_node_state_flag_pool:
+            requirement["group_node_state_flag_pool"] = group_node_state_flag_pool
         if bool(item.get("first_visit_only")):
             requirement["first_visit_only"] = True
         if bool(item.get("return_visit_only")):
@@ -3174,6 +3282,11 @@ def get_static_node_services(
             "service_type": "guidance",
             "summary": "Здесь можно получить ориентиры, слухи и безопасные подсказки по ближайшим дорогам.",
         },
+        "frontier_support": {
+            "label": "Поддержка рубежа",
+            "service_type": "support",
+            "summary": "Здесь можно получить практическую подготовку под следующий выход на внешний рубеж.",
+        },
         "shrine_aid": {
             "label": "Поддержка у святыни",
             "service_type": "shrine",
@@ -3257,6 +3370,7 @@ def get_static_node_service_result(
         "resupply": "Здесь можно собрать базовые припасы и привести снаряжение в порядок.",
         "healing_aid": "Здесь помогут с перевязкой, тёплой водой и простым уходом после пути.",
         "local_guidance": "Местные подскажут, какая дорога сейчас спокойнее и где не стоит задерживаться.",
+        "frontier_support": "Посёлок собирает практическую рубежную поддержку под следующий внешний выход.",
         "shrine_aid": "У святыни можно получить благословение, тишину и скромную помощь в дороге.",
     }
     result["result_summary"] = service_result_notes.get(resolved_service_key, result["summary"])

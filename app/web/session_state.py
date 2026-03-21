@@ -10243,6 +10243,7 @@ def resolve_group_service(
     current_map_position = _normalize_map_position(group.get("current_map_position"))
     if not current_map_position:
         return None, "Не удалось определить текущую позицию группы."
+    interaction_context = _get_current_group_local_interaction_context(sess, resolved_group_id) or {}
     available_services = get_current_group_node_services(sess, player_id=resolved_player_id or None, group_id=resolved_group_id)
     service = next(
         (
@@ -10281,7 +10282,11 @@ def resolve_group_service(
             service_effect=next(
                 (
                     effect
-                    for effect in get_static_node_service_effects(current_map_position=current_map_position)
+                    for effect in get_static_node_service_effects(
+                        current_map_position=current_map_position,
+                        state_flags=interaction_context.get("node_state_flags"),
+                        group_state_flags=interaction_context.get("group_state_flags"),
+                    )
                     if (
                         str(effect.get("service_id") or "").strip().lower() == normalized_service_id
                         or str(effect.get("service_key") or "").strip().lower() == normalized_service_id
@@ -10304,7 +10309,11 @@ def resolve_group_service(
     service_effect = next(
         (
             effect
-            for effect in get_static_node_service_effects(current_map_position=current_map_position)
+            for effect in get_static_node_service_effects(
+                current_map_position=current_map_position,
+                state_flags=interaction_context.get("node_state_flags"),
+                group_state_flags=interaction_context.get("group_state_flags"),
+            )
             if (
                 str(effect.get("service_id") or "").strip().lower() == normalized_service_id
                 or str(effect.get("service_key") or "").strip().lower() == normalized_service_id

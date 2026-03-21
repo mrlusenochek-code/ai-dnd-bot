@@ -580,13 +580,25 @@ def test_deep_marsh_nodes_expose_services_actions_events_and_scout_discovery() -
 
 
 def test_starter_frontier_nodes_expose_local_progression_arc_surfaces() -> None:
+    forest_services = get_static_node_services(node_id="forest_settlement")
     forest_requirements = get_static_node_service_requirements(node_id="forest_settlement")
     forest_effect = next(
         item for item in get_static_node_service_effects(node_id="forest_settlement") if item["service_id"] == "forest_settlement_resupply"
     )
+    support_effects = [
+        item
+        for item in get_static_node_service_effects(node_id="forest_settlement")
+        if item["service_id"] == "forest_settlement_frontier_support"
+    ]
     forest_actions = get_current_node_context_actions(node_id="forest_settlement")
     forest_action_requirements = get_static_node_context_action_requirements(node_id="forest_settlement")
 
+    assert [item["service_id"] for item in forest_services] == [
+        "forest_settlement:safe_rest",
+        "forest_settlement_resupply",
+        "forest_settlement:local_guidance",
+        "forest_settlement_frontier_support",
+    ]
     assert forest_requirements == [
         {
             "node_id": "forest_settlement",
@@ -596,10 +608,23 @@ def test_starter_frontier_nodes_expose_local_progression_arc_surfaces() -> None:
             "requires_destination_event_result_type": "settlement_notice",
             "min_visit_count": 2,
             "unlock_hint": "Полный лесной набор выдают только после первой охотничьей сводки и повторного захода в посёлок.",
+        },
+        {
+            "node_id": "forest_settlement",
+            "service_id": "forest_settlement_frontier_support",
+            "service_key": "",
+            "unlock_hint": "Сначала свести хотя бы первую frontier-сводку по внешнему рубежу.",
+            "requires_node_state_flag": "frontier_report_started",
         }
     ]
     assert forest_effect["node_state_flags"] == ["forest_supplies_secured", "forest_return_report_logged"]
     assert "обратный рассказ" in forest_effect["result_summary"]
+    assert len(support_effects) == 3
+    assert [item["required_state_flags"] for item in support_effects] == [
+        ["frontier_report_started"],
+        ["frontier_pattern_seen"],
+        ["frontier_full_pattern_logged"],
+    ]
     assert any(item["action_id"] == "compile_frontier_report" for item in forest_actions)
     assert forest_action_requirements == [
         {

@@ -2089,6 +2089,130 @@ def test_starter_frontier_cross_region_report_stages_from_one_to_three_distinct_
     assert any("полную frontier summary" in note.lower() or "трем соседним регионам" in note.lower() for note in final_context["state_notes"])
 
 
+def test_forest_settlement_frontier_support_stays_locked_before_report() -> None:
+    player_id = uuid.uuid4()
+    sess = SimpleNamespace(settings={})
+    session_state._initialize_default_group(
+        sess,
+        [player_id],
+        {"map_level": "region", "node_type": "zone", "node_id": "forest_settlement", "label": "Лесной посёлок"},
+    )
+    session_state.get_current_group_current_region_state(sess, player_id=player_id)
+
+    services = session_state.get_current_group_service_availability(sess, player_id=player_id)
+    support = next(item for item in services if item["service_id"] == "forest_settlement_frontier_support")
+
+    assert support["availability_status"] == "locked"
+    assert support["unavailable_reason"] == "requires_node_state_flag"
+    assert "первую frontier-сводку" in support["unlock_hint"]
+
+
+def test_forest_settlement_frontier_support_escalates_with_report_stages() -> None:
+    player_id = uuid.uuid4()
+    sess = SimpleNamespace(settings={})
+    session_state._initialize_default_group(
+        sess,
+        [player_id],
+        {"map_level": "region", "node_type": "zone", "node_id": "forest_settlement", "label": "Лесной посёлок"},
+    )
+    session_state.get_current_group_current_region_state(sess, player_id=player_id)
+
+    session_state.add_group_node_state_flag(
+        sess,
+        "main",
+        "northwatch_quartermaster",
+        state_flag="northwatch_redoubt_return_logged",
+        summary="На северном рубеже уже принят обратный доклад с редута.",
+        source="test",
+    )
+    session_state.resolve_group_context_action(
+        sess,
+        "main",
+        action_id="compile_frontier_report",
+        player_id=player_id,
+        source="test",
+    )
+
+    stage1_services = session_state.get_current_group_service_availability(sess, player_id=player_id)
+    stage1_support = next(item for item in stage1_services if item["service_id"] == "forest_settlement_frontier_support")
+    assert stage1_support["availability_status"] == "available"
+    stage1, error = session_state.resolve_group_service(
+        sess,
+        "main",
+        service_id="forest_settlement_frontier_support",
+        player_id=player_id,
+        source="test",
+    )
+    assert error is None
+    assert stage1 is not None
+    assert "осторожную первую рубежную поддержку" in stage1["last_service_result"]["result_summary"]
+    context = session_state.get_current_group_node_context(sess, player_id=player_id)
+    assert "frontier_support_prepared" in context["node_state_flags"]
+
+    session_state.add_group_node_state_flag(
+        sess,
+        "main",
+        "reed_shelter",
+        state_flag="deep_marsh_shelter_aid_received",
+        summary="Из deep_marsh уже принесли подтверждённый возвратный след.",
+        source="test",
+    )
+    session_state.resolve_group_context_action(
+        sess,
+        "main",
+        action_id="compile_frontier_report",
+        player_id=player_id,
+        source="test",
+    )
+    stage2, error = session_state.resolve_group_service(
+        sess,
+        "main",
+        service_id="forest_settlement_frontier_support",
+        player_id=player_id,
+        source="test",
+    )
+    assert error is None
+    assert stage2 is not None
+    assert "повторяющийся frontier pattern" in stage2["last_service_result"]["result_summary"]
+    assert stage2["last_service_result"]["result_summary"] != stage1["last_service_result"]["result_summary"]
+    context = session_state.get_current_group_node_context(sess, player_id=player_id)
+    assert "frontier_support_ready" in context["node_state_flags"]
+
+    session_state.add_group_node_state_flag(
+        sess,
+        "main",
+        "waystation_yard",
+        state_flag="western_road_waystation_aid_received",
+        summary="С западного тракта уже вернулись с дорожным подтверждением.",
+        source="test",
+    )
+    session_state.resolve_group_context_action(
+        sess,
+        "main",
+        action_id="compile_frontier_report",
+        player_id=player_id,
+        source="test",
+    )
+    stage3, error = session_state.resolve_group_service(
+        sess,
+        "main",
+        service_id="forest_settlement_frontier_support",
+        player_id=player_id,
+        source="test",
+    )
+    assert error is None
+    assert stage3 is not None
+    assert "лучший tier local frontier support" in stage3["last_service_result"]["result_summary"].lower()
+    assert stage3["last_service_result"]["result_summary"] != stage2["last_service_result"]["result_summary"]
+
+    final_context = session_state.get_current_group_node_context(sess, player_id=player_id)
+    assert "frontier_support_committed" in final_context["node_state_flags"]
+    assert any("полный tier frontier support" in note.lower() or "лучший tier frontier support" in note.lower() for note in final_context["state_notes"])
+    node_progress = session_state.get_current_group_current_node_progress(sess, player_id=player_id)
+    assert node_progress is not None
+    assert node_progress["completed_service_count"] >= 1
+
+
 def test_local_interaction_gating_enforces_locked_execution_without_side_effects() -> None:
     player_id = uuid.uuid4()
     sess = SimpleNamespace(settings={})
