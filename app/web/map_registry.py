@@ -319,9 +319,82 @@ STATIC_MAP_NODES: tuple[dict[str, Any], ...] = (
         "map_level": "region",
         "area_label": "Западный тракт",
         "zone_band": "safe",
-        "short_description": "Широкий западный тракт даёт первый понятный якорь за воротами крепости.",
-        "inspect_summary": "Дальше дорога уходит в новый участок тракта, но сама стоянка пока служит лишь переходной отметкой.",
-        "travel_note": "Выходной якорь за крепостными воротами для следующего региона.",
+        "short_description": "Широкий западный тракт сразу ощущается как живая дорога: здесь ещё держится порядок, но уже заметны задержки, следы недавних обозов и спешные развороты на обочине.",
+        "inspect_summary": "От входной стоянки читаются двор для возчиков, дорожная арка с отметками и более тёмный объезд, где колея уходит в неровный край тракта.",
+        "travel_note": "Первый устойчивый якорь western_road перед дальнейшим дорожным ходом и локальными проверками свежих следов.",
+        "aliases": (
+            "западный тракт",
+            "тракт за воротами",
+            "западная дорога",
+        ),
+    },
+    {
+        "node_id": "waystation_yard",
+        "label": "Постоялый двор у тракта",
+        "node_type": "zone",
+        "map_level": "region",
+        "area_label": "Постоялый двор у тракта",
+        "zone_band": "border",
+        "short_description": "Небольшой двор у западной дороги держится на коновязях, навесах и людях, которые привыкли считать чужую задержку по сломанным осям и грязным мешкам.",
+        "inspect_summary": "Здесь не стоит ждать большой безопасности, но именно сюда стекаются дорожные слухи, усталые возчики и короткая помощь для тех, кто возвращается с тракта не с пустыми руками.",
+        "travel_note": "Главная roadside support-точка western_road перед повторным выходом на путь.",
+        "service_hints": ["дорожный навес", "обозные припасы", "сводка возчиков"],
+        "services": ["safe_rest", "resupply", "local_guidance"],
+        "aliases": (
+            "постоялый двор",
+            "двор у тракта",
+            "обозный двор",
+        ),
+    },
+    {
+        "node_id": "mile_marker_arch",
+        "label": "Верстовая арка",
+        "node_type": "landmark",
+        "map_level": "landmark",
+        "area_label": "Западный тракт",
+        "zone_band": "border",
+        "short_description": "Старая каменная арка с выцветшими метками до сих пор служит дорожным ориентиром тем, кто умеет читать чужие пометки на столбах и в счётах обозов.",
+        "inspect_summary": "На арке видны дорожные зарубки, свежая меловая разметка и следы наскоро переписанных грузовых знаков.",
+        "travel_note": "Главный waymarker western_road, где тракт читается по следам, а не по приказу.",
+        "aliases": (
+            "верстовая арка",
+            "дорожная арка",
+            "арка тракта",
+        ),
+    },
+    {
+        "node_id": "rutted_detour",
+        "label": "Разбитый объезд",
+        "node_type": "zone",
+        "map_level": "region",
+        "area_label": "Разбитый объезд",
+        "zone_band": "danger",
+        "short_description": "Объезд уходит от основного тракта в колею с разбитым краем, где грязь и следы телег спорят между собой за каждую удобную линию прохода.",
+        "inspect_summary": "Здесь уже нет ровного дорожного ритма: колея рвётся, следы свежих колёс уходят вбок, а дальше виден только силуэт брошенной телеги.",
+        "travel_note": "Рискованный roadside node western_road, где задержка и следы недавнего прохода читаются лучше, чем сам путь.",
+        "danger_note": "У разбитого объезда легко потерять темп: колея тянет в сторону, а удобный отход назад не всегда виден сразу.",
+        "aliases": (
+            "разбитый объезд",
+            "объезд",
+            "разбитая колея",
+        ),
+    },
+    {
+        "node_id": "broken_waycart",
+        "label": "Брошенная повозка",
+        "node_type": "landmark",
+        "map_level": "landmark",
+        "area_label": "Разбитый объезд",
+        "zone_band": "danger",
+        "short_description": "Перекошенная повозка лежит у края объезда как немой отчёт о спешном дорожном срыве: не лагерь, не руина, а свежая поломка на живом пути.",
+        "inspect_summary": "У сломанной оси видны порванные ремни, следы спешной перегрузки и короткой остановки, после которой обоз ушёл дальше налегке.",
+        "travel_note": "Опасная trace-ветка western_road для короткого расследования дорожной задержки.",
+        "danger_note": "Возле повозки мало укрытия и много ложных следов, если задержаться дольше нужного.",
+        "aliases": (
+            "брошенная повозка",
+            "сломанная повозка",
+            "повозка",
+        ),
     },
     {
         "node_id": "deep_marsh_threshold",
@@ -776,6 +849,90 @@ STATIC_MAP_LINKS: tuple[dict[str, str], ...] = (
         "route_kind": "zone_move",
         "link_kind": "return",
     },
+    {
+        "from_node_id": "western_road_watch",
+        "to_node_id": "waystation_yard",
+        "action_kind": "move",
+        "route_kind": "zone_move",
+        "link_kind": "road",
+    },
+    {
+        "from_node_id": "waystation_yard",
+        "to_node_id": "western_road_watch",
+        "action_kind": "move",
+        "route_kind": "zone_move",
+        "link_kind": "road",
+    },
+    {
+        "from_node_id": "western_road_watch",
+        "to_node_id": "mile_marker_arch",
+        "action_kind": "move",
+        "route_kind": "landmark_move",
+        "link_kind": "road",
+    },
+    {
+        "from_node_id": "mile_marker_arch",
+        "to_node_id": "western_road_watch",
+        "action_kind": "move",
+        "route_kind": "zone_move",
+        "link_kind": "return",
+    },
+    {
+        "from_node_id": "western_road_watch",
+        "to_node_id": "rutted_detour",
+        "action_kind": "move",
+        "route_kind": "zone_move",
+        "link_kind": "branch_road",
+    },
+    {
+        "from_node_id": "rutted_detour",
+        "to_node_id": "western_road_watch",
+        "action_kind": "move",
+        "route_kind": "zone_move",
+        "link_kind": "return",
+    },
+    {
+        "from_node_id": "waystation_yard",
+        "to_node_id": "rutted_detour",
+        "action_kind": "move",
+        "route_kind": "zone_move",
+        "link_kind": "branch_road",
+    },
+    {
+        "from_node_id": "rutted_detour",
+        "to_node_id": "waystation_yard",
+        "action_kind": "move",
+        "route_kind": "zone_move",
+        "link_kind": "return",
+    },
+    {
+        "from_node_id": "mile_marker_arch",
+        "to_node_id": "rutted_detour",
+        "action_kind": "move",
+        "route_kind": "zone_move",
+        "link_kind": "road",
+    },
+    {
+        "from_node_id": "rutted_detour",
+        "to_node_id": "mile_marker_arch",
+        "action_kind": "move",
+        "route_kind": "landmark_move",
+        "link_kind": "road",
+    },
+    {
+        "from_node_id": "rutted_detour",
+        "to_node_id": "broken_waycart",
+        "action_kind": "move",
+        "route_kind": "landmark_move",
+        "link_kind": "approach",
+    },
+    {
+        "from_node_id": "broken_waycart",
+        "to_node_id": "rutted_detour",
+        "action_kind": "move",
+        "route_kind": "zone_move",
+        "link_kind": "return",
+    },
 )
 
 
@@ -828,6 +985,16 @@ STATIC_MAP_SCOUT_DISCOVERIES: tuple[dict[str, Any], ...] = (
         "discovered_route_ids": ["blackwater_run->sunken_ferry:move"],
         "discovered_notes": [
             "По болотным зарубкам у камня становится понятнее, где за чёрной протокой проступает затонувшая переправа и как к ней держать короткий рискованный ход."
+        ],
+    },
+    {
+        "node_id": "mile_marker_arch",
+        "result_type": "landmark_revealed",
+        "discovery_scope": "roadside_trace",
+        "discovered_node_ids": ["broken_waycart"],
+        "discovered_route_ids": ["rutted_detour->broken_waycart:move"],
+        "discovered_notes": [
+            "По дорожным пометкам на верстовой арке становится понятнее, где у разбитого объезда стоит брошенная повозка и почему след свежего обоза уходит именно туда."
         ],
     },
 )
@@ -932,6 +1099,23 @@ STATIC_MAP_CONTEXT_ACTION_EFFECTS: tuple[dict[str, Any], ...] = (
         "node_state_flags": ["deep_marsh_waymarks_read"],
         "node_state_summary": "Утопленный путевой камень уже читали как рабочую болотную метку, а не как пустую развалину.",
     },
+    {
+        "node_id": "mile_marker_arch",
+        "action_id": "read_waybill_marks",
+        "label": "Сверить дорожные отметки",
+        "action_kind": "clue",
+        "effect_type": "clue",
+        "one_shot": True,
+        "result_type": "local_clue_found",
+        "summary": "Разобрать свежие меловые знаки и грузовые пометки на верстовой арке.",
+        "result_summary": "Группа сверяет дорожные отметки на арке и понимает, что задержка прошедшего обоза связана не с основным трактом, а с уходом в разбитый объезд к брошенной повозке.",
+        "discovered_notes": [
+            "На камне видно: обоз ушёл с главной дороги в объезд, быстро разгрузился и уже после поломки продолжил путь налегке."
+        ],
+        "applied_effects": ["local_clue:western_road_waybill"],
+        "node_state_flags": ["western_road_waybill_read"],
+        "node_state_summary": "На верстовой арке уже сверяли дорожные отметки и читали по ним свежий след обозной задержки.",
+    },
 )
 
 
@@ -1008,6 +1192,12 @@ STATIC_MAP_NODE_STATE_OVERLAYS: tuple[dict[str, Any], ...] = (
         "service_note": "После обратного доклада посёлок выдаёт помощь уже как знакомому составу, который сходил к руинам и вернулся с полезным наблюдением.",
     },
     {
+        "node_id": "western_road_watch",
+        "state_flag": "western_road_delay_notice_taken",
+        "context_note": "На западном тракте уже предупредили группу о задержанном обозе, дорожной арке и разбитом объезде.",
+        "detail_note": "У входной стоянки уже помнят, что этой группе рассказывали, где последний обоз сошёл с линии тракта и почему задержку стоит читать по следам, а не по слухам.",
+    },
+    {
         "node_id": "northwatch_outpost",
         "state_flag": "northwatch_briefing_taken",
         "context_note": "На северном рубеже уже отметили для группы короткую вводную по линии дозора и опасному проходу.",
@@ -1057,6 +1247,25 @@ STATIC_MAP_NODE_STATE_OVERLAYS: tuple[dict[str, Any], ...] = (
         "state_flag": "ruined_watchfire_trace_found",
         "context_note": "В руинах уже отмечали свежий след короткой стоянки и тревожный проход к шахтному направлению.",
         "detail_note": "Среди пустых дворов уже нашли недавний след костра и свежие метки, из-за которых руины ощущаются не просто старыми, а всё ещё живыми для чужого хода.",
+    },
+    {
+        "node_id": "mile_marker_arch",
+        "state_flag": "western_road_waybill_read",
+        "context_note": "На верстовой арке уже разобрали дорожные отметки и поняли, куда сошёл задержанный обоз.",
+        "detail_note": "Меловые знаки на арке уже читали как рабочую следовую сводку: теперь ясно, что свежая задержка уходит в разбитый объезд к брошенной повозке.",
+    },
+    {
+        "node_id": "broken_waycart",
+        "state_flag": "western_road_wagon_trace_found",
+        "context_note": "У брошенной повозки уже нашли свежий след дорожной задержки и спешной перегрузки.",
+        "detail_note": "У сломанной оси уже отмечены свежие ремни, следы переноски груза и короткая стоянка, после которой обоз ушёл дальше налегке.",
+    },
+    {
+        "node_id": "waystation_yard",
+        "state_flag": "western_road_waystation_aid_received",
+        "context_note": "Во дворе уже приняли обратный рассказ о задержке на объезде и выдали группе дорожную поддержку как знакомому составу.",
+        "detail_note": "Под навесом ещё видны следы недавно выданного дорожного набора после рассказа о брошенной повозке и разбитом объезде.",
+        "service_note": "После обратного рассказа двор уже реагирует на группу как на тех, кто реально сходил по следу обоза, а не просто просит помощь с дороги.",
     },
     {
         "node_id": "sunken_ferry",
@@ -1152,6 +1361,24 @@ STATIC_MAP_NODE_ENTRY_OVERLAYS: tuple[dict[str, Any], ...] = (
         "return_entry_title": "Возвращение к чёрной протоке",
         "return_entry_note": "У чёрной воды снова мало места для ошибки, и даже знакомый путь не кажется спокойным.",
     },
+    {
+        "node_id": "western_road_watch",
+        "first_entry_type": "settlement_welcome",
+        "first_entry_title": "Западный тракт принимает движение",
+        "first_entry_note": "За воротами крепости группа попадает не в пустую отметку, а в живую дорожную линию со следами обозов, задержек и быстрых решений на ходу.",
+        "return_entry_type": "return_entry",
+        "return_entry_title": "Снова на западном тракте",
+        "return_entry_note": "Широкий тракт узнаётся сразу, но следы недавнего прохода не дают воспринимать его как пустую безопасную полосу.",
+    },
+    {
+        "node_id": "rutted_detour",
+        "first_entry_type": "quiet_entry",
+        "first_entry_title": "Разбитый объезд уводит с линии тракта",
+        "first_entry_note": "На объезде ровная дорога заканчивается, и дальше западный ход читается уже по колее, задержкам и оставленному грузу.",
+        "return_entry_type": "return_entry",
+        "return_entry_title": "Возвращение на разбитый объезд",
+        "return_entry_note": "На объезде снова мало порядка и много свежих следов, даже если маршрут уже знаком.",
+    },
 )
 
 
@@ -1176,6 +1403,25 @@ STATIC_MAP_DESTINATION_EVENTS: tuple[dict[str, Any], ...] = (
         "node_state_summary": "В городке уже отмечено первое береговое указание, которое группа получила при прибытии.",
         "applied_effects": ["destination_notice:craft_town", "node_revealed:watchtower", "intel:guidance"],
         "tags": ["settlement", "guidance", "watchtower"],
+    },
+    {
+        "node_id": "western_road_watch",
+        "event_id": "western_road_watch_delay_notice",
+        "first_visit_only": True,
+        "one_shot": True,
+        "result_type": "settlement_notice",
+        "title": "На тракте сразу говорят о задержанном обозе",
+        "summary": "При первом входе на western_road дорожные люди быстро отмечают недавнюю задержку обоза, верстовую арку с пометками и разбитый объезд, куда ушёл свежий след.",
+        "result_summary": "Западный тракт встречает группу не тишиной, а дорожной сводкой: обоз недавно сошёл с линии у верстовой арки, и если проверять след, то смотреть нужно на объезд и брошенную повозку, а не просто идти дальше по дороге.",
+        "discovered_notes": [
+            "У дорожного навеса советуют сперва сверить пометки на арке, потом решать, стоит ли уходить в разбитый объезд за следом задержанного обоза."
+        ],
+        "intel_entry_type": "guidance",
+        "intel_title": "Сводка о задержке на западном тракте",
+        "node_state_flags": ["western_road_delay_notice_taken"],
+        "node_state_summary": "На западном тракте уже отмечено первое дорожное предупреждение о задержанном обозе и разбитом объезде.",
+        "applied_effects": ["destination_notice:western_road_watch", "intel:guidance"],
+        "tags": ["road", "guidance", "western_road"],
     },
     {
         "node_id": "road_hamlet",
@@ -1377,6 +1623,40 @@ STATIC_MAP_DESTINATION_EVENTS: tuple[dict[str, Any], ...] = (
         "tags": ["clue", "marsh", "ferry"],
     },
     {
+        "node_id": "rutted_detour",
+        "event_id": "rutted_detour_warning",
+        "result_type": "local_warning",
+        "title": "На объезде колея ломает ритм дороги",
+        "summary": "Разбитый объезд каждый раз напоминает, что здесь опаснее не сама глубина, а потеря темпа и неверный выбор следа.",
+        "result_summary": "У разбитого объезда тракт перестаёт быть ровной линией: колея тянет вбок, следы путаются, и место честно предупреждает, что дорожная задержка здесь рождается из спешки.",
+        "discovered_notes": [
+            "Если идти по следу обоза, лучше держаться свежих грузовых следов и не верить старой сухой колее у края дороги."
+        ],
+        "intel_entry_type": "warning",
+        "intel_title": "Предупреждение разбитого объезда",
+        "applied_effects": ["destination_warning:rutted_detour", "intel:warning"],
+        "tags": ["warning", "road", "detour"],
+    },
+    {
+        "node_id": "broken_waycart",
+        "event_id": "broken_waycart_trace",
+        "first_visit_only": True,
+        "one_shot": True,
+        "result_type": "first_discovery",
+        "title": "У повозки найден свежий дорожный след",
+        "summary": "Брошенная повозка оказывается не старым хламом, а свежим следом задержанного обоза: груз разгружали наспех и уходили дальше налегке.",
+        "result_summary": "У брошенной повозки группа находит свежий след дорожной задержки и спешной перегрузки. Теперь на western_road есть не только слух о задержке, а понятное подтверждение, с которым стоит возвращаться к двору у тракта.",
+        "discovered_notes": [
+            "По сломанной оси и порванным ремням видно, что обоз не погиб здесь, а быстро разгрузился и продолжил путь, бросив только поломанное звено."
+        ],
+        "intel_entry_type": "clue",
+        "intel_title": "След у брошенной повозки",
+        "node_state_flags": ["western_road_wagon_trace_found"],
+        "node_state_summary": "У брошенной повозки уже найден свежий след дорожной задержки и спешной перегрузки.",
+        "applied_effects": ["destination_notice:broken_waycart", "intel:clue"],
+        "tags": ["clue", "road", "wagon"],
+    },
+    {
         "node_id": "broken_redoubt",
         "event_id": "broken_redoubt_supply_trace",
         "first_visit_only": True,
@@ -1495,6 +1775,22 @@ STATIC_MAP_SERVICE_EFFECTS: tuple[dict[str, Any], ...] = (
         "node_state_flags": ["deep_marsh_shelter_aid_received"],
         "node_state_summary": "В тростниковом приюте уже дали группе тихий болотный кров после возвращения из сырого хода.",
     },
+    {
+        "node_id": "waystation_yard",
+        "service_key": "resupply",
+        "service_id": "waystation_yard_resupply",
+        "service_kind": "supplies",
+        "one_shot": True,
+        "result_type": "supplies_secured",
+        "summary": "Получить дорожный набор и быструю помощь после проверки следа задержанного обоза.",
+        "result_summary": "Постоялый двор принимает обратный рассказ о брошенной повозке, собирает для группы дорожный набор и отмечает, что помощь выдана уже после реальной проверки следа на тракте.",
+        "discovered_notes": [
+            "Возчики советуют не растягивать следующий выход: теперь ясно, где обоз потерял темп, а значит запас стоит тратить на уверенный дорожный ход, а не на долгий поиск."
+        ],
+        "applied_effects": ["supplies_secured:waystation_yard", "support_note:western_road_return"],
+        "node_state_flags": ["western_road_waystation_aid_received"],
+        "node_state_summary": "На постоялом дворе уже приняли рассказ о дорожной задержке и выдали группе дорожный набор.",
+    },
 )
 
 
@@ -1534,6 +1830,13 @@ STATIC_MAP_SERVICE_REQUIREMENTS: tuple[dict[str, Any], ...] = (
         "min_visit_count": 2,
         "unlock_hint": "Тростниковый приют открывает сухой настил только тем, кто уже сходил в сырой ход и вернулся до полной темноты.",
     },
+    {
+        "node_id": "waystation_yard",
+        "service_id": "waystation_yard_resupply",
+        "return_visit_only": True,
+        "min_visit_count": 2,
+        "unlock_hint": "Постоялый двор собирает полный дорожный набор только тем, кто уже сходил по следу задержанного обоза и вернулся с дороги.",
+    },
 )
 
 
@@ -1569,6 +1872,16 @@ STATIC_MAP_REGION_GATEWAYS: tuple[dict[str, Any], ...] = (
         "label": "Выход на западный тракт",
         "requires_destination_event_id": "fortress_gate_watch_warning",
         "unlock_hint": "Сначала выслушать предупреждение дозора у ворот.",
+    },
+    {
+        "gateway_id": "western_road_watch_starter_frontier",
+        "source_node_id": "western_road_watch",
+        "route_id": "western_road_watch->waystation_yard:move",
+        "target_region_id": "starter_frontier",
+        "target_region_label": "Стартовое пограничье",
+        "target_anchor_node_id": "fortress_gate",
+        "label": "Возврат к воротам крепости",
+        "unlock_hint": "Пока тракт читается по первым дорожным меткам, обратный ход к воротам остаётся явным.",
     },
     {
         "gateway_id": "marsh_edge_deep_marsh",
@@ -1637,7 +1950,13 @@ STATIC_MAP_REGION_IDENTITIES: tuple[dict[str, Any], ...] = (
     {
         "region_id": "western_road",
         "region_label": "Западный тракт",
-        "node_ids": ("western_road_watch",),
+        "node_ids": (
+            "western_road_watch",
+            "waystation_yard",
+            "mile_marker_arch",
+            "rutted_detour",
+            "broken_waycart",
+        ),
     },
     {
         "region_id": "deep_marsh",
@@ -1682,6 +2001,23 @@ STATIC_MAP_REGION_ONBOARDING: tuple[dict[str, Any], ...] = (
         "intel_title": "Северный рубеж раскрывает первую линию дозора",
         "intel_summary": "При входе на северный рубеж группа сразу закрепляет пост, интендантский двор, обзорную палисаду и опасный зольный проход.",
         "onboarding_note": "Северный рубеж больше не пустой якорь: пост сразу раскрывает рабочий дозорный узел и первую опасную frontier-ветку.",
+    },
+    {
+        "region_id": "western_road",
+        "region_label": "Западный тракт",
+        "anchor_node_id": "western_road_watch",
+        "starter_reveal_node_ids": ("waystation_yard", "mile_marker_arch", "rutted_detour"),
+        "starter_reveal_route_ids": (
+            "western_road_watch->waystation_yard:move",
+            "waystation_yard->western_road_watch:move",
+            "western_road_watch->mile_marker_arch:move",
+            "mile_marker_arch->western_road_watch:move",
+            "western_road_watch->rutted_detour:move",
+            "rutted_detour->western_road_watch:move",
+        ),
+        "intel_title": "Первые дорожные опоры западного тракта",
+        "intel_summary": "При входе на western_road группа сразу закрепляет двор у тракта, верстовую арку и разбитый объезд, где скапливаются свежие следы недавнего прохода.",
+        "onboarding_note": "Западный тракт больше не anchor-only выход: регион сразу раскрывает roadside support-точку, дорожный marker и рискованный объезд с живым следом.",
     },
     {
         "region_id": "deep_marsh",

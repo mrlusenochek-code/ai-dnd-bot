@@ -4958,21 +4958,32 @@ def test_group_region_onboarding_applies_anchor_reveal_and_repeat_is_idempotent(
     assert len(session_state.get_current_group_region_onboarding_states(sess, player_id=player_id)) == 1
 
 
-def test_group_region_onboarding_supports_quiet_and_unavailable_results() -> None:
+def test_group_region_onboarding_supports_playable_and_unavailable_results() -> None:
     player_id = uuid.uuid4()
-    quiet_sess = SimpleNamespace(settings={})
+    playable_sess = SimpleNamespace(settings={})
     session_state._initialize_default_group(
-        quiet_sess,
+        playable_sess,
         [player_id],
-        {"map_level": "region", "node_type": "watch", "node_id": "western_road_watch", "label": "Западный дозор"},
+        {"map_level": "region", "node_type": "zone", "node_id": "western_road_watch", "label": "Западный тракт"},
     )
 
-    current_region = session_state.resolve_group_region_residency(quiet_sess, "main", source="test", persist_result=True)
-    quiet_result = session_state.get_current_group_last_region_onboarding_result(quiet_sess, player_id=player_id)
+    current_region = session_state.resolve_group_region_residency(playable_sess, "main", source="test", persist_result=True)
+    onboarding = session_state.get_current_group_last_region_onboarding_result(playable_sess, player_id=player_id)
     assert current_region["region_id"] == "western_road"
-    assert quiet_result["result_type"] == "quiet_region_onboarding"
-    assert quiet_result["revealed_node_ids"] == []
-    assert quiet_result["revealed_route_ids"] == []
+    assert onboarding["result_type"] == "anchor_reveal_applied"
+    assert onboarding["revealed_node_ids"] == [
+        "waystation_yard",
+        "mile_marker_arch",
+        "rutted_detour",
+    ]
+    assert onboarding["revealed_route_ids"] == [
+        "western_road_watch->waystation_yard:move",
+        "waystation_yard->western_road_watch:move",
+        "western_road_watch->mile_marker_arch:move",
+        "mile_marker_arch->western_road_watch:move",
+        "western_road_watch->rutted_detour:move",
+        "rutted_detour->western_road_watch:move",
+    ]
 
     unavailable_sess = SimpleNamespace(settings={})
     session_state._initialize_default_group(unavailable_sess, [player_id], "Таверна")
@@ -5467,6 +5478,225 @@ def test_deep_marsh_transition_exposes_playable_local_content_and_scout_heavy_lo
     summaries = session_state.get_group_discovered_region_summaries(sess, "main")
     assert {item["region_id"] for item in summaries} == {"deep_marsh", "starter_frontier"}
     assert any(item["region_id"] == "deep_marsh" and item["current_region"] is True for item in summaries)
+
+
+def test_western_road_transition_exposes_playable_local_content_and_return_payoff() -> None:
+    player_id = uuid.uuid4()
+    sess = SimpleNamespace(settings={})
+    session_state._initialize_default_group(
+        sess,
+        [player_id],
+        {"map_level": "region", "node_type": "landmark", "node_id": "fortress_gate", "label": "Ворота крепости"},
+    )
+    session_state.get_current_group_current_region_state(sess, player_id=player_id)
+    session_state.record_group_node_visit(
+        sess,
+        "main",
+        "fortress_gate",
+        node_label="Ворота крепости",
+        result_type="landmark_arrival",
+        summary="Первый выход к западному тракту через крепостные ворота.",
+    )
+    session_state.resolve_group_destination_event(sess, "main", source="test")
+
+    updated, error = session_state.resolve_group_region_transition(
+        sess,
+        "main",
+        "fortress_gate_western_road",
+        player_id=player_id,
+        source="test",
+    )
+
+    assert error is None
+    assert updated is not None
+    assert updated["current_map_position"]["node_id"] == "western_road_watch"
+    assert updated["last_destination_event_result"]["event_id"] == "western_road_watch_delay_notice"
+    assert updated["current_region_state"]["region_id"] == "western_road"
+    onboarding = session_state.get_current_group_last_region_onboarding_result(sess, player_id=player_id)
+    assert onboarding["region_id"] == "western_road"
+    assert onboarding["anchor_node_id"] == "western_road_watch"
+    assert onboarding["revealed_node_ids"] == [
+        "waystation_yard",
+        "mile_marker_arch",
+        "rutted_detour",
+    ]
+    assert onboarding["revealed_route_ids"] == [
+        "western_road_watch->waystation_yard:move",
+        "waystation_yard->western_road_watch:move",
+        "western_road_watch->mile_marker_arch:move",
+        "mile_marker_arch->western_road_watch:move",
+        "western_road_watch->rutted_detour:move",
+        "rutted_detour->western_road_watch:move",
+    ]
+    assert set(session_state.get_player_revealed_node_ids(sess, player_id)) >= {
+        "western_road_watch",
+        "waystation_yard",
+        "mile_marker_arch",
+        "rutted_detour",
+    }
+
+    road_context = session_state.get_current_group_node_context(sess, player_id=player_id)
+    assert road_context is not None
+    assert road_context["node_summary"]["node_id"] == "western_road_watch"
+    assert road_context["current_destination_event_type"] == "settlement_notice"
+    assert "western_road_delay_notice_taken" in road_context["node_state_flags"]
+
+    group_states = session_state._get_group_states(sess)
+    group = group_states["main"]
+    group["current_map_position"] = session_state._normalize_map_position(
+        {
+            "map_level": "landmark",
+            "node_type": "landmark",
+            "node_id": "mile_marker_arch",
+            "label": "Верстовая арка",
+        }
+    )
+    group["area_label"] = "Западный тракт"
+    session_state._persist_group_states(sess, group_states)
+
+    marker_actions = session_state.get_current_group_context_action_availability(sess, player_id=player_id)
+    waybill_action = next(item for item in marker_actions if item["action_id"] == "read_waybill_marks")
+    assert waybill_action["availability_status"] == "available"
+    resolved_action, error = session_state.resolve_group_context_action(
+        sess,
+        "main",
+        action_id="read_waybill_marks",
+        player_id=player_id,
+        source="test",
+    )
+    assert error is None
+    assert resolved_action is not None
+    assert resolved_action["last_context_action_result"]["action_id"] == "read_waybill_marks"
+    assert resolved_action["last_context_action_result"]["result_type"] == "local_clue_found"
+    marker_context = session_state.get_current_group_node_context(sess, player_id=player_id)
+    assert "western_road_waybill_read" in marker_context["node_state_flags"]
+    assert any("обоз" in note.lower() or "объезд" in note.lower() for note in marker_context["state_notes"])
+
+    scout_result, error = session_state.resolve_group_scout(sess, "main", player_id=player_id, source="test")
+    assert error is None
+    assert scout_result is not None
+    assert scout_result["last_scout_result"]["result_type"] == "landmark_revealed"
+    assert "broken_waycart" in session_state.get_player_revealed_node_ids(sess, player_id)
+
+    group_states = session_state._get_group_states(sess)
+    group = group_states["main"]
+    group["current_map_position"] = session_state._normalize_map_position(
+        {
+            "map_level": "region",
+            "node_type": "zone",
+            "node_id": "waystation_yard",
+            "label": "Постоялый двор",
+        }
+    )
+    group["area_label"] = "Западный тракт"
+    session_state._persist_group_states(sess, group_states)
+
+    first_visit_services = session_state.get_current_group_service_availability(sess, player_id=player_id)
+    locked_resupply = next(item for item in first_visit_services if item["service_id"] == "waystation_yard_resupply")
+    assert locked_resupply["availability_status"] == "locked"
+    assert locked_resupply["unavailable_reason"] == "return_visit_only"
+    session_state.record_group_node_visit(
+        sess,
+        "main",
+        "waystation_yard",
+        node_label="Постоялый двор",
+        result_type="settlement_arrival",
+        summary="Группа впервые доходит до двора у тракта.",
+    )
+
+    group_states = session_state._get_group_states(sess)
+    group = group_states["main"]
+    group["current_map_position"] = session_state._normalize_map_position(
+        {
+            "map_level": "region",
+            "node_type": "zone",
+            "node_id": "rutted_detour",
+            "label": "Разбитый объезд",
+        }
+    )
+    group["area_label"] = "Западный тракт"
+    session_state._persist_group_states(sess, group_states)
+    detour_visit = session_state.record_group_node_visit(
+        sess,
+        "main",
+        "rutted_detour",
+        node_label="Разбитый объезд",
+        result_type="danger_arrival",
+        summary="Группа уходит в разбитый объезд по свежему следу.",
+    )
+    session_state.resolve_group_destination_event(sess, "main", source="test")
+    assert detour_visit is not None
+    assert session_state.get_current_group_last_destination_event_result(sess, player_id=player_id)["event_id"] == "rutted_detour_warning"
+
+    group_states = session_state._get_group_states(sess)
+    group = group_states["main"]
+    group["current_map_position"] = session_state._normalize_map_position(
+        {
+            "map_level": "landmark",
+            "node_type": "landmark",
+            "node_id": "broken_waycart",
+            "label": "Брошенная повозка",
+        }
+    )
+    group["area_label"] = "Западный тракт"
+    session_state._persist_group_states(sess, group_states)
+    cart_visit = session_state.record_group_node_visit(
+        sess,
+        "main",
+        "broken_waycart",
+        node_label="Брошенная повозка",
+        result_type="landmark_reached",
+        summary="Группа доходит до брошенной повозки на боковом следе.",
+    )
+    assert cart_visit is not None
+    session_state.resolve_group_destination_event(sess, "main", source="test")
+    assert session_state.get_current_group_last_destination_event_result(sess, player_id=player_id)["event_id"] == "broken_waycart_trace"
+    assert "western_road_wagon_trace_found" in session_state.get_group_node_state(sess, "main", "broken_waycart")["state_flags"]
+
+    group_states = session_state._get_group_states(sess)
+    group = group_states["main"]
+    group["current_map_position"] = session_state._normalize_map_position(
+        {
+            "map_level": "region",
+            "node_type": "zone",
+            "node_id": "waystation_yard",
+            "label": "Постоялый двор",
+        }
+    )
+    group["area_label"] = "Западный тракт"
+    session_state._persist_group_states(sess, group_states)
+    session_state.record_group_node_visit(
+        sess,
+        "main",
+        "waystation_yard",
+        node_label="Постоялый двор",
+        result_type="return_entry",
+        summary="Группа возвращается во двор после проверки дорожного следа.",
+    )
+
+    revisited_services = session_state.get_current_group_service_availability(sess, player_id=player_id)
+    available_resupply = next(item for item in revisited_services if item["service_id"] == "waystation_yard_resupply")
+    assert available_resupply["availability_status"] == "available"
+    resolved_service, error = session_state.resolve_group_service(
+        sess,
+        "main",
+        service_id="waystation_yard_resupply",
+        player_id=player_id,
+        source="test",
+    )
+    assert error is None
+    assert resolved_service is not None
+    assert resolved_service["last_service_result"]["service_id"] == "waystation_yard_resupply"
+    assert resolved_service["last_service_result"]["result_type"] == "supplies_secured"
+    assert "обратный рассказ" in resolved_service["last_service_result"]["result_summary"].lower()
+
+    changed_yard_context = session_state.get_current_group_node_context(sess, player_id=player_id)
+    assert "western_road_waystation_aid_received" in changed_yard_context["node_state_flags"]
+    assert any("обратный рассказ" in note.lower() or "объезде" in note.lower() for note in changed_yard_context["state_notes"])
+    changed_services = session_state.get_current_group_service_availability(sess, player_id=player_id)
+    completed_resupply = next(item for item in changed_services if item["service_id"] == "waystation_yard_resupply")
+    assert completed_resupply["availability_status"] == "completed"
+
 
 def test_group_discovered_region_summaries_support_current_blocked_region() -> None:
     player_id = uuid.uuid4()

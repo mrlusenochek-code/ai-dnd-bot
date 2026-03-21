@@ -351,7 +351,7 @@ def test_get_static_node_destination_events_returns_authored_arrival_events() ->
 
 def test_get_static_region_gateways_returns_authored_frontier_exit_definitions() -> None:
     all_gateways = get_static_region_gateways(region_id="region")
-    assert len(all_gateways) == 6
+    assert len(all_gateways) == 7
     assert get_static_node_region_gateways(node_id="forest_settlement") == [
         {
             "gateway_id": "forest_settlement_northwatch",
@@ -390,6 +390,19 @@ def test_get_static_region_gateways_returns_authored_frontier_exit_definitions()
             "label": "Обратный ход к болотной кромке",
             "future_stub": False,
             "unlock_hint": "Пока держатся первые сухие кочки, обратный ход к кромке болот остаётся различимым.",
+        }
+    ]
+    assert get_static_node_region_gateways(node_id="western_road_watch") == [
+        {
+            "gateway_id": "western_road_watch_starter_frontier",
+            "source_node_id": "western_road_watch",
+            "route_id": "western_road_watch->waystation_yard:move",
+            "target_region_id": "starter_frontier",
+            "target_region_label": "Стартовое пограничье",
+            "target_anchor_node_id": "fortress_gate",
+            "label": "Возврат к воротам крепости",
+            "future_stub": False,
+            "unlock_hint": "Пока тракт читается по первым дорожным меткам, обратный ход к воротам остаётся явным.",
         }
     ]
     assert get_static_node_region_gateways(node_id="forgotten_shrine")[0]["future_stub"] is True
@@ -467,6 +480,66 @@ def test_deep_marsh_registry_content_and_onboarding_are_real() -> None:
         "blackwater_run",
     ]
     assert "deep_marsh_threshold->blackwater_run:move" in onboarding["starter_reveal_route_ids"]
+
+
+def test_western_road_registry_content_and_onboarding_are_real() -> None:
+    identity = get_static_region_identity(node_id="waystation_yard")
+    onboarding = get_static_region_onboarding("western_road")
+
+    assert identity is not None
+    assert identity["region_id"] == "western_road"
+    assert set(identity["node_ids"]) >= {
+        "western_road_watch",
+        "waystation_yard",
+        "mile_marker_arch",
+        "rutted_detour",
+        "broken_waycart",
+    }
+    assert onboarding is not None
+    assert onboarding["anchor_node_id"] == "western_road_watch"
+    assert onboarding["starter_reveal_node_ids"] == [
+        "waystation_yard",
+        "mile_marker_arch",
+        "rutted_detour",
+    ]
+    assert "western_road_watch->rutted_detour:move" in onboarding["starter_reveal_route_ids"]
+
+
+def test_western_road_nodes_expose_services_actions_events_and_scout_discovery() -> None:
+    yard_services = get_static_node_services(node_id="waystation_yard")
+    marker_actions = get_current_node_context_actions(node_id="mile_marker_arch")
+
+    assert [item["service_id"] for item in yard_services] == [
+        "waystation_yard:safe_rest",
+        "waystation_yard_resupply",
+        "waystation_yard:local_guidance",
+    ]
+    assert get_static_node_service_requirements(node_id="waystation_yard") == [
+        {
+            "node_id": "waystation_yard",
+            "service_id": "waystation_yard_resupply",
+            "service_key": "",
+            "min_visit_count": 2,
+            "return_visit_only": True,
+            "unlock_hint": "Постоялый двор собирает полный дорожный набор только тем, кто уже сходил по следу задержанного обоза и вернулся с дороги.",
+        }
+    ]
+    assert any(item["action_id"] == "read_waybill_marks" for item in marker_actions)
+    scout_discovery = get_static_node_scout_discoveries(node_id="mile_marker_arch")
+    assert scout_discovery == [
+        {
+            "node_id": "mile_marker_arch",
+            "result_type": "landmark_revealed",
+            "discovery_scope": "roadside_trace",
+            "discovered_node_ids": ["broken_waycart"],
+            "discovered_route_ids": ["rutted_detour->broken_waycart:move"],
+            "discovered_notes": [
+                "По дорожным пометкам на верстовой арке становится понятнее, где у разбитого объезда стоит брошенная повозка и почему след свежего обоза уходит именно туда."
+            ],
+        }
+    ]
+    assert get_static_node_destination_events(node_id="western_road_watch", state_flags=[], visit_count=1)[0]["event_id"] == "western_road_watch_delay_notice"
+    assert get_static_node_destination_events(node_id="broken_waycart", state_flags=[], visit_count=1)[0]["event_id"] == "broken_waycart_trace"
 
 
 def test_deep_marsh_nodes_expose_services_actions_events_and_scout_discovery() -> None:
