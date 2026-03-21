@@ -763,6 +763,11 @@ def test_starter_frontier_nodes_expose_local_progression_arc_surfaces() -> None:
         for item in get_static_node_service_effects(node_id="forest_settlement")
         if item["service_id"] == "forest_settlement_frontier_support"
     ]
+    readiness_effects = [
+        item
+        for item in get_static_node_service_effects(node_id="forest_settlement")
+        if item["service_id"] == "forest_settlement_frontier_readiness"
+    ]
     forest_actions = get_current_node_context_actions(node_id="forest_settlement")
     forest_action_requirements = get_static_node_context_action_requirements(node_id="forest_settlement")
 
@@ -771,6 +776,7 @@ def test_starter_frontier_nodes_expose_local_progression_arc_surfaces() -> None:
         "forest_settlement_resupply",
         "forest_settlement:local_guidance",
         "forest_settlement_frontier_support",
+        "forest_settlement_frontier_readiness",
     ]
     assert forest_requirements == [
         {
@@ -788,6 +794,13 @@ def test_starter_frontier_nodes_expose_local_progression_arc_surfaces() -> None:
             "service_key": "",
             "unlock_hint": "Сначала свести хотя бы первую frontier-сводку по внешнему рубежу.",
             "requires_node_state_flag": "frontier_report_started",
+        },
+        {
+            "node_id": "forest_settlement",
+            "service_id": "forest_settlement_frontier_readiness",
+            "service_key": "",
+            "unlock_hint": "Сначала получить хотя бы первый подтверждённый результат полевой стабилизации frontier.",
+            "requires_node_state_flag": "frontier_stabilization_started",
         }
     ]
     assert forest_effect["node_state_flags"] == ["forest_supplies_secured", "forest_return_report_logged"]
@@ -797,6 +810,12 @@ def test_starter_frontier_nodes_expose_local_progression_arc_surfaces() -> None:
         ["frontier_report_started"],
         ["frontier_pattern_seen"],
         ["frontier_full_pattern_logged"],
+    ]
+    assert len(readiness_effects) == 3
+    assert [item["required_state_flags"] for item in readiness_effects] == [
+        ["frontier_stabilization_started"],
+        ["frontier_stabilization_compared"],
+        ["frontier_stabilization_compiled"],
     ]
     assert any(item["action_id"] == "compile_frontier_report" for item in forest_actions)
     assert any(item["action_id"] == "arrange_frontier_evidence" for item in forest_actions)

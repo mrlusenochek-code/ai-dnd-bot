@@ -2713,6 +2713,91 @@ def test_forest_settlement_frontier_support_stays_locked_before_report() -> None
     assert "первую frontier-сводку" in support["unlock_hint"]
 
 
+def test_forest_settlement_frontier_readiness_escalates_with_stabilization_stages() -> None:
+    player_id = uuid.uuid4()
+    sess = SimpleNamespace(settings={})
+    session_state._initialize_default_group(
+        sess,
+        [player_id],
+        {"map_level": "region", "node_type": "zone", "node_id": "forest_settlement", "label": "Лесной посёлок"},
+    )
+    session_state.get_current_group_current_region_state(sess, player_id=player_id)
+
+    locked_services = session_state.get_current_group_service_availability(sess, player_id=player_id)
+    locked = next(item for item in locked_services if item["service_id"] == "forest_settlement_frontier_readiness")
+    assert locked["availability_status"] == "locked"
+    assert locked["unavailable_reason"] == "requires_node_state_flag"
+    assert "первый подтверждённый результат полевой стабилизации" in locked["unlock_hint"]
+
+    session_state.add_group_node_state_flag(
+        sess,
+        "main",
+        "forest_settlement",
+        state_flag="frontier_stabilization_started",
+        summary="В посёлке уже собрали первый stabilization review.",
+        source="test",
+    )
+    stage1_services = session_state.get_current_group_service_availability(sess, player_id=player_id)
+    stage1 = next(item for item in stage1_services if item["service_id"] == "forest_settlement_frontier_readiness")
+    assert stage1["availability_status"] == "available"
+    resolved_stage1, error = session_state.resolve_group_service(
+        sess,
+        "main",
+        service_id="forest_settlement_frontier_readiness",
+        player_id=player_id,
+        source="test",
+    )
+    assert error is None
+    assert resolved_stage1 is not None
+    assert "домашнюю готовность" in resolved_stage1["last_service_result"]["result_summary"].lower()
+    context = session_state.get_current_group_node_context(sess, player_id=player_id)
+    assert "frontier_readiness_prepared" in context["node_state_flags"]
+    assert "frontier_readiness_ready" not in context["node_state_flags"]
+
+    session_state.add_group_node_state_flag(
+        sess,
+        "main",
+        "forest_settlement",
+        state_flag="frontier_stabilization_compared",
+        summary="В посёлке уже сравнили две stabilization measures.",
+        source="test",
+    )
+    resolved_stage2, error = session_state.resolve_group_service(
+        sess,
+        "main",
+        service_id="forest_settlement_frontier_readiness",
+        player_id=player_id,
+        source="test",
+    )
+    assert error is None
+    assert resolved_stage2 is not None
+    assert "readiness response становится сильнее" in resolved_stage2["last_service_result"]["result_summary"].lower()
+    context = session_state.get_current_group_node_context(sess, player_id=player_id)
+    assert "frontier_readiness_ready" in context["node_state_flags"]
+
+    session_state.add_group_node_state_flag(
+        sess,
+        "main",
+        "forest_settlement",
+        state_flag="frontier_stabilization_compiled",
+        summary="В посёлке уже собрали полную stabilization picture.",
+        source="test",
+    )
+    resolved_stage3, error = session_state.resolve_group_service(
+        sess,
+        "main",
+        service_id="forest_settlement_frontier_readiness",
+        player_id=player_id,
+        source="test",
+    )
+    assert error is None
+    assert resolved_stage3 is not None
+    assert "полной frontier stabilization picture" in resolved_stage3["last_service_result"]["result_summary"].lower()
+    final_context = session_state.get_current_group_node_context(sess, player_id=player_id)
+    assert "frontier_readiness_committed" in final_context["node_state_flags"]
+    assert any("readiness" in note.lower() or "подготов" in note.lower() for note in final_context["state_notes"])
+
+
 def test_forest_settlement_frontier_support_escalates_with_report_stages() -> None:
     player_id = uuid.uuid4()
     sess = SimpleNamespace(settings={})

@@ -109,8 +109,8 @@ STATIC_MAP_NODES: tuple[dict[str, Any], ...] = (
         "short_description": "Лесной посёлок на краю чащи, где охотники и сборщики держат последние безопасные дворы.",
         "inspect_summary": "Отсюда видно, где лес ещё под контролем людей, а где начинаются старые опасные руины.",
         "travel_note": "Последняя относительно спокойная стоянка перед дорогой к старой крепости.",
-        "service_hints": ["охотничьи припасы", "ночлег под крышей", "рубежная поддержка"],
-        "services": ["safe_rest", "resupply", "local_guidance", "frontier_support"],
+        "service_hints": ["охотничьи припасы", "ночлег под крышей", "рубежная поддержка", "готовность базы"],
+        "services": ["safe_rest", "resupply", "local_guidance", "frontier_support", "frontier_readiness"],
         "aliases": (
             "лесной посёлок",
             "посёлок в лесу",
@@ -2157,6 +2157,27 @@ STATIC_MAP_NODE_STATE_OVERLAYS: tuple[dict[str, Any], ...] = (
     },
     {
         "node_id": "forest_settlement",
+        "state_flag": "frontier_readiness_prepared",
+        "context_note": "В посёлке уже чувствуется первая readiness-готовность, выросшая из подтверждённой стабилизации frontier.",
+        "detail_note": "Один подтверждённый stabilization result уже меняет домашний ритм: лесной посёлок собирается спокойнее и увереннее, чем в ранних reactive phases.",
+        "service_note": "Первая readiness-поддержка уже доступна: база стала лучше подготовлена благодаря первой подтверждённой stabilization measure.",
+    },
+    {
+        "node_id": "forest_settlement",
+        "state_flag": "frontier_readiness_ready",
+        "context_note": "Лесной посёлок уже держит более собранную frontier readiness после comparative stabilization review.",
+        "detail_note": "По двум подтверждённым stabilization measures база уже готовится не на ощупь: домашняя готовность стала заметно собраннее и осмысленнее.",
+        "service_note": "Второй readiness tier уже чувствуется как более сильная и уверенная подготовка базы под внешний цикл.",
+    },
+    {
+        "node_id": "forest_settlement",
+        "state_flag": "frontier_readiness_committed",
+        "context_note": "В лесном посёлке уже собран полный frontier-readiness tier после полной stabilization picture.",
+        "detail_note": "Полная подтверждённая stabilization picture замкнула внешний цикл в домашнюю готовность: база теперь выглядит по-настоящему собранной под следующий frontier response.",
+        "service_note": "Лучший readiness tier делает посёлок не только местом сводок и координации, а реально подготовленной домашней опорой всего frontier cycle.",
+    },
+    {
+        "node_id": "forest_settlement",
         "state_flag": "frontier_support_prepared",
         "context_note": "В посёлке уже начали собирать осторожную рубежную поддержку под первый внешний доклад.",
         "detail_note": "У сараев уже отмечен первый практический отклик на дальние сводки: короткий охотничий набор, трезвая наводка и готовность держать быстрый возвратный ход.",
@@ -2940,6 +2961,54 @@ STATIC_MAP_SERVICE_EFFECTS: tuple[dict[str, Any], ...] = (
         "required_state_flags": ["frontier_full_pattern_logged"],
     },
     {
+        "node_id": "forest_settlement",
+        "service_key": "frontier_readiness",
+        "service_id": "forest_settlement_frontier_readiness",
+        "service_kind": "support",
+        "result_type": "guidance_received",
+        "summary": "Запросить первую readiness-поддержку после подтверждённой стабилизации на одном краю.",
+        "result_summary": "После первого confirmed stabilization review лесной посёлок уже даёт группе более собранную домашнюю готовность: короткую frontier выкладку, ясный возвратный порядок и спокойную уверенность, что хотя бы один край теперь держится лучше.",
+        "discovered_notes": [
+            "Первый подтверждённый stabilization result позволяет базе отвечать не только советом, а первой реальной readiness-подготовкой под следующий внешний ход."
+        ],
+        "applied_effects": ["frontier_readiness:tier1", "intel:frontier_readiness"],
+        "node_state_flags": ["frontier_readiness_prepared"],
+        "node_state_summary": "В лесном посёлке уже собрали первый readiness tier на основе подтверждённой стабилизации frontier.",
+        "required_state_flags": ["frontier_stabilization_started"],
+    },
+    {
+        "node_id": "forest_settlement",
+        "service_key": "frontier_readiness",
+        "service_id": "forest_settlement_frontier_readiness",
+        "service_kind": "support",
+        "result_type": "guidance_received",
+        "summary": "Запросить усиленную readiness-поддержку после comparative stabilization review.",
+        "result_summary": "Когда база сравнила уже две подтверждённые stabilization measures, readiness response становится сильнее: сбор проходит быстрее, возвратные роли яснее, а посёлок ощущает себя не только реагирующим, а действительно подготовленным к новому внешнему ритму.",
+        "discovered_notes": [
+            "После comparative stabilization review readiness в посёлке становится заметно крепче: это уже не первый отклик, а собранная домашняя готовность под несколько frontier edges."
+        ],
+        "applied_effects": ["frontier_readiness:tier2", "intel:frontier_readiness_comparison"],
+        "node_state_flags": ["frontier_readiness_ready"],
+        "node_state_summary": "В лесном посёлке уже держат второй readiness tier после comparative stabilization review.",
+        "required_state_flags": ["frontier_stabilization_compared"],
+    },
+    {
+        "node_id": "forest_settlement",
+        "service_key": "frontier_readiness",
+        "service_id": "forest_settlement_frontier_readiness",
+        "service_kind": "support",
+        "result_type": "guidance_received",
+        "summary": "Запросить полный frontier-readiness support после полной stabilization picture.",
+        "result_summary": "После полной frontier stabilization picture посёлок выдаёт лучший tier readiness support: приоритетный сбор, чёткий возвратный порядок и уверенную домашнюю готовность, выросшую из реально подтверждённой стабилизации по всему внешнему кругу.",
+        "discovered_notes": [
+            "Полный stabilization review замыкается реальной домашней выгодой: база уже готовит следующий выход как место, которое не только понимает frontier, но и стало лучше подготовлено благодаря выполненной полевой работе."
+        ],
+        "applied_effects": ["frontier_readiness:tier3", "intel:frontier_readiness_full"],
+        "node_state_flags": ["frontier_readiness_committed"],
+        "node_state_summary": "В лесном посёлке уже собран лучший readiness tier после полной frontier stabilization picture.",
+        "required_state_flags": ["frontier_stabilization_compiled"],
+    },
+    {
         "node_id": "northwatch_outpost",
         "service_key": "local_guidance",
         "service_id": "northwatch_outpost_guidance",
@@ -3184,6 +3253,12 @@ STATIC_MAP_SERVICE_REQUIREMENTS: tuple[dict[str, Any], ...] = (
         "service_id": "forest_settlement_frontier_support",
         "requires_node_state_flag": "frontier_report_started",
         "unlock_hint": "Сначала свести хотя бы первую frontier-сводку по внешнему рубежу.",
+    },
+    {
+        "node_id": "forest_settlement",
+        "service_id": "forest_settlement_frontier_readiness",
+        "requires_node_state_flag": "frontier_stabilization_started",
+        "unlock_hint": "Сначала получить хотя бы первый подтверждённый результат полевой стабилизации frontier.",
     },
     {
         "node_id": "northwatch_quartermaster",
@@ -4522,6 +4597,11 @@ def get_static_node_services(
             "label": "Поддержка рубежа",
             "service_type": "support",
             "summary": "Здесь можно получить практическую подготовку под следующий выход на внешний рубеж.",
+        },
+        "frontier_readiness": {
+            "label": "Готовность рубежа",
+            "service_type": "support",
+            "summary": "Здесь можно получить домашнюю readiness-подготовку, выросшую из подтверждённой стабилизации frontier.",
         },
         "shrine_aid": {
             "label": "Поддержка у святыни",
