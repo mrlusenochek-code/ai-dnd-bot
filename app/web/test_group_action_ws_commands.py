@@ -48,6 +48,8 @@ def test_parse_group_command_supports_wait_camp_rest_scout_move_navigate_context
     action_here, payload_here = ws_handlers._parse_group_command("group here")
     action_regions, payload_regions = ws_handlers._parse_group_command("group regions")
     action_world, payload_world = ws_handlers._parse_group_command("group world")
+    action_links, payload_links = ws_handlers._parse_group_command("group links")
+    action_crossings, payload_crossings = ws_handlers._parse_group_command("group crossings")
     action_focus, payload_focus = ws_handlers._parse_group_command("group focus")
     action_focus_path, payload_focus_path = ws_handlers._parse_group_command("group focus-path")
     action_region_pursuit, payload_region_pursuit = ws_handlers._parse_group_command("group region-pursuit")
@@ -123,6 +125,8 @@ def test_parse_group_command_supports_wait_camp_rest_scout_move_navigate_context
     assert (action_here, payload_here) == ("group_region_status", {})
     assert (action_regions, payload_regions) == ("group_discovered_regions", {})
     assert (action_world, payload_world) == ("group_region_world", {})
+    assert (action_links, payload_links) == ("group_region_links", {})
+    assert (action_crossings, payload_crossings) == ("group_gateway_history", {})
     assert (action_focus, payload_focus) == ("group_region_focus", {})
     assert (action_focus_path, payload_focus_path) == ("group_primary_region_focus_plan", {})
     assert (action_region_pursuit, payload_region_pursuit) == ("group_region_pursuit_status", {})
@@ -1337,6 +1341,89 @@ def test_handle_group_region_transition_execute_and_status_surface() -> None:
     assert err_status is None
     assert "completed" in str(msg_status)
     assert "Выход к северному рубежу" in str(msg_status)
+
+
+def test_handle_group_region_links_and_gateway_history_surfaces() -> None:
+    player_id = uuid.uuid4()
+    empty_sess = SimpleNamespace(settings={})
+    session_state._initialize_default_group(
+        empty_sess,
+        [player_id],
+        {
+            "map_level": "region",
+            "node_type": "zone",
+            "node_id": "start_trakt",
+            "label": "Стартовый тракт",
+        },
+    )
+    handled_empty_links, err_empty_links, msg_empty_links = ws_handlers._handle_group_action_request(
+        empty_sess,
+        action="group_region_links",
+        actor_player_id=player_id,
+        payload={},
+        source="test",
+    )
+    handled_empty_crossings, err_empty_crossings, msg_empty_crossings = ws_handlers._handle_group_action_request(
+        empty_sess,
+        action="group_gateway_history",
+        actor_player_id=player_id,
+        payload={},
+        source="test",
+    )
+    assert handled_empty_links is True
+    assert err_empty_links is None
+    assert "нет discovered region links" in str(msg_empty_links)
+    assert handled_empty_crossings is True
+    assert err_empty_crossings is None
+    assert "нет истории gateway crossings" in str(msg_empty_crossings)
+
+    sess = SimpleNamespace(settings={})
+    session_state._initialize_default_group(
+        sess,
+        [player_id],
+        {
+            "map_level": "region",
+            "node_type": "zone",
+            "node_id": "forest_settlement",
+            "label": "Лесной посёлок",
+        },
+    )
+    session_state.add_group_node_state_flag(
+        sess,
+        "main",
+        "forest_settlement",
+        state_flag="forest_supplies_secured",
+        summary="Лесной набор уже готов.",
+        source="test",
+    )
+    session_state.resolve_group_region_transition(
+        sess,
+        "main",
+        "forest_settlement_northwatch",
+        player_id=player_id,
+        source="test",
+    )
+
+    handled_links, err_links, msg_links = ws_handlers._handle_group_action_request(
+        sess,
+        action="group_region_links",
+        actor_player_id=player_id,
+        payload={},
+        source="test",
+    )
+    handled_crossings, err_crossings, msg_crossings = ws_handlers._handle_group_action_request(
+        sess,
+        action="group_gateway_history",
+        actor_player_id=player_id,
+        payload={},
+        source="test",
+    )
+    assert handled_links is True
+    assert err_links is None
+    assert "впервые подтверждает связку регионов" in str(msg_links)
+    assert handled_crossings is True
+    assert err_crossings is None
+    assert "Выход к северному рубежу" in str(msg_crossings)
 
 
 def test_handle_group_region_status_and_discovered_regions_surface() -> None:

@@ -5674,4 +5674,156 @@ def test_failed_region_transition_does_not_create_fake_discovered_region() -> No
     assert updated is not None
     discovered_regions = session_state.get_current_group_discovered_regions(sess, player_id=player_id)
     assert [item["region_id"] for item in discovered_regions] == ["starter_frontier"]
+
+
+def test_successful_region_transition_records_gateway_history_and_region_link() -> None:
+    player_id = uuid.uuid4()
+    sess = SimpleNamespace(settings={})
+    session_state._initialize_default_group(
+        sess,
+        [player_id],
+        {"map_level": "region", "node_type": "zone", "node_id": "forest_settlement", "label": "Лесной посёлок"},
+    )
+    session_state.get_current_group_current_region_state(sess, player_id=player_id)
+    session_state.add_group_node_state_flag(
+        sess,
+        "main",
+        "forest_settlement",
+        state_flag="forest_supplies_secured",
+        summary="Лесной набор уже готов.",
+        source="test",
+    )
+
+    updated, error = session_state.resolve_group_region_transition(
+        sess,
+        "main",
+        "forest_settlement_northwatch",
+        player_id=player_id,
+        source="region_transition",
+    )
+
+    assert error is None
+    assert updated is not None
+    crossings = session_state.get_current_group_gateway_traversal_states(sess, player_id=player_id)
+    links = session_state.get_current_group_region_link_states(sess, player_id=player_id)
+    result = session_state.get_current_group_last_region_link_result(sess, player_id=player_id)
+    assert len(crossings) == 1
+    assert crossings[0]["gateway_id"] == "forest_settlement_northwatch"
+    assert crossings[0]["traversal_count"] == 1
+    assert len(links) == 1
+    assert links[0]["link_id"] == "region-link:northwatch_frontier::starter_frontier"
+    assert links[0]["gateway_ids"] == ["forest_settlement_northwatch"]
+    assert links[0]["traversal_count"] == 1
+    assert result is not None
+    assert result["result_type"] == "first_region_link_discovered"
+
+
+def test_repeated_gateway_crossing_updates_counts_without_duplicate_region_link() -> None:
+    player_id = uuid.uuid4()
+    sess = SimpleNamespace(settings={})
+    session_state._initialize_default_group(
+        sess,
+        [player_id],
+        {"map_level": "region", "node_type": "zone", "node_id": "forest_settlement", "label": "Лесной посёлок"},
+    )
+    session_state.get_current_group_current_region_state(sess, player_id=player_id)
+    session_state.add_group_node_state_flag(
+        sess,
+        "main",
+        "forest_settlement",
+        state_flag="forest_supplies_secured",
+        summary="Лесной набор уже готов.",
+        source="test",
+    )
+    session_state.resolve_group_region_transition(
+        sess,
+        "main",
+        "forest_settlement_northwatch",
+        player_id=player_id,
+        source="region_transition",
+    )
+    groups = session_state._get_group_states(sess)
+    group = groups["main"]
+    group["current_map_position"] = {
+        "map_level": "region",
+        "node_type": "zone",
+        "node_id": "forest_settlement",
+        "label": "Лесной посёлок",
+        "area_label": "Лесной посёлок",
+    }
+    group["area_label"] = "Лесной посёлок"
+    group["current_region_state"] = {
+        "region_id": "starter_frontier",
+        "region_label": "Стартовое пограничье",
+        "current_node_id": "forest_settlement",
+        "visit_count": 2,
+        "entered_at": "2025-01-02T00:00:00+00:00",
+        "source": "region_transition",
+    }
+    session_state._persist_group_states(sess, groups)
+    session_state._sync_group_position_mirrors(sess, group)
+
+    updated, error = session_state.resolve_group_region_transition(
+        sess,
+        "main",
+        "forest_settlement_northwatch",
+        player_id=player_id,
+        source="region_transition",
+    )
+
+    assert error is None
+    assert updated is not None
+    crossings = session_state.get_current_group_gateway_traversal_states(sess, player_id=player_id)
+    links = session_state.get_current_group_region_link_states(sess, player_id=player_id)
+    result = session_state.get_current_group_last_region_link_result(sess, player_id=player_id)
+    assert len(crossings) == 1
+    assert crossings[0]["traversal_count"] == 2
+    assert len(links) == 1
+    assert links[0]["link_id"] == "region-link:northwatch_frontier::starter_frontier"
+    assert links[0]["traversal_count"] == 2
+    assert result is not None
+    assert result["result_type"] == "repeated_gateway_crossing"
+    assert result["traversal_count"] == 2
+
+
+def test_failed_region_transition_does_not_create_fake_gateway_history_or_region_link() -> None:
+    player_id = uuid.uuid4()
+    sess = SimpleNamespace(settings={})
+    session_state._initialize_default_group(
+        sess,
+        [player_id],
+        {"map_level": "region", "node_type": "zone", "node_id": "forest_settlement", "label": "Лесной посёлок"},
+    )
+    session_state.get_current_group_current_region_state(sess, player_id=player_id)
+    session_state.set_group_route_access_state(
+        sess,
+        "main",
+        route_id="forest_settlement->old_fortress_edge:move",
+        access_state="blocked",
+        summary="Проход к северному рубежу закрыт.",
+        block_reason="Завал на дальнем тракте.",
+        source="test",
+    )
+    session_state.add_group_node_state_flag(
+        sess,
+        "main",
+        "forest_settlement",
+        state_flag="forest_supplies_secured",
+        summary="Лесной набор уже готов.",
+        source="test",
+    )
+
+    updated, error = session_state.resolve_group_region_transition(
+        sess,
+        "main",
+        "forest_settlement_northwatch",
+        player_id=player_id,
+        source="region_transition",
+    )
+
+    assert "заблокирован" in str(error)
+    assert updated is not None
+    assert session_state.get_current_group_gateway_traversal_states(sess, player_id=player_id) == []
+    assert session_state.get_current_group_region_link_states(sess, player_id=player_id) == []
+    assert session_state.get_current_group_last_region_link_result(sess, player_id=player_id) is None
     assert session_state.get_current_group_last_region_onboarding_result(sess, player_id=player_id)["region_id"] == "starter_frontier"

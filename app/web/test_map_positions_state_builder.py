@@ -161,6 +161,9 @@ def test_build_state_includes_legacy_and_structured_positions(monkeypatch) -> No
     monkeypatch.setattr(state_builder, "get_current_group_region_target_options", lambda _sess, player_id=None: None)
     monkeypatch.setattr(state_builder, "get_current_group_last_region_transition_result", lambda _sess, player_id=None: None)
     monkeypatch.setattr(state_builder, "get_current_group_region_transition_state", lambda _sess, player_id=None: None)
+    monkeypatch.setattr(state_builder, "get_current_group_gateway_traversal_states", lambda _sess, player_id=None: [])
+    monkeypatch.setattr(state_builder, "get_current_group_region_link_states", lambda _sess, player_id=None: [])
+    monkeypatch.setattr(state_builder, "get_current_group_last_region_link_result", lambda _sess, player_id=None: None)
     monkeypatch.setattr(
         state_builder,
         "get_current_group_route_planning",
@@ -205,6 +208,8 @@ def test_build_state_includes_legacy_and_structured_positions(monkeypatch) -> No
             "service_states": None,
             "map_intel_count": 0,
             "discovered_region_count": 0,
+            "crossed_gateway_count": 0,
+            "discovered_region_link_count": 0,
             "visited_node_count": 0,
             "traversed_route_count": 0,
             "movement_intent_summary": None,
@@ -273,6 +278,9 @@ def test_build_state_includes_legacy_and_structured_positions(monkeypatch) -> No
     assert payload["game"]["current_group_region_target_options"] is None
     assert payload["game"]["current_group_last_region_transition_result"] is None
     assert payload["game"]["current_group_region_transition_state"] is None
+    assert payload["game"]["current_group_gateway_traversal_states"] == []
+    assert payload["game"]["current_group_region_link_states"] == []
+    assert payload["game"]["current_group_last_region_link_result"] is None
     assert payload["game"]["current_group_navigation_options"] == []
     assert payload["session"]["current_group_id"] is None
     assert payload["players"] == [
@@ -421,6 +429,9 @@ def test_build_state_exports_region_residency_payloads(monkeypatch) -> None:
     monkeypatch.setattr(state_builder, "get_current_group_region_pursuit", lambda _sess, player_id=None: None)
     monkeypatch.setattr(state_builder, "get_current_group_last_region_pursuit_result", lambda _sess, player_id=None: None)
     monkeypatch.setattr(state_builder, "get_current_group_last_region_pursuit_step_result", lambda _sess, player_id=None: None)
+    monkeypatch.setattr(state_builder, "get_current_group_gateway_traversal_states", lambda _sess, player_id=None: [])
+    monkeypatch.setattr(state_builder, "get_current_group_region_link_states", lambda _sess, player_id=None: [])
+    monkeypatch.setattr(state_builder, "get_current_group_last_region_link_result", lambda _sess, player_id=None: None)
     monkeypatch.setattr(state_builder, "get_current_group_route_planning", lambda _sess, player_id=None: {"reachable_destinations": [], "route_frontiers": []})
     monkeypatch.setattr(state_builder, "get_current_group_exploration_leads", lambda _sess, player_id=None: [])
     monkeypatch.setattr(state_builder, "get_current_group_primary_exploration_lead", lambda _sess, player_id=None: None)
@@ -1374,6 +1385,60 @@ def test_build_state_exports_current_player_group_id(monkeypatch) -> None:
             "gateway_label": "Выход к северному рубежу",
             "source": "region_pursuit_step",
             "resolved_at": "2026-03-14T00:03:20+00:00",
+        },
+    )
+    monkeypatch.setattr(
+        state_builder,
+        "get_current_group_gateway_traversal_states",
+        lambda _sess, player_id=None: [
+            {
+                "gateway_id": "forest_settlement_northwatch",
+                "gateway_label": "Выход к северному рубежу",
+                "source_region_id": "starter_frontier",
+                "source_region_label": "Стартовое пограничье",
+                "target_region_id": "northwatch_frontier",
+                "target_region_label": "Северный рубеж",
+                "traversal_count": 2,
+                "first_traversed_at": "2026-03-14T00:04:00+00:00",
+                "last_traversed_at": "2026-03-14T00:06:00+00:00",
+                "summary": "Выход к северному рубежу пройден уже 2 раза.",
+            }
+        ],
+    )
+    monkeypatch.setattr(
+        state_builder,
+        "get_current_group_region_link_states",
+        lambda _sess, player_id=None: [
+            {
+                "link_id": "region-link:northwatch_frontier::starter_frontier",
+                "region_a_id": "northwatch_frontier",
+                "region_a_label": "Северный рубеж",
+                "region_b_id": "starter_frontier",
+                "region_b_label": "Стартовое пограничье",
+                "gateway_ids": ["forest_settlement_northwatch"],
+                "traversal_count": 2,
+                "first_discovered_at": "2026-03-14T00:04:00+00:00",
+                "last_traversed_at": "2026-03-14T00:06:00+00:00",
+                "summary": "Связь между регионами Северный рубеж и Стартовое пограничье подтверждена 2 traversal(s).",
+            }
+        ],
+    )
+    monkeypatch.setattr(
+        state_builder,
+        "get_current_group_last_region_link_result",
+        lambda _sess, player_id=None: {
+            "result_id": "region-link-1",
+            "result_type": "repeated_gateway_crossing",
+            "summary": "Группа снова проходит через Выход к северному рубежу.",
+            "result_summary": "Группа снова проходит через Выход к северному рубежу.",
+            "gateway_id": "forest_settlement_northwatch",
+            "gateway_label": "Выход к северному рубежу",
+            "link_id": "region-link:northwatch_frontier::starter_frontier",
+            "source_region_id": "starter_frontier",
+            "target_region_id": "northwatch_frontier",
+            "traversal_count": 2,
+            "source": "region_transition",
+            "resolved_at": "2026-03-14T00:06:00+00:00",
         },
     )
     monkeypatch.setattr(
@@ -2719,6 +2784,48 @@ def test_build_state_exports_current_player_group_id(monkeypatch) -> None:
         "last_result_type": "region_transition_completed",
         "summary": "Группа проходит через Выход к северному рубежу и выходит в регион Северный рубеж.",
         "updated_at": "2025-01-01T00:00:00+00:00",
+    }
+    assert payload["game"]["current_group_gateway_traversal_states"] == [
+        {
+            "gateway_id": "forest_settlement_northwatch",
+            "gateway_label": "Выход к северному рубежу",
+            "source_region_id": "starter_frontier",
+            "source_region_label": "Стартовое пограничье",
+            "target_region_id": "northwatch_frontier",
+            "target_region_label": "Северный рубеж",
+            "traversal_count": 2,
+            "first_traversed_at": "2026-03-14T00:04:00+00:00",
+            "last_traversed_at": "2026-03-14T00:06:00+00:00",
+            "summary": "Выход к северному рубежу пройден уже 2 раза.",
+        }
+    ]
+    assert payload["game"]["current_group_region_link_states"] == [
+        {
+            "link_id": "region-link:northwatch_frontier::starter_frontier",
+            "region_a_id": "northwatch_frontier",
+            "region_a_label": "Северный рубеж",
+            "region_b_id": "starter_frontier",
+            "region_b_label": "Стартовое пограничье",
+            "gateway_ids": ["forest_settlement_northwatch"],
+            "traversal_count": 2,
+            "first_discovered_at": "2026-03-14T00:04:00+00:00",
+            "last_traversed_at": "2026-03-14T00:06:00+00:00",
+            "summary": "Связь между регионами Северный рубеж и Стартовое пограничье подтверждена 2 traversal(s).",
+        }
+    ]
+    assert payload["game"]["current_group_last_region_link_result"] == {
+        "result_id": "region-link-1",
+        "result_type": "repeated_gateway_crossing",
+        "summary": "Группа снова проходит через Выход к северному рубежу.",
+        "result_summary": "Группа снова проходит через Выход к северному рубежу.",
+        "gateway_id": "forest_settlement_northwatch",
+        "gateway_label": "Выход к северному рубежу",
+        "link_id": "region-link:northwatch_frontier::starter_frontier",
+        "source_region_id": "starter_frontier",
+        "target_region_id": "northwatch_frontier",
+        "traversal_count": 2,
+        "source": "region_transition",
+        "resolved_at": "2026-03-14T00:06:00+00:00",
     }
     assert payload["game"]["current_group_navigation_options"] == [
         {

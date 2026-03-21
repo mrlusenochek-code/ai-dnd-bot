@@ -1074,6 +1074,179 @@ def _normalize_group_current_region_state(raw: Any) -> dict[str, Any] | None:
     return state
 
 
+def _build_region_link_id(region_a_id: str, region_b_id: str) -> str:
+    left = str(region_a_id or "").strip().lower()
+    right = str(region_b_id or "").strip().lower()
+    if not left or not right:
+        return ""
+    ordered = sorted([left, right])
+    return f"region-link:{ordered[0]}::{ordered[1]}"
+
+
+def _normalize_group_gateway_traversal_state(raw: Any) -> dict[str, Any] | None:
+    if not isinstance(raw, dict):
+        return None
+    gateway_id = str(raw.get("gateway_id") or "").strip().lower()
+    gateway_label = str(raw.get("gateway_label") or gateway_id).strip()
+    source_region_id = str(raw.get("source_region_id") or "").strip().lower()
+    source_region_label = str(raw.get("source_region_label") or source_region_id).strip()
+    target_region_id = str(raw.get("target_region_id") or "").strip().lower()
+    target_region_label = str(raw.get("target_region_label") or target_region_id).strip()
+    traversal_count = max(0, as_int(raw.get("traversal_count"), 0))
+    first_traversed_at = str(raw.get("first_traversed_at") or "").strip()
+    last_traversed_at = str(raw.get("last_traversed_at") or "").strip()
+    summary = str(raw.get("summary") or "").strip()
+    if (
+        not gateway_id
+        or not gateway_label
+        or not source_region_id
+        or not source_region_label
+        or not target_region_id
+        or not target_region_label
+        or traversal_count <= 0
+        or not summary
+    ):
+        return None
+    normalized: dict[str, Any] = {
+        "gateway_id": gateway_id[:120],
+        "gateway_label": gateway_label[:160],
+        "source_region_id": source_region_id[:120],
+        "source_region_label": source_region_label[:160],
+        "target_region_id": target_region_id[:120],
+        "target_region_label": target_region_label[:160],
+        "traversal_count": traversal_count,
+        "summary": summary[:240],
+    }
+    if first_traversed_at:
+        normalized["first_traversed_at"] = first_traversed_at[:80]
+    if last_traversed_at:
+        normalized["last_traversed_at"] = last_traversed_at[:80]
+    return normalized
+
+
+def _normalize_group_gateway_traversal_state_map(raw: Any) -> dict[str, dict[str, Any]]:
+    if not isinstance(raw, dict):
+        return {}
+    normalized: dict[str, dict[str, Any]] = {}
+    for gateway_id, value in raw.items():
+        candidate = value if isinstance(value, dict) else {"gateway_id": gateway_id, "summary": str(value or gateway_id)}
+        merged = {"gateway_id": gateway_id, **candidate} if isinstance(candidate, dict) else candidate
+        state = _normalize_group_gateway_traversal_state(merged)
+        if state:
+            normalized[state["gateway_id"]] = state
+    return normalized
+
+
+def _normalize_group_region_link_state(raw: Any) -> dict[str, Any] | None:
+    if not isinstance(raw, dict):
+        return None
+    link_id = str(raw.get("link_id") or "").strip().lower()
+    region_a_id = str(raw.get("region_a_id") or "").strip().lower()
+    region_a_label = str(raw.get("region_a_label") or region_a_id).strip()
+    region_b_id = str(raw.get("region_b_id") or "").strip().lower()
+    region_b_label = str(raw.get("region_b_label") or region_b_id).strip()
+    gateway_ids = [
+        str(item).strip().lower()
+        for item in (raw.get("gateway_ids") or [])
+        if str(item or "").strip()
+    ]
+    traversal_count = max(0, as_int(raw.get("traversal_count"), 0))
+    first_discovered_at = str(raw.get("first_discovered_at") or "").strip()
+    last_traversed_at = str(raw.get("last_traversed_at") or "").strip()
+    summary = str(raw.get("summary") or "").strip()
+    expected_link_id = _build_region_link_id(region_a_id, region_b_id)
+    if (
+        not link_id
+        or not region_a_id
+        or not region_a_label
+        or not region_b_id
+        or not region_b_label
+        or traversal_count <= 0
+        or not summary
+        or not expected_link_id
+        or link_id != expected_link_id
+    ):
+        return None
+    return {
+        "link_id": link_id[:160],
+        "region_a_id": region_a_id[:120],
+        "region_a_label": region_a_label[:160],
+        "region_b_id": region_b_id[:120],
+        "region_b_label": region_b_label[:160],
+        "gateway_ids": gateway_ids,
+        "traversal_count": traversal_count,
+        "first_discovered_at": first_discovered_at[:80],
+        "last_traversed_at": last_traversed_at[:80],
+        "summary": summary[:240],
+    }
+
+
+def _normalize_group_region_link_state_map(raw: Any) -> dict[str, dict[str, Any]]:
+    if not isinstance(raw, dict):
+        return {}
+    normalized: dict[str, dict[str, Any]] = {}
+    for link_id, value in raw.items():
+        candidate = value if isinstance(value, dict) else {"link_id": link_id, "summary": str(value or link_id)}
+        merged = {"link_id": link_id, **candidate} if isinstance(candidate, dict) else candidate
+        state = _normalize_group_region_link_state(merged)
+        if state:
+            normalized[state["link_id"]] = state
+    return normalized
+
+
+def _normalize_group_last_region_link_result(raw: Any) -> dict[str, Any] | None:
+    if not isinstance(raw, dict):
+        return None
+    result_id = str(raw.get("result_id") or "").strip()
+    result_type = str(raw.get("result_type") or "").strip().lower()
+    summary = str(raw.get("summary") or "").strip()
+    result_summary = str(raw.get("result_summary") or summary).strip()
+    gateway_id = str(raw.get("gateway_id") or "").strip().lower()
+    gateway_label = str(raw.get("gateway_label") or gateway_id).strip()
+    link_id = str(raw.get("link_id") or "").strip().lower()
+    source_region_id = str(raw.get("source_region_id") or "").strip().lower()
+    target_region_id = str(raw.get("target_region_id") or "").strip().lower()
+    traversal_count = max(0, as_int(raw.get("traversal_count"), 0))
+    source = str(raw.get("source") or "region_link_history").strip() or "region_link_history"
+    resolved_at = str(raw.get("resolved_at") or "").strip()
+    if result_type not in {
+        "first_gateway_crossing",
+        "repeated_gateway_crossing",
+        "first_region_link_discovered",
+        "known_region_link_traversed",
+        "quiet_region_link_update",
+    }:
+        return None
+    if (
+        not result_id
+        or not summary
+        or not result_summary
+        or not gateway_id
+        or not gateway_label
+        or not link_id
+        or not source_region_id
+        or not target_region_id
+        or traversal_count <= 0
+    ):
+        return None
+    normalized = {
+        "result_id": result_id[:120],
+        "result_type": result_type[:60],
+        "summary": summary[:400],
+        "result_summary": result_summary[:400],
+        "gateway_id": gateway_id[:120],
+        "gateway_label": gateway_label[:160],
+        "link_id": link_id[:160],
+        "source_region_id": source_region_id[:120],
+        "target_region_id": target_region_id[:120],
+        "traversal_count": traversal_count,
+        "source": source[:40],
+    }
+    if resolved_at:
+        normalized["resolved_at"] = resolved_at[:80]
+    return normalized
+
+
 def _normalize_group_discovered_region(raw: Any) -> dict[str, Any] | None:
     if not isinstance(raw, dict):
         return None
@@ -7500,6 +7673,222 @@ def get_current_group_last_region_pursuit_step_result(
     return _normalize_group_last_region_pursuit_step_result(group.get("last_region_pursuit_step_result"))
 
 
+def build_group_region_link_result(
+    *,
+    result_type: str,
+    summary: str,
+    result_summary: str,
+    gateway_id: str,
+    gateway_label: str,
+    link_id: str,
+    source_region_id: str,
+    target_region_id: str,
+    traversal_count: int,
+    source: str = "region_link_history",
+) -> dict[str, Any] | None:
+    return _normalize_group_last_region_link_result(
+        {
+            "result_id": f"region-link:{gateway_id}:{datetime.now(timezone.utc).isoformat()}",
+            "result_type": result_type,
+            "summary": summary,
+            "result_summary": result_summary,
+            "gateway_id": gateway_id,
+            "gateway_label": gateway_label,
+            "link_id": link_id,
+            "source_region_id": source_region_id,
+            "target_region_id": target_region_id,
+            "traversal_count": max(1, traversal_count),
+            "source": source,
+            "resolved_at": datetime.now(timezone.utc).isoformat(),
+        }
+    )
+
+
+def record_group_gateway_traversal(
+    sess: Session,
+    group_id: str,
+    *,
+    gateway_id: str,
+    gateway_label: str,
+    source_region_id: str,
+    source_region_label: str,
+    target_region_id: str,
+    target_region_label: str,
+    traversed_at: str | None = None,
+    source: str = "region_link_history",
+) -> tuple[dict[str, Any] | None, dict[str, Any] | None]:
+    groups = _get_group_states(sess)
+    group_key = str(group_id or "").strip()
+    group = groups.get(group_key)
+    if not isinstance(group, dict):
+        return None, None
+    normalized_gateway_id = str(gateway_id or "").strip().lower()
+    normalized_source_region_id = str(source_region_id or "").strip().lower()
+    normalized_target_region_id = str(target_region_id or "").strip().lower()
+    if not normalized_gateway_id or not normalized_source_region_id or not normalized_target_region_id:
+        return None, None
+    resolved_at = str(traversed_at or datetime.now(timezone.utc).isoformat()).strip() or datetime.now(timezone.utc).isoformat()
+    gateway_states = _normalize_group_gateway_traversal_state_map(group.get("gateway_traversal_states"))
+    region_link_states = _normalize_group_region_link_state_map(group.get("region_link_states"))
+    existing_gateway = gateway_states.get(normalized_gateway_id)
+    link_region_pairs = sorted(
+        [
+            (normalized_source_region_id, str(source_region_label or normalized_source_region_id).strip()),
+            (normalized_target_region_id, str(target_region_label or normalized_target_region_id).strip()),
+        ],
+        key=lambda item: item[0],
+    )
+    link_id = _build_region_link_id(link_region_pairs[0][0], link_region_pairs[1][0])
+    if not link_id:
+        return None, None
+    existing_link = region_link_states.get(link_id)
+    gateway_traversal_count = max(0, as_int((existing_gateway or {}).get("traversal_count"), 0)) + 1
+    link_traversal_count = max(0, as_int((existing_link or {}).get("traversal_count"), 0)) + 1
+    gateway_summary = (
+        f"Выход {str(gateway_label or normalized_gateway_id).strip()} был пройден {gateway_traversal_count} раз "
+        f"между регионами {str(source_region_label or normalized_source_region_id).strip()} и {str(target_region_label or normalized_target_region_id).strip()}."
+    )
+    gateway_states[normalized_gateway_id] = _normalize_group_gateway_traversal_state(
+        {
+            "gateway_id": normalized_gateway_id,
+            "gateway_label": gateway_label,
+            "source_region_id": normalized_source_region_id,
+            "source_region_label": source_region_label,
+            "target_region_id": normalized_target_region_id,
+            "target_region_label": target_region_label,
+            "traversal_count": gateway_traversal_count,
+            "first_traversed_at": str((existing_gateway or {}).get("first_traversed_at") or resolved_at),
+            "last_traversed_at": resolved_at,
+            "summary": gateway_summary,
+        }
+    ) or {}
+    region_link_summary = (
+        f"Связь между регионами {link_region_pairs[0][1]} и {link_region_pairs[1][1]} подтверждена "
+        f"{link_traversal_count} traversal(s) через {len(set([*list((existing_link or {}).get('gateway_ids') or []), normalized_gateway_id]))} gateway(s)."
+    )
+    region_link_states[link_id] = _normalize_group_region_link_state(
+        {
+            "link_id": link_id,
+            "region_a_id": link_region_pairs[0][0],
+            "region_a_label": link_region_pairs[0][1],
+            "region_b_id": link_region_pairs[1][0],
+            "region_b_label": link_region_pairs[1][1],
+            "gateway_ids": sorted(set([*list((existing_link or {}).get("gateway_ids") or []), normalized_gateway_id])),
+            "traversal_count": link_traversal_count,
+            "first_discovered_at": str((existing_link or {}).get("first_discovered_at") or resolved_at),
+            "last_traversed_at": resolved_at,
+            "summary": region_link_summary,
+        }
+    ) or {}
+    if not gateway_states[normalized_gateway_id] or not region_link_states[link_id]:
+        return None, None
+    if not existing_link:
+        result_type = "first_region_link_discovered"
+        result_summary = (
+            f"Группа впервые подтверждает связку регионов {link_region_pairs[0][1]} и {link_region_pairs[1][1]} "
+            f"через {str(gateway_label or normalized_gateway_id).strip()}."
+        )
+    elif not existing_gateway:
+        result_type = "first_gateway_crossing"
+        result_summary = f"Группа впервые проходит через {str(gateway_label or normalized_gateway_id).strip()}."
+    elif normalized_gateway_id in list((existing_link or {}).get("gateway_ids") or []):
+        result_type = "repeated_gateway_crossing"
+        result_summary = f"Группа снова проходит через {str(gateway_label or normalized_gateway_id).strip()}."
+    elif link_traversal_count > 1:
+        result_type = "known_region_link_traversed"
+        result_summary = (
+            f"Группа использует уже известную связь между {link_region_pairs[0][1]} и {link_region_pairs[1][1]} "
+            f"через новый gateway {str(gateway_label or normalized_gateway_id).strip()}."
+        )
+    else:
+        result_type = "quiet_region_link_update"
+        result_summary = region_link_summary
+    result = build_group_region_link_result(
+        result_type=result_type,
+        summary=result_summary,
+        result_summary=result_summary,
+        gateway_id=normalized_gateway_id,
+        gateway_label=str(gateway_label or normalized_gateway_id).strip(),
+        link_id=link_id,
+        source_region_id=normalized_source_region_id,
+        target_region_id=normalized_target_region_id,
+        traversal_count=link_traversal_count,
+        source=source,
+    )
+    group["gateway_traversal_states"] = gateway_states
+    group["region_link_states"] = region_link_states
+    if result:
+        group["last_region_link_result"] = result
+    groups[group_key] = group
+    _persist_group_states(sess, groups)
+    _sync_group_position_mirrors(sess, group)
+    return dict(gateway_states[normalized_gateway_id]), result
+
+
+def get_current_group_gateway_traversal_states(
+    sess: Session,
+    *,
+    player_id: uuid.UUID | str | None = None,
+    group_id: str | None = None,
+) -> list[dict[str, Any]]:
+    resolved_group_id = str(group_id or "").strip()
+    resolved_player_id = str(player_id or "").strip()
+    if not resolved_group_id and resolved_player_id:
+        resolved_group_id = str(_get_player_group_id(sess, resolved_player_id) or "").strip()
+    if not resolved_group_id:
+        return []
+    group = _get_group_states(sess).get(resolved_group_id)
+    if not isinstance(group, dict):
+        return []
+    states = _normalize_group_gateway_traversal_state_map(group.get("gateway_traversal_states"))
+    return sorted(
+        [dict(item) for item in states.values()],
+        key=lambda item: (str(item.get("last_traversed_at") or ""), str(item.get("gateway_id") or "")),
+        reverse=True,
+    )
+
+
+def get_current_group_region_link_states(
+    sess: Session,
+    *,
+    player_id: uuid.UUID | str | None = None,
+    group_id: str | None = None,
+) -> list[dict[str, Any]]:
+    resolved_group_id = str(group_id or "").strip()
+    resolved_player_id = str(player_id or "").strip()
+    if not resolved_group_id and resolved_player_id:
+        resolved_group_id = str(_get_player_group_id(sess, resolved_player_id) or "").strip()
+    if not resolved_group_id:
+        return []
+    group = _get_group_states(sess).get(resolved_group_id)
+    if not isinstance(group, dict):
+        return []
+    states = _normalize_group_region_link_state_map(group.get("region_link_states"))
+    return sorted(
+        [dict(item) for item in states.values()],
+        key=lambda item: (str(item.get("last_traversed_at") or ""), str(item.get("link_id") or "")),
+        reverse=True,
+    )
+
+
+def get_current_group_last_region_link_result(
+    sess: Session,
+    *,
+    player_id: uuid.UUID | str | None = None,
+    group_id: str | None = None,
+) -> dict[str, Any] | None:
+    resolved_group_id = str(group_id or "").strip()
+    resolved_player_id = str(player_id or "").strip()
+    if not resolved_group_id and resolved_player_id:
+        resolved_group_id = str(_get_player_group_id(sess, resolved_player_id) or "").strip()
+    if not resolved_group_id:
+        return None
+    group = _get_group_states(sess).get(resolved_group_id)
+    if not isinstance(group, dict):
+        return None
+    return _normalize_group_last_region_link_result(group.get("last_region_link_result"))
+
+
 def build_group_region_transition_result(
     *,
     gateway_id: str,
@@ -7845,8 +8234,27 @@ def resolve_group_region_transition(
                 "updated_at": result.get("resolved_at"),
             }
         )
+        groups[group_key] = group
         _persist_group_states(sess, groups)
         _sync_group_position_mirrors(sess, group)
+        if str(result.get("transition_status") or "").strip().lower() == "completed":
+            record_group_gateway_traversal(
+                sess,
+                group_key,
+                gateway_id=normalized_gateway_id,
+                gateway_label=gateway_label,
+                source_region_id=source_region_id,
+                source_region_label=source_region_label,
+                target_region_id=target_region_id,
+                target_region_label=target_region_label,
+                traversed_at=str(result.get("resolved_at") or ""),
+                source=source,
+            )
+            groups = _get_group_states(sess)
+            group = groups.get(group_key) or group
+            groups[group_key] = group
+            _persist_group_states(sess, groups)
+            _sync_group_position_mirrors(sess, group)
     error_message = None
     if transition_status == "blocked":
         error_message = "Выход сейчас заблокирован."
@@ -10481,6 +10889,14 @@ def _group_discovered_region_count(group: dict[str, Any]) -> int:
     return len(_normalize_group_discovered_region_map(group.get("discovered_regions")))
 
 
+def _group_crossed_gateway_count(group: dict[str, Any]) -> int:
+    return len(_normalize_group_gateway_traversal_state_map(group.get("gateway_traversal_states")))
+
+
+def _group_discovered_region_link_count(group: dict[str, Any]) -> int:
+    return len(_normalize_group_region_link_state_map(group.get("region_link_states")))
+
+
 def _group_context_action_states_summary(group: dict[str, Any]) -> list[dict[str, Any]] | None:
     action_states = _normalize_group_context_action_state_map(group.get("context_action_states"))
     if not action_states:
@@ -10756,6 +11172,15 @@ def _normalize_group_state(
     last_region_pursuit_step_result = _normalize_group_last_region_pursuit_step_result(raw.get("last_region_pursuit_step_result"))
     if last_region_pursuit_step_result:
         normalized["last_region_pursuit_step_result"] = last_region_pursuit_step_result
+    gateway_traversal_states = _normalize_group_gateway_traversal_state_map(raw.get("gateway_traversal_states"))
+    if gateway_traversal_states:
+        normalized["gateway_traversal_states"] = gateway_traversal_states
+    region_link_states = _normalize_group_region_link_state_map(raw.get("region_link_states"))
+    if region_link_states:
+        normalized["region_link_states"] = region_link_states
+    last_region_link_result = _normalize_group_last_region_link_result(raw.get("last_region_link_result"))
+    if last_region_link_result:
+        normalized["last_region_link_result"] = last_region_link_result
     last_arrival_result = _normalize_group_last_arrival_result(raw.get("last_arrival_result"))
     if last_arrival_result:
         normalized["last_arrival_result"] = last_arrival_result

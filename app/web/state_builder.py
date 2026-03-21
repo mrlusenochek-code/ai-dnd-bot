@@ -52,6 +52,8 @@ from app.web.session_state import (
     _group_service_states_summary,
     _group_map_intel_count,
     _group_discovered_region_count,
+    _group_crossed_gateway_count,
+    _group_discovered_region_link_count,
     _group_visited_node_count,
     _group_traversed_route_count,
     _group_movement_mode,
@@ -119,6 +121,9 @@ from app.web.session_state import (
     get_current_group_region_world_overview,
     get_current_group_last_region_transition_result,
     get_current_group_region_transition_state,
+    get_current_group_gateway_traversal_states,
+    get_current_group_region_link_states,
+    get_current_group_last_region_link_result,
     get_current_group_navigation_options,
     get_current_group_context_action_states,
     get_player_known_node_ids,
@@ -435,6 +440,8 @@ async def build_state(db: AsyncSession, sess: Session) -> dict:
             "service_states": _group_service_states_summary(group),
             "map_intel_count": _group_map_intel_count(group),
             "discovered_region_count": _group_discovered_region_count(group),
+            "crossed_gateway_count": _group_crossed_gateway_count(group),
+            "discovered_region_link_count": _group_discovered_region_link_count(group),
             "visited_node_count": _group_visited_node_count(group),
             "traversed_route_count": _group_traversed_route_count(group),
             "movement_intent_summary": _group_movement_intent_summary(group),
@@ -668,6 +675,21 @@ async def build_state(db: AsyncSession, sess: Session) -> dict:
         if sess.current_player_id
         else None
     )
+    current_group_gateway_traversal_states = (
+        get_current_group_gateway_traversal_states(sess, player_id=sess.current_player_id)
+        if sess.current_player_id
+        else []
+    )
+    current_group_region_link_states = (
+        get_current_group_region_link_states(sess, player_id=sess.current_player_id)
+        if sess.current_player_id
+        else []
+    )
+    current_group_last_region_link_result = (
+        get_current_group_last_region_link_result(sess, player_id=sess.current_player_id)
+        if sess.current_player_id
+        else None
+    )
     current_group_current_region_state = (
         get_current_group_current_region_state(sess, player_id=sess.current_player_id)
         if sess.current_player_id
@@ -807,6 +829,9 @@ async def build_state(db: AsyncSession, sess: Session) -> dict:
             "current_group_region_target_options": current_group_region_target_options,
             "current_group_last_region_transition_result": current_group_last_region_transition_result,
             "current_group_region_transition_state": current_group_region_transition_state,
+            "current_group_gateway_traversal_states": current_group_gateway_traversal_states,
+            "current_group_region_link_states": current_group_region_link_states,
+            "current_group_last_region_link_result": current_group_last_region_link_result,
             "current_group_navigation_options": current_group_navigation_options,
             "groups": groups_payload,
             "pc_positions": pc_positions,

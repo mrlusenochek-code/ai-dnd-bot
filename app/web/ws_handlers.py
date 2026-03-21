@@ -103,6 +103,9 @@ from app.web.session_state import (
     get_current_group_region_target_options,
     get_current_group_region_world_overview,
     get_current_group_region_transition_state,
+    get_current_group_gateway_traversal_states,
+    get_current_group_region_link_states,
+    get_current_group_last_region_link_result,
     set_group_region_pursuit,
     clear_group_region_pursuit,
     advance_group_region_pursuit,
@@ -1805,6 +1808,12 @@ def _parse_group_command(cmdline: str) -> tuple[str | None, dict[str, Any]]:
     if lowered in {"group world", "group_world"}:
         return "group_region_world", {}
 
+    if lowered in {"group links", "group_links"}:
+        return "group_region_links", {}
+
+    if lowered in {"group crossings", "group_crossings"}:
+        return "group_gateway_history", {}
+
     if lowered in {"group focus", "group_focus"}:
         return "group_region_focus", {}
 
@@ -1978,6 +1987,8 @@ def _handle_group_action_request(
         "group_region_status",
         "group_discovered_regions",
         "group_region_world",
+        "group_region_links",
+        "group_gateway_history",
         "group_region_focus",
         "group_region_target_plan",
         "group_primary_region_focus_plan",
@@ -2249,6 +2260,46 @@ def _handle_group_action_request(
             f"{str(overview.get('summary') or '')} "
             f"Текущий регион: {str(overview.get('current_region_label') or 'регион')}."
         ).strip()
+
+    if action == "group_region_links":
+        if not actor_group_key:
+            return True, "Группа игрока не найдена.", None
+        links = get_current_group_region_link_states(
+            sess,
+            player_id=actor_player_id,
+            group_id=actor_group_key,
+        )
+        result = get_current_group_last_region_link_result(
+            sess,
+            player_id=actor_player_id,
+            group_id=actor_group_key,
+        )
+        if not links and not result:
+            return True, None, f"У группы {actor_group_key} пока нет discovered region links."
+        if result:
+            return True, None, str(result.get("result_summary") or result.get("summary") or "Последняя region-link запись сохранена.")
+        primary = links[0]
+        return True, None, (
+            f"Region links группы {actor_group_key}: {len(links)}. "
+            f"Главная связка: {str(primary.get('region_a_label') or 'регион')} <-> {str(primary.get('region_b_label') or 'регион')}."
+        )
+
+    if action == "group_gateway_history":
+        if not actor_group_key:
+            return True, "Группа игрока не найдена.", None
+        crossings = get_current_group_gateway_traversal_states(
+            sess,
+            player_id=actor_player_id,
+            group_id=actor_group_key,
+        )
+        if not crossings:
+            return True, None, f"У группы {actor_group_key} пока нет истории gateway crossings."
+        latest = crossings[0]
+        return True, None, (
+            f"Gateway history группы {actor_group_key}: {len(crossings)} crossing record(s). "
+            f"Последний выход: {str(latest.get('gateway_label') or 'gateway')} "
+            f"({str(latest.get('traversal_count') or 0)} traversal)."
+        )
 
     if action == "group_region_focus":
         if not actor_group_key:
