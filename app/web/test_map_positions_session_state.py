@@ -1968,6 +1968,127 @@ def test_starter_frontier_local_progression_arc_unlocks_return_payoff() -> None:
     assert completed_resupply["availability_status"] == "completed"
 
 
+def test_starter_frontier_cross_region_report_stays_locked_without_external_proof() -> None:
+    player_id = uuid.uuid4()
+    sess = SimpleNamespace(settings={})
+    session_state._initialize_default_group(
+        sess,
+        [player_id],
+        {"map_level": "region", "node_type": "zone", "node_id": "forest_settlement", "label": "Лесной посёлок"},
+    )
+    session_state.get_current_group_current_region_state(sess, player_id=player_id)
+
+    actions = session_state.get_current_group_context_action_availability(sess, player_id=player_id)
+    report_action = next(item for item in actions if item["action_id"] == "compile_frontier_report")
+
+    assert report_action["availability_status"] == "locked"
+    assert report_action["unavailable_reason"] == "requires_any_group_node_state_flags"
+    assert "подтверждённого дальнего доклада" in report_action["unlock_hint"]
+
+
+def test_starter_frontier_cross_region_report_stages_from_one_to_three_distinct_regions() -> None:
+    player_id = uuid.uuid4()
+    sess = SimpleNamespace(settings={})
+    session_state._initialize_default_group(
+        sess,
+        [player_id],
+        {"map_level": "region", "node_type": "zone", "node_id": "forest_settlement", "label": "Лесной посёлок"},
+    )
+    session_state.get_current_group_current_region_state(sess, player_id=player_id)
+
+    session_state.add_group_node_state_flag(
+        sess,
+        "main",
+        "northwatch_quartermaster",
+        state_flag="northwatch_redoubt_return_logged",
+        summary="На северном рубеже уже принят обратный доклад с редута.",
+        source="test",
+    )
+
+    first_actions = session_state.get_current_group_context_action_availability(sess, player_id=player_id)
+    first_report = next(item for item in first_actions if item["action_id"] == "compile_frontier_report")
+    assert first_report["availability_status"] == "available"
+    resolved_first, error = session_state.resolve_group_context_action(
+        sess,
+        "main",
+        action_id="compile_frontier_report",
+        player_id=player_id,
+        source="test",
+    )
+    assert error is None
+    assert resolved_first is not None
+    assert resolved_first["last_context_action_result"]["result_type"] == "local_clue_found"
+    assert "не локальна" in resolved_first["last_context_action_result"]["result_summary"]
+
+    settlement_context = session_state.get_current_group_node_context(sess, player_id=player_id)
+    assert "frontier_report_started" in settlement_context["node_state_flags"]
+    assert "frontier_pattern_seen" not in settlement_context["node_state_flags"]
+
+    session_state.add_group_node_state_flag(
+        sess,
+        "main",
+        "northwatch_quartermaster",
+        state_flag="northwatch_redoubt_return_logged",
+        summary="Повторный северный доклад не должен давать ложную эскалацию.",
+        source="test",
+    )
+    duplicate, error = session_state.resolve_group_context_action(
+        sess,
+        "main",
+        action_id="compile_frontier_report",
+        player_id=player_id,
+        source="test",
+    )
+    assert error is None
+    assert duplicate is not None
+    assert "повторяющийся frontier pattern" not in duplicate["last_context_action_result"]["result_summary"]
+    assert "frontier_pattern_seen" not in session_state.get_current_group_node_context(sess, player_id=player_id)["node_state_flags"]
+
+    session_state.add_group_node_state_flag(
+        sess,
+        "main",
+        "reed_shelter",
+        state_flag="deep_marsh_shelter_aid_received",
+        summary="Из deep_marsh уже принесли подтверждённый возвратный след.",
+        source="test",
+    )
+    resolved_second, error = session_state.resolve_group_context_action(
+        sess,
+        "main",
+        action_id="compile_frontier_report",
+        player_id=player_id,
+        source="test",
+    )
+    assert error is None
+    assert resolved_second is not None
+    assert "повторяющийся frontier pattern" in resolved_second["last_context_action_result"]["result_summary"]
+    settlement_context = session_state.get_current_group_node_context(sess, player_id=player_id)
+    assert "frontier_pattern_seen" in settlement_context["node_state_flags"]
+
+    session_state.add_group_node_state_flag(
+        sess,
+        "main",
+        "waystation_yard",
+        state_flag="western_road_waystation_aid_received",
+        summary="С западного тракта уже вернулись с дорожным подтверждением.",
+        source="test",
+    )
+    resolved_third, error = session_state.resolve_group_context_action(
+        sess,
+        "main",
+        action_id="compile_frontier_report",
+        player_id=player_id,
+        source="test",
+    )
+    assert error is None
+    assert resolved_third is not None
+    assert "полную frontier summary" in resolved_third["last_context_action_result"]["result_summary"]
+
+    final_context = session_state.get_current_group_node_context(sess, player_id=player_id)
+    assert "frontier_full_pattern_logged" in final_context["node_state_flags"]
+    assert any("полную frontier summary" in note.lower() or "трем соседним регионам" in note.lower() for note in final_context["state_notes"])
+
+
 def test_local_interaction_gating_enforces_locked_execution_without_side_effects() -> None:
     player_id = uuid.uuid4()
     sess = SimpleNamespace(settings={})

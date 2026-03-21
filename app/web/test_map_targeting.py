@@ -584,6 +584,8 @@ def test_starter_frontier_nodes_expose_local_progression_arc_surfaces() -> None:
     forest_effect = next(
         item for item in get_static_node_service_effects(node_id="forest_settlement") if item["service_id"] == "forest_settlement_resupply"
     )
+    forest_actions = get_current_node_context_actions(node_id="forest_settlement")
+    forest_action_requirements = get_static_node_context_action_requirements(node_id="forest_settlement")
 
     assert forest_requirements == [
         {
@@ -598,6 +600,19 @@ def test_starter_frontier_nodes_expose_local_progression_arc_surfaces() -> None:
     ]
     assert forest_effect["node_state_flags"] == ["forest_supplies_secured", "forest_return_report_logged"]
     assert "обратный рассказ" in forest_effect["result_summary"]
+    assert any(item["action_id"] == "compile_frontier_report" for item in forest_actions)
+    assert forest_action_requirements == [
+        {
+            "node_id": "forest_settlement",
+            "action_id": "compile_frontier_report",
+            "unlock_hint": "Сначала вернуться хотя бы с одного подтверждённого дальнего доклада с соседнего рубежа.",
+            "requires_any_group_node_state_flags": [
+                "northwatch_redoubt_return_logged",
+                "deep_marsh_shelter_aid_received",
+                "western_road_waystation_aid_received",
+            ],
+        }
+    ]
     assert any(item["action_id"] == "clear_old_road" for item in get_current_node_context_actions(node_id="forest_road"))
 
 

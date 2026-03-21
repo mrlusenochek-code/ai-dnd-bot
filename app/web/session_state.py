@@ -5167,6 +5167,7 @@ def build_group_interaction_gate_result(
     label: str,
     requirements: dict[str, Any] | None = None,
     state_flags: list[str] | set[str] | None = None,
+    group_state_flags: list[str] | set[str] | None = None,
     destination_event_state: dict[str, Any] | None = None,
     visit_count: int = 0,
     completed: bool = False,
@@ -5189,6 +5190,7 @@ def build_group_interaction_gate_result(
     requirement_eval = _evaluate_local_requirement_set(
         requirements=requirement_map,
         state_flags=state_flags,
+        group_state_flags=group_state_flags,
         destination_event_state=destination_state,
         visit_count=visit_count,
     )
@@ -5227,6 +5229,7 @@ def _evaluate_local_requirement_set(
     *,
     requirements: dict[str, Any] | None = None,
     state_flags: list[str] | set[str] | None = None,
+    group_state_flags: list[str] | set[str] | None = None,
     destination_event_state: dict[str, Any] | None = None,
     visit_count: int = 0,
 ) -> dict[str, Any]:
@@ -5235,6 +5238,11 @@ def _evaluate_local_requirement_set(
     available_state_flags = {
         str(flag or "").strip().lower()
         for flag in (state_flags or [])
+        if str(flag or "").strip()
+    }
+    available_group_state_flags = {
+        str(flag or "").strip().lower()
+        for flag in (group_state_flags or [])
         if str(flag or "").strip()
     }
     resolved_visit_count = max(0, int(visit_count or 0))
@@ -5278,6 +5286,43 @@ def _evaluate_local_requirement_set(
             actual_event_type == required_event_type,
             missing_value=f"destination_event_result:{required_event_type}",
             satisfied_value=f"destination_event_result:{required_event_type}",
+        )
+    required_any_group_flags = {
+        str(flag or "").strip().lower()
+        for flag in (requirement_map.get("requires_any_group_node_state_flags") or [])
+        if str(flag or "").strip()
+    }
+    if required_any_group_flags:
+        _requirement_met(
+            "requires_any_group_node_state_flags",
+            bool(required_any_group_flags & available_group_state_flags),
+            missing_value=f"any_group_node_state:{','.join(sorted(required_any_group_flags))}",
+            satisfied_value=f"any_group_node_state:{','.join(sorted(required_any_group_flags & available_group_state_flags))}",
+        )
+    required_all_group_flags = {
+        str(flag or "").strip().lower()
+        for flag in (requirement_map.get("requires_all_group_node_state_flags") or [])
+        if str(flag or "").strip()
+    }
+    if required_all_group_flags:
+        _requirement_met(
+            "requires_all_group_node_state_flags",
+            required_all_group_flags.issubset(available_group_state_flags),
+            missing_value=f"all_group_node_state:{','.join(sorted(required_all_group_flags))}",
+            satisfied_value=f"all_group_node_state:{','.join(sorted(required_all_group_flags))}",
+        )
+    required_min_group_flag_count = max(0, as_int(requirement_map.get("requires_min_group_node_state_flags"), 0))
+    if required_min_group_flag_count > 0:
+        group_flag_pool = {
+            str(flag or "").strip().lower()
+            for flag in (requirement_map.get("group_node_state_flag_pool") or [])
+            if str(flag or "").strip()
+        }
+        _requirement_met(
+            "requires_min_group_node_state_flags",
+            len(group_flag_pool & available_group_state_flags) >= required_min_group_flag_count,
+            missing_value=f"min_group_node_state_count:{required_min_group_flag_count}",
+            satisfied_value=f"min_group_node_state_count:{required_min_group_flag_count}",
         )
     if bool(requirement_map.get("first_visit_only")):
         _requirement_met(
@@ -5334,11 +5379,20 @@ def _get_current_group_local_interaction_context(
     current_node_state = (_normalize_group_node_state_map(group.get("node_states"))).get(current_node_id)
     current_visit_state = (_normalize_group_node_visit_state_map(group.get("node_visit_states"))).get(current_node_id)
     current_destination_event_state = (_normalize_group_destination_event_state_map(group.get("destination_event_states"))).get(current_node_id)
+    group_state_flags = sorted(
+        {
+            str(flag).strip().lower()
+            for node_state in (_normalize_group_node_state_map(group.get("node_states"))).values()
+            for flag in (dict(node_state).get("state_flags") or [])
+            if str(flag or "").strip()
+        }
+    )
     return {
         "group": group,
         "current_map_position": current_map_position,
         "current_node_id": current_node_id,
         "node_state_flags": list((current_node_state or {}).get("state_flags") or []),
+        "group_state_flags": group_state_flags,
         "visit_count": max(0, as_int((current_visit_state or {}).get("visit_count"), 0)),
         "destination_event_state": current_destination_event_state,
         "context_action_states": _normalize_group_context_action_state_map(group.get("context_action_states")),
@@ -5368,7 +5422,11 @@ def get_current_group_context_action_availability(
     }
     effect_map = {
         str(item.get("action_id") or "").strip().lower(): dict(item)
-        for item in get_static_node_context_action_effects(current_map_position=current_map_position)
+        for item in get_static_node_context_action_effects(
+            current_map_position=current_map_position,
+            state_flags=context.get("node_state_flags"),
+            group_state_flags=context.get("group_state_flags"),
+        )
         if isinstance(item, dict) and str(item.get("action_id") or "").strip()
     }
     availability: list[dict[str, Any]] = []
@@ -5385,6 +5443,7 @@ def get_current_group_context_action_availability(
             label=str(annotated.get("label") or action_id),
             requirements=requirement_map.get(action_id),
             state_flags=context.get("node_state_flags"),
+            group_state_flags=context.get("group_state_flags"),
             destination_event_state=context.get("destination_event_state"),
             visit_count=int(context.get("visit_count") or 0),
             completed=completed,
@@ -5445,6 +5504,7 @@ def get_current_group_service_availability(
             label=str(annotated.get("label") or service_id),
             requirements=requirements,
             state_flags=context.get("node_state_flags"),
+            group_state_flags=context.get("group_state_flags"),
             destination_event_state=context.get("destination_event_state"),
             visit_count=int(context.get("visit_count") or 0),
             completed=completed,
@@ -10689,9 +10749,14 @@ def resolve_group_context_action(
     current_map_position = _normalize_map_position(group.get("current_map_position"))
     if not current_map_position:
         return None, "Не удалось определить текущую позицию группы."
+    context = _get_current_group_local_interaction_context(sess, group_key) or {}
     available_effects = {
         str(effect.get("action_id") or "").strip().lower(): effect
-        for effect in get_static_node_context_action_effects(current_map_position=current_map_position)
+        for effect in get_static_node_context_action_effects(
+            current_map_position=current_map_position,
+            state_flags=context.get("node_state_flags"),
+            group_state_flags=context.get("group_state_flags"),
+        )
         if isinstance(effect, dict) and str(effect.get("action_id") or "").strip()
     }
     action_effect = available_effects.get(normalized_action_id)

@@ -1116,6 +1116,75 @@ STATIC_MAP_CONTEXT_ACTION_EFFECTS: tuple[dict[str, Any], ...] = (
         "node_state_flags": ["western_road_waybill_read"],
         "node_state_summary": "На верстовой арке уже сверяли дорожные отметки и читали по ним свежий след обозной задержки.",
     },
+    {
+        "node_id": "forest_settlement",
+        "action_id": "compile_frontier_report",
+        "label": "Сверить frontier сводки",
+        "action_kind": "clue",
+        "effect_type": "clue",
+        "one_shot": False,
+        "result_type": "local_clue_found",
+        "summary": "Сопоставить первый подтверждённый внешний доклад с местными лесными тревогами.",
+        "result_summary": "В лесном посёлке впервые сводят дальний доклад с местной тревогой и понимают: проблема на рубеже не локальна, а уже выходит за пределы одной дороги.",
+        "discovered_notes": [
+            "Даже одного подтверждённого возврата с внешнего рубежа хватает, чтобы в посёлке перестали считать тревогу случайной и начали смотреть на frontier шире."
+        ],
+        "applied_effects": ["frontier_report:started", "intel:frontier_report"],
+        "node_state_flags": ["frontier_report_started"],
+        "node_state_summary": "В лесном посёлке уже собрали первый внешний frontier report и начали смотреть на соседние рубежи как на связанную проблему.",
+        "requires_min_group_node_state_flags": 1,
+        "group_node_state_flag_pool": [
+            "northwatch_redoubt_return_logged",
+            "deep_marsh_shelter_aid_received",
+            "western_road_waystation_aid_received",
+        ],
+    },
+    {
+        "node_id": "forest_settlement",
+        "action_id": "compile_frontier_report",
+        "label": "Сверить frontier сводки",
+        "action_kind": "clue",
+        "effect_type": "clue",
+        "one_shot": False,
+        "result_type": "local_clue_found",
+        "summary": "Свести два подтверждённых внешних доклада и увидеть повторяющийся frontier pattern.",
+        "result_summary": "Когда в посёлке сходятся уже два независимых дальних доклада, охотники видят не отдельные беды, а повторяющийся frontier pattern: короткие задержки, нервные отходы и спешные возвраты на безопасную линию.",
+        "discovered_notes": [
+            "Два разных рубежа уже складываются в одну картину: дальние узлы давят не одинаково по виду, но одинаково по ритму тревоги и вынужденных коротких отходов."
+        ],
+        "applied_effects": ["frontier_report:pattern_seen", "intel:frontier_pattern"],
+        "node_state_flags": ["frontier_pattern_seen"],
+        "node_state_summary": "В лесном посёлке уже видят повторяющийся frontier pattern по двум разным внешним рубежам.",
+        "requires_min_group_node_state_flags": 2,
+        "group_node_state_flag_pool": [
+            "northwatch_redoubt_return_logged",
+            "deep_marsh_shelter_aid_received",
+            "western_road_waystation_aid_received",
+        ],
+    },
+    {
+        "node_id": "forest_settlement",
+        "action_id": "compile_frontier_report",
+        "label": "Сверить frontier сводки",
+        "action_kind": "clue",
+        "effect_type": "clue",
+        "one_shot": False,
+        "result_type": "local_clue_found",
+        "summary": "Свести все три внешних доклада в полную frontier summary.",
+        "result_summary": "После докладов с северного рубежа, болот и западного тракта посёлок наконец видит полную frontier summary: разные края давят по-разному, но вся линия рубежа живёт в одном режиме задержек, коротких проверок и спешных возвратов с подтверждённым следом.",
+        "discovered_notes": [
+            "Три разных внешних возврата складываются в одну связную картину: frontier держится не отдельными случайностями, а общей полосой нарастающего давления по всем соседним выходам."
+        ],
+        "applied_effects": ["frontier_report:full_pattern", "intel:frontier_summary"],
+        "node_state_flags": ["frontier_full_pattern_logged"],
+        "node_state_summary": "В лесном посёлке уже собрали полную frontier summary по всем трём соседним регионам.",
+        "requires_min_group_node_state_flags": 3,
+        "group_node_state_flag_pool": [
+            "northwatch_redoubt_return_logged",
+            "deep_marsh_shelter_aid_received",
+            "western_road_waystation_aid_received",
+        ],
+    },
 )
 
 
@@ -1132,6 +1201,16 @@ STATIC_MAP_CONTEXT_ACTION_REQUIREMENTS: tuple[dict[str, Any], ...] = (
         "action_id": "listen_chapel_watch",
         "return_visit_only": True,
         "unlock_hint": "Дозорные разговорчивее при повторном визите, когда группа уже знакома селу.",
+    },
+    {
+        "node_id": "forest_settlement",
+        "action_id": "compile_frontier_report",
+        "requires_any_group_node_state_flags": [
+            "northwatch_redoubt_return_logged",
+            "deep_marsh_shelter_aid_received",
+            "western_road_waystation_aid_received",
+        ],
+        "unlock_hint": "Сначала вернуться хотя бы с одного подтверждённого дальнего доклада с соседнего рубежа.",
     },
 )
 
@@ -1190,6 +1269,25 @@ STATIC_MAP_NODE_STATE_OVERLAYS: tuple[dict[str, Any], ...] = (
         "context_note": "В посёлке уже приняли обратный рассказ о старой дороге и руинах, так что на группу смотрят как на тех, кто действительно проверил дальний ход.",
         "detail_note": "У охотничьих навесов лежит свежая пометка о возвращении группы с линии старой дороги, и разговор здесь уже идёт не на слухах, а на подтверждённом обходе.",
         "service_note": "После обратного доклада посёлок выдаёт помощь уже как знакомому составу, который сходил к руинам и вернулся с полезным наблюдением.",
+    },
+    {
+        "node_id": "forest_settlement",
+        "state_flag": "frontier_report_started",
+        "context_note": "В посёлке уже начали сводить внешние доклады в одну frontier-сводку, и местная тревога звучит шире, чем раньше.",
+        "detail_note": "У охотничьего костра уже помечен первый внешний доклад с соседнего рубежа: теперь разговор идёт не только о лесной дороге, но и о том, как тревога расходится по всей линии frontier.",
+    },
+    {
+        "node_id": "forest_settlement",
+        "state_flag": "frontier_pattern_seen",
+        "context_note": "В лесном посёлке уже видят повторяющийся frontier pattern по разным соседним рубежам.",
+        "detail_note": "По двум независимым внешним возвратам в посёлке уже различают общий рисунок: разные края страдают по-разному, но давят на людей одним и тем же нервным ритмом коротких вылазок и спешных отходов.",
+    },
+    {
+        "node_id": "forest_settlement",
+        "state_flag": "frontier_full_pattern_logged",
+        "context_note": "В посёлке уже собрали полную frontier summary по северному рубежу, болотам и западному тракту.",
+        "detail_note": "У навесов уже лежит полная сводка по трём соседним регионам: starter frontier теперь читает их не как отдельные тревоги, а как одну связанную линию давления на весь внешний край.",
+        "service_note": "После полной сводки лесной посёлок реагирует на группу как на тех, кто помог собрать общую frontier-картину, а не просто вернулся с одного дальнего хода.",
     },
     {
         "node_id": "western_road_watch",
@@ -2043,6 +2141,58 @@ def _normalized_text(value: Any) -> str:
     return str(value or "").strip().lower()
 
 
+def _normalized_text_list(values: Any) -> list[str]:
+    if not isinstance(values, (list, tuple, set)):
+        return []
+    return [
+        str(value).strip().lower()
+        for value in values
+        if str(value or "").strip()
+    ]
+
+
+def _matches_group_state_requirement_variant(
+    item: dict[str, Any],
+    *,
+    state_flags: list[str] | set[str] | None = None,
+    group_state_flags: list[str] | set[str] | None = None,
+) -> bool:
+    local_flags = {
+        str(flag).strip().lower()
+        for flag in (state_flags or [])
+        if str(flag or "").strip()
+    }
+    global_flags = {
+        str(flag).strip().lower()
+        for flag in (group_state_flags or [])
+        if str(flag or "").strip()
+    }
+    required_state_flags = set(_normalized_text_list(item.get("required_state_flags")))
+    if required_state_flags and not required_state_flags.issubset(local_flags):
+        return False
+    requires_any_group_flags = set(_normalized_text_list(item.get("requires_any_group_node_state_flags")))
+    if requires_any_group_flags and not (requires_any_group_flags & global_flags):
+        return False
+    requires_all_group_flags = set(_normalized_text_list(item.get("requires_all_group_node_state_flags")))
+    if requires_all_group_flags and not requires_all_group_flags.issubset(global_flags):
+        return False
+    required_min_group_flags = max(0, int(item.get("requires_min_group_node_state_flags") or 0))
+    if required_min_group_flags > 0:
+        group_flag_pool = set(_normalized_text_list(item.get("group_node_state_flag_pool")))
+        if len(group_flag_pool & global_flags) < required_min_group_flags:
+            return False
+    return True
+
+
+def _group_state_requirement_specificity(item: dict[str, Any]) -> tuple[int, int, int, int]:
+    return (
+        max(0, int(item.get("requires_min_group_node_state_flags") or 0)),
+        len(_normalized_text_list(item.get("requires_all_group_node_state_flags"))),
+        len(_normalized_text_list(item.get("requires_any_group_node_state_flags"))),
+        len(_normalized_text_list(item.get("required_state_flags"))),
+    )
+
+
 def build_static_route_id(from_node_id: str | None, to_node_id: str | None, action_kind: str | None) -> str:
     normalized_from = _normalized_text(from_node_id)
     normalized_to = _normalized_text(to_node_id)
@@ -2234,6 +2384,8 @@ def get_static_node_context_action_effects(
     *,
     node_id: str | None = None,
     current_map_position: dict[str, Any] | None = None,
+    state_flags: list[str] | set[str] | None = None,
+    group_state_flags: list[str] | set[str] | None = None,
 ) -> list[dict[str, Any]]:
     resolved_node_id = _normalized_text(node_id)
     if not resolved_node_id and isinstance(current_map_position, dict):
@@ -2282,9 +2434,37 @@ def get_static_node_context_action_effects(
         node_state_summary = str(item.get("node_state_summary") or "").strip()
         if node_state_summary:
             effect["node_state_summary"] = node_state_summary
+        requires_any_group_node_state_flags = _normalized_text_list(item.get("requires_any_group_node_state_flags"))
+        if requires_any_group_node_state_flags:
+            effect["requires_any_group_node_state_flags"] = requires_any_group_node_state_flags
+        requires_all_group_node_state_flags = _normalized_text_list(item.get("requires_all_group_node_state_flags"))
+        if requires_all_group_node_state_flags:
+            effect["requires_all_group_node_state_flags"] = requires_all_group_node_state_flags
+        requires_min_group_node_state_flags = int(item.get("requires_min_group_node_state_flags") or 0)
+        if requires_min_group_node_state_flags > 0:
+            effect["requires_min_group_node_state_flags"] = requires_min_group_node_state_flags
+        group_node_state_flag_pool = _normalized_text_list(item.get("group_node_state_flag_pool"))
+        if group_node_state_flag_pool:
+            effect["group_node_state_flag_pool"] = group_node_state_flag_pool
         if effect["action_id"] and effect["label"]:
             effects.append(effect)
-    return effects
+    if state_flags is None and group_state_flags is None:
+        return effects
+    best_effects: dict[str, dict[str, Any]] = {}
+    for effect in effects:
+        action_id = str(effect.get("action_id") or "").strip().lower()
+        if not action_id:
+            continue
+        if not _matches_group_state_requirement_variant(
+            effect,
+            state_flags=state_flags,
+            group_state_flags=group_state_flags,
+        ):
+            continue
+        current_best = best_effects.get(action_id)
+        if not current_best or _group_state_requirement_specificity(effect) >= _group_state_requirement_specificity(current_best):
+            best_effects[action_id] = effect
+    return [dict(best_effects[action_id]) for action_id in sorted(best_effects.keys())]
 
 
 def get_static_node_context_action_requirements(
@@ -2318,6 +2498,18 @@ def get_static_node_context_action_requirements(
         requires_destination_event_result_type = _normalized_text(item.get("requires_destination_event_result_type"))
         if requires_destination_event_result_type:
             requirement["requires_destination_event_result_type"] = requires_destination_event_result_type
+        requires_any_group_node_state_flags = _normalized_text_list(item.get("requires_any_group_node_state_flags"))
+        if requires_any_group_node_state_flags:
+            requirement["requires_any_group_node_state_flags"] = requires_any_group_node_state_flags
+        requires_all_group_node_state_flags = _normalized_text_list(item.get("requires_all_group_node_state_flags"))
+        if requires_all_group_node_state_flags:
+            requirement["requires_all_group_node_state_flags"] = requires_all_group_node_state_flags
+        requires_min_group_node_state_flags = int(item.get("requires_min_group_node_state_flags") or 0)
+        if requires_min_group_node_state_flags > 0:
+            requirement["requires_min_group_node_state_flags"] = requires_min_group_node_state_flags
+        group_node_state_flag_pool = _normalized_text_list(item.get("group_node_state_flag_pool"))
+        if group_node_state_flag_pool:
+            requirement["group_node_state_flag_pool"] = group_node_state_flag_pool
         if bool(item.get("first_visit_only")):
             requirement["first_visit_only"] = True
         if bool(item.get("return_visit_only")):
