@@ -1409,6 +1409,75 @@ STATIC_MAP_CONTEXT_ACTION_EFFECTS: tuple[dict[str, Any], ...] = (
     },
     {
         "node_id": "forest_settlement",
+        "action_id": "arrange_frontier_evidence",
+        "label": "Разложить frontier evidence",
+        "action_kind": "clue",
+        "effect_type": "clue",
+        "one_shot": False,
+        "result_type": "local_clue_found",
+        "summary": "Свести первый возвращённый field proof в конкретную evidence-сводку для посёлка.",
+        "result_summary": "В лесном посёлке впервые раскладывают не общую frontier тревогу, а настоящий возвращённый field proof: один конкретный след с внешней activated branch уже показывает, что рубеж можно читать не только по слухам и сводкам, но и по принесённым остаткам реального хода.",
+        "discovered_notes": [
+            "Первый возвращённый field proof меняет тон посёлка: frontier теперь обсуждают не только как общее давление, а как систему реальных следов, которые можно собирать и сверять дома."
+        ],
+        "applied_effects": ["frontier_evidence:started", "intel:frontier_evidence"],
+        "node_state_flags": ["frontier_evidence_started"],
+        "node_state_summary": "В лесном посёлке уже начали собирать конкретную frontier evidence-сводку по возвращённым proof signals.",
+        "requires_min_group_node_state_flags": 1,
+        "group_node_state_flag_pool": [
+            "northwatch_redoubt_cache_logged",
+            "deep_marsh_ferry_moorings_logged",
+            "western_road_waycart_manifest_logged",
+        ],
+    },
+    {
+        "node_id": "forest_settlement",
+        "action_id": "arrange_frontier_evidence",
+        "label": "Разложить frontier evidence",
+        "action_kind": "clue",
+        "effect_type": "clue",
+        "one_shot": False,
+        "result_type": "local_clue_found",
+        "summary": "Сопоставить два разных returned proofs и увидеть comparative evidence picture.",
+        "result_summary": "Когда в посёлок возвращают уже два разных field proofs, здесь появляется comparative evidence picture: северный organized trace, болотная crossing-memory или дорожный corridor-proof уже можно сравнивать как части одной frontier system, а не как изолированные находки.",
+        "discovered_notes": [
+            "Два разных returned proofs позволяют посёлку сравнивать не только pressure, но и сами типы следа: рубеж начинает читаться через конкретные evidence patterns, а не через одну тревогу на всех."
+        ],
+        "applied_effects": ["frontier_evidence:compared", "intel:frontier_evidence_comparison"],
+        "node_state_flags": ["frontier_evidence_compared"],
+        "node_state_summary": "В лесном посёлке уже сравнивают два разных returned proofs как части одной frontier evidence picture.",
+        "requires_min_group_node_state_flags": 2,
+        "group_node_state_flag_pool": [
+            "northwatch_redoubt_cache_logged",
+            "deep_marsh_ferry_moorings_logged",
+            "western_road_waycart_manifest_logged",
+        ],
+    },
+    {
+        "node_id": "forest_settlement",
+        "action_id": "arrange_frontier_evidence",
+        "label": "Разложить frontier evidence",
+        "action_kind": "clue",
+        "effect_type": "clue",
+        "one_shot": False,
+        "result_type": "local_clue_found",
+        "summary": "Собрать полную returned frontier evidence picture по всем трём activated branches.",
+        "result_summary": "После трёх возвращённых field proofs лесной посёлок получает полную returned frontier evidence picture: северный signal cache, болотные швартовые метки и дорожный waybill scrap складываются в concrete home-base reading того, как frontier держится и срывается на разных краях одной системы.",
+        "discovered_notes": [
+            "Три returned proofs дают посёлку уже не только pattern, а полную evidence picture frontier system: разные края приносят разные следы, но теперь все они лежат дома как одна проверяемая картина."
+        ],
+        "applied_effects": ["frontier_evidence:compiled", "intel:frontier_evidence_full"],
+        "node_state_flags": ["frontier_evidence_compiled"],
+        "node_state_summary": "В лесном посёлке уже собрали полную returned frontier evidence picture по всем трём activated branches.",
+        "requires_min_group_node_state_flags": 3,
+        "group_node_state_flag_pool": [
+            "northwatch_redoubt_cache_logged",
+            "deep_marsh_ferry_moorings_logged",
+            "western_road_waycart_manifest_logged",
+        ],
+    },
+    {
+        "node_id": "forest_settlement",
         "action_id": "compile_frontier_report",
         "label": "Сверить frontier сводки",
         "action_kind": "clue",
@@ -1502,6 +1571,16 @@ STATIC_MAP_CONTEXT_ACTION_REQUIREMENTS: tuple[dict[str, Any], ...] = (
             "western_road_waystation_aid_received",
         ],
         "unlock_hint": "Сначала вернуться хотя бы с одного подтверждённого дальнего доклада с соседнего рубежа.",
+    },
+    {
+        "node_id": "forest_settlement",
+        "action_id": "arrange_frontier_evidence",
+        "requires_any_group_node_state_flags": [
+            "northwatch_redoubt_cache_logged",
+            "deep_marsh_ferry_moorings_logged",
+            "western_road_waycart_manifest_logged",
+        ],
+        "unlock_hint": "Сначала вернуть домой хотя бы один конкретный field proof с activated frontier branch.",
     },
     {
         "node_id": "northwatch_palisade",
@@ -1645,6 +1724,25 @@ STATIC_MAP_NODE_STATE_OVERLAYS: tuple[dict[str, Any], ...] = (
         "context_note": "В посёлке уже собрали полную frontier summary по северному рубежу, болотам и западному тракту.",
         "detail_note": "У навесов уже лежит полная сводка по трём соседним регионам: starter frontier теперь читает их не как отдельные тревоги, а как одну связанную линию давления на весь внешний край.",
         "service_note": "После полной сводки лесной посёлок реагирует на группу как на тех, кто помог собрать общую frontier-картину, а не просто вернулся с одного дальнего хода.",
+    },
+    {
+        "node_id": "forest_settlement",
+        "state_flag": "frontier_evidence_started",
+        "context_note": "В посёлке уже начали раскладывать возвращённые field proofs как конкретную frontier evidence-сводку.",
+        "detail_note": "У навесов уже лежит первый настоящий след с activated branch: разговор о frontier теперь держится не только на общих сводках, но и на принесённом evidence.",
+    },
+    {
+        "node_id": "forest_settlement",
+        "state_flag": "frontier_evidence_compared",
+        "context_note": "В лесном посёлке уже сравнивают разные returned proofs как части одной frontier evidence picture.",
+        "detail_note": "По двум разным activated-branch traces посёлок уже видит, как отличаются не только pressure patterns, но и сами типы следа, которые возвращаются домой с рубежа.",
+    },
+    {
+        "node_id": "forest_settlement",
+        "state_flag": "frontier_evidence_compiled",
+        "context_note": "В посёлке уже собрали полную returned frontier evidence picture по всем трём activated branches.",
+        "detail_note": "У навесов уже лежат signal cache, болотные швартовые метки и дорожный waybill scrap: starter frontier теперь держит дома не только broad reports, а конкретный evidence picture всей внешней линии.",
+        "service_note": "После полной evidence picture лесной посёлок реагирует уже как база, которая не просто понимает frontier pressure, а держит у себя реальный набор возвращённых proofs.",
     },
     {
         "node_id": "forest_settlement",

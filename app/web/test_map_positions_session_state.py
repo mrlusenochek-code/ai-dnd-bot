@@ -2089,6 +2089,113 @@ def test_starter_frontier_cross_region_report_stages_from_one_to_three_distinct_
     assert any("полную frontier summary" in note.lower() or "трем соседним регионам" in note.lower() for note in final_context["state_notes"])
 
 
+def test_forest_settlement_returned_frontier_evidence_stages_from_one_to_three_distinct_proofs() -> None:
+    player_id = uuid.uuid4()
+    sess = SimpleNamespace(settings={})
+    session_state._initialize_default_group(
+        sess,
+        [player_id],
+        {"map_level": "region", "node_type": "zone", "node_id": "forest_settlement", "label": "Лесной посёлок"},
+    )
+    session_state.get_current_group_current_region_state(sess, player_id=player_id)
+
+    locked_actions = session_state.get_current_group_context_action_availability(sess, player_id=player_id)
+    locked = next(item for item in locked_actions if item["action_id"] == "arrange_frontier_evidence")
+    assert locked["availability_status"] == "locked"
+    assert locked["unavailable_reason"] == "requires_any_group_node_state_flags"
+    assert "field proof" in locked["unlock_hint"].lower()
+
+    session_state.add_group_node_state_flag(
+        sess,
+        "main",
+        "broken_redoubt",
+        state_flag="northwatch_redoubt_cache_logged",
+        summary="С северного рубежа уже вернули signal cache proof.",
+        source="test",
+    )
+    first_actions = session_state.get_current_group_context_action_availability(sess, player_id=player_id)
+    first = next(item for item in first_actions if item["action_id"] == "arrange_frontier_evidence")
+    assert first["availability_status"] == "available"
+    resolved_first, error = session_state.resolve_group_context_action(
+        sess,
+        "main",
+        action_id="arrange_frontier_evidence",
+        player_id=player_id,
+        source="test",
+    )
+    assert error is None
+    assert resolved_first is not None
+    assert "field proof" in resolved_first["last_context_action_result"]["result_summary"].lower()
+    context = session_state.get_current_group_node_context(sess, player_id=player_id)
+    assert "frontier_evidence_started" in context["node_state_flags"]
+    assert "frontier_evidence_compared" not in context["node_state_flags"]
+
+    session_state.add_group_node_state_flag(
+        sess,
+        "main",
+        "broken_redoubt",
+        state_flag="northwatch_redoubt_cache_logged",
+        summary="Повторный signal cache не должен давать ложную эскалацию.",
+        source="test",
+    )
+    duplicate, error = session_state.resolve_group_context_action(
+        sess,
+        "main",
+        action_id="arrange_frontier_evidence",
+        player_id=player_id,
+        source="test",
+    )
+    assert error is None
+    assert duplicate is not None
+    assert "comparative evidence picture" not in duplicate["last_context_action_result"]["result_summary"].lower()
+    assert "frontier_evidence_compared" not in session_state.get_current_group_node_context(sess, player_id=player_id)["node_state_flags"]
+
+    session_state.add_group_node_state_flag(
+        sess,
+        "main",
+        "sunken_ferry",
+        state_flag="deep_marsh_ferry_moorings_logged",
+        summary="Из болот уже вернули quiet crossing proof.",
+        source="test",
+    )
+    resolved_second, error = session_state.resolve_group_context_action(
+        sess,
+        "main",
+        action_id="arrange_frontier_evidence",
+        player_id=player_id,
+        source="test",
+    )
+    assert error is None
+    assert resolved_second is not None
+    assert "comparative evidence picture" in resolved_second["last_context_action_result"]["result_summary"].lower()
+    context = session_state.get_current_group_node_context(sess, player_id=player_id)
+    assert "frontier_evidence_compared" in context["node_state_flags"]
+
+    session_state.add_group_node_state_flag(
+        sess,
+        "main",
+        "broken_waycart",
+        state_flag="western_road_waycart_manifest_logged",
+        summary="С западного тракта уже вернули corridor-proof с повозки.",
+        source="test",
+    )
+    resolved_third, error = session_state.resolve_group_context_action(
+        sess,
+        "main",
+        action_id="arrange_frontier_evidence",
+        player_id=player_id,
+        source="test",
+    )
+    assert error is None
+    assert resolved_third is not None
+    assert "returned frontier evidence picture" in resolved_third["last_context_action_result"]["result_summary"].lower()
+    final_context = session_state.get_current_group_node_context(sess, player_id=player_id)
+    assert "frontier_evidence_compiled" in final_context["node_state_flags"]
+    assert any("evidence picture" in note.lower() or "signal cache" in note.lower() for note in final_context["state_notes"])
+    intel_entries = session_state.get_current_group_map_intel(sess, player_id=player_id)
+    assert any(entry["source_kind"] == "context_action" and entry["source_id"] == "arrange_frontier_evidence" for entry in intel_entries)
+
+
 def test_forest_settlement_frontier_support_stays_locked_before_report() -> None:
     player_id = uuid.uuid4()
     sess = SimpleNamespace(settings={})

@@ -773,6 +773,7 @@ def test_starter_frontier_nodes_expose_local_progression_arc_surfaces() -> None:
         ["frontier_full_pattern_logged"],
     ]
     assert any(item["action_id"] == "compile_frontier_report" for item in forest_actions)
+    assert any(item["action_id"] == "arrange_frontier_evidence" for item in forest_actions)
     assert forest_action_requirements == [
         {
             "node_id": "forest_settlement",
@@ -783,7 +784,17 @@ def test_starter_frontier_nodes_expose_local_progression_arc_surfaces() -> None:
                 "deep_marsh_shelter_aid_received",
                 "western_road_waystation_aid_received",
             ],
-        }
+        },
+        {
+            "node_id": "forest_settlement",
+            "action_id": "arrange_frontier_evidence",
+            "unlock_hint": "Сначала вернуть домой хотя бы один конкретный field proof с activated frontier branch.",
+            "requires_any_group_node_state_flags": [
+                "northwatch_redoubt_cache_logged",
+                "deep_marsh_ferry_moorings_logged",
+                "western_road_waycart_manifest_logged",
+            ],
+        },
     ]
     assert any(item["action_id"] == "clear_old_road" for item in get_current_node_context_actions(node_id="forest_road"))
 
