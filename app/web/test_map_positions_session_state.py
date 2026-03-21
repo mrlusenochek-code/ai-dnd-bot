@@ -2346,6 +2346,166 @@ def test_outward_frontier_support_changes_western_road_waystation_by_stage() -> 
     assert "western_road_support_committed" in session_state.get_current_group_node_context(committed_sess, player_id=player_id)["node_state_flags"]
 
 
+def test_support_enabled_northwatch_field_unlock_escalates_with_support_stages() -> None:
+    player_id = uuid.uuid4()
+
+    def _build_session(stage_flag: str | None = None) -> SimpleNamespace:
+        sess = SimpleNamespace(settings={})
+        session_state._initialize_default_group(
+            sess,
+            [player_id],
+            {"map_level": "landmark", "node_type": "landmark", "node_id": "northwatch_palisade", "label": "Сигнальная палисада"},
+        )
+        if stage_flag:
+            session_state.add_group_node_state_flag(
+                sess,
+                "main",
+                "forest_settlement",
+                state_flag=stage_flag,
+                summary="База выслала поддержку на рубеж.",
+                source="test",
+            )
+        return sess
+
+    locked_sess = _build_session()
+    locked_actions = session_state.get_current_group_context_action_availability(locked_sess, player_id=player_id)
+    locked = next(item for item in locked_actions if item["action_id"] == "set_relay_watch")
+    assert locked["availability_status"] == "locked"
+    assert locked["unavailable_reason"] == "requires_any_group_node_state_flags"
+
+    prepared_sess = _build_session("frontier_support_prepared")
+    prepared_actions = session_state.get_current_group_context_action_availability(prepared_sess, player_id=player_id)
+    prepared = next(item for item in prepared_actions if item["action_id"] == "set_relay_watch")
+    assert prepared["availability_status"] == "available"
+    prepared_result, error = session_state.resolve_group_context_action(
+        prepared_sess,
+        "main",
+        action_id="set_relay_watch",
+        player_id=player_id,
+        source="test",
+    )
+    assert error is None
+    assert prepared_result is not None
+    assert "первый relay-порядок" in prepared_result["last_context_action_result"]["result_summary"].lower()
+    prepared_context = session_state.get_current_group_node_context(prepared_sess, player_id=player_id)
+    assert "northwatch_relay_watch_prepared" in prepared_context["node_state_flags"]
+    assert any("relay-дозор" in note.lower() or "первый relay" in note.lower() for note in prepared_context["state_notes"])
+
+    committed_sess = _build_session("frontier_support_committed")
+    committed_actions = session_state.get_current_group_context_action_availability(committed_sess, player_id=player_id)
+    committed = next(item for item in committed_actions if item["action_id"] == "set_relay_watch")
+    assert committed["availability_status"] == "available"
+    committed_result, error = session_state.resolve_group_context_action(
+        committed_sess,
+        "main",
+        action_id="set_relay_watch",
+        player_id=player_id,
+        source="test",
+    )
+    assert error is None
+    assert committed_result is not None
+    assert "лучшую полевую версию" in committed_result["last_context_action_result"]["result_summary"].lower()
+    assert committed_result["last_context_action_result"]["result_summary"] != prepared_result["last_context_action_result"]["result_summary"]
+    committed_context = session_state.get_current_group_node_context(committed_sess, player_id=player_id)
+    assert "northwatch_relay_watch_committed" in committed_context["node_state_flags"]
+    assert any("strongpoint" in note.lower() or "лучший relay" in note.lower() for note in committed_context["state_notes"])
+
+
+def test_support_enabled_deep_marsh_field_unlock_becomes_available_with_support() -> None:
+    player_id = uuid.uuid4()
+    sess = SimpleNamespace(settings={})
+    session_state._initialize_default_group(
+        sess,
+        [player_id],
+        {"map_level": "region", "node_type": "zone", "node_id": "reed_shelter", "label": "Тростниковый приют"},
+    )
+
+    locked_actions = session_state.get_current_group_context_action_availability(sess, player_id=player_id)
+    locked = next(item for item in locked_actions if item["action_id"] == "braid_reed_wayline")
+    assert locked["availability_status"] == "locked"
+
+    session_state.add_group_node_state_flag(
+        sess,
+        "main",
+        "forest_settlement",
+        state_flag="frontier_support_ready",
+        summary="База уже держит готовую линию поддержки для дальних возвратов.",
+        source="test",
+    )
+
+    ready_actions = session_state.get_current_group_context_action_availability(sess, player_id=player_id)
+    ready = next(item for item in ready_actions if item["action_id"] == "braid_reed_wayline")
+    assert ready["availability_status"] == "available"
+    resolved, error = session_state.resolve_group_context_action(
+        sess,
+        "main",
+        action_id="braid_reed_wayline",
+        player_id=player_id,
+        source="test",
+    )
+    assert error is None
+    assert resolved is not None
+    assert "more reliable" not in resolved["last_context_action_result"]["result_summary"].lower()
+    assert "более надёжную marsh-wayline" in resolved["last_context_action_result"]["result_summary"].lower()
+    context = session_state.get_current_group_node_context(sess, player_id=player_id)
+    assert "deep_marsh_wayline_ready" in context["node_state_flags"]
+    assert any("marsh-wayline" in note.lower() or "quiet wayline" in note.lower() for note in context["state_notes"])
+
+
+def test_support_enabled_western_road_field_unlock_updates_marker_line() -> None:
+    player_id = uuid.uuid4()
+    sess = SimpleNamespace(settings={})
+    session_state._initialize_default_group(
+        sess,
+        [player_id],
+        {"map_level": "landmark", "node_type": "landmark", "node_id": "mile_marker_arch", "label": "Верстовая арка"},
+    )
+
+    session_state.add_group_node_state_flag(
+        sess,
+        "main",
+        "forest_settlement",
+        state_flag="frontier_support_prepared",
+        summary="База уже начала тянуть дорожную поддержку к внешним узлам.",
+        source="test",
+    )
+    prepared_result, error = session_state.resolve_group_context_action(
+        sess,
+        "main",
+        action_id="reset_detour_markers",
+        player_id=player_id,
+        source="test",
+    )
+    assert error is None
+    assert prepared_result is not None
+    assert "первые detour markers" in prepared_result["last_context_action_result"]["result_summary"].lower()
+    prepared_context = session_state.get_current_group_node_context(sess, player_id=player_id)
+    assert "western_road_detour_markers_prepared" in prepared_context["node_state_flags"]
+
+    session_state.add_group_node_state_flag(
+        sess,
+        "main",
+        "forest_settlement",
+        state_flag="frontier_support_committed",
+        summary="База уже держит полный support tier для тракта.",
+        source="test",
+    )
+    committed_result, error = session_state.resolve_group_context_action(
+        sess,
+        "main",
+        action_id="reset_detour_markers",
+        player_id=player_id,
+        source="test",
+    )
+    assert error is None
+    assert committed_result is not None
+    assert "лучшей версии" in committed_result["last_context_action_result"]["result_summary"].lower()
+    assert committed_result["last_context_action_result"]["result_summary"] != prepared_result["last_context_action_result"]["result_summary"]
+    committed_context = session_state.get_current_group_node_context(sess, player_id=player_id)
+    assert "western_road_detour_markers_committed" in committed_context["node_state_flags"]
+    assert any("corridor-marker" in note.lower() or "marker line" in note.lower() for note in committed_context["state_notes"])
+
+
 def test_local_interaction_gating_enforces_locked_execution_without_side_effects() -> None:
     player_id = uuid.uuid4()
     sess = SimpleNamespace(settings={})

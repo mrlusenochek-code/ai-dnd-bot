@@ -8,6 +8,7 @@ from app.web.map_registry import (
     get_static_node_context,
     get_static_node_destination_events,
     get_static_node_context_action_requirements,
+    get_static_node_context_action_effects,
     get_static_node_scout_discoveries,
     get_static_node_service_effects,
     get_static_node_service_requirements,
@@ -434,6 +435,12 @@ def test_northwatch_frontier_registry_content_and_onboarding_are_real() -> None:
 def test_northwatch_nodes_expose_services_actions_and_details() -> None:
     quartermaster_services = get_static_node_services(node_id="northwatch_quartermaster")
     palisade_actions = get_current_node_context_actions(node_id="northwatch_palisade")
+    palisade_requirements = get_static_node_context_action_requirements(node_id="northwatch_palisade")
+    palisade_effects = [
+        item
+        for item in get_static_node_context_action_effects(node_id="northwatch_palisade")
+        if item["action_id"] == "set_relay_watch"
+    ]
 
     assert [item["service_id"] for item in quartermaster_services] == [
         "northwatch_quartermaster:safe_rest",
@@ -450,8 +457,21 @@ def test_northwatch_nodes_expose_services_actions_and_details() -> None:
             "unlock_hint": "Интендант открывает рубежный склад только тем, кто уже сходил на короткую вылазку по рубежу и вернулся с первой сводкой.",
         }
     ]
-    assert get_static_node_context_action_requirements(node_id="northwatch_palisade") == []
     assert any(item["action_id"] == "review_signal_chalk" for item in palisade_actions)
+    assert any(item["action_id"] == "set_relay_watch" for item in palisade_actions)
+    assert palisade_requirements == [
+        {
+            "node_id": "northwatch_palisade",
+            "action_id": "set_relay_watch",
+            "unlock_hint": "Палисада разворачивает relay-дозор только когда база уже начала тянуть наружу практическую рубежную поддержку.",
+            "requires_any_group_node_state_flags": [
+                "frontier_support_prepared",
+                "frontier_support_ready",
+                "frontier_support_committed",
+            ],
+        }
+    ]
+    assert len(palisade_effects) == 3
     redoubt_effect = next(
         item for item in get_static_node_service_effects(node_id="northwatch_quartermaster") if item["service_id"] == "northwatch_quartermaster_resupply"
     )
@@ -508,6 +528,12 @@ def test_western_road_registry_content_and_onboarding_are_real() -> None:
 def test_western_road_nodes_expose_services_actions_events_and_scout_discovery() -> None:
     yard_services = get_static_node_services(node_id="waystation_yard")
     marker_actions = get_current_node_context_actions(node_id="mile_marker_arch")
+    marker_requirements = get_static_node_context_action_requirements(node_id="mile_marker_arch")
+    marker_effects = [
+        item
+        for item in get_static_node_context_action_effects(node_id="mile_marker_arch")
+        if item["action_id"] == "reset_detour_markers"
+    ]
 
     assert [item["service_id"] for item in yard_services] == [
         "waystation_yard:safe_rest",
@@ -525,6 +551,20 @@ def test_western_road_nodes_expose_services_actions_events_and_scout_discovery()
         }
     ]
     assert any(item["action_id"] == "read_waybill_marks" for item in marker_actions)
+    assert any(item["action_id"] == "reset_detour_markers" for item in marker_actions)
+    assert marker_requirements == [
+        {
+            "node_id": "mile_marker_arch",
+            "action_id": "reset_detour_markers",
+            "unlock_hint": "Detour-маркеры обновляют только когда с базы уже дошёл хотя бы первый practical support tier для дальних выходов.",
+            "requires_any_group_node_state_flags": [
+                "frontier_support_prepared",
+                "frontier_support_ready",
+                "frontier_support_committed",
+            ],
+        }
+    ]
+    assert len(marker_effects) == 3
     scout_discovery = get_static_node_scout_discoveries(node_id="mile_marker_arch")
     assert scout_discovery == [
         {
@@ -565,6 +605,13 @@ def test_deep_marsh_nodes_expose_services_actions_events_and_scout_discovery() -
     shelter_services = get_static_node_services(node_id="reed_shelter")
     waystone_actions = get_current_node_context_actions(node_id="drowned_waystone")
     waystone_scout = get_static_node_scout_discoveries(node_id="drowned_waystone")
+    shelter_actions = get_current_node_context_actions(node_id="reed_shelter")
+    shelter_requirements = get_static_node_context_action_requirements(node_id="reed_shelter")
+    shelter_effects = [
+        item
+        for item in get_static_node_context_action_effects(node_id="reed_shelter")
+        if item["action_id"] == "braid_reed_wayline"
+    ]
 
     assert [item["service_id"] for item in shelter_services] == [
         "reed_shelter:safe_rest",
@@ -582,6 +629,20 @@ def test_deep_marsh_nodes_expose_services_actions_events_and_scout_discovery() -
         }
     ]
     assert any(item["action_id"] == "read_moss_waymarks" for item in waystone_actions)
+    assert any(item["action_id"] == "braid_reed_wayline" for item in shelter_actions)
+    assert shelter_requirements == [
+        {
+            "node_id": "reed_shelter",
+            "action_id": "braid_reed_wayline",
+            "unlock_hint": "Тростниковую wayline имеет смысл плести только после того, как база реально начала поддерживать дальние возвраты.",
+            "requires_any_group_node_state_flags": [
+                "frontier_support_prepared",
+                "frontier_support_ready",
+                "frontier_support_committed",
+            ],
+        }
+    ]
+    assert len(shelter_effects) == 3
     assert waystone_scout == [
         {
             "node_id": "drowned_waystone",
