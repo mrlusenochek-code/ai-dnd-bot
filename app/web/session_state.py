@@ -553,7 +553,7 @@ def _normalize_group_last_context_action_result(raw: Any) -> dict[str, Any] | No
     action_id = str(raw.get("action_id") or "").strip().lower()
     action_label = str(raw.get("action_label") or action_id).strip()
     result_type = str(raw.get("result_type") or "").strip().lower()
-    if result_type not in {"route_cleared", "route_still_blocked", "local_clue_found", "no_effect", "already_completed"}:
+    if result_type not in {"route_cleared", "route_still_blocked", "local_clue_found", "local_support_applied", "no_effect", "already_completed"}:
         return None
     summary = str(raw.get("summary") or "").strip()
     result_summary = str(raw.get("result_summary") or "").strip()
@@ -593,7 +593,7 @@ def _normalize_group_context_action_state(raw: Any) -> dict[str, Any] | None:
     if status not in {"available", "completed", "resolved"}:
         return None
     result_type = str(raw.get("result_type") or "").strip().lower()
-    if result_type and result_type not in {"route_cleared", "route_still_blocked", "local_clue_found", "no_effect", "already_completed"}:
+    if result_type and result_type not in {"route_cleared", "route_still_blocked", "local_clue_found", "local_support_applied", "no_effect", "already_completed"}:
         return None
     summary = str(raw.get("summary") or "").strip()
     source = str(raw.get("source") or "context_action").strip() or "context_action"
@@ -9829,6 +9829,10 @@ def _build_map_intel_entry_from_context_action_result(
         entry_type = "warning"
         title = f"Предупреждение у {normalized.get('node_label')}"
         result_summary = discovered_notes[0]
+    elif result_type == "local_support_applied" and discovered_notes:
+        entry_type = "guidance"
+        title = f"Поддержка закреплена у {normalized.get('node_label')}"
+        result_summary = discovered_notes[0]
     else:
         return None
     route_id = str(effect.get("route_id") or "").strip().lower()
@@ -10695,6 +10699,8 @@ def build_group_context_action_result(
         result_type = "route_still_blocked"
     elif effect_type == "clue":
         result_type = "local_clue_found"
+    elif effect_type == "support":
+        result_type = str(effect.get("result_type") or "local_support_applied").strip().lower() or "local_support_applied"
     else:
         result_type = "no_effect"
 
@@ -10864,6 +10870,40 @@ def resolve_group_context_action(
                 summary=node_state_summary,
                 source=source,
             )
+        groups = _get_group_states(sess)
+        group = groups.get(group_key)
+    reveal_node_ids = [
+        str(node_ref).strip()
+        for node_ref in (action_effect.get("reveal_node_ids") or [])
+        if str(node_ref or "").strip()
+    ]
+    if group and reveal_node_ids:
+        group_player_ids = [
+            str(pid).strip()
+            for pid in (group.get("player_ids") or [])
+            if str(pid or "").strip()
+        ]
+        for pid in group_player_ids:
+            for revealed_node_id in reveal_node_ids:
+                reveal_player_map_node(sess, pid, revealed_node_id, source=source)
+        groups = _get_group_states(sess)
+        group = groups.get(group_key)
+    for route_update in (action_effect.get("route_access_updates") or []):
+        if not isinstance(route_update, dict):
+            continue
+        route_id = str(route_update.get("route_id") or "").strip().lower()
+        access_state = str(route_update.get("access_state") or "").strip().lower()
+        if not route_id or access_state not in {"open", "cleared", "blocked"}:
+            continue
+        set_group_route_access_state(
+            sess,
+            group_key,
+            route_id,
+            access_state=access_state,
+            summary=str(route_update.get("summary") or result.get("result_summary") or result.get("summary") or "").strip(),
+            block_reason=str(route_update.get("block_reason") or "").strip() or None,
+            source=source,
+        )
         groups = _get_group_states(sess)
         group = groups.get(group_key)
     if not group:

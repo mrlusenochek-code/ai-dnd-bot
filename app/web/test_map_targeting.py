@@ -472,6 +472,7 @@ def test_northwatch_nodes_expose_services_actions_and_details() -> None:
         }
     ]
     assert len(palisade_effects) == 3
+    assert all(item["reveal_node_ids"] == ["broken_redoubt"] for item in palisade_effects)
     redoubt_effect = next(
         item for item in get_static_node_service_effects(node_id="northwatch_quartermaster") if item["service_id"] == "northwatch_quartermaster_resupply"
     )
@@ -565,6 +566,13 @@ def test_western_road_nodes_expose_services_actions_events_and_scout_discovery()
         }
     ]
     assert len(marker_effects) == 3
+    assert all(
+        [route_update["route_id"] for route_update in item["route_access_updates"]] == [
+            "rutted_detour->broken_waycart:move",
+            "broken_waycart->rutted_detour:move",
+        ]
+        for item in marker_effects
+    )
     scout_discovery = get_static_node_scout_discoveries(node_id="mile_marker_arch")
     assert scout_discovery == [
         {
@@ -643,6 +651,14 @@ def test_deep_marsh_nodes_expose_services_actions_events_and_scout_discovery() -
         }
     ]
     assert len(shelter_effects) == 3
+    assert all(item["reveal_node_ids"] == ["sunken_ferry"] for item in shelter_effects)
+    assert all(
+        [route_update["route_id"] for route_update in item["route_access_updates"]] == [
+            "blackwater_run->sunken_ferry:move",
+            "sunken_ferry->blackwater_run:move",
+        ]
+        for item in shelter_effects
+    )
     assert waystone_scout == [
         {
             "node_id": "drowned_waystone",

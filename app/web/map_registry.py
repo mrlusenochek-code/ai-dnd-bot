@@ -1098,6 +1098,7 @@ STATIC_MAP_CONTEXT_ACTION_EFFECTS: tuple[dict[str, Any], ...] = (
         "applied_effects": ["support_deployment:northwatch_relay", "readiness:northwatch_prepared"],
         "node_state_flags": ["northwatch_relay_watch_prepared"],
         "node_state_summary": "На палисаде уже развернули первый relay-порядок под базовую поддержку с лесного посёлка.",
+        "reveal_node_ids": ["broken_redoubt"],
         "requires_any_group_node_state_flags": ["frontier_support_prepared"],
     },
     {
@@ -1116,6 +1117,7 @@ STATIC_MAP_CONTEXT_ACTION_EFFECTS: tuple[dict[str, Any], ...] = (
         "applied_effects": ["support_deployment:northwatch_relay", "readiness:northwatch_ready"],
         "node_state_flags": ["northwatch_relay_watch_ready"],
         "node_state_summary": "На палисаде уже закрепили более надёжный relay-порядок под готовую линию поддержки.",
+        "reveal_node_ids": ["broken_redoubt"],
         "requires_any_group_node_state_flags": ["frontier_support_ready"],
     },
     {
@@ -1134,6 +1136,7 @@ STATIC_MAP_CONTEXT_ACTION_EFFECTS: tuple[dict[str, Any], ...] = (
         "applied_effects": ["support_deployment:northwatch_relay", "readiness:northwatch_committed"],
         "node_state_flags": ["northwatch_relay_watch_committed"],
         "node_state_summary": "На палисаде уже держат лучший relay-порядок северного рубежа под полной поддержкой базы.",
+        "reveal_node_ids": ["broken_redoubt"],
         "requires_any_group_node_state_flags": ["frontier_support_committed"],
     },
     {
@@ -1169,6 +1172,19 @@ STATIC_MAP_CONTEXT_ACTION_EFFECTS: tuple[dict[str, Any], ...] = (
         "applied_effects": ["support_deployment:deep_marsh_wayline", "survival:deep_marsh_prepared"],
         "node_state_flags": ["deep_marsh_wayline_prepared"],
         "node_state_summary": "У тростникового приюта уже сплели первую короткую wayline под осторожную поддержку с базы.",
+        "reveal_node_ids": ["sunken_ferry"],
+        "route_access_updates": [
+            {
+                "route_id": "blackwater_run->sunken_ferry:move",
+                "access_state": "cleared",
+                "summary": "Тростниковая wayline делает короткий ход к затонувшей переправе заметно читаемее.",
+            },
+            {
+                "route_id": "sunken_ferry->blackwater_run:move",
+                "access_state": "cleared",
+                "summary": "Тростниковая wayline помогает увереннее держать обратный ход от затонувшей переправы.",
+            },
+        ],
         "requires_any_group_node_state_flags": ["frontier_support_prepared"],
     },
     {
@@ -1187,6 +1203,19 @@ STATIC_MAP_CONTEXT_ACTION_EFFECTS: tuple[dict[str, Any], ...] = (
         "applied_effects": ["support_deployment:deep_marsh_wayline", "survival:deep_marsh_ready"],
         "node_state_flags": ["deep_marsh_wayline_ready"],
         "node_state_summary": "У приюта уже держат более надёжную marsh-wayline благодаря готовой поддержке с базы.",
+        "reveal_node_ids": ["sunken_ferry"],
+        "route_access_updates": [
+            {
+                "route_id": "blackwater_run->sunken_ferry:move",
+                "access_state": "cleared",
+                "summary": "Готовая marsh-wayline делает путь к затонувшей переправе заметно надёжнее.",
+            },
+            {
+                "route_id": "sunken_ferry->blackwater_run:move",
+                "access_state": "cleared",
+                "summary": "Готовая marsh-wayline держит уверенный возврат от затонувшей переправы к чёрной протоке.",
+            },
+        ],
         "requires_any_group_node_state_flags": ["frontier_support_ready"],
     },
     {
@@ -1205,6 +1234,19 @@ STATIC_MAP_CONTEXT_ACTION_EFFECTS: tuple[dict[str, Any], ...] = (
         "applied_effects": ["support_deployment:deep_marsh_wayline", "survival:deep_marsh_committed"],
         "node_state_flags": ["deep_marsh_wayline_committed"],
         "node_state_summary": "У приюта уже закрепили лучшую болотную wayline под полной поддержкой с базы.",
+        "reveal_node_ids": ["sunken_ferry"],
+        "route_access_updates": [
+            {
+                "route_id": "blackwater_run->sunken_ferry:move",
+                "access_state": "cleared",
+                "summary": "Лучшая quiet wayline делает ferry branch самым читаемым болотным ходом этого участка.",
+            },
+            {
+                "route_id": "sunken_ferry->blackwater_run:move",
+                "access_state": "cleared",
+                "summary": "Лучшая quiet wayline держит самый уверенный возвратный ход от ferry branch обратно к протоке.",
+            },
+        ],
         "requires_any_group_node_state_flags": ["frontier_support_committed"],
     },
     {
@@ -1240,6 +1282,18 @@ STATIC_MAP_CONTEXT_ACTION_EFFECTS: tuple[dict[str, Any], ...] = (
         "applied_effects": ["support_deployment:western_road_markers", "corridor:western_road_prepared"],
         "node_state_flags": ["western_road_detour_markers_prepared"],
         "node_state_summary": "У верстовой арки уже обновили первые detour markers под начальную поддержку с базы.",
+        "route_access_updates": [
+            {
+                "route_id": "rutted_detour->broken_waycart:move",
+                "access_state": "cleared",
+                "summary": "Первые detour markers делают короткий подход к брошенной повозке понятнее прямо с объезда.",
+            },
+            {
+                "route_id": "broken_waycart->rutted_detour:move",
+                "access_state": "cleared",
+                "summary": "Первые detour markers помогают не потерять обратный corridor line от брошенной повозки.",
+            },
+        ],
         "requires_any_group_node_state_flags": ["frontier_support_prepared"],
     },
     {
@@ -1258,6 +1312,18 @@ STATIC_MAP_CONTEXT_ACTION_EFFECTS: tuple[dict[str, Any], ...] = (
         "applied_effects": ["support_deployment:western_road_markers", "corridor:western_road_ready"],
         "node_state_flags": ["western_road_detour_markers_ready"],
         "node_state_summary": "У верстовой арки уже собрали более надёжную marker-line под готовую поддержку с базы.",
+        "route_access_updates": [
+            {
+                "route_id": "rutted_detour->broken_waycart:move",
+                "access_state": "cleared",
+                "summary": "Готовая marker-line делает ход к повозке ровнее и читабельнее даже на разбитом объезде.",
+            },
+            {
+                "route_id": "broken_waycart->rutted_detour:move",
+                "access_state": "cleared",
+                "summary": "Готовая marker-line удерживает уверенный обратный ход от повозки к объезду.",
+            },
+        ],
         "requires_any_group_node_state_flags": ["frontier_support_ready"],
     },
     {
@@ -1276,6 +1342,18 @@ STATIC_MAP_CONTEXT_ACTION_EFFECTS: tuple[dict[str, Any], ...] = (
         "applied_effects": ["support_deployment:western_road_markers", "corridor:western_road_committed"],
         "node_state_flags": ["western_road_detour_markers_committed"],
         "node_state_summary": "У верстовой арки уже закрепили лучшую corridor marker-line под полной поддержкой базы.",
+        "route_access_updates": [
+            {
+                "route_id": "rutted_detour->broken_waycart:move",
+                "access_state": "cleared",
+                "summary": "Лучшая corridor marker-line делает detour branch к повозке самым читаемым дорожным следом на этом участке.",
+            },
+            {
+                "route_id": "broken_waycart->rutted_detour:move",
+                "access_state": "cleared",
+                "summary": "Лучшая corridor marker-line удерживает самый надёжный возвратный ход от broken_waycart обратно в detour corridor.",
+            },
+        ],
         "requires_any_group_node_state_flags": ["frontier_support_committed"],
     },
     {
@@ -2971,6 +3049,34 @@ def get_static_node_context_action_effects(
         node_state_summary = str(item.get("node_state_summary") or "").strip()
         if node_state_summary:
             effect["node_state_summary"] = node_state_summary
+        reveal_node_ids = [
+            str(node_ref).strip()
+            for node_ref in (item.get("reveal_node_ids") or [])
+            if str(node_ref or "").strip() and get_static_node(str(node_ref)) is not None
+        ]
+        if reveal_node_ids:
+            effect["reveal_node_ids"] = reveal_node_ids
+        route_access_updates: list[dict[str, Any]] = []
+        for route_update in (item.get("route_access_updates") or []):
+            if not isinstance(route_update, dict):
+                continue
+            route_id = str(route_update.get("route_id") or "").strip().lower()
+            access_state = str(route_update.get("access_state") or "").strip().lower()
+            if not route_id or access_state not in {"open", "cleared", "blocked"}:
+                continue
+            normalized_update: dict[str, Any] = {
+                "route_id": route_id,
+                "access_state": access_state,
+            }
+            summary = str(route_update.get("summary") or "").strip()
+            if summary:
+                normalized_update["summary"] = summary
+            block_reason = str(route_update.get("block_reason") or "").strip()
+            if block_reason:
+                normalized_update["block_reason"] = block_reason
+            route_access_updates.append(normalized_update)
+        if route_access_updates:
+            effect["route_access_updates"] = route_access_updates
         requires_any_group_node_state_flags = _normalized_text_list(item.get("requires_any_group_node_state_flags"))
         if requires_any_group_node_state_flags:
             effect["requires_any_group_node_state_flags"] = requires_any_group_node_state_flags

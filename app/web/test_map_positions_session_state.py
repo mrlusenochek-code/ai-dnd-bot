@@ -2386,10 +2386,14 @@ def test_support_enabled_northwatch_field_unlock_escalates_with_support_stages()
     )
     assert error is None
     assert prepared_result is not None
+    assert prepared_result["last_context_action_result"]["result_type"] == "local_support_applied"
     assert "первый relay-порядок" in prepared_result["last_context_action_result"]["result_summary"].lower()
+    assert session_state.is_player_node_revealed(prepared_sess, player_id, "broken_redoubt") is True
     prepared_context = session_state.get_current_group_node_context(prepared_sess, player_id=player_id)
     assert "northwatch_relay_watch_prepared" in prepared_context["node_state_flags"]
     assert any("relay-дозор" in note.lower() or "первый relay" in note.lower() for note in prepared_context["state_notes"])
+    prepared_intel = session_state.get_current_group_map_intel(prepared_sess, player_id=player_id)
+    assert any(entry["source_kind"] == "context_action" and entry["source_id"] == "set_relay_watch" for entry in prepared_intel)
 
     committed_sess = _build_session("frontier_support_committed")
     committed_actions = session_state.get_current_group_context_action_availability(committed_sess, player_id=player_id)
@@ -2445,8 +2449,12 @@ def test_support_enabled_deep_marsh_field_unlock_becomes_available_with_support(
     )
     assert error is None
     assert resolved is not None
+    assert resolved["last_context_action_result"]["result_type"] == "local_support_applied"
     assert "more reliable" not in resolved["last_context_action_result"]["result_summary"].lower()
     assert "более надёжную marsh-wayline" in resolved["last_context_action_result"]["result_summary"].lower()
+    assert session_state.is_player_node_revealed(sess, player_id, "sunken_ferry") is True
+    assert session_state.get_group_route_access_state(sess, "main", "blackwater_run->sunken_ferry:move")["access_state"] == "cleared"
+    assert session_state.get_group_route_access_state(sess, "main", "sunken_ferry->blackwater_run:move")["access_state"] == "cleared"
     context = session_state.get_current_group_node_context(sess, player_id=player_id)
     assert "deep_marsh_wayline_ready" in context["node_state_flags"]
     assert any("marsh-wayline" in note.lower() or "quiet wayline" in note.lower() for note in context["state_notes"])
@@ -2478,9 +2486,12 @@ def test_support_enabled_western_road_field_unlock_updates_marker_line() -> None
     )
     assert error is None
     assert prepared_result is not None
+    assert prepared_result["last_context_action_result"]["result_type"] == "local_support_applied"
     assert "первые detour markers" in prepared_result["last_context_action_result"]["result_summary"].lower()
     prepared_context = session_state.get_current_group_node_context(sess, player_id=player_id)
     assert "western_road_detour_markers_prepared" in prepared_context["node_state_flags"]
+    assert session_state.get_group_route_access_state(sess, "main", "rutted_detour->broken_waycart:move")["access_state"] == "cleared"
+    assert session_state.get_group_route_access_state(sess, "main", "broken_waycart->rutted_detour:move")["access_state"] == "cleared"
 
     session_state.add_group_node_state_flag(
         sess,
