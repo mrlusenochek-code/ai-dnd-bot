@@ -79,6 +79,8 @@ from app.web.session_state import (
     get_current_group_last_journey_result,
     get_current_group_region_pursuit,
     get_current_group_last_region_pursuit_result,
+    get_current_group_multi_region_pursuit,
+    get_current_group_last_multi_region_pursuit_result,
     get_current_group_last_region_pursuit_step_result,
     get_current_group_route_planning,
     get_group_route_plan_to_node,
@@ -109,6 +111,7 @@ from app.web.session_state import (
     get_current_group_last_region_link_result,
     get_current_group_known_region_route,
     get_current_group_known_region_route_options,
+    set_group_multi_region_pursuit,
     set_group_region_pursuit,
     clear_group_region_pursuit,
     advance_group_region_pursuit,
@@ -1829,6 +1832,9 @@ def _parse_group_command(cmdline: str) -> tuple[str | None, dict[str, Any]]:
     if lowered in {"group region-pursuit", "group_region_pursuit"}:
         return "group_region_pursuit_status", {}
 
+    if lowered in {"group known-region-pursuit", "group_known_region_pursuit"}:
+        return "group_multi_region_pursuit_status", {}
+
     if lowered in {"group region-step", "group_region_step"}:
         return "group_region_pursuit_step_status", {}
 
@@ -1856,6 +1862,10 @@ def _parse_group_command(cmdline: str) -> tuple[str | None, dict[str, Any]]:
     for prefix in ("group pursue-region ", "group_pursue_region "):
         if lowered.startswith(prefix):
             return "group_region_pursuit_set", {"target_region_id": txt[len(prefix):].strip()}
+
+    for prefix in ("group pursue-known-region ", "group_pursue_known_region "):
+        if lowered.startswith(prefix):
+            return "group_multi_region_pursuit_set", {"target_region_id": txt[len(prefix):].strip()}
 
     if lowered in {"group stop-region", "group_stop_region"}:
         return "group_region_pursuit_clear", {}
@@ -2005,8 +2015,10 @@ def _handle_group_action_request(
         "group_primary_region_focus_plan",
         "group_primary_region_route",
         "group_region_pursuit_set",
+        "group_multi_region_pursuit_set",
         "group_region_pursuit_clear",
         "group_region_pursuit_status",
+        "group_multi_region_pursuit_status",
         "group_region_pursuit_advance",
         "group_region_pursuit_step_status",
         "group_region_onboarding",
@@ -2444,6 +2456,28 @@ def _handle_group_action_request(
             return True, error, None
         return True, None, str(result.get("result_summary") or f"Region pursuit группы {actor_group_key} обновлён.")
 
+    if action == "group_multi_region_pursuit_set":
+        if not actor_group_key:
+            return True, "Группа игрока не найдена.", None
+        target_region_id = str(payload.get("target_region_id") or "").strip()
+        if not target_region_id:
+            return True, "Нужно указать target_region_id для multi-region pursuit.", None
+        updated, error = set_group_multi_region_pursuit(
+            sess,
+            actor_group_key,
+            target_region_id,
+            player_id=actor_player_id,
+            source=source,
+        )
+        result = (updated or {}).get("last_region_pursuit_result") or get_current_group_last_multi_region_pursuit_result(
+            sess,
+            player_id=actor_player_id,
+            group_id=actor_group_key,
+        ) or {}
+        if error:
+            return True, error, None
+        return True, None, str(result.get("result_summary") or f"Multi-region pursuit группы {actor_group_key} обновлён.")
+
     if action == "group_region_pursuit_clear":
         if not actor_group_key:
             return True, "Группа игрока не найдена.", None
@@ -2485,6 +2519,36 @@ def _handle_group_action_request(
             )
         return True, None, (
             f"Последний region pursuit группы {actor_group_key}: "
+            f"{str((result or {}).get('target_region_label') or 'регион')} "
+            f"({str((result or {}).get('result_type') or 'unknown')})."
+        )
+
+    if action == "group_multi_region_pursuit_status":
+        if not actor_group_key:
+            return True, "Группа игрока не найдена.", None
+        pursuit = get_current_group_multi_region_pursuit(
+            sess,
+            player_id=actor_player_id,
+            group_id=actor_group_key,
+        )
+        result = get_current_group_last_multi_region_pursuit_result(
+            sess,
+            player_id=actor_player_id,
+            group_id=actor_group_key,
+        )
+        if not pursuit and not result:
+            return True, None, f"У группы {actor_group_key} сейчас нет активного multi-region pursuit."
+        if pursuit:
+            path_labels = " -> ".join(str(item) for item in (pursuit.get("target_region_path_labels") or []) if str(item).strip())
+            return True, None, (
+                f"Multi-region pursuit группы {actor_group_key}: "
+                f"{str(pursuit.get('target_region_label') or 'регион')} "
+                f"({str(pursuit.get('known_route_status') or pursuit.get('pursuit_status') or 'unknown')}). "
+                f"Следующий hop: {str(pursuit.get('next_hop_region_id') or 'нет')}. "
+                f"Маршрут: {path_labels or 'нет'}."
+            )
+        return True, None, (
+            f"Последний multi-region pursuit группы {actor_group_key}: "
             f"{str((result or {}).get('target_region_label') or 'регион')} "
             f"({str((result or {}).get('result_type') or 'unknown')})."
         )

@@ -66,6 +66,8 @@ def test_parse_group_command_supports_wait_camp_rest_scout_move_navigate_context
     action_route_known_region, payload_route_known_region = ws_handlers._parse_group_command("group route-known-region northwatch_frontier")
     action_known_path, payload_known_path = ws_handlers._parse_group_command("group known-path northwatch_frontier")
     action_pursue_region, payload_pursue_region = ws_handlers._parse_group_command("group pursue-region northwatch_frontier")
+    action_pursue_known_region, payload_pursue_known_region = ws_handlers._parse_group_command("group pursue-known-region western_road")
+    action_known_region_pursuit, payload_known_region_pursuit = ws_handlers._parse_group_command("group known-region-pursuit")
     action_stop_region, payload_stop_region = ws_handlers._parse_group_command("group stop-region")
     action_enter, payload_enter = ws_handlers._parse_group_command("group enter замок")
     action_mode, payload_mode = ws_handlers._parse_group_command("group mode cautious")
@@ -146,6 +148,8 @@ def test_parse_group_command_supports_wait_camp_rest_scout_move_navigate_context
     assert (action_route_known_region, payload_route_known_region) == ("group_known_region_route", {"target_region_id": "northwatch_frontier"})
     assert (action_known_path, payload_known_path) == ("group_known_region_route", {"target_region_id": "northwatch_frontier"})
     assert (action_pursue_region, payload_pursue_region) == ("group_region_pursuit_set", {"target_region_id": "northwatch_frontier"})
+    assert (action_pursue_known_region, payload_pursue_known_region) == ("group_multi_region_pursuit_set", {"target_region_id": "western_road"})
+    assert (action_known_region_pursuit, payload_known_region_pursuit) == ("group_multi_region_pursuit_status", {})
     assert (action_stop_region, payload_stop_region) == ("group_region_pursuit_clear", {})
     assert (action_enter, payload_enter) == ("group_enter", {"target_hint": "замок"})
     assert (action_mode, payload_mode) == ("group_set_mode", {"movement_mode": "cautious"})
@@ -1918,6 +1922,122 @@ def test_handle_group_region_pursuit_advance_and_step_status_surfaces() -> None:
     assert err_status is None
     assert "group exit forest_settlement_northwatch" in str(msg_status)
 
+
+def test_handle_group_multi_region_pursuit_set_and_status_surfaces() -> None:
+    player_id = uuid.uuid4()
+    empty_sess = SimpleNamespace(settings={})
+    session_state._initialize_default_group(
+        empty_sess,
+        [player_id],
+        {
+            "map_level": "region",
+            "node_type": "zone",
+            "node_id": "forest_road",
+            "label": "Лесная дорога",
+        },
+    )
+    handled_empty, err_empty, msg_empty = ws_handlers._handle_group_action_request(
+        empty_sess,
+        action="group_multi_region_pursuit_status",
+        actor_player_id=player_id,
+        payload={},
+        source="test",
+    )
+    assert handled_empty is True
+    assert err_empty is None
+    assert "нет активного multi-region pursuit" in str(msg_empty)
+
+    sess = SimpleNamespace(settings={})
+    session_state._initialize_default_group(
+        sess,
+        [player_id],
+        {
+            "map_level": "region",
+            "node_type": "zone",
+            "node_id": "forest_road",
+            "label": "Лесная дорога",
+        },
+    )
+    session_state.get_current_group_current_region_state(sess, player_id=player_id)
+    session_state.reveal_player_map_node(sess, player_id, "forest_settlement", source="test")
+    session_state.add_group_node_state_flag(
+        sess,
+        "main",
+        "forest_settlement",
+        state_flag="forest_supplies_secured",
+        summary="Лесной набор уже готов.",
+        source="test",
+    )
+    session_state.record_group_gateway_traversal(
+        sess,
+        "main",
+        gateway_id="forest_settlement_northwatch",
+        gateway_label="Выход к северному рубежу",
+        source_region_id="starter_frontier",
+        source_region_label="Стартовое пограничье",
+        target_region_id="northwatch_frontier",
+        target_region_label="Северный рубеж",
+        source="test",
+    )
+    groups = session_state._get_group_states(sess)
+    group = groups["main"]
+    group["discovered_regions"]["northwatch_frontier"] = {
+        "region_id": "northwatch_frontier",
+        "region_label": "Северный рубеж",
+        "visit_count": 1,
+        "first_entered_at": "2025-01-02T00:00:00+00:00",
+        "last_entered_at": "2025-01-02T00:00:00+00:00",
+        "first_anchor_node_id": "northwatch_outpost",
+        "last_anchor_node_id": "northwatch_outpost",
+        "summary": "Группа ранее входила в регион Северный рубеж.",
+    }
+    group["discovered_regions"]["western_road"] = {
+        "region_id": "western_road",
+        "region_label": "Западный тракт",
+        "visit_count": 1,
+        "first_entered_at": "2025-01-03T00:00:00+00:00",
+        "last_entered_at": "2025-01-03T00:00:00+00:00",
+        "first_anchor_node_id": "old_western_mile",
+        "last_anchor_node_id": "old_western_mile",
+        "summary": "Группа ранее входила в регион Западный тракт.",
+    }
+    group["region_link_states"]["region-link:northwatch_frontier::western_road"] = {
+        "link_id": "region-link:northwatch_frontier::western_road",
+        "region_a_id": "northwatch_frontier",
+        "region_a_label": "Северный рубеж",
+        "region_b_id": "western_road",
+        "region_b_label": "Западный тракт",
+        "gateway_ids": ["northwatch_western_stub"],
+        "traversal_count": 1,
+        "first_discovered_at": "2025-01-03T00:00:00+00:00",
+        "last_traversed_at": "2025-01-03T00:00:00+00:00",
+        "summary": "Связь между Северным рубежом и Западным трактом уже подтверждена.",
+    }
+    session_state._persist_group_states(sess, groups)
+    session_state._sync_group_position_mirrors(sess, group)
+
+    handled_set, err_set, msg_set = ws_handlers._handle_group_action_request(
+        sess,
+        action="group_multi_region_pursuit_set",
+        actor_player_id=player_id,
+        payload={"target_region_id": "western_road"},
+        source="test",
+    )
+    assert handled_set is True
+    assert err_set is None
+    assert "Западный тракт" in str(msg_set)
+
+    handled_status, err_status, msg_status = ws_handlers._handle_group_action_request(
+        sess,
+        action="group_multi_region_pursuit_status",
+        actor_player_id=player_id,
+        payload={},
+        source="test",
+    )
+    assert handled_status is True
+    assert err_status is None
+    assert "multi_region_route" in str(msg_status)
+    assert "northwatch_frontier" in str(msg_status)
 
 def test_handle_group_journey_set_advance_status_and_stop() -> None:
     player_id = uuid.uuid4()

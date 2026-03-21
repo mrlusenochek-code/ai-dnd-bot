@@ -6437,6 +6437,12 @@ def _normalize_group_active_region_pursuit(raw: Any) -> dict[str, Any] | None:
     gateway_source_node_label = str(raw.get("gateway_source_node_label") or gateway_source_node_id).strip()
     linked_journey_id = str(raw.get("linked_journey_id") or "").strip()
     suggested_next_command = str(raw.get("suggested_next_command") or "").strip()
+    pursuit_scope = str(raw.get("pursuit_scope") or "").strip().lower()
+    current_hop_region_id = str(raw.get("current_hop_region_id") or "").strip().lower()
+    next_hop_region_id = str(raw.get("next_hop_region_id") or "").strip().lower()
+    known_route_status = str(raw.get("known_route_status") or "").strip().lower()
+    target_region_path_ids = [str(item).strip().lower() for item in (raw.get("target_region_path_ids") or []) if str(item or "").strip()]
+    target_region_path_labels = [str(item).strip() for item in (raw.get("target_region_path_labels") or []) if str(item or "").strip()]
     source = str(raw.get("source") or "region_pursuit").strip() or "region_pursuit"
     created_at = str(raw.get("created_at") or "").strip()
     updated_at = str(raw.get("updated_at") or "").strip()
@@ -6477,6 +6483,31 @@ def _normalize_group_active_region_pursuit(raw: Any) -> dict[str, Any] | None:
         "suggested_next_command": suggested_next_command[:160],
         "source": source[:40],
     }
+    if pursuit_scope:
+        if pursuit_scope not in {"direct_region", "known_multi_region"}:
+            return None
+        normalized["pursuit_scope"] = pursuit_scope[:40]
+    if current_hop_region_id:
+        normalized["current_hop_region_id"] = current_hop_region_id[:120]
+    if next_hop_region_id:
+        normalized["next_hop_region_id"] = next_hop_region_id[:120]
+    if known_route_status:
+        if known_route_status not in {
+            "current_region",
+            "direct_route",
+            "multi_region_route",
+            "blocked_next_gateway",
+            "locked_next_gateway",
+            "future_stub_next_gateway",
+            "target_region_undiscovered",
+            "no_known_route",
+        }:
+            return None
+        normalized["known_route_status"] = known_route_status[:60]
+    if target_region_path_ids:
+        normalized["target_region_path_ids"] = target_region_path_ids
+    if target_region_path_labels:
+        normalized["target_region_path_labels"] = target_region_path_labels[:16] if len(target_region_path_labels) > 16 else target_region_path_labels
     if created_at:
         normalized["created_at"] = created_at[:80]
     if updated_at:
@@ -6497,6 +6528,12 @@ def _normalize_group_last_region_pursuit_result(raw: Any) -> dict[str, Any] | No
     gateway_id = str(raw.get("gateway_id") or "").strip().lower()
     gateway_label = str(raw.get("gateway_label") or gateway_id).strip()
     linked_journey_id = str(raw.get("linked_journey_id") or "").strip()
+    pursuit_scope = str(raw.get("pursuit_scope") or "").strip().lower()
+    current_hop_region_id = str(raw.get("current_hop_region_id") or "").strip().lower()
+    next_hop_region_id = str(raw.get("next_hop_region_id") or "").strip().lower()
+    known_route_status = str(raw.get("known_route_status") or "").strip().lower()
+    target_region_path_ids = [str(item).strip().lower() for item in (raw.get("target_region_path_ids") or []) if str(item or "").strip()]
+    target_region_path_labels = [str(item).strip() for item in (raw.get("target_region_path_labels") or []) if str(item or "").strip()]
     source = str(raw.get("source") or "region_pursuit").strip() or "region_pursuit"
     resolved_at = str(raw.get("resolved_at") or "").strip()
     if result_type not in {
@@ -6508,6 +6545,10 @@ def _normalize_group_last_region_pursuit_result(raw: Any) -> dict[str, Any] | No
         "region_pursuit_future_stub",
         "region_pursuit_unavailable",
         "region_pursuit_cleared",
+        "region_pursuit_multihop_set",
+        "region_pursuit_multihop_updated",
+        "region_pursuit_multihop_blocked",
+        "region_pursuit_multihop_unavailable",
     }:
         return None
     if guidance_status and guidance_status not in {
@@ -6536,6 +6577,31 @@ def _normalize_group_last_region_pursuit_result(raw: Any) -> dict[str, Any] | No
         "linked_journey_id": linked_journey_id[:80],
         "source": source[:40],
     }
+    if pursuit_scope:
+        if pursuit_scope not in {"direct_region", "known_multi_region"}:
+            return None
+        normalized["pursuit_scope"] = pursuit_scope[:40]
+    if current_hop_region_id:
+        normalized["current_hop_region_id"] = current_hop_region_id[:120]
+    if next_hop_region_id:
+        normalized["next_hop_region_id"] = next_hop_region_id[:120]
+    if known_route_status:
+        if known_route_status not in {
+            "current_region",
+            "direct_route",
+            "multi_region_route",
+            "blocked_next_gateway",
+            "locked_next_gateway",
+            "future_stub_next_gateway",
+            "target_region_undiscovered",
+            "no_known_route",
+        }:
+            return None
+        normalized["known_route_status"] = known_route_status[:60]
+    if target_region_path_ids:
+        normalized["target_region_path_ids"] = target_region_path_ids
+    if target_region_path_labels:
+        normalized["target_region_path_labels"] = target_region_path_labels[:16] if len(target_region_path_labels) > 16 else target_region_path_labels
     if resolved_at:
         normalized["resolved_at"] = resolved_at[:80]
     return normalized
@@ -7485,6 +7551,334 @@ def get_current_group_known_region_route_options(
     )
 
 
+def build_group_multi_region_pursuit_result(
+    *,
+    result_type: str,
+    summary: str,
+    result_summary: str,
+    target_region_id: str,
+    target_region_label: str,
+    guidance_status: str,
+    gateway_id: str = "",
+    gateway_label: str = "",
+    linked_journey_id: str = "",
+    pursuit_scope: str = "known_multi_region",
+    target_region_path_ids: list[str] | None = None,
+    target_region_path_labels: list[str] | None = None,
+    current_hop_region_id: str = "",
+    next_hop_region_id: str = "",
+    known_route_status: str = "",
+    source: str = "region_pursuit",
+) -> dict[str, Any] | None:
+    return build_group_region_pursuit_result(
+        result_type=result_type,
+        summary=summary,
+        result_summary=result_summary,
+        target_region_id=target_region_id,
+        target_region_label=target_region_label,
+        guidance_status=guidance_status,
+        gateway_id=gateway_id,
+        gateway_label=gateway_label,
+        linked_journey_id=linked_journey_id,
+        pursuit_scope=pursuit_scope,
+        target_region_path_ids=target_region_path_ids,
+        target_region_path_labels=target_region_path_labels,
+        current_hop_region_id=current_hop_region_id,
+        next_hop_region_id=next_hop_region_id,
+        known_route_status=known_route_status,
+        source=source,
+    )
+
+
+def _build_group_pursuit_from_known_route(
+    sess: Session,
+    *,
+    group_key: str,
+    route: dict[str, Any],
+    player_id: uuid.UUID | str | None = None,
+    source: str = "region_pursuit",
+    existing_pursuit: dict[str, Any] | None = None,
+) -> tuple[dict[str, Any] | None, dict[str, Any] | None, str | None]:
+    normalized_route = _normalize_group_known_region_route(route)
+    if not normalized_route:
+        return None, None, "Не удалось нормализовать known-region route."
+    route_status = str(normalized_route.get("route_status") or "").strip().lower()
+    target_region_id = str(normalized_route.get("target_region_id") or "")
+    target_region_label = str(normalized_route.get("target_region_label") or target_region_id)
+    region_path_ids = list(normalized_route.get("region_path_ids") or [])
+    region_path_labels = list(normalized_route.get("region_path_labels") or [])
+    current_hop_region_id = str(region_path_ids[0] if region_path_ids else normalized_route.get("current_region_id") or "").strip().lower()
+    next_hop_region_id = str(region_path_ids[1] if len(region_path_ids) > 1 else "").strip().lower()
+    next_hop_label = str(region_path_labels[1] if len(region_path_labels) > 1 else next_hop_region_id).strip()
+    next_hop_plan = get_group_region_target_plan(sess, group_key, next_hop_region_id) if next_hop_region_id else None
+    if route_status in {
+        "direct_route",
+        "multi_region_route",
+        "blocked_next_gateway",
+        "locked_next_gateway",
+        "future_stub_next_gateway",
+    } and next_hop_region_id and not next_hop_plan:
+        return None, None, "Не удалось собрать direct target-region guidance для следующего region hop."
+    existing_scope = str((existing_pursuit or {}).get("pursuit_scope") or "").strip().lower()
+    if existing_scope == "known_multi_region":
+        pursuit_scope = "known_multi_region"
+    else:
+        pursuit_scope = "known_multi_region" if route_status == "multi_region_route" else "direct_region"
+    linked_journey_id = ""
+    result_type = "region_pursuit_multihop_updated" if existing_pursuit else "region_pursuit_multihop_set"
+    pursuit_status = "unavailable"
+    summary = str(normalized_route.get("summary") or "").strip() or f"Region pursuit к {target_region_label} обновлён."
+    result_summary = summary
+    gateway_id = str((next_hop_plan or {}).get("gateway_id") or "")
+    gateway_label = str((next_hop_plan or {}).get("gateway_label") or "")
+    guidance_status = str((next_hop_plan or {}).get("plan_status") or "")
+    group = _get_group_states(sess).get(group_key) or {}
+    active_journey = _normalize_group_active_journey((group or {}).get("active_journey"))
+
+    if route_status in {
+        "direct_route",
+        "multi_region_route",
+        "blocked_next_gateway",
+        "locked_next_gateway",
+        "future_stub_next_gateway",
+    }:
+        if guidance_status == "approach_gateway":
+            gateway_source_node_id = str((next_hop_plan or {}).get("gateway_source_node_id") or "").strip().lower()
+            if (
+                active_journey
+                and gateway_source_node_id
+                and str(active_journey.get("target_node_id") or "").strip().lower() == gateway_source_node_id
+            ):
+                linked_journey_id = str(active_journey.get("journey_id") or "")
+            else:
+                updated_group, error = set_group_journey_target(
+                    sess,
+                    group_key,
+                    str((next_hop_plan or {}).get("gateway_source_node_id") or ""),
+                    player_id=player_id,
+                    source=source,
+                )
+                if error:
+                    return updated_group, None, error
+                groups = _get_group_states(sess)
+                group = groups.get(group_key) or updated_group or {}
+                active_journey = _normalize_group_active_journey((group or {}).get("active_journey"))
+                linked_journey_id = str((active_journey or {}).get("journey_id") or "")
+            pursuit_status = "pursuing_gateway"
+            result_type = "region_pursuit_multihop_updated" if pursuit_scope == "known_multi_region" and existing_pursuit else (
+                "region_pursuit_multihop_set" if pursuit_scope == "known_multi_region" else ("region_pursuit_updated" if existing_pursuit else "region_pursuit_set")
+            )
+            summary = (
+                f"Группа начинает long-range pursuit региона {target_region_label} через следующий hop к региону {next_hop_label}."
+                if pursuit_scope == "known_multi_region"
+                else f"Группа начинает pursuit региона {target_region_label} через подход к {str((next_hop_plan or {}).get('gateway_source_node_label') or 'gateway source')}."
+            )
+            result_summary = str(normalized_route.get("summary") or (next_hop_plan or {}).get("summary") or summary)
+        elif guidance_status == "gateway_ready":
+            active_group = (_get_group_states(sess).get(group_key) or {})
+            active_journey = _normalize_group_active_journey(active_group.get("active_journey"))
+            if active_journey and str(active_journey.get("target_node_id") or "").strip().lower() == str((next_hop_plan or {}).get("gateway_source_node_id") or "").strip().lower():
+                clear_group_journey(sess, group_key, source=source)
+            pursuit_status = "gateway_ready"
+            result_type = "region_pursuit_gateway_ready" if pursuit_scope == "direct_region" else "region_pursuit_multihop_updated"
+            summary = (
+                f"Группа уже готова пройти следующий gateway к региону {next_hop_label} на пути к {target_region_label}."
+                if pursuit_scope == "known_multi_region"
+                else f"Группа уже готова пересечь {gateway_label or 'gateway'} и войти в регион {target_region_label}."
+            )
+            result_summary = summary
+        elif guidance_status == "gateway_blocked":
+            pursuit_status = "blocked"
+            result_type = "region_pursuit_multihop_blocked" if pursuit_scope == "known_multi_region" else "region_pursuit_blocked"
+        elif guidance_status == "gateway_locked":
+            pursuit_status = "locked"
+            result_type = "region_pursuit_multihop_blocked" if pursuit_scope == "known_multi_region" else "region_pursuit_locked"
+        elif guidance_status == "gateway_future_stub":
+            pursuit_status = "future_stub"
+            result_type = "region_pursuit_multihop_blocked" if pursuit_scope == "known_multi_region" else "region_pursuit_future_stub"
+        else:
+            pursuit_status = "unavailable"
+            result_type = "region_pursuit_multihop_unavailable" if pursuit_scope == "known_multi_region" else "region_pursuit_unavailable"
+    else:
+        pursuit_status = "unavailable"
+        result_type = "region_pursuit_multihop_unavailable" if pursuit_scope == "known_multi_region" else "region_pursuit_unavailable"
+
+    pursuit = _build_group_active_region_pursuit(
+        target_region_plan=next_hop_plan or {
+            "target_region_id": next_hop_region_id or target_region_id,
+            "target_region_label": next_hop_label or target_region_label,
+            "plan_status": guidance_status or "target_region_unavailable",
+            "summary": summary,
+            "current_region_id": str(normalized_route.get("current_region_id") or ""),
+            "current_region_label": str(normalized_route.get("current_region_label") or ""),
+        },
+        pursuit_status=pursuit_status,
+        linked_journey_id=linked_journey_id,
+        pursuit_scope=pursuit_scope,
+        target_region_id=target_region_id,
+        target_region_label=target_region_label,
+        target_region_path_ids=region_path_ids,
+        target_region_path_labels=region_path_labels,
+        current_hop_region_id=current_hop_region_id,
+        next_hop_region_id=next_hop_region_id,
+        known_route_status=route_status,
+        source=source,
+        pursuit_id=str((existing_pursuit or {}).get("pursuit_id") or ""),
+        created_at=str((existing_pursuit or {}).get("created_at") or ""),
+    )
+    if not pursuit:
+        return None, None, "Не удалось создать canonical multi-region pursuit."
+    result = build_group_multi_region_pursuit_result(
+        result_type=result_type,
+        summary=summary,
+        result_summary=result_summary,
+        target_region_id=target_region_id,
+        target_region_label=target_region_label,
+        guidance_status=guidance_status or route_status,
+        gateway_id=gateway_id,
+        gateway_label=gateway_label,
+        linked_journey_id=linked_journey_id,
+        pursuit_scope=pursuit_scope,
+        target_region_path_ids=region_path_ids,
+        target_region_path_labels=region_path_labels,
+        current_hop_region_id=current_hop_region_id,
+        next_hop_region_id=next_hop_region_id,
+        known_route_status=route_status,
+        source=source,
+    )
+    return pursuit, result, None
+
+
+def set_group_multi_region_pursuit(
+    sess: Session,
+    group_id: str,
+    target_region_id: str,
+    *,
+    player_id: uuid.UUID | str | None = None,
+    source: str = "region_pursuit",
+) -> tuple[dict[str, Any] | None, str | None]:
+    groups = _get_group_states(sess)
+    group_key = str(group_id or "").strip()
+    normalized_target_region_id = str(target_region_id or "").strip().lower()
+    group = groups.get(group_key)
+    if not isinstance(group, dict):
+        return None, "Группа не найдена."
+    if not normalized_target_region_id:
+        return None, "Нужно указать target_region_id для multi-region pursuit."
+    route = get_group_known_region_route(sess, group_key, normalized_target_region_id)
+    if not route:
+        return None, "Не удалось собрать canonical known-region route для multi-region pursuit."
+    existing_pursuit = _normalize_group_active_region_pursuit(group.get("active_region_pursuit"))
+    pursuit, result, error = _build_group_pursuit_from_known_route(
+        sess,
+        group_key=group_key,
+        route=route,
+        player_id=player_id,
+        source=source,
+        existing_pursuit=existing_pursuit,
+    )
+    if error:
+        return None, error
+    groups = _get_group_states(sess)
+    group = groups.get(group_key) or group
+    if not isinstance(group, dict) or not pursuit:
+        return None, "Не удалось сохранить multi-region pursuit."
+    group["active_region_pursuit"] = pursuit
+    if result:
+        group["last_region_pursuit_result"] = result
+    groups[group_key] = group
+    _persist_group_states(sess, groups)
+    _sync_group_position_mirrors(sess, group)
+    return dict(group), None
+
+
+def sync_group_multi_region_pursuit(
+    sess: Session,
+    group_id: str,
+    *,
+    source: str = "region_pursuit",
+) -> dict[str, Any] | None:
+    groups = _get_group_states(sess)
+    group_key = str(group_id or "").strip()
+    group = groups.get(group_key)
+    if not isinstance(group, dict):
+        return None
+    pursuit = _normalize_group_active_region_pursuit(group.get("active_region_pursuit"))
+    if not pursuit or str(pursuit.get("pursuit_scope") or "").strip().lower() != "known_multi_region":
+        return pursuit
+    route = get_group_known_region_route(sess, group_key, str(pursuit.get("target_region_id") or ""))
+    if not route:
+        return pursuit
+    route_status = str(route.get("route_status") or "").strip().lower()
+    if route_status == "current_region":
+        group.pop("active_region_pursuit", None)
+        result = build_group_multi_region_pursuit_result(
+            result_type="region_pursuit_cleared",
+            summary=f"Группа достигла целевого региона {str(pursuit.get('target_region_label') or 'региона')}.",
+            result_summary=f"Long-range pursuit к {str(pursuit.get('target_region_label') or 'региону')} завершён.",
+            target_region_id=str(pursuit.get("target_region_id") or ""),
+            target_region_label=str(pursuit.get("target_region_label") or ""),
+            guidance_status="current_region",
+            gateway_id=str(pursuit.get("gateway_id") or ""),
+            gateway_label=str(pursuit.get("gateway_label") or ""),
+            linked_journey_id=str(pursuit.get("linked_journey_id") or ""),
+            pursuit_scope="known_multi_region",
+            target_region_path_ids=list(route.get("region_path_ids") or []),
+            target_region_path_labels=list(route.get("region_path_labels") or []),
+            current_hop_region_id=str(route.get("current_region_id") or ""),
+            next_hop_region_id="",
+            known_route_status=route_status,
+            source=source,
+        )
+        if result:
+            group["last_region_pursuit_result"] = result
+        groups[group_key] = group
+        _persist_group_states(sess, groups)
+        _sync_group_position_mirrors(sess, group)
+        return None
+    refreshed_pursuit, refreshed_result, error = _build_group_pursuit_from_known_route(
+        sess,
+        group_key=group_key,
+        route=route,
+        player_id=None,
+        source=source,
+        existing_pursuit=pursuit,
+    )
+    if error or not refreshed_pursuit:
+        return pursuit
+    group["active_region_pursuit"] = refreshed_pursuit
+    if refreshed_result:
+        group["last_region_pursuit_result"] = refreshed_result
+    groups[group_key] = group
+    _persist_group_states(sess, groups)
+    _sync_group_position_mirrors(sess, group)
+    return refreshed_pursuit
+
+
+def get_current_group_multi_region_pursuit(
+    sess: Session,
+    *,
+    player_id: uuid.UUID | str | None = None,
+    group_id: str | None = None,
+) -> dict[str, Any] | None:
+    pursuit = get_current_group_region_pursuit(sess, player_id=player_id, group_id=group_id)
+    if pursuit and str(pursuit.get("pursuit_scope") or "").strip().lower() == "known_multi_region":
+        return pursuit
+    return None
+
+
+def get_current_group_last_multi_region_pursuit_result(
+    sess: Session,
+    *,
+    player_id: uuid.UUID | str | None = None,
+    group_id: str | None = None,
+) -> dict[str, Any] | None:
+    result = get_current_group_last_region_pursuit_result(sess, player_id=player_id, group_id=group_id)
+    if result and str(result.get("pursuit_scope") or "").strip().lower() == "known_multi_region":
+        return result
+    return None
+
+
 def build_group_region_pursuit_result(
     *,
     result_type: str,
@@ -7496,6 +7890,12 @@ def build_group_region_pursuit_result(
     gateway_id: str = "",
     gateway_label: str = "",
     linked_journey_id: str = "",
+    pursuit_scope: str = "",
+    target_region_path_ids: list[str] | None = None,
+    target_region_path_labels: list[str] | None = None,
+    current_hop_region_id: str = "",
+    next_hop_region_id: str = "",
+    known_route_status: str = "",
     source: str = "region_pursuit",
 ) -> dict[str, Any] | None:
     return _normalize_group_last_region_pursuit_result(
@@ -7510,6 +7910,12 @@ def build_group_region_pursuit_result(
             "gateway_id": gateway_id,
             "gateway_label": gateway_label,
             "linked_journey_id": linked_journey_id,
+            "pursuit_scope": pursuit_scope,
+            "target_region_path_ids": list(target_region_path_ids or []),
+            "target_region_path_labels": list(target_region_path_labels or []),
+            "current_hop_region_id": current_hop_region_id,
+            "next_hop_region_id": next_hop_region_id,
+            "known_route_status": known_route_status,
             "source": source,
             "resolved_at": datetime.now(timezone.utc).isoformat(),
         }
@@ -7521,6 +7927,14 @@ def _build_group_active_region_pursuit(
     target_region_plan: dict[str, Any],
     pursuit_status: str,
     linked_journey_id: str = "",
+    pursuit_scope: str = "",
+    target_region_id: str | None = None,
+    target_region_label: str | None = None,
+    target_region_path_ids: list[str] | None = None,
+    target_region_path_labels: list[str] | None = None,
+    current_hop_region_id: str = "",
+    next_hop_region_id: str = "",
+    known_route_status: str = "",
     source: str = "region_pursuit",
     pursuit_id: str | None = None,
     created_at: str | None = None,
@@ -7531,8 +7945,8 @@ def _build_group_active_region_pursuit(
     return _normalize_group_active_region_pursuit(
         {
             "pursuit_id": str(pursuit_id or f"region-pursuit-{uuid.uuid4().hex[:12]}"),
-            "target_region_id": str(plan.get("target_region_id") or ""),
-            "target_region_label": str(plan.get("target_region_label") or ""),
+            "target_region_id": str(target_region_id or plan.get("target_region_id") or ""),
+            "target_region_label": str(target_region_label or plan.get("target_region_label") or ""),
             "pursuit_status": pursuit_status,
             "guidance_status": str(plan.get("plan_status") or ""),
             "gateway_id": str(plan.get("gateway_id") or ""),
@@ -7541,6 +7955,12 @@ def _build_group_active_region_pursuit(
             "gateway_source_node_label": str(plan.get("gateway_source_node_label") or ""),
             "linked_journey_id": linked_journey_id,
             "suggested_next_command": str(plan.get("suggested_command") or ""),
+            "pursuit_scope": pursuit_scope,
+            "target_region_path_ids": list(target_region_path_ids or []),
+            "target_region_path_labels": list(target_region_path_labels or []),
+            "current_hop_region_id": current_hop_region_id,
+            "next_hop_region_id": next_hop_region_id,
+            "known_route_status": known_route_status,
             "source": source,
             "created_at": str(created_at or datetime.now(timezone.utc).isoformat()),
             "updated_at": datetime.now(timezone.utc).isoformat(),
@@ -7562,6 +7982,8 @@ def sync_group_region_pursuit_with_guidance(
     pursuit = _normalize_group_active_region_pursuit(group.get("active_region_pursuit"))
     if not pursuit:
         return None
+    if str(pursuit.get("pursuit_scope") or "").strip().lower() == "known_multi_region":
+        return sync_group_multi_region_pursuit(sess, group_key, source=source)
     plan = get_group_region_target_plan(sess, group_key, str(pursuit.get("target_region_id") or ""))
     if not plan:
         return pursuit
@@ -7593,6 +8015,12 @@ def sync_group_region_pursuit_with_guidance(
         source=source,
         pursuit_id=str(pursuit.get("pursuit_id") or ""),
         created_at=str(pursuit.get("created_at") or ""),
+        pursuit_scope=str(pursuit.get("pursuit_scope") or "direct_region"),
+        target_region_path_ids=list(pursuit.get("target_region_path_ids") or []),
+        target_region_path_labels=list(pursuit.get("target_region_path_labels") or []),
+        current_hop_region_id=str(pursuit.get("current_hop_region_id") or ""),
+        next_hop_region_id=str(pursuit.get("next_hop_region_id") or ""),
+        known_route_status=str(pursuit.get("known_route_status") or ""),
     )
     if not updated:
         return pursuit
@@ -7961,10 +8389,15 @@ def advance_group_region_pursuit(
             return None, "Не удалось обновить группу после регионального перехода."
         transition_result = _normalize_group_last_region_transition_result(latest_group.get("last_region_transition_result")) or transition_result
         if str(transition_result.get("transition_status") or "").strip().lower() == "completed":
-            latest_group.pop("active_region_pursuit", None)
-        latest_groups[group_key] = latest_group
-        _persist_group_states(sess, latest_groups)
-        _sync_group_position_mirrors(sess, latest_group)
+            if str(pursuit.get("pursuit_scope") or "").strip().lower() == "known_multi_region":
+                synced = sync_group_multi_region_pursuit(sess, group_key, source=source)
+                latest_groups = _get_group_states(sess)
+                latest_group = latest_groups.get(group_key) or latest_group
+            else:
+                latest_group.pop("active_region_pursuit", None)
+                latest_groups[group_key] = latest_group
+                _persist_group_states(sess, latest_groups)
+                _sync_group_position_mirrors(sess, latest_group)
         return _store_step(
             result_type="region_pursuit_step_transitioned",
             summary=f"Группа выполняет переход через {gateway_label or 'gateway'} в регион {target_region_label}.",
