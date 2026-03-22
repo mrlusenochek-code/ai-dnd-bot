@@ -1986,6 +1986,75 @@ STATIC_MAP_CONTEXT_ACTION_EFFECTS: tuple[dict[str, Any], ...] = (
     },
     {
         "node_id": "forest_settlement",
+        "action_id": "review_serviced_route_guidance",
+        "label": "Сверить serviced route guidance",
+        "action_kind": "support",
+        "effect_type": "support",
+        "one_shot": False,
+        "result_type": "local_support_applied",
+        "summary": "Собрать первую compact route-guidance memory по одной реально serviced боковой линии.",
+        "result_summary": "Лесной посёлок впервые может выдать не просто память о checked side-line, а рабочую route-guidance memory: по courier slate, side-pass reeds или marsh-watch sign здесь уже умеют коротко объяснить, как читать один reclaimed боковой ход в привычном frontier routine.",
+        "discovered_notes": [
+            "Первая serviced route-guidance memory меняет базу с наблюдателя на практическую точку чтения reclaimed side-line: checked ход теперь можно не только помнить, но и кратко вести по нему."
+        ],
+        "applied_effects": ["frontier_mesh_guidance:started", "intel:serviced_route_guidance"],
+        "node_state_flags": ["frontier_serviced_guidance_started"],
+        "node_state_summary": "В лесном посёлке уже собрали первую compact route-guidance memory по одной serviced боковой линии.",
+        "requires_min_group_node_state_flags": 1,
+        "group_node_state_flag_pool": [
+            "northwatch_watchroad_slate_logged",
+            "deep_marsh_sidepass_marked",
+            "northwatch_marsh_watch_sign_logged",
+        ],
+    },
+    {
+        "node_id": "forest_settlement",
+        "action_id": "review_serviced_route_guidance",
+        "label": "Сверить serviced route guidance",
+        "action_kind": "support",
+        "effect_type": "support",
+        "one_shot": False,
+        "result_type": "local_support_applied",
+        "summary": "Свести две serviced линии в spanning route-guidance memory по reclaimed mesh.",
+        "result_summary": "Когда база уже держит две разные serviced боковые линии, route-guidance становится spanning: courier rhythm, cautious side-pass и wet edge reading начинают складываться в более уверенную рабочую память о том, как вести через reclaimed outer mesh.",
+        "discovered_notes": [
+            "Две serviced линии дают базе уже не одну local hint, а spanning route-guidance memory по растущей рабочей ткани reclaimed frontier."
+        ],
+        "applied_effects": ["frontier_mesh_guidance:spanning", "intel:serviced_route_guidance_spanning"],
+        "node_state_flags": ["frontier_serviced_guidance_spanning"],
+        "node_state_summary": "В лесном посёлке уже свели две serviced линии в spanning route-guidance memory по reclaimed mesh.",
+        "requires_min_group_node_state_flags": 2,
+        "group_node_state_flag_pool": [
+            "northwatch_watchroad_slate_logged",
+            "deep_marsh_sidepass_marked",
+            "northwatch_marsh_watch_sign_logged",
+        ],
+    },
+    {
+        "node_id": "forest_settlement",
+        "action_id": "review_serviced_route_guidance",
+        "label": "Сверить serviced route guidance",
+        "action_kind": "support",
+        "effect_type": "support",
+        "one_shot": False,
+        "result_type": "local_support_applied",
+        "summary": "Собрать полную route-guidance memory по всему serviced reclaimed triangle.",
+        "result_summary": "После трёх serviced боковых линий лесной посёлок получает full reclaimed triangle guidance memory: watch-road cadence, marsh-road side-pass habit и watch-marsh edge reading уже можно выдавать как одну compact operational fabric, а не как разрозненные крайние приметы.",
+        "discovered_notes": [
+            "Полная serviced route-guidance memory делает reclaimed mesh operationally legible: база уже не только помнит checked линии, но и умеет кратко сводить их в working frontier guidance."
+        ],
+        "applied_effects": ["frontier_mesh_guidance:closed", "intel:serviced_route_guidance_closed"],
+        "node_state_flags": ["frontier_serviced_guidance_closed"],
+        "node_state_summary": "В лесном посёлке уже собрали полную route-guidance memory по всему serviced reclaimed triangle.",
+        "requires_min_group_node_state_flags": 3,
+        "group_node_state_flag_pool": [
+            "northwatch_watchroad_slate_logged",
+            "deep_marsh_sidepass_marked",
+            "northwatch_marsh_watch_sign_logged",
+        ],
+    },
+    {
+        "node_id": "forest_settlement",
         "action_id": "compile_frontier_report",
         "label": "Сверить frontier сводки",
         "action_kind": "clue",
@@ -2130,6 +2199,16 @@ STATIC_MAP_CONTEXT_ACTION_REQUIREMENTS: tuple[dict[str, Any], ...] = (
             "northwatch_marsh_watch_sign_logged",
         ],
         "unlock_hint": "Сначала реально сверить хотя бы одну reclaimed side-line в поле, чтобы база увидела не только topology, а уже checked mesh memory.",
+    },
+    {
+        "node_id": "forest_settlement",
+        "action_id": "review_serviced_route_guidance",
+        "requires_any_group_node_state_flags": [
+            "northwatch_watchroad_slate_logged",
+            "deep_marsh_sidepass_marked",
+            "northwatch_marsh_watch_sign_logged",
+        ],
+        "unlock_hint": "Сначала реально проверить хотя бы одну reclaimed side-line в поле, чтобы база могла выдать не только memory, а уже compact route-guidance reading.",
     },
     {
         "node_id": "northwatch_quartermaster",
@@ -2443,6 +2522,25 @@ STATIC_MAP_NODE_STATE_OVERLAYS: tuple[dict[str, Any], ...] = (
         "context_note": "В лесном посёлке уже собрали полную serviced mesh picture по всему reclaimed local triangle.",
         "detail_note": "Три checked side-lines замыкают не просто topology, а remembered serviced frontier fabric: база теперь видит reclaimed triangle как рабочую сеть, а не только как открытую геометрию.",
         "service_note": "После полного serviced mesh review посёлок ведёт себя как база, которая помнит не только lateral topology, но и то, что все её боковые линии уже реально проверены в поле.",
+    },
+    {
+        "node_id": "forest_settlement",
+        "state_flag": "frontier_serviced_guidance_started",
+        "context_note": "В лесном посёлке уже держат первую compact guidance memory по одной serviced боковой линии.",
+        "detail_note": "Один checked side-line уже переведён здесь из памяти в практическую подсказку: база не только помнит этот ход, но и умеет коротко объяснить его рабочий ритм.",
+    },
+    {
+        "node_id": "forest_settlement",
+        "state_flag": "frontier_serviced_guidance_spanning",
+        "context_note": "Лесной посёлок уже собирает spanning route-guidance memory по двум serviced линиям reclaimed mesh.",
+        "detail_note": "Две checked боковые линии дают базе уже не одну local hint, а более уверенную рабочую память о том, как читать и связывать reclaimed outer mesh в привычном frontier routine.",
+    },
+    {
+        "node_id": "forest_settlement",
+        "state_flag": "frontier_serviced_guidance_closed",
+        "context_note": "В лесном посёлке уже собрали полную route-guidance memory по всему serviced reclaimed triangle.",
+        "detail_note": "Три serviced линии делают reclaimed mesh не только remembered, но и practically legible: база уже умеет сводить весь внешний треугольник в компактную рабочую guidance fabric.",
+        "service_note": "После полного route-guidance review лесной посёлок ведёт себя как база, которая не только помнит checked side-lines, но и умеет выдавать по ним compact operational guidance.",
     },
     {
         "node_id": "forest_settlement",

@@ -2943,6 +2943,112 @@ def test_forest_settlement_serviced_mesh_review_escalates_from_one_to_three_dist
     assert any(entry["source_kind"] == "context_action" and entry["source_id"] == "review_serviced_frontier_mesh" for entry in intel_entries)
 
 
+def test_forest_settlement_serviced_route_guidance_escalates_from_one_to_three_distinct_line_checks() -> None:
+    player_id = uuid.uuid4()
+    sess = SimpleNamespace(settings={})
+    session_state._initialize_default_group(
+        sess,
+        [player_id],
+        {"map_level": "region", "node_type": "zone", "node_id": "forest_settlement", "label": "Лесной посёлок"},
+    )
+    session_state.get_current_group_current_region_state(sess, player_id=player_id)
+
+    locked_actions = session_state.get_current_group_context_action_availability(sess, player_id=player_id)
+    locked = next(item for item in locked_actions if item["action_id"] == "review_serviced_route_guidance")
+    assert locked["availability_status"] == "locked"
+    assert locked["unavailable_reason"] == "requires_any_group_node_state_flags"
+
+    session_state.add_group_node_state_flag(
+        sess,
+        "main",
+        "northwatch_quartermaster",
+        state_flag="northwatch_watchroad_slate_logged",
+        summary="На северном дворе уже сверили courier slate по боковой линии.",
+        source="test",
+    )
+    first_actions = session_state.get_current_group_context_action_availability(sess, player_id=player_id)
+    first = next(item for item in first_actions if item["action_id"] == "review_serviced_route_guidance")
+    assert first["availability_status"] == "available"
+    resolved_first, error = session_state.resolve_group_context_action(
+        sess,
+        "main",
+        action_id="review_serviced_route_guidance",
+        player_id=player_id,
+        source="test",
+    )
+    assert error is None
+    assert resolved_first is not None
+    assert "route-guidance memory" in resolved_first["last_context_action_result"]["result_summary"].lower()
+    context = session_state.get_current_group_node_context(sess, player_id=player_id)
+    assert "frontier_serviced_guidance_started" in context["node_state_flags"]
+    assert "frontier_serviced_guidance_spanning" not in context["node_state_flags"]
+
+    session_state.add_group_node_state_flag(
+        sess,
+        "main",
+        "northwatch_quartermaster",
+        state_flag="northwatch_watchroad_slate_logged",
+        summary="Повторная courier slate не должна давать ложную эскалацию route guidance.",
+        source="test",
+    )
+    duplicate, error = session_state.resolve_group_context_action(
+        sess,
+        "main",
+        action_id="review_serviced_route_guidance",
+        player_id=player_id,
+        source="test",
+    )
+    assert error is None
+    assert duplicate is not None
+    assert "spanning route-guidance memory" not in duplicate["last_context_action_result"]["result_summary"].lower()
+    assert "frontier_serviced_guidance_spanning" not in session_state.get_current_group_node_context(sess, player_id=player_id)["node_state_flags"]
+
+    session_state.add_group_node_state_flag(
+        sess,
+        "main",
+        "blackwater_run",
+        state_flag="deep_marsh_sidepass_marked",
+        summary="У чёрной протоки уже отметили serviced marsh-road side-pass.",
+        source="test",
+    )
+    resolved_second, error = session_state.resolve_group_context_action(
+        sess,
+        "main",
+        action_id="review_serviced_route_guidance",
+        player_id=player_id,
+        source="test",
+    )
+    assert error is None
+    assert resolved_second is not None
+    assert "route-guidance становится spanning" in resolved_second["last_context_action_result"]["result_summary"].lower()
+    context = session_state.get_current_group_node_context(sess, player_id=player_id)
+    assert "frontier_serviced_guidance_spanning" in context["node_state_flags"]
+
+    session_state.add_group_node_state_flag(
+        sess,
+        "main",
+        "ash_pass",
+        state_flag="northwatch_marsh_watch_sign_logged",
+        summary="На ash_pass уже сверили serviced marsh-watch sign.",
+        source="test",
+    )
+    resolved_third, error = session_state.resolve_group_context_action(
+        sess,
+        "main",
+        action_id="review_serviced_route_guidance",
+        player_id=player_id,
+        source="test",
+    )
+    assert error is None
+    assert resolved_third is not None
+    assert "full reclaimed triangle guidance memory" in resolved_third["last_context_action_result"]["result_summary"].lower()
+    final_context = session_state.get_current_group_node_context(sess, player_id=player_id)
+    assert "frontier_serviced_guidance_closed" in final_context["node_state_flags"]
+    assert any("guidance memory" in note.lower() or "working guidance fabric" in note.lower() for note in final_context["state_notes"])
+    intel_entries = session_state.get_current_group_map_intel(sess, player_id=player_id)
+    assert any(entry["source_kind"] == "context_action" and entry["source_id"] == "review_serviced_route_guidance" for entry in intel_entries)
+
+
 def test_northwatch_watchroad_line_follow_up_unlocks_after_lateral_link_discovery() -> None:
     player_id = uuid.uuid4()
     sess = SimpleNamespace(settings={})
