@@ -1917,6 +1917,75 @@ STATIC_MAP_CONTEXT_ACTION_EFFECTS: tuple[dict[str, Any], ...] = (
     },
     {
         "node_id": "forest_settlement",
+        "action_id": "review_serviced_frontier_mesh",
+        "label": "Сверить serviced mesh lines",
+        "action_kind": "support",
+        "effect_type": "support",
+        "one_shot": False,
+        "result_type": "local_support_applied",
+        "summary": "Зафиксировать первую боковую линию frontier, которую уже не только reopened, но и реально checked в поле.",
+        "result_summary": "Лесной посёлок впервые отмечает, что одна reclaimed side-line уже не просто открыта на карте, а реально вошла в рабочую память frontier: relay slate, side-pass reeds или marsh-watch sign подтверждают, что боковой ход начали обслуживать и читать в деле.",
+        "discovered_notes": [
+            "Первый serviced side-line меняет тон базы: reclaimed mesh теперь живёт не только как topology, а как рабочая линия, которую в поле уже проверили и пометили."
+        ],
+        "applied_effects": ["frontier_mesh_service:started", "intel:serviced_frontier_mesh"],
+        "node_state_flags": ["frontier_serviced_mesh_started"],
+        "node_state_summary": "В лесном посёлке уже зафиксировали первую serviced side-line среди reclaimed frontier links.",
+        "requires_min_group_node_state_flags": 1,
+        "group_node_state_flag_pool": [
+            "northwatch_watchroad_slate_logged",
+            "deep_marsh_sidepass_marked",
+            "northwatch_marsh_watch_sign_logged",
+        ],
+    },
+    {
+        "node_id": "forest_settlement",
+        "action_id": "review_serviced_frontier_mesh",
+        "label": "Сверить serviced mesh lines",
+        "action_kind": "support",
+        "effect_type": "support",
+        "one_shot": False,
+        "result_type": "local_support_applied",
+        "summary": "Сопоставить две serviced side-lines и увидеть spanning maintained mesh fabric.",
+        "result_summary": "Когда в посёлке уже помнят две разные checked side-lines, reclaimed mesh начинает читаться как spanning maintained side-network: frontier держится не только на открытых переходах, а на линиях, которые уже сверили, отметили и научились читать на практике.",
+        "discovered_notes": [
+            "Две serviced side-lines дают базе уже не единичную память о боковом ходе, а первые признаки maintained frontier fabric между внешними краями."
+        ],
+        "applied_effects": ["frontier_mesh_service:spanning", "intel:serviced_frontier_mesh_spanning"],
+        "node_state_flags": ["frontier_serviced_mesh_spanning"],
+        "node_state_summary": "В лесном посёлке уже сверили две serviced side-lines и увидели spanning maintained mesh fabric.",
+        "requires_min_group_node_state_flags": 2,
+        "group_node_state_flag_pool": [
+            "northwatch_watchroad_slate_logged",
+            "deep_marsh_sidepass_marked",
+            "northwatch_marsh_watch_sign_logged",
+        ],
+    },
+    {
+        "node_id": "forest_settlement",
+        "action_id": "review_serviced_frontier_mesh",
+        "label": "Сверить serviced mesh lines",
+        "action_kind": "support",
+        "effect_type": "support",
+        "one_shot": False,
+        "result_type": "local_support_applied",
+        "summary": "Собрать полную serviced mesh picture по всему reclaimed local triangle.",
+        "result_summary": "После трёх checked side-lines лесной посёлок получает полную serviced frontier mesh picture: watch-road relay, marsh-road side-pass и watch-marsh edge уже помнятся здесь как рабочая ткань reclaimed frontier, а не просто как набор однажды открытых рёбер.",
+        "discovered_notes": [
+            "Полная serviced mesh picture показывает, что reclaimed triangle вокруг базы уже не только открыт, но и operationally remembered как working frontier fabric."
+        ],
+        "applied_effects": ["frontier_mesh_service:closed", "intel:serviced_frontier_mesh_closed"],
+        "node_state_flags": ["frontier_serviced_mesh_closed"],
+        "node_state_summary": "В лесном посёлке уже собрали полную serviced mesh picture по всем трём checked side-lines.",
+        "requires_min_group_node_state_flags": 3,
+        "group_node_state_flag_pool": [
+            "northwatch_watchroad_slate_logged",
+            "deep_marsh_sidepass_marked",
+            "northwatch_marsh_watch_sign_logged",
+        ],
+    },
+    {
+        "node_id": "forest_settlement",
         "action_id": "compile_frontier_report",
         "label": "Сверить frontier сводки",
         "action_kind": "clue",
@@ -2051,6 +2120,16 @@ STATIC_MAP_CONTEXT_ACTION_REQUIREMENTS: tuple[dict[str, Any], ...] = (
             "region-link:deep_marsh::northwatch_frontier",
         ],
         "unlock_hint": "Сначала реально открыть хотя бы один боковой переход между соседними frontier regions, а не только знать о готовом gateway.",
+    },
+    {
+        "node_id": "forest_settlement",
+        "action_id": "review_serviced_frontier_mesh",
+        "requires_any_group_node_state_flags": [
+            "northwatch_watchroad_slate_logged",
+            "deep_marsh_sidepass_marked",
+            "northwatch_marsh_watch_sign_logged",
+        ],
+        "unlock_hint": "Сначала реально сверить хотя бы одну reclaimed side-line в поле, чтобы база увидела не только topology, а уже checked mesh memory.",
     },
     {
         "node_id": "northwatch_quartermaster",
@@ -2345,6 +2424,25 @@ STATIC_MAP_NODE_STATE_OVERLAYS: tuple[dict[str, Any], ...] = (
         "context_note": "В лесном посёлке уже собрали полную closed frontier mesh picture по northwatch, deep_marsh и western_road.",
         "detail_note": "Три discovered lateral links замкнули первый внешний треугольник вокруг базы: frontier теперь читается здесь не только по событиям и стабилизации, но и по реально возвращённой topology.",
         "service_note": "После полного mesh review посёлок ведёт себя как база, которая понимает уже не только cycle давления и ответа, а саму reclaimed frontier topology вокруг себя.",
+    },
+    {
+        "node_id": "forest_settlement",
+        "state_flag": "frontier_serviced_mesh_started",
+        "context_note": "В лесном посёлке уже знают, что одна reclaimed side-line не только открыта, но и реально checked в поле.",
+        "detail_note": "У навесов уже лежит первая память о serviced боковой линии: один внешний ход теперь помнят не только по crossing, а по реальной полевой отметке и рабочему следу.",
+    },
+    {
+        "node_id": "forest_settlement",
+        "state_flag": "frontier_serviced_mesh_spanning",
+        "context_note": "Лесной посёлок уже видит spanning maintained side-network по двум checked mesh lines.",
+        "detail_note": "Две serviced боковые линии дают базе новое structural reading frontier: внешние края уже связаны не только travel options, а линиями, которые действительно проверили и ввели в рабочую память.",
+    },
+    {
+        "node_id": "forest_settlement",
+        "state_flag": "frontier_serviced_mesh_closed",
+        "context_note": "В лесном посёлке уже собрали полную serviced mesh picture по всему reclaimed local triangle.",
+        "detail_note": "Три checked side-lines замыкают не просто topology, а remembered serviced frontier fabric: база теперь видит reclaimed triangle как рабочую сеть, а не только как открытую геометрию.",
+        "service_note": "После полного serviced mesh review посёлок ведёт себя как база, которая помнит не только lateral topology, но и то, что все её боковые линии уже реально проверены в поле.",
     },
     {
         "node_id": "forest_settlement",

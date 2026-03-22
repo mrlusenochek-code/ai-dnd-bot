@@ -948,6 +948,7 @@ def test_starter_frontier_nodes_expose_local_progression_arc_surfaces() -> None:
     assert any(item["action_id"] == "issue_frontier_directives" for item in forest_actions)
     assert any(item["action_id"] == "review_frontier_stabilization" for item in forest_actions)
     assert any(item["action_id"] == "review_frontier_mesh" for item in forest_actions)
+    assert any(item["action_id"] == "review_serviced_frontier_mesh" for item in forest_actions)
     assert forest_action_requirements == [
         {
             "node_id": "forest_settlement",
@@ -998,6 +999,16 @@ def test_starter_frontier_nodes_expose_local_progression_arc_surfaces() -> None:
                 "region-link:northwatch_frontier::western_road",
                 "region-link:deep_marsh::western_road",
                 "region-link:deep_marsh::northwatch_frontier",
+            ],
+        },
+        {
+            "node_id": "forest_settlement",
+            "action_id": "review_serviced_frontier_mesh",
+            "unlock_hint": "Сначала реально сверить хотя бы одну reclaimed side-line в поле, чтобы база увидела не только topology, а уже checked mesh memory.",
+            "requires_any_group_node_state_flags": [
+                "northwatch_watchroad_slate_logged",
+                "deep_marsh_sidepass_marked",
+                "northwatch_marsh_watch_sign_logged",
             ],
         },
     ]
