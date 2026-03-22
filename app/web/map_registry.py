@@ -2124,6 +2124,75 @@ STATIC_MAP_CONTEXT_ACTION_EFFECTS: tuple[dict[str, Any], ...] = (
     },
     {
         "node_id": "forest_settlement",
+        "action_id": "review_serviced_dispatch_board",
+        "label": "Сверить dispatch board",
+        "action_kind": "support",
+        "effect_type": "support",
+        "one_shot": False,
+        "result_type": "local_support_applied",
+        "summary": "Выставить первую compact outbound dispatch memory по одной departure-ready serviced линии.",
+        "result_summary": "Лесной посёлок впервые может держать не только departure-readiness memory, но и compact outbound dispatch-board memory: один checked и уже trusted боковой ход здесь считают достаточно собранным, чтобы по нему можно было коротко выставлять следующий outward dispatch без долгой пересборки всей frontier picture.",
+        "discovered_notes": [
+            "Первая outbound dispatch memory показывает, что reclaimed side-line уже не только помнят для выхода, но и держат как рабочую строку на домашней dispatch board."
+        ],
+        "applied_effects": ["frontier_mesh_dispatch:started", "intel:serviced_dispatch_board"],
+        "node_state_flags": ["frontier_serviced_dispatch_started"],
+        "node_state_summary": "В лесном посёлке уже держат первую compact outbound dispatch-board memory по одной serviced линии.",
+        "requires_min_group_node_state_flags": 1,
+        "group_node_state_flag_pool": [
+            "frontier_serviced_departure_started",
+            "frontier_serviced_departure_spanning",
+            "frontier_serviced_departure_closed",
+        ],
+    },
+    {
+        "node_id": "forest_settlement",
+        "action_id": "review_serviced_dispatch_board",
+        "label": "Сверить dispatch board",
+        "action_kind": "support",
+        "effect_type": "support",
+        "one_shot": False,
+        "result_type": "local_support_applied",
+        "summary": "Свести две ready линии в spanning dispatch-board memory по reclaimed mesh.",
+        "result_summary": "Когда база уже держит две разные departure-ready линии, dispatch-board memory становится spanning: watch-road cadence и cautious side-pass уже читаются здесь как рабочие outbound строки, по которым можно собирать следующий dispatch не в одну сторону, а по нескольким боковым ходам reclaimed triangle.",
+        "discovered_notes": [
+            "Две covered линии дают базе уже не одну outbound строку, а spanning dispatch-board memory по нескольким рабочим боковым ходам reclaimed frontier."
+        ],
+        "applied_effects": ["frontier_mesh_dispatch:spanning", "intel:serviced_dispatch_board_spanning"],
+        "node_state_flags": ["frontier_serviced_dispatch_spanning"],
+        "node_state_summary": "В лесном посёлке уже свели две ready линии в spanning dispatch-board memory.",
+        "requires_min_group_node_state_flags": 2,
+        "group_node_state_flag_pool": [
+            "frontier_serviced_departure_started",
+            "frontier_serviced_departure_spanning",
+            "frontier_serviced_departure_closed",
+        ],
+    },
+    {
+        "node_id": "forest_settlement",
+        "action_id": "review_serviced_dispatch_board",
+        "label": "Сверить dispatch board",
+        "action_kind": "support",
+        "effect_type": "support",
+        "one_shot": False,
+        "result_type": "local_support_applied",
+        "summary": "Собрать полную outbound dispatch-board memory по всему serviced reclaimed triangle.",
+        "result_summary": "После полной departure-ready памяти лесной посёлок может держать цельную dispatch-board picture по всему reclaimed local triangle: watch-road line, marsh-road pass и marsh-edge watch line уже висят здесь не как отдельные напоминания, а как compact outward-facing frontier fabric для следующего dispatch.",
+        "discovered_notes": [
+            "Полная dispatch-board memory делает reclaimed mesh не только departure-ready, но и posted как usable outbound frontier fabric."
+        ],
+        "applied_effects": ["frontier_mesh_dispatch:closed", "intel:serviced_dispatch_board_closed"],
+        "node_state_flags": ["frontier_serviced_dispatch_closed"],
+        "node_state_summary": "В лесном посёлке уже собрали полную outbound dispatch-board memory по всему serviced reclaimed triangle.",
+        "requires_min_group_node_state_flags": 3,
+        "group_node_state_flag_pool": [
+            "frontier_serviced_departure_started",
+            "frontier_serviced_departure_spanning",
+            "frontier_serviced_departure_closed",
+        ],
+    },
+    {
+        "node_id": "forest_settlement",
         "action_id": "compile_frontier_report",
         "label": "Сверить frontier сводки",
         "action_kind": "clue",
@@ -2288,6 +2357,16 @@ STATIC_MAP_CONTEXT_ACTION_REQUIREMENTS: tuple[dict[str, Any], ...] = (
             "northwatch_marsh_watch_sign_logged",
         ],
         "unlock_hint": "Сначала реально проверить хотя бы одну serviced боковую линию, чтобы база могла держать не только guidance, а уже compact departure-readiness memory.",
+    },
+    {
+        "node_id": "forest_settlement",
+        "action_id": "review_serviced_dispatch_board",
+        "requires_any_group_node_state_flags": [
+            "frontier_serviced_departure_started",
+            "frontier_serviced_departure_spanning",
+            "frontier_serviced_departure_closed",
+        ],
+        "unlock_hint": "Сначала реально довести хотя бы одну serviced линию до departure-readiness memory, чтобы база могла вывесить compact outbound dispatch-board memory.",
     },
     {
         "node_id": "northwatch_quartermaster",
@@ -2639,6 +2718,25 @@ STATIC_MAP_NODE_STATE_OVERLAYS: tuple[dict[str, Any], ...] = (
         "context_note": "В лесном посёлке уже собрали полную departure-ready memory по всему serviced reclaimed triangle.",
         "detail_note": "Три serviced линии делают reclaimed mesh не только guidance-readable, но и compact departure-ready в домашней памяти: весь внешний треугольник теперь читается как рабочая ткань следующего выхода.",
         "service_note": "После полного departure-readiness review посёлок ведёт себя как база, которая не только помнит и объясняет serviced mesh, но и считает его готовой тканью следующего frontier departure.",
+    },
+    {
+        "node_id": "forest_settlement",
+        "state_flag": "frontier_serviced_dispatch_started",
+        "context_note": "В лесном посёлке уже держат первую compact outbound dispatch-board memory по одной ready линии.",
+        "detail_note": "Один serviced и departure-ready боковой ход здесь уже держат не только в памяти выхода, но и как короткую dispatch строку для следующего outward move.",
+    },
+    {
+        "node_id": "forest_settlement",
+        "state_flag": "frontier_serviced_dispatch_spanning",
+        "context_note": "Лесной посёлок уже держит spanning dispatch-board memory по двум ready линиям reclaimed mesh.",
+        "detail_note": "Две ready боковые линии дают базе уже не одну outbound строку, а более собранную dispatch-board память о том, как выставлять следующий ход по нескольким рабочим боковым линиям внешнего треугольника.",
+    },
+    {
+        "node_id": "forest_settlement",
+        "state_flag": "frontier_serviced_dispatch_closed",
+        "context_note": "В лесном посёлке уже собрали полную outbound dispatch-board memory по всему serviced reclaimed triangle.",
+        "detail_note": "Три ready линии делают reclaimed mesh не только departure-readable, но и posted в домашней памяти как компактную dispatch-board fabric для следующего outward frontier хода.",
+        "service_note": "После полного dispatch-board review база держит reclaimed triangle уже не только как remembered mesh, а как готовую outward-facing dispatch fabric.",
     },
     {
         "node_id": "forest_settlement",
