@@ -950,6 +950,7 @@ def test_starter_frontier_nodes_expose_local_progression_arc_surfaces() -> None:
     assert any(item["action_id"] == "review_frontier_mesh" for item in forest_actions)
     assert any(item["action_id"] == "review_serviced_frontier_mesh" for item in forest_actions)
     assert any(item["action_id"] == "review_serviced_route_guidance" for item in forest_actions)
+    assert any(item["action_id"] == "review_serviced_departure_readiness" for item in forest_actions)
     assert forest_action_requirements == [
         {
             "node_id": "forest_settlement",
@@ -1016,6 +1017,16 @@ def test_starter_frontier_nodes_expose_local_progression_arc_surfaces() -> None:
             "node_id": "forest_settlement",
             "action_id": "review_serviced_route_guidance",
             "unlock_hint": "Сначала реально проверить хотя бы одну reclaimed side-line в поле, чтобы база могла выдать не только memory, а уже compact route-guidance reading.",
+            "requires_any_group_node_state_flags": [
+                "northwatch_watchroad_slate_logged",
+                "deep_marsh_sidepass_marked",
+                "northwatch_marsh_watch_sign_logged",
+            ],
+        },
+        {
+            "node_id": "forest_settlement",
+            "action_id": "review_serviced_departure_readiness",
+            "unlock_hint": "Сначала реально проверить хотя бы одну serviced боковую линию, чтобы база могла держать не только guidance, а уже compact departure-readiness memory.",
             "requires_any_group_node_state_flags": [
                 "northwatch_watchroad_slate_logged",
                 "deep_marsh_sidepass_marked",
