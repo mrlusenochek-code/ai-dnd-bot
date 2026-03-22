@@ -3450,6 +3450,164 @@ def test_ash_pass_line_follow_up_unlocks_after_watch_marsh_link_discovery() -> N
     assert any("edge-sign" in note.lower() or "marsh line" in note.lower() for note in context["state_notes"])
 
 
+def test_field_dispatch_receipts_unlock_only_after_line_service_and_home_dispatch_state() -> None:
+    northwatch_player = uuid.uuid4()
+    northwatch_sess = SimpleNamespace(settings={})
+    session_state._initialize_default_group(
+        northwatch_sess,
+        [northwatch_player],
+        {"map_level": "region", "node_type": "zone", "node_id": "northwatch_quartermaster", "label": "Интендантский двор"},
+    )
+    session_state.get_current_group_current_region_state(northwatch_sess, player_id=northwatch_player)
+
+    locked_northwatch = next(
+        item
+        for item in session_state.get_current_group_context_action_availability(northwatch_sess, player_id=northwatch_player)
+        if item["action_id"] == "acknowledge_watchroad_dispatch"
+    )
+    assert locked_northwatch["availability_status"] == "locked"
+    session_state.add_group_node_state_flag(
+        northwatch_sess,
+        "main",
+        "northwatch_quartermaster",
+        state_flag="northwatch_watchroad_slate_logged",
+        summary="Courier slate already checked.",
+        source="test",
+    )
+    still_locked_northwatch = next(
+        item
+        for item in session_state.get_current_group_context_action_availability(northwatch_sess, player_id=northwatch_player)
+        if item["action_id"] == "acknowledge_watchroad_dispatch"
+    )
+    assert still_locked_northwatch["availability_status"] == "locked"
+    session_state.add_group_node_state_flag(
+        northwatch_sess,
+        "main",
+        "forest_settlement",
+        state_flag="frontier_serviced_dispatch_started",
+        summary="Home dispatch board started.",
+        source="test",
+    )
+    available_northwatch = next(
+        item
+        for item in session_state.get_current_group_context_action_availability(northwatch_sess, player_id=northwatch_player)
+        if item["action_id"] == "acknowledge_watchroad_dispatch"
+    )
+    assert available_northwatch["availability_status"] == "available"
+    resolved_northwatch, error = session_state.resolve_group_context_action(
+        northwatch_sess,
+        "main",
+        action_id="acknowledge_watchroad_dispatch",
+        player_id=northwatch_player,
+        source="test",
+    )
+    assert error is None
+    assert resolved_northwatch is not None
+    assert "dispatch-board memory" in resolved_northwatch["last_context_action_result"]["result_summary"].lower()
+    northwatch_context = session_state.get_current_group_node_context(northwatch_sess, player_id=northwatch_player)
+    assert "northwatch_watchroad_dispatch_received" in northwatch_context["node_state_flags"]
+    northwatch_intel = session_state.get_current_group_map_intel(northwatch_sess, player_id=northwatch_player)
+    assert any(entry["source_kind"] == "context_action" and entry["source_id"] == "acknowledge_watchroad_dispatch" for entry in northwatch_intel)
+
+    marsh_player = uuid.uuid4()
+    marsh_sess = SimpleNamespace(settings={})
+    session_state._initialize_default_group(
+        marsh_sess,
+        [marsh_player],
+        {"map_level": "region", "node_type": "zone", "node_id": "blackwater_run", "label": "Чёрная протока"},
+    )
+    session_state.get_current_group_current_region_state(marsh_sess, player_id=marsh_player)
+    locked_marsh = next(
+        item
+        for item in session_state.get_current_group_context_action_availability(marsh_sess, player_id=marsh_player)
+        if item["action_id"] == "acknowledge_sidepass_dispatch"
+    )
+    assert locked_marsh["availability_status"] == "locked"
+    session_state.add_group_node_state_flag(
+        marsh_sess,
+        "main",
+        "blackwater_run",
+        state_flag="deep_marsh_sidepass_marked",
+        summary="Side-pass already marked.",
+        source="test",
+    )
+    session_state.add_group_node_state_flag(
+        marsh_sess,
+        "main",
+        "forest_settlement",
+        state_flag="frontier_serviced_dispatch_started",
+        summary="Home dispatch board started.",
+        source="test",
+    )
+    available_marsh = next(
+        item
+        for item in session_state.get_current_group_context_action_availability(marsh_sess, player_id=marsh_player)
+        if item["action_id"] == "acknowledge_sidepass_dispatch"
+    )
+    assert available_marsh["availability_status"] == "available"
+    resolved_marsh, error = session_state.resolve_group_context_action(
+        marsh_sess,
+        "main",
+        action_id="acknowledge_sidepass_dispatch",
+        player_id=marsh_player,
+        source="test",
+    )
+    assert error is None
+    assert resolved_marsh is not None
+    marsh_context = session_state.get_current_group_node_context(marsh_sess, player_id=marsh_player)
+    assert "deep_marsh_sidepass_dispatch_received" in marsh_context["node_state_flags"]
+    assert any("receipt" in note.lower() or "dispatch-board" in note.lower() for note in marsh_context["state_notes"])
+
+    ash_player = uuid.uuid4()
+    ash_sess = SimpleNamespace(settings={})
+    session_state._initialize_default_group(
+        ash_sess,
+        [ash_player],
+        {"map_level": "region", "node_type": "zone", "node_id": "ash_pass", "label": "Пепельный проход"},
+    )
+    session_state.get_current_group_current_region_state(ash_sess, player_id=ash_player)
+    locked_ash = next(
+        item
+        for item in session_state.get_current_group_context_action_availability(ash_sess, player_id=ash_player)
+        if item["action_id"] == "acknowledge_marsh_watch_dispatch"
+    )
+    assert locked_ash["availability_status"] == "locked"
+    session_state.add_group_node_state_flag(
+        ash_sess,
+        "main",
+        "ash_pass",
+        state_flag="northwatch_marsh_watch_sign_logged",
+        summary="Marsh watch sign already checked.",
+        source="test",
+    )
+    session_state.add_group_node_state_flag(
+        ash_sess,
+        "main",
+        "forest_settlement",
+        state_flag="frontier_serviced_dispatch_started",
+        summary="Home dispatch board started.",
+        source="test",
+    )
+    available_ash = next(
+        item
+        for item in session_state.get_current_group_context_action_availability(ash_sess, player_id=ash_player)
+        if item["action_id"] == "acknowledge_marsh_watch_dispatch"
+    )
+    assert available_ash["availability_status"] == "available"
+    resolved_ash, error = session_state.resolve_group_context_action(
+        ash_sess,
+        "main",
+        action_id="acknowledge_marsh_watch_dispatch",
+        player_id=ash_player,
+        source="test",
+    )
+    assert error is None
+    assert resolved_ash is not None
+    ash_context = session_state.get_current_group_node_context(ash_sess, player_id=ash_player)
+    assert "northwatch_marsh_watch_dispatch_received" in ash_context["node_state_flags"]
+    assert any("receipt" in note.lower() or "dispatch-board" in note.lower() for note in ash_context["state_notes"])
+
+
 def test_forest_settlement_frontier_support_stays_locked_before_report() -> None:
     player_id = uuid.uuid4()
     sess = SimpleNamespace(settings={})

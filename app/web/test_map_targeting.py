@@ -586,7 +586,9 @@ def test_northwatch_nodes_expose_services_actions_and_details() -> None:
     assert any(item["action_id"] == "post_redoubt_orders" for item in quartermaster_actions)
     assert any(item["action_id"] == "confirm_redoubt_watch" for item in quartermaster_actions)
     assert any(item["action_id"] == "check_watchroad_courier_slate" for item in quartermaster_actions)
+    assert any(item["action_id"] == "acknowledge_watchroad_dispatch" for item in quartermaster_actions)
     assert any(item["action_id"] == "trace_marsh_watch_sign" for item in ash_pass_actions)
+    assert any(item["action_id"] == "acknowledge_marsh_watch_dispatch" for item in ash_pass_actions)
     assert {
         "node_id": "northwatch_quartermaster",
         "action_id": "confirm_redoubt_watch",
@@ -600,10 +602,32 @@ def test_northwatch_nodes_expose_services_actions_and_details() -> None:
         "unlock_hint": "Сначала реально пройти боковую линию между northwatch и western_road, чтобы на дворе появился настоящий courier slate по watch-road line.",
     } in quartermaster_action_requirements
     assert {
+        "node_id": "northwatch_quartermaster",
+        "action_id": "acknowledge_watchroad_dispatch",
+        "requires_node_state_flag": "northwatch_watchroad_slate_logged",
+        "requires_any_group_node_state_flags": [
+            "frontier_serviced_dispatch_started",
+            "frontier_serviced_dispatch_spanning",
+            "frontier_serviced_dispatch_closed",
+        ],
+        "unlock_hint": "Сначала реально сверить watch-road courier slate и дождаться домашней dispatch-board memory, чтобы на дворе появился настоящий relay receipt.",
+    } in quartermaster_action_requirements
+    assert {
         "node_id": "ash_pass",
         "action_id": "trace_marsh_watch_sign",
         "requires_any_region_link_ids": ["region-link:deep_marsh::northwatch_frontier"],
         "unlock_hint": "Сначала реально пройти боковую watch-marsh линию между northwatch и deep_marsh, чтобы на ash_pass появился свежий edge-sign.",
+    } in ash_pass_requirements
+    assert {
+        "node_id": "ash_pass",
+        "action_id": "acknowledge_marsh_watch_dispatch",
+        "requires_node_state_flag": "northwatch_marsh_watch_sign_logged",
+        "requires_any_group_node_state_flags": [
+            "frontier_serviced_dispatch_started",
+            "frontier_serviced_dispatch_spanning",
+            "frontier_serviced_dispatch_closed",
+        ],
+        "unlock_hint": "Сначала реально сверить marsh-watch sign и дождаться домашней dispatch-board memory, чтобы на ash_pass появился wet-line receipt.",
     } in ash_pass_requirements
     redoubt_actions = get_current_node_context_actions(node_id="broken_redoubt")
     redoubt_requirements = get_static_node_context_action_requirements(node_id="broken_redoubt")
@@ -811,6 +835,7 @@ def test_deep_marsh_nodes_expose_services_actions_events_and_scout_discovery() -
     ]
     assert any(item["action_id"] == "read_moss_waymarks" for item in waystone_actions)
     assert any(item["action_id"] == "mark_marshroad_sidepass" for item in blackwater_actions)
+    assert any(item["action_id"] == "acknowledge_sidepass_dispatch" for item in blackwater_actions)
     assert any(item["action_id"] == "braid_reed_wayline" for item in shelter_actions)
     assert any(item["action_id"] == "tie_crossing_orders" for item in shelter_actions)
     assert any(item["action_id"] == "secure_crossing_line" for item in shelter_actions)
@@ -819,6 +844,17 @@ def test_deep_marsh_nodes_expose_services_actions_events_and_scout_discovery() -
         "action_id": "mark_marshroad_sidepass",
         "requires_any_region_link_ids": ["region-link:deep_marsh::western_road"],
         "unlock_hint": "Сначала реально открыть marsh-road боковую линию к western_road, а уже потом отмечать cautious reeds у чёрной протоки.",
+    } in blackwater_requirements
+    assert {
+        "node_id": "blackwater_run",
+        "action_id": "acknowledge_sidepass_dispatch",
+        "requires_node_state_flag": "deep_marsh_sidepass_marked",
+        "requires_any_group_node_state_flags": [
+            "frontier_serviced_dispatch_started",
+            "frontier_serviced_dispatch_spanning",
+            "frontier_serviced_dispatch_closed",
+        ],
+        "unlock_hint": "Сначала реально отметить reeds-side pass и дождаться домашней dispatch-board memory, чтобы у протоки появился настоящий side-pass receipt.",
     } in blackwater_requirements
     assert {
         "node_id": "reed_shelter",

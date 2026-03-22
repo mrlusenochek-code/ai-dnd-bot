@@ -1778,6 +1778,57 @@ STATIC_MAP_CONTEXT_ACTION_EFFECTS: tuple[dict[str, Any], ...] = (
         "requires_any_region_link_ids": ["region-link:deep_marsh::northwatch_frontier"],
     },
     {
+        "node_id": "northwatch_quartermaster",
+        "action_id": "acknowledge_watchroad_dispatch",
+        "label": "Отметить relay receipt",
+        "action_kind": "support",
+        "effect_type": "support",
+        "one_shot": True,
+        "result_type": "local_support_applied",
+        "summary": "Отметить, что домашняя dispatch-board memory по watch-road line дошла обратно до северного двора.",
+        "result_summary": "На интендантском дворе оставляют relay receipt по watch-road line: домашняя dispatch-board memory уже не висит только в лесном посёлке, а возвращается сюда как рабочая отметка о том, что courier slate принят и готов держать следующий короткий outward relay.",
+        "discovered_notes": [
+            "Northwatch теперь не только помнит боковую линию к western_road, но и держит полевой receipt того, что домашняя dispatch-board память дошла обратно до двора."
+        ],
+        "applied_effects": ["frontier_mesh_dispatch_receipt:northwatch_western", "intel:watchroad_dispatch_receipt"],
+        "node_state_flags": ["northwatch_watchroad_dispatch_received"],
+        "node_state_summary": "На северном дворе уже отметили relay receipt по watch-road line после домашнего dispatch-board review.",
+    },
+    {
+        "node_id": "blackwater_run",
+        "action_id": "acknowledge_sidepass_dispatch",
+        "label": "Отметить side-pass receipt",
+        "action_kind": "support",
+        "effect_type": "support",
+        "one_shot": True,
+        "result_type": "local_support_applied",
+        "summary": "Отметить, что домашняя dispatch-board memory по marsh-road side-pass дошла обратно до чёрной протоки.",
+        "result_summary": "У чёрной протоки тихо отмечают side-pass receipt: домашняя dispatch-board память по осторожной линии к western_road возвращается сюда не как абстрактная сводка, а как подтверждение, что reeds-side pass уже действительно держат в outward frontier routine.",
+        "discovered_notes": [
+            "Blackwater_run теперь держит не только reeds mark, но и receipt того, что домашняя dispatch-board память по marsh-road line дошла обратно в поле."
+        ],
+        "applied_effects": ["frontier_mesh_dispatch_receipt:deep_marsh_western", "intel:marshroad_dispatch_receipt"],
+        "node_state_flags": ["deep_marsh_sidepass_dispatch_received"],
+        "node_state_summary": "У чёрной протоки уже отметили side-pass receipt после домашнего dispatch-board review.",
+    },
+    {
+        "node_id": "ash_pass",
+        "action_id": "acknowledge_marsh_watch_dispatch",
+        "label": "Отметить wet-line receipt",
+        "action_kind": "support",
+        "effect_type": "support",
+        "one_shot": True,
+        "result_type": "local_support_applied",
+        "summary": "Отметить, что домашняя dispatch-board memory по watch-marsh line дошла обратно до ash_pass.",
+        "result_summary": "На ash_pass оставляют wet-line receipt по боковой линии к deep_marsh: домашняя dispatch-board память уже не живёт только у домашнего костра, а возвращается к краю прохода как working acknowledgement того, что boundary watch line вошла в outward routine.",
+        "discovered_notes": [
+            "Ash_pass теперь держит не только свежий marsh-watch sign, но и receipt того, что домашняя dispatch-board память по мокрой boundary line дошла обратно в поле."
+        ],
+        "applied_effects": ["frontier_mesh_dispatch_receipt:northwatch_deep_marsh", "intel:marsh_watch_dispatch_receipt"],
+        "node_state_flags": ["northwatch_marsh_watch_dispatch_received"],
+        "node_state_summary": "На ash_pass уже отметили wet-line receipt после домашнего dispatch-board review.",
+    },
+    {
         "node_id": "forest_settlement",
         "action_id": "review_frontier_stabilization",
         "label": "Сверить frontier stabilization",
@@ -2375,16 +2426,49 @@ STATIC_MAP_CONTEXT_ACTION_REQUIREMENTS: tuple[dict[str, Any], ...] = (
         "unlock_hint": "Сначала реально пройти боковую линию между northwatch и western_road, чтобы на дворе появился настоящий courier slate по watch-road line.",
     },
     {
+        "node_id": "northwatch_quartermaster",
+        "action_id": "acknowledge_watchroad_dispatch",
+        "requires_node_state_flag": "northwatch_watchroad_slate_logged",
+        "requires_any_group_node_state_flags": [
+            "frontier_serviced_dispatch_started",
+            "frontier_serviced_dispatch_spanning",
+            "frontier_serviced_dispatch_closed",
+        ],
+        "unlock_hint": "Сначала реально сверить watch-road courier slate и дождаться домашней dispatch-board memory, чтобы на дворе появился настоящий relay receipt.",
+    },
+    {
         "node_id": "blackwater_run",
         "action_id": "mark_marshroad_sidepass",
         "requires_any_region_link_ids": ["region-link:deep_marsh::western_road"],
         "unlock_hint": "Сначала реально открыть marsh-road боковую линию к western_road, а уже потом отмечать cautious reeds у чёрной протоки.",
     },
     {
+        "node_id": "blackwater_run",
+        "action_id": "acknowledge_sidepass_dispatch",
+        "requires_node_state_flag": "deep_marsh_sidepass_marked",
+        "requires_any_group_node_state_flags": [
+            "frontier_serviced_dispatch_started",
+            "frontier_serviced_dispatch_spanning",
+            "frontier_serviced_dispatch_closed",
+        ],
+        "unlock_hint": "Сначала реально отметить reeds-side pass и дождаться домашней dispatch-board memory, чтобы у протоки появился настоящий side-pass receipt.",
+    },
+    {
         "node_id": "ash_pass",
         "action_id": "trace_marsh_watch_sign",
         "requires_any_region_link_ids": ["region-link:deep_marsh::northwatch_frontier"],
         "unlock_hint": "Сначала реально пройти боковую watch-marsh линию между northwatch и deep_marsh, чтобы на ash_pass появился свежий edge-sign.",
+    },
+    {
+        "node_id": "ash_pass",
+        "action_id": "acknowledge_marsh_watch_dispatch",
+        "requires_node_state_flag": "northwatch_marsh_watch_sign_logged",
+        "requires_any_group_node_state_flags": [
+            "frontier_serviced_dispatch_started",
+            "frontier_serviced_dispatch_spanning",
+            "frontier_serviced_dispatch_closed",
+        ],
+        "unlock_hint": "Сначала реально сверить marsh-watch sign и дождаться домашней dispatch-board memory, чтобы на ash_pass появился wet-line receipt.",
     },
     {
         "node_id": "northwatch_palisade",
@@ -2864,6 +2948,12 @@ STATIC_MAP_NODE_STATE_OVERLAYS: tuple[dict[str, Any], ...] = (
         "detail_note": "На столе у склада лежит свежая slate-пометка по связным выходам на тракт: боковая линия к western_road теперь помнится здесь как рабочий relay rhythm, а не как случайное открытие.",
     },
     {
+        "node_id": "northwatch_quartermaster",
+        "state_flag": "northwatch_watchroad_dispatch_received",
+        "context_note": "На северном дворе уже приняли relay receipt по watch-road line после домашнего dispatch-board review.",
+        "detail_note": "Courier slate здесь теперь не просто сверили: на столе у склада уже лежит короткая receipt-пометка о том, что домашняя dispatch-board память по линии к western_road дошла обратно в поле.",
+    },
+    {
         "node_id": "ash_pass",
         "state_flag": "northwatch_directive_fulfilled",
         "context_note": "На ash_pass уже держат не только ход к редуту, но и reopened боковую линию к болотной протоке.",
@@ -2874,6 +2964,12 @@ STATIC_MAP_NODE_STATE_OVERLAYS: tuple[dict[str, Any], ...] = (
         "state_flag": "northwatch_marsh_watch_sign_logged",
         "context_note": "На ash_pass уже сверили свежий sign по reopened watch-marsh line к deep_marsh.",
         "detail_note": "У края прохода уже знают, как читать болотную боковую линию не только по памяти дозора, но и по свежему edge-sign, который остался после прямого marsh crossing.",
+    },
+    {
+        "node_id": "ash_pass",
+        "state_flag": "northwatch_marsh_watch_dispatch_received",
+        "context_note": "На ash_pass уже приняли wet-line receipt по линии к deep_marsh после домашнего dispatch-board review.",
+        "detail_note": "У края прохода теперь держат не только свежий sign, но и короткую receipt-пометку о том, что домашняя dispatch-board память по мокрой boundary line дошла обратно в поле.",
     },
     {
         "node_id": "deep_marsh_threshold",
@@ -2994,6 +3090,12 @@ STATIC_MAP_NODE_STATE_OVERLAYS: tuple[dict[str, Any], ...] = (
         "state_flag": "deep_marsh_sidepass_marked",
         "context_note": "У чёрной протоки уже отметили reeds по reopened marsh-road side-pass к western_road.",
         "detail_note": "На чёрной воде теперь видна не только память о quiet crossing, но и свежая осторожная отметка по боковой линии к тракту: болотный side-pass действительно вошёл в local habit.",
+    },
+    {
+        "node_id": "blackwater_run",
+        "state_flag": "deep_marsh_sidepass_dispatch_received",
+        "context_note": "У чёрной протоки уже приняли side-pass receipt после домашнего dispatch-board review.",
+        "detail_note": "Возле чёрной воды теперь держат не только reeds mark, но и короткую receipt-пометку о том, что домашняя dispatch-board память по marsh-road line дошла обратно в поле.",
     },
     {
         "node_id": "reed_shelter",
