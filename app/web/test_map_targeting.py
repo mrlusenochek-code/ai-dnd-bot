@@ -988,6 +988,7 @@ def test_starter_frontier_nodes_expose_local_progression_arc_surfaces() -> None:
     assert any(item["action_id"] == "review_serviced_route_guidance" for item in forest_actions)
     assert any(item["action_id"] == "review_serviced_departure_readiness" for item in forest_actions)
     assert any(item["action_id"] == "review_serviced_dispatch_board" for item in forest_actions)
+    assert any(item["action_id"] == "review_returned_field_receipts" for item in forest_actions)
     assert forest_action_requirements == [
         {
             "node_id": "forest_settlement",
@@ -1078,6 +1079,16 @@ def test_starter_frontier_nodes_expose_local_progression_arc_surfaces() -> None:
                 "frontier_serviced_departure_started",
                 "frontier_serviced_departure_spanning",
                 "frontier_serviced_departure_closed",
+            ],
+        },
+        {
+            "node_id": "forest_settlement",
+            "action_id": "review_returned_field_receipts",
+            "unlock_hint": "Сначала дождаться хотя бы одного real field receipt с reopened side-line, чтобы база сверяла не только posted dispatch board, а уже вернувшееся acknowledgement.",
+            "requires_any_group_node_state_flags": [
+                "northwatch_watchroad_dispatch_received",
+                "deep_marsh_sidepass_dispatch_received",
+                "northwatch_marsh_watch_dispatch_received",
             ],
         },
     ]
