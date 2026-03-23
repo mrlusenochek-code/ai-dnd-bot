@@ -3938,6 +3938,130 @@ def test_trusted_frontier_routine_followups_unlock_after_closed_loop_review_and_
     assert any("edge-watch turn" in note.lower() or "boundary rhythm" in note.lower() for note in ash_context["state_notes"])
 
 
+def test_forest_settlement_trusted_routine_review_stays_locked_before_any_field_routine_signal() -> None:
+    player_id = uuid.uuid4()
+    sess = SimpleNamespace(settings={})
+    session_state._initialize_default_group(
+        sess,
+        [player_id],
+        {"map_level": "region", "node_type": "zone", "node_id": "forest_settlement", "label": "Лесной посёлок"},
+    )
+    session_state.get_current_group_current_region_state(sess, player_id=player_id)
+
+    locked_actions = session_state.get_current_group_context_action_availability(sess, player_id=player_id)
+    locked = next(item for item in locked_actions if item["action_id"] == "review_trusted_frontier_routines")
+    assert locked["availability_status"] == "locked"
+    assert locked["unavailable_reason"] == "requires_any_group_node_state_flags"
+
+
+def test_forest_settlement_trusted_routine_review_stages_on_distinct_field_routine_signals() -> None:
+    player_id = uuid.uuid4()
+    sess = SimpleNamespace(settings={})
+    session_state._initialize_default_group(
+        sess,
+        [player_id],
+        {"map_level": "region", "node_type": "zone", "node_id": "forest_settlement", "label": "Лесной посёлок"},
+    )
+    session_state.get_current_group_current_region_state(sess, player_id=player_id)
+
+    session_state.add_group_node_state_flag(
+        sess,
+        "main",
+        "waystation_yard",
+        state_flag="western_road_watchroad_relay_turn_marked",
+        summary="На дворе уже держат remembered relay turn.",
+        source="test",
+    )
+    first_available = next(
+        item
+        for item in session_state.get_current_group_context_action_availability(sess, player_id=player_id)
+        if item["action_id"] == "review_trusted_frontier_routines"
+    )
+    assert first_available["availability_status"] == "available"
+    first_review, error = session_state.resolve_group_context_action(
+        sess,
+        "main",
+        action_id="review_trusted_frontier_routines",
+        player_id=player_id,
+        source="test",
+    )
+    assert error is None
+    assert first_review is not None
+    assert "trusted frontier routine" in first_review["last_context_action_result"]["result_summary"].lower()
+    first_context = session_state.get_current_group_node_context(sess, player_id=player_id)
+    assert "frontier_trusted_routines_started" in first_context["node_state_flags"]
+    assert "frontier_trusted_routines_spanning" not in first_context["node_state_flags"]
+    assert any("working frontier habit" in note.lower() or "trusted routine" in note.lower() for note in first_context["state_notes"])
+
+    session_state.add_group_node_state_flag(
+        sess,
+        "main",
+        "waystation_yard",
+        state_flag="western_road_watchroad_relay_turn_marked",
+        summary="Повтор того же routine signal не должен давать новый stage.",
+        source="test",
+    )
+    duplicate_review, error = session_state.resolve_group_context_action(
+        sess,
+        "main",
+        action_id="review_trusted_frontier_routines",
+        player_id=player_id,
+        source="test",
+    )
+    assert error is None
+    assert duplicate_review is not None
+    assert "spanning routine picture" not in duplicate_review["last_context_action_result"]["result_summary"].lower()
+    duplicate_context = session_state.get_current_group_node_context(sess, player_id=player_id)
+    assert "frontier_trusted_routines_spanning" not in duplicate_context["node_state_flags"]
+
+    session_state.add_group_node_state_flag(
+        sess,
+        "main",
+        "blackwater_run",
+        state_flag="deep_marsh_sidepass_reed_turn_kept",
+        summary="У чёрной протоки уже закрепили remembered reeds-turn.",
+        source="test",
+    )
+    second_review, error = session_state.resolve_group_context_action(
+        sess,
+        "main",
+        action_id="review_trusted_frontier_routines",
+        player_id=player_id,
+        source="test",
+    )
+    assert error is None
+    assert second_review is not None
+    assert "spanning routine picture" in second_review["last_context_action_result"]["result_summary"].lower()
+    second_context = session_state.get_current_group_node_context(sess, player_id=player_id)
+    assert "frontier_trusted_routines_spanning" in second_context["node_state_flags"]
+
+    session_state.add_group_node_state_flag(
+        sess,
+        "main",
+        "ash_pass",
+        state_flag="northwatch_marsh_edge_watch_turn_kept",
+        summary="На ash_pass уже закрепили remembered edge-watch turn.",
+        source="test",
+    )
+    third_review, error = session_state.resolve_group_context_action(
+        sess,
+        "main",
+        action_id="review_trusted_frontier_routines",
+        player_id=player_id,
+        source="test",
+    )
+    assert error is None
+    assert third_review is not None
+    assert "routine-level base -> field -> base loop" in third_review["last_context_action_result"]["result_summary"].lower()
+    final_context = session_state.get_current_group_node_context(sess, player_id=player_id)
+    assert "frontier_trusted_routines_closed" in final_context["node_state_flags"]
+    assert any("trusted frontier routine picture" in note.lower() or "trusted frontier routine" in note.lower() for note in final_context["state_notes"])
+    final_detail = session_state.get_current_group_node_detail(sess, player_id=player_id)
+    assert any("watch-road relay turn" in note.lower() or "trusted frontier routine" in note.lower() for note in final_detail["state_notes"])
+    intel_entries = session_state.get_current_group_map_intel(sess, player_id=player_id)
+    assert any(entry["source_kind"] == "context_action" and entry["source_id"] == "review_trusted_frontier_routines" for entry in intel_entries)
+
+
 def test_forest_settlement_frontier_support_stays_locked_before_report() -> None:
     player_id = uuid.uuid4()
     sess = SimpleNamespace(settings={})

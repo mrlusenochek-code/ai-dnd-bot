@@ -1013,6 +1013,7 @@ def test_starter_frontier_nodes_expose_local_progression_arc_surfaces() -> None:
     assert any(item["action_id"] == "review_serviced_departure_readiness" for item in forest_actions)
     assert any(item["action_id"] == "review_serviced_dispatch_board" for item in forest_actions)
     assert any(item["action_id"] == "review_returned_field_receipts" for item in forest_actions)
+    assert any(item["action_id"] == "review_trusted_frontier_routines" for item in forest_actions)
     assert forest_action_requirements == [
         {
             "node_id": "forest_settlement",
@@ -1113,6 +1114,16 @@ def test_starter_frontier_nodes_expose_local_progression_arc_surfaces() -> None:
                 "northwatch_watchroad_dispatch_received",
                 "deep_marsh_sidepass_dispatch_received",
                 "northwatch_marsh_watch_dispatch_received",
+            ],
+        },
+        {
+            "node_id": "forest_settlement",
+            "action_id": "review_trusted_frontier_routines",
+            "unlock_hint": "Сначала довести хотя бы одну reopened side-line до реального trusted routine в поле, чтобы база увидела не только receipt loop, а уже working frontier habit.",
+            "requires_any_group_node_state_flags": [
+                "western_road_watchroad_relay_turn_marked",
+                "deep_marsh_sidepass_reed_turn_kept",
+                "northwatch_marsh_edge_watch_turn_kept",
             ],
         },
     ]
