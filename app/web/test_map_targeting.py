@@ -590,6 +590,7 @@ def test_northwatch_nodes_expose_services_actions_and_details() -> None:
     assert any(item["action_id"] == "trace_marsh_watch_sign" for item in ash_pass_actions)
     assert any(item["action_id"] == "acknowledge_marsh_watch_dispatch" for item in ash_pass_actions)
     assert any(item["action_id"] == "keep_marsh_edge_watch_turn" for item in ash_pass_actions)
+    assert any(item["action_id"] == "set_marsh_edge_post_watch" for item in ash_pass_actions)
     assert {
         "node_id": "northwatch_quartermaster",
         "action_id": "confirm_redoubt_watch",
@@ -636,6 +637,17 @@ def test_northwatch_nodes_expose_services_actions_and_details() -> None:
         "requires_node_state_flag": "northwatch_marsh_watch_dispatch_received",
         "requires_any_group_node_state_flags": ["frontier_dispatch_receipt_review_closed"],
         "unlock_hint": "Сначала замкнуть полный returned receipt review дома и дождаться wet-line receipt, чтобы на ash_pass boundary watch вошёл в remembered edge rhythm.",
+    } in ash_pass_requirements
+    assert {
+        "node_id": "ash_pass",
+        "action_id": "set_marsh_edge_post_watch",
+        "requires_node_state_flag": "northwatch_marsh_edge_watch_turn_kept",
+        "requires_any_group_node_state_flags": [
+            "frontier_trusted_routines_started",
+            "frontier_trusted_routines_spanning",
+            "frontier_trusted_routines_closed",
+        ],
+        "unlock_hint": "Сначала дождаться trusted routine review дома и уже после него удерживать мокрую boundary line как marsh-edge standing watch.",
     } in ash_pass_requirements
     redoubt_actions = get_current_node_context_actions(node_id="broken_redoubt")
     redoubt_requirements = get_static_node_context_action_requirements(node_id="broken_redoubt")
@@ -732,6 +744,7 @@ def test_western_road_nodes_expose_services_actions_events_and_scout_discovery()
     assert any(item["action_id"] == "chalk_corridor_orders" for item in yard_actions)
     assert any(item["action_id"] == "stabilize_corridor_handling" for item in yard_actions)
     assert any(item["action_id"] == "mark_watchroad_relay_turn" for item in yard_actions)
+    assert any(item["action_id"] == "set_watchroad_post_turn" for item in yard_actions)
     assert {
         "node_id": "waystation_yard",
         "action_id": "stabilize_corridor_handling",
@@ -744,6 +757,17 @@ def test_western_road_nodes_expose_services_actions_events_and_scout_discovery()
         "requires_node_state_flag": "northwatch_watchroad_dispatch_received",
         "requires_any_group_node_state_flags": ["frontier_dispatch_receipt_review_closed"],
         "unlock_hint": "Сначала замкнуть полный returned receipt review дома и дождаться watch-road receipt, чтобы на дворе появился настоящий remembered relay turn.",
+    } in yard_action_requirements
+    assert {
+        "node_id": "waystation_yard",
+        "action_id": "set_watchroad_post_turn",
+        "requires_node_state_flag": "western_road_watchroad_relay_turn_marked",
+        "requires_any_group_node_state_flags": [
+            "frontier_trusted_routines_started",
+            "frontier_trusted_routines_spanning",
+            "frontier_trusted_routines_closed",
+        ],
+        "unlock_hint": "Сначала дождаться trusted routine review дома и уже после него удерживать watch-road line как standing relay post.",
     } in yard_action_requirements
     assert any(item["action_id"] == "read_waybill_marks" for item in marker_actions)
     assert any(item["action_id"] == "reset_detour_markers" for item in marker_actions)
@@ -853,6 +877,7 @@ def test_deep_marsh_nodes_expose_services_actions_events_and_scout_discovery() -
     assert any(item["action_id"] == "mark_marshroad_sidepass" for item in blackwater_actions)
     assert any(item["action_id"] == "acknowledge_sidepass_dispatch" for item in blackwater_actions)
     assert any(item["action_id"] == "keep_sidepass_reed_turn" for item in blackwater_actions)
+    assert any(item["action_id"] == "set_sidepass_reed_post" for item in blackwater_actions)
     assert any(item["action_id"] == "braid_reed_wayline" for item in shelter_actions)
     assert any(item["action_id"] == "tie_crossing_orders" for item in shelter_actions)
     assert any(item["action_id"] == "secure_crossing_line" for item in shelter_actions)
@@ -879,6 +904,17 @@ def test_deep_marsh_nodes_expose_services_actions_events_and_scout_discovery() -
         "requires_node_state_flag": "deep_marsh_sidepass_dispatch_received",
         "requires_any_group_node_state_flags": ["frontier_dispatch_receipt_review_closed"],
         "unlock_hint": "Сначала замкнуть полный returned receipt review дома и дождаться side-pass receipt, чтобы у чёрной протоки осторожный detour стал lived-in reeds turn.",
+    } in blackwater_requirements
+    assert {
+        "node_id": "blackwater_run",
+        "action_id": "set_sidepass_reed_post",
+        "requires_node_state_flag": "deep_marsh_sidepass_reed_turn_kept",
+        "requires_any_group_node_state_flags": [
+            "frontier_trusted_routines_started",
+            "frontier_trusted_routines_spanning",
+            "frontier_trusted_routines_closed",
+        ],
+        "unlock_hint": "Сначала дождаться trusted routine review дома и уже после него удерживать cautious side-pass как reeds-side standing post.",
     } in blackwater_requirements
     assert {
         "node_id": "reed_shelter",
