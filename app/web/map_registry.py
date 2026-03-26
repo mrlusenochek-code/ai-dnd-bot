@@ -2033,6 +2033,57 @@ STATIC_MAP_CONTEXT_ACTION_EFFECTS: tuple[dict[str, Any], ...] = (
         "node_state_summary": "На ash_pass уже отметили wet boundary line к deep_marsh как edge-watch handoff общего reclaimed circuit.",
     },
     {
+        "node_id": "waystation_yard",
+        "action_id": "send_watchroad_loop_traffic",
+        "label": "Пустить relay traffic",
+        "action_kind": "support",
+        "effect_type": "support",
+        "one_shot": True,
+        "result_type": "local_support_applied",
+        "summary": "Отметить, что watch-road leg уже несёт живой relay traffic внутри working reclaimed loop.",
+        "result_summary": "На постоялом дворе watch-road line к northwatch читают уже не только как closed handoff, а как живой relay traffic leg в working loop. Короткий courier pass теперь идёт через двор как повторяющаяся loop circulation: северная линия уже не просто держит передачу, а реально пропускает through-traffic между остальными звеньями reclaimed triangle.",
+        "discovered_notes": [
+            "На waystation_yard watch-road line к northwatch уже remembered как relay traffic leg working reclaimed loop, а не только как handoff closure."
+        ],
+        "applied_effects": ["frontier_loop_traffic:northwatch_western", "intel:watchroad_loop_traffic"],
+        "node_state_flags": ["western_road_watchroad_loop_traffic_started"],
+        "node_state_summary": "На постоялом дворе уже отметили живой relay traffic по watch-road leg working reclaimed loop.",
+    },
+    {
+        "node_id": "blackwater_run",
+        "action_id": "trace_sidepass_loop_traffic",
+        "label": "Проследить side-pass traffic",
+        "action_kind": "support",
+        "effect_type": "support",
+        "one_shot": True,
+        "result_type": "local_support_applied",
+        "summary": "Отметить cautious marsh traffic на side-pass leg working reclaimed loop.",
+        "result_summary": "У чёрной протоки cautious side-pass к western_road читают уже не только как tied handoff, а как живой marsh-road traffic leg внутри working loop. Reeds-side pass теперь держит не просто передачу между звеньями, а осторожное loop movement: по мокрой линии реально идёт circulation memory, связывающая yard relay и boundary watch.",
+        "discovered_notes": [
+            "У blackwater_run cautious side-pass к western_road уже remembered как moving marsh traffic leg working reclaimed loop, а не только как handoff tie."
+        ],
+        "applied_effects": ["frontier_loop_traffic:deep_marsh_western", "intel:sidepass_loop_traffic"],
+        "node_state_flags": ["deep_marsh_sidepass_loop_traffic_traced"],
+        "node_state_summary": "У чёрной протоки уже проследили loop traffic по cautious side-pass к western_road.",
+    },
+    {
+        "node_id": "ash_pass",
+        "action_id": "mark_marsh_edge_loop_traffic",
+        "label": "Отметить edge traffic",
+        "action_kind": "support",
+        "effect_type": "support",
+        "one_shot": True,
+        "result_type": "local_support_applied",
+        "summary": "Отметить wet boundary traffic как edge-leg circulation working reclaimed loop.",
+        "result_summary": "На ash_pass мокрую линию к deep_marsh читают уже не только как edge handoff, а как живой boundary traffic leg working loop. Wet boundary watch теперь держит не только closure memory, а реальное движение loop circulation: мокрая кромка пропускает edge-leg motion между северным рубежом и чёрной водой как часть одной moving frontier practice.",
+        "discovered_notes": [
+            "На ash_pass wet boundary line к deep_marsh уже remembered как moving edge traffic leg working reclaimed loop, а не только как handoff mark."
+        ],
+        "applied_effects": ["frontier_loop_traffic:northwatch_deep_marsh", "intel:marsh_edge_loop_traffic"],
+        "node_state_flags": ["northwatch_marsh_edge_loop_traffic_marked"],
+        "node_state_summary": "На ash_pass уже отметили живой edge traffic по мокрой линии working reclaimed loop.",
+    },
+    {
         "node_id": "forest_settlement",
         "action_id": "review_frontier_stabilization",
         "label": "Сверить frontier stabilization",
@@ -3155,6 +3206,27 @@ STATIC_MAP_CONTEXT_ACTION_REQUIREMENTS: tuple[dict[str, Any], ...] = (
         "unlock_hint": "Сначала реально признать reclaimed triangle как stable circuit дома и уже после этого отмечать мокрую boundary line как edge handoff общего loop.",
     },
     {
+        "node_id": "waystation_yard",
+        "action_id": "send_watchroad_loop_traffic",
+        "requires_node_state_flag": "western_road_watchroad_circuit_handoff_closed",
+        "requires_any_group_node_state_flags": ["frontier_reclaimed_working_loop_closed"],
+        "unlock_hint": "Сначала реально замкнуть reclaimed working loop дома и уже после этого отмечать живой relay traffic по watch-road leg.",
+    },
+    {
+        "node_id": "blackwater_run",
+        "action_id": "trace_sidepass_loop_traffic",
+        "requires_node_state_flag": "deep_marsh_sidepass_circuit_handoff_tied",
+        "requires_any_group_node_state_flags": ["frontier_reclaimed_working_loop_closed"],
+        "unlock_hint": "Сначала реально замкнуть reclaimed working loop дома и уже после этого прослеживать cautious traffic по marsh side-pass leg.",
+    },
+    {
+        "node_id": "ash_pass",
+        "action_id": "mark_marsh_edge_loop_traffic",
+        "requires_node_state_flag": "northwatch_marsh_edge_circuit_handoff_marked",
+        "requires_any_group_node_state_flags": ["frontier_reclaimed_working_loop_closed"],
+        "unlock_hint": "Сначала реально замкнуть reclaimed working loop дома и уже после этого отмечать живой traffic по мокрой boundary leg.",
+    },
+    {
         "node_id": "northwatch_palisade",
         "action_id": "set_relay_watch",
         "requires_any_group_node_state_flags": [
@@ -3764,6 +3836,13 @@ STATIC_MAP_NODE_STATE_OVERLAYS: tuple[dict[str, Any], ...] = (
         "service_note": "После circuit handoff waystation_yard ведёт watch-road line уже как часть общего reclaimed loop, а не только как отдельно maintained post.",
     },
     {
+        "node_id": "waystation_yard",
+        "state_flag": "western_road_watchroad_loop_traffic_started",
+        "context_note": "На постоялом дворе уже держат watch-road line к northwatch как живой relay traffic leg working reclaimed loop.",
+        "detail_note": "Северная боковая линия здесь показывает уже не только handoff closure, а loop circulation: через yard реально проходит короткий courier traffic, который связывает watch-road leg с остальными звеньями reclaimed triangle.",
+        "service_note": "После loop-traffic follow-up waystation_yard ведёт watch-road line уже как moving relay leg, а не только как closed handoff.",
+    },
+    {
         "node_id": "ash_pass",
         "state_flag": "northwatch_directive_fulfilled",
         "context_note": "На ash_pass уже держат не только ход к редуту, но и reopened боковую линию к болотной протоке.",
@@ -3808,6 +3887,13 @@ STATIC_MAP_NODE_STATE_OVERLAYS: tuple[dict[str, Any], ...] = (
         "context_note": "На ash_pass уже держат мокрую линию к deep_marsh как edge handoff общего reclaimed circuit.",
         "detail_note": "Край прохода теперь показывает не только maintained relief, а wet boundary leg общего loop: edge-watch handoff связывает marsh edge с остальными circuit lines, а не держится изолированной сменой.",
         "service_note": "После circuit handoff ash_pass ведёт мокрую boundary line как часть общего reclaimed loop, а не только как maintained edge watch.",
+    },
+    {
+        "node_id": "ash_pass",
+        "state_flag": "northwatch_marsh_edge_loop_traffic_marked",
+        "context_note": "На ash_pass уже держат мокрую линию к deep_marsh как живой edge-traffic leg working reclaimed loop.",
+        "detail_note": "Край прохода теперь показывает не только edge handoff, а loop movement по мокрой boundary line: живая circulation memory проходит здесь между северным watch и чёрной водой как часть одного moving loop.",
+        "service_note": "После loop-traffic follow-up ash_pass ведёт мокрую boundary line уже как moving edge leg, а не только как handoff closure.",
     },
     {
         "node_id": "deep_marsh_threshold",
@@ -3962,6 +4048,13 @@ STATIC_MAP_NODE_STATE_OVERLAYS: tuple[dict[str, Any], ...] = (
         "context_note": "У чёрной протоки уже держат cautious side-pass к western_road как marsh-leg handoff общего reclaimed circuit.",
         "detail_note": "У воды теперь видно не только maintained reeds-watch, а marsh-side leg общего loop: cautious pass держит понятную передачу между road relay и boundary watch внутри одного reclaimed circuit rhythm.",
         "service_note": "После circuit handoff blackwater_run ведёт side-pass уже как часть общего reclaimed loop, а не только как maintained reeds-side post.",
+    },
+    {
+        "node_id": "blackwater_run",
+        "state_flag": "deep_marsh_sidepass_loop_traffic_traced",
+        "context_note": "У чёрной протоки уже держат cautious side-pass к western_road как живой marsh-traffic leg working reclaimed loop.",
+        "detail_note": "У воды теперь видно не только handoff tie, а живое loop movement по cautious pass: reeds-side traffic реально циркулирует между road relay и wet boundary leg как часть одной moving frontier practice.",
+        "service_note": "После loop-traffic follow-up blackwater_run ведёт side-pass уже как moving marsh leg, а не только как closed handoff.",
     },
     {
         "node_id": "reed_shelter",

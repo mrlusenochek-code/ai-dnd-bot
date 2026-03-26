@@ -5129,6 +5129,212 @@ def test_forest_settlement_reclaimed_working_loop_review_unlocks_after_full_circ
     assert any(entry["source_kind"] == "context_action" and entry["source_id"] == "review_reclaimed_working_loop" for entry in intel_entries)
 
 
+def test_reclaimed_loop_traffic_field_follow_ups_stay_locked_before_home_working_loop_review() -> None:
+    waystation_player = uuid.uuid4()
+    waystation_sess = SimpleNamespace(settings={})
+    session_state._initialize_default_group(
+        waystation_sess,
+        [waystation_player],
+        {"map_level": "region", "node_type": "zone", "node_id": "waystation_yard", "label": "Постоялый двор"},
+    )
+    session_state.add_group_node_state_flag(
+        waystation_sess,
+        "main",
+        "waystation_yard",
+        state_flag="western_road_watchroad_circuit_handoff_closed",
+        summary="Watch-road circuit handoff already closed at the yard.",
+        source="test",
+    )
+    locked_waystation = next(
+        item
+        for item in session_state.get_current_group_context_action_availability(waystation_sess, player_id=waystation_player)
+        if item["action_id"] == "send_watchroad_loop_traffic"
+    )
+    assert locked_waystation["availability_status"] == "locked"
+    assert locked_waystation["unavailable_reason"] == "requires_any_group_node_state_flags"
+
+    blackwater_player = uuid.uuid4()
+    blackwater_sess = SimpleNamespace(settings={})
+    session_state._initialize_default_group(
+        blackwater_sess,
+        [blackwater_player],
+        {"map_level": "region", "node_type": "zone", "node_id": "blackwater_run", "label": "Чёрная протока"},
+    )
+    session_state.add_group_node_state_flag(
+        blackwater_sess,
+        "main",
+        "blackwater_run",
+        state_flag="deep_marsh_sidepass_circuit_handoff_tied",
+        summary="Side-pass circuit handoff already tied at blackwater_run.",
+        source="test",
+    )
+    locked_blackwater = next(
+        item
+        for item in session_state.get_current_group_context_action_availability(blackwater_sess, player_id=blackwater_player)
+        if item["action_id"] == "trace_sidepass_loop_traffic"
+    )
+    assert locked_blackwater["availability_status"] == "locked"
+    assert locked_blackwater["unavailable_reason"] == "requires_any_group_node_state_flags"
+
+    ash_player = uuid.uuid4()
+    ash_sess = SimpleNamespace(settings={})
+    session_state._initialize_default_group(
+        ash_sess,
+        [ash_player],
+        {"map_level": "region", "node_type": "zone", "node_id": "ash_pass", "label": "Пепельный проход"},
+    )
+    session_state.add_group_node_state_flag(
+        ash_sess,
+        "main",
+        "ash_pass",
+        state_flag="northwatch_marsh_edge_circuit_handoff_marked",
+        summary="Marsh-edge circuit handoff already marked at ash_pass.",
+        source="test",
+    )
+    locked_ash = next(
+        item
+        for item in session_state.get_current_group_context_action_availability(ash_sess, player_id=ash_player)
+        if item["action_id"] == "mark_marsh_edge_loop_traffic"
+    )
+    assert locked_ash["availability_status"] == "locked"
+    assert locked_ash["unavailable_reason"] == "requires_any_group_node_state_flags"
+
+
+def test_reclaimed_loop_traffic_field_follow_ups_unlock_after_home_working_loop_review_and_reflect_circulation() -> None:
+    waystation_player = uuid.uuid4()
+    waystation_sess = SimpleNamespace(settings={})
+    session_state._initialize_default_group(
+        waystation_sess,
+        [waystation_player],
+        {"map_level": "region", "node_type": "zone", "node_id": "waystation_yard", "label": "Постоялый двор"},
+    )
+    session_state.add_group_node_state_flag(
+        waystation_sess,
+        "main",
+        "waystation_yard",
+        state_flag="western_road_watchroad_circuit_handoff_closed",
+        summary="Watch-road circuit handoff already closed at the yard.",
+        source="test",
+    )
+    session_state.add_group_node_state_flag(
+        waystation_sess,
+        "main",
+        "forest_settlement",
+        state_flag="frontier_reclaimed_working_loop_closed",
+        summary="Home base already recognizes the reclaimed triangle as a working loop.",
+        source="test",
+    )
+    available_waystation = next(
+        item
+        for item in session_state.get_current_group_context_action_availability(waystation_sess, player_id=waystation_player)
+        if item["action_id"] == "send_watchroad_loop_traffic"
+    )
+    assert available_waystation["availability_status"] == "available"
+    resolved_waystation, error = session_state.resolve_group_context_action(
+        waystation_sess,
+        "main",
+        action_id="send_watchroad_loop_traffic",
+        player_id=waystation_player,
+        source="test",
+    )
+    assert error is None
+    assert resolved_waystation is not None
+    assert "relay traffic leg" in resolved_waystation["last_context_action_result"]["result_summary"].lower()
+    waystation_context = session_state.get_current_group_node_context(waystation_sess, player_id=waystation_player)
+    assert "western_road_watchroad_loop_traffic_started" in waystation_context["node_state_flags"]
+    assert any("relay traffic" in note.lower() or "loop circulation" in note.lower() for note in waystation_context["state_notes"])
+    waystation_detail = session_state.get_current_group_node_detail(waystation_sess, player_id=waystation_player)
+    assert any("courier traffic" in note.lower() or "moving relay leg" in note.lower() for note in waystation_detail["state_notes"])
+    waystation_intel = session_state.get_current_group_map_intel(waystation_sess, player_id=waystation_player)
+    assert any(entry["source_kind"] == "context_action" and entry["source_id"] == "send_watchroad_loop_traffic" for entry in waystation_intel)
+
+    blackwater_player = uuid.uuid4()
+    blackwater_sess = SimpleNamespace(settings={})
+    session_state._initialize_default_group(
+        blackwater_sess,
+        [blackwater_player],
+        {"map_level": "region", "node_type": "zone", "node_id": "blackwater_run", "label": "Чёрная протока"},
+    )
+    session_state.add_group_node_state_flag(
+        blackwater_sess,
+        "main",
+        "blackwater_run",
+        state_flag="deep_marsh_sidepass_circuit_handoff_tied",
+        summary="Side-pass circuit handoff already tied at blackwater_run.",
+        source="test",
+    )
+    session_state.add_group_node_state_flag(
+        blackwater_sess,
+        "main",
+        "forest_settlement",
+        state_flag="frontier_reclaimed_working_loop_closed",
+        summary="Home base already recognizes the reclaimed triangle as a working loop.",
+        source="test",
+    )
+    available_blackwater = next(
+        item
+        for item in session_state.get_current_group_context_action_availability(blackwater_sess, player_id=blackwater_player)
+        if item["action_id"] == "trace_sidepass_loop_traffic"
+    )
+    assert available_blackwater["availability_status"] == "available"
+    resolved_blackwater, error = session_state.resolve_group_context_action(
+        blackwater_sess,
+        "main",
+        action_id="trace_sidepass_loop_traffic",
+        player_id=blackwater_player,
+        source="test",
+    )
+    assert error is None
+    assert resolved_blackwater is not None
+    assert "marsh-road traffic leg" in resolved_blackwater["last_context_action_result"]["result_summary"].lower()
+    blackwater_context = session_state.get_current_group_node_context(blackwater_sess, player_id=blackwater_player)
+    assert "deep_marsh_sidepass_loop_traffic_traced" in blackwater_context["node_state_flags"]
+    assert any("marsh-traffic" in note.lower() or "loop movement" in note.lower() for note in blackwater_context["state_notes"])
+
+    ash_player = uuid.uuid4()
+    ash_sess = SimpleNamespace(settings={})
+    session_state._initialize_default_group(
+        ash_sess,
+        [ash_player],
+        {"map_level": "region", "node_type": "zone", "node_id": "ash_pass", "label": "Пепельный проход"},
+    )
+    session_state.add_group_node_state_flag(
+        ash_sess,
+        "main",
+        "ash_pass",
+        state_flag="northwatch_marsh_edge_circuit_handoff_marked",
+        summary="Marsh-edge circuit handoff already marked at ash_pass.",
+        source="test",
+    )
+    session_state.add_group_node_state_flag(
+        ash_sess,
+        "main",
+        "forest_settlement",
+        state_flag="frontier_reclaimed_working_loop_closed",
+        summary="Home base already recognizes the reclaimed triangle as a working loop.",
+        source="test",
+    )
+    available_ash = next(
+        item
+        for item in session_state.get_current_group_context_action_availability(ash_sess, player_id=ash_player)
+        if item["action_id"] == "mark_marsh_edge_loop_traffic"
+    )
+    assert available_ash["availability_status"] == "available"
+    resolved_ash, error = session_state.resolve_group_context_action(
+        ash_sess,
+        "main",
+        action_id="mark_marsh_edge_loop_traffic",
+        player_id=ash_player,
+        source="test",
+    )
+    assert error is None
+    assert resolved_ash is not None
+    assert "boundary traffic leg" in resolved_ash["last_context_action_result"]["result_summary"].lower()
+    ash_context = session_state.get_current_group_node_context(ash_sess, player_id=ash_player)
+    assert "northwatch_marsh_edge_loop_traffic_marked" in ash_context["node_state_flags"]
+    assert any("edge-traffic" in note.lower() or "loop movement" in note.lower() for note in ash_context["state_notes"])
+
+
 def test_forest_settlement_frontier_support_stays_locked_before_report() -> None:
     player_id = uuid.uuid4()
     sess = SimpleNamespace(settings={})
