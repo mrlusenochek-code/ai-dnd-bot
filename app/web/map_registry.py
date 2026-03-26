@@ -2135,6 +2135,57 @@ STATIC_MAP_CONTEXT_ACTION_EFFECTS: tuple[dict[str, Any], ...] = (
         "node_state_summary": "На ash_pass уже подготовили wet-boundary support trace по active reclaimed circulation.",
     },
     {
+        "node_id": "waystation_yard",
+        "action_id": "deliver_watchroad_support_aid",
+        "label": "Передать relay aid",
+        "action_kind": "support",
+        "effect_type": "support",
+        "one_shot": True,
+        "result_type": "local_support_applied",
+        "summary": "Передать на watch-road leg первую реально delivered relay aid mark признанного support fabric.",
+        "result_summary": "На постоялом дворе watch-road line к northwatch читают уже не только как support leg active circulation, а как место, куда practical help действительно доходит и раскладывается по линии. Reclaimed support fabric приносит сюда courier aid не в виде ожидания, а как delivered road-leg help: relay-side support уже handed in на месте и реально поддерживает короткий северный ход.",
+        "discovered_notes": [
+            "На waystation_yard watch-road line к northwatch уже держат не только как support leg, а как delivered relay-aid trace признанного reclaimed support fabric."
+        ],
+        "applied_effects": ["frontier_support_delivery:northwatch_western", "intel:watchroad_support_delivery"],
+        "node_state_flags": ["western_road_watchroad_support_delivered"],
+        "node_state_summary": "На постоялом дворе уже передали delivered relay aid по watch-road leg признанного reclaimed support fabric.",
+    },
+    {
+        "node_id": "blackwater_run",
+        "action_id": "deliver_sidepass_support_aid",
+        "label": "Передать crossing aid",
+        "action_kind": "support",
+        "effect_type": "support",
+        "one_shot": True,
+        "result_type": "local_support_applied",
+        "summary": "Передать на cautious side-pass первую реально delivered crossing aid mark признанного support fabric.",
+        "result_summary": "У чёрной протоки cautious side-pass к western_road читают уже не только как marsh-pass support leg, а как место, куда practical crossing help действительно доходит через reclaimed support fabric. Reeds-side aid здесь уже не staged memory, а delivered marsh-leg help: помощь handed in на самой сырой связке и реально поддерживает осторожный проход.",
+        "discovered_notes": [
+            "У blackwater_run cautious side-pass к western_road уже держат не только как support leg, а как delivered crossing-aid trace признанного reclaimed support fabric."
+        ],
+        "applied_effects": ["frontier_support_delivery:deep_marsh_western", "intel:sidepass_support_delivery"],
+        "node_state_flags": ["deep_marsh_sidepass_support_delivered"],
+        "node_state_summary": "У чёрной протоки уже передали delivered crossing aid по cautious side-pass признанного reclaimed support fabric.",
+    },
+    {
+        "node_id": "ash_pass",
+        "action_id": "deliver_marsh_edge_support_aid",
+        "label": "Передать edge aid",
+        "action_kind": "support",
+        "effect_type": "support",
+        "one_shot": True,
+        "result_type": "local_support_applied",
+        "summary": "Передать на wet boundary leg первую реально delivered edge-watch aid mark признанного support fabric.",
+        "result_summary": "На ash_pass мокрую линию к deep_marsh читают уже не только как edge-support leg active circulation, а как место, куда practical watch help действительно доходит через reclaimed support fabric. Wet-boundary aid здесь уже не carried trace, а delivered edge-leg help: помощь handed in на сырой кромке и реально поддерживает boundary watch в поле.",
+        "discovered_notes": [
+            "На ash_pass wet boundary line к deep_marsh уже держат не только как support leg, а как delivered edge-aid trace признанного reclaimed support fabric."
+        ],
+        "applied_effects": ["frontier_support_delivery:northwatch_deep_marsh", "intel:marsh_edge_support_delivery"],
+        "node_state_flags": ["northwatch_marsh_edge_support_delivered"],
+        "node_state_summary": "На ash_pass уже передали delivered edge aid по wet boundary leg признанного reclaimed support fabric.",
+    },
+    {
         "node_id": "forest_settlement",
         "action_id": "review_frontier_stabilization",
         "label": "Сверить frontier stabilization",
@@ -3355,6 +3406,27 @@ STATIC_MAP_CONTEXT_ACTION_REQUIREMENTS: tuple[dict[str, Any], ...] = (
         "unlock_hint": "Сначала реально признать reclaimed triangle как active circulation дома и уже после этого готовить edge-watch support на мокрой boundary leg.",
     },
     {
+        "node_id": "waystation_yard",
+        "action_id": "deliver_watchroad_support_aid",
+        "requires_node_state_flag": "western_road_watchroad_circulation_support_ready",
+        "requires_any_group_node_state_flags": ["frontier_reclaimed_circulation_support_closed"],
+        "unlock_hint": "Сначала реально признать reclaimed triangle как useful local support fabric дома и уже после этого передавать delivered relay aid на watch-road leg.",
+    },
+    {
+        "node_id": "blackwater_run",
+        "action_id": "deliver_sidepass_support_aid",
+        "requires_node_state_flag": "deep_marsh_sidepass_circulation_support_set",
+        "requires_any_group_node_state_flags": ["frontier_reclaimed_circulation_support_closed"],
+        "unlock_hint": "Сначала реально признать reclaimed triangle как useful local support fabric дома и уже после этого передавать delivered crossing aid на cautious side-pass leg.",
+    },
+    {
+        "node_id": "ash_pass",
+        "action_id": "deliver_marsh_edge_support_aid",
+        "requires_node_state_flag": "northwatch_marsh_edge_circulation_support_carried",
+        "requires_any_group_node_state_flags": ["frontier_reclaimed_circulation_support_closed"],
+        "unlock_hint": "Сначала реально признать reclaimed triangle как useful local support fabric дома и уже после этого передавать delivered edge aid на мокрой boundary leg.",
+    },
+    {
         "node_id": "northwatch_palisade",
         "action_id": "set_relay_watch",
         "requires_any_group_node_state_flags": [
@@ -3992,6 +4064,13 @@ STATIC_MAP_NODE_STATE_OVERLAYS: tuple[dict[str, Any], ...] = (
         "service_note": "После circulation-support follow-up waystation_yard ведёт watch-road line уже как practical support leg, а не только как moving relay traffic.",
     },
     {
+        "node_id": "waystation_yard",
+        "state_flag": "western_road_watchroad_support_delivered",
+        "context_note": "На постоялом дворе уже держат watch-road line к northwatch как leg, куда practical relay aid реально delivered в поле.",
+        "detail_note": "Северная боковая линия здесь даёт уже не только support trace, а delivered road-leg help: courier aid действительно handed in на дворе и поддерживает watch-road проход как usable relay-side assistance.",
+        "service_note": "После support-delivery follow-up waystation_yard ведёт watch-road line уже как место delivered relay help, а не только как prepared support leg.",
+    },
+    {
         "node_id": "ash_pass",
         "state_flag": "northwatch_directive_fulfilled",
         "context_note": "На ash_pass уже держат не только ход к редуту, но и reopened боковую линию к болотной протоке.",
@@ -4050,6 +4129,13 @@ STATIC_MAP_NODE_STATE_OVERLAYS: tuple[dict[str, Any], ...] = (
         "context_note": "На ash_pass уже держат мокрую линию к deep_marsh как edge-watch support leg active reclaimed circulation.",
         "detail_note": "Край прохода теперь даёт уже не только loop movement, а practical wet-boundary help: по кромке идёт carried edge-watch support mark, которая делает мокрую линию полезной, а не только движущейся.",
         "service_note": "После circulation-support follow-up ash_pass ведёт мокрую boundary line уже как practical edge-support leg, а не только как moving traffic.",
+    },
+    {
+        "node_id": "ash_pass",
+        "state_flag": "northwatch_marsh_edge_support_delivered",
+        "context_note": "На ash_pass уже держат мокрую линию к deep_marsh как leg, куда practical edge aid реально delivered в поле.",
+        "detail_note": "Край прохода теперь даёт уже не только carried support trace, а delivered wet-boundary help: edge-watch aid действительно handed in на сырой кромке и поддерживает boundary watch как usable field assistance.",
+        "service_note": "После support-delivery follow-up ash_pass ведёт мокрую boundary line уже как место delivered edge help, а не только как carried support leg.",
     },
     {
         "node_id": "deep_marsh_threshold",
@@ -4218,6 +4304,13 @@ STATIC_MAP_NODE_STATE_OVERLAYS: tuple[dict[str, Any], ...] = (
         "context_note": "У чёрной протоки уже держат cautious side-pass к western_road как marsh-pass support leg active reclaimed circulation.",
         "detail_note": "У воды теперь видно уже не только loop movement, а practical crossing help: reeds-side circulation приносит на cautious pass небольшую, но реальную support trace, которая делает мокрый ход полезнее в поле.",
         "service_note": "После circulation-support follow-up blackwater_run ведёт side-pass уже как practical marsh-support leg, а не только как moving traffic.",
+    },
+    {
+        "node_id": "blackwater_run",
+        "state_flag": "deep_marsh_sidepass_support_delivered",
+        "context_note": "У чёрной протоки уже держат cautious side-pass к western_road как leg, куда practical crossing aid реально delivered в поле.",
+        "detail_note": "Боковая линия здесь даёт уже не только support trace, а delivered marsh-leg help: reeds-side aid действительно handed in у протоки и поддерживает cautious crossing как usable field assistance.",
+        "service_note": "После support-delivery follow-up blackwater_run ведёт cautious side-pass уже как место delivered crossing help, а не только как prepared support leg.",
     },
     {
         "node_id": "reed_shelter",
