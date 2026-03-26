@@ -1113,6 +1113,7 @@ def test_starter_frontier_nodes_expose_local_progression_arc_surfaces() -> None:
     assert any(item["action_id"] == "review_frontier_standing_posts" for item in forest_actions)
     assert any(item["action_id"] == "review_maintained_frontier_posts" for item in forest_actions)
     assert any(item["action_id"] == "review_reclaimed_frontier_circuit" for item in forest_actions)
+    assert any(item["action_id"] == "review_reclaimed_working_loop" for item in forest_actions)
     assert forest_action_requirements == [
         {
             "node_id": "forest_settlement",
@@ -1254,6 +1255,17 @@ def test_starter_frontier_nodes_expose_local_progression_arc_surfaces() -> None:
                 "western_road_watchroad_post_board_refreshed",
                 "deep_marsh_sidepass_reed_watch_refreshed",
                 "northwatch_marsh_edge_watch_relief_refreshed",
+            ],
+        },
+        {
+            "node_id": "forest_settlement",
+            "action_id": "review_reclaimed_working_loop",
+            "unlock_hint": "Сначала замкнуть весь reclaimed circuit through the field, чтобы база могла признать не только stable circuit, а уже working local loop.",
+            "requires_node_state_flag": "frontier_reclaimed_circuit_closed",
+            "requires_all_group_node_state_flags": [
+                "western_road_watchroad_circuit_handoff_closed",
+                "deep_marsh_sidepass_circuit_handoff_tied",
+                "northwatch_marsh_edge_circuit_handoff_marked",
             ],
         },
     ]

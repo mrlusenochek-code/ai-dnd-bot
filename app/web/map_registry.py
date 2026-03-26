@@ -2741,6 +2741,23 @@ STATIC_MAP_CONTEXT_ACTION_EFFECTS: tuple[dict[str, Any], ...] = (
     },
     {
         "node_id": "forest_settlement",
+        "action_id": "review_reclaimed_working_loop",
+        "label": "Свести reclaimed working loop",
+        "action_kind": "support",
+        "effect_type": "support",
+        "one_shot": True,
+        "result_type": "local_support_applied",
+        "summary": "Признать reclaimed triangle как working local loop, который реально handed through the field.",
+        "result_summary": "Когда watch-road relay, reeds-side pass и marsh-edge handoff возвращаются домой уже как три согласованных field transfers, лесной посёлок видит reclaimed triangle не только как stable circuit, а как working local loop. Relay road, cautious marsh pass и wet boundary watch теперь hand through one another как один closed frontier motion: база помнит не просто maintained fabric и circuit memory, а loop, который действительно прошёл через поле и вернулся собранным.",
+        "discovered_notes": [
+            "Reclaimed triangle впервые remembered дома уже не только как stable circuit, а как working local loop: три leg handoff signals показывают, что motion реально closes through the field."
+        ],
+        "applied_effects": ["frontier_reclaimed_working_loop:closed", "intel:frontier_reclaimed_working_loop_closed"],
+        "node_state_flags": ["frontier_reclaimed_working_loop_closed"],
+        "node_state_summary": "В лесном посёлке уже признали reclaimed triangle как working local loop, который реально closes through the field.",
+    },
+    {
+        "node_id": "forest_settlement",
         "action_id": "compile_frontier_report",
         "label": "Сверить frontier сводки",
         "action_kind": "clue",
@@ -3017,6 +3034,17 @@ STATIC_MAP_CONTEXT_ACTION_REQUIREMENTS: tuple[dict[str, Any], ...] = (
             "northwatch_marsh_edge_watch_relief_refreshed",
         ],
         "unlock_hint": "Сначала полностью замкнуть maintained-post review по всему reclaimed triangle, чтобы база могла признать не три upkeep traces, а один stable local frontier circuit.",
+    },
+    {
+        "node_id": "forest_settlement",
+        "action_id": "review_reclaimed_working_loop",
+        "requires_node_state_flag": "frontier_reclaimed_circuit_closed",
+        "requires_all_group_node_state_flags": [
+            "western_road_watchroad_circuit_handoff_closed",
+            "deep_marsh_sidepass_circuit_handoff_tied",
+            "northwatch_marsh_edge_circuit_handoff_marked",
+        ],
+        "unlock_hint": "Сначала замкнуть весь reclaimed circuit through the field, чтобы база могла признать не только stable circuit, а уже working local loop.",
     },
     {
         "node_id": "waystation_yard",
@@ -3568,6 +3596,13 @@ STATIC_MAP_NODE_STATE_OVERLAYS: tuple[dict[str, Any], ...] = (
         "context_note": "В лесном посёлке reclaimed triangle уже remembered как stable local frontier circuit.",
         "detail_note": "Watch-road relay, reeds-side pass и marsh-edge relief уже держатся дома не как три отдельных upkeep traces, а как один reclaimed local circuit: settlement видит здесь первый coherent loop, который реально связывает maintained triangle в working frontier holding.",
         "service_note": "После reclaimed circuit review база знает maintained triangle уже не только как набор posts, а как stable local circuit с честной домашней памятью о whole loop.",
+    },
+    {
+        "node_id": "forest_settlement",
+        "state_flag": "frontier_reclaimed_working_loop_closed",
+        "context_note": "В лесном посёлке reclaimed triangle уже remembered как working local loop, который реально closes through the field.",
+        "detail_note": "Watch-road relay handoff, reeds-side pass transfer и marsh-edge boundary handoff уже сводятся дома не просто в circuit memory, а в один working local loop: settlement видит closed frontier motion, где три reclaimed legs реально hand through one another и возвращаются как единая практика.",
+        "service_note": "После working-loop review база знает reclaimed triangle уже не только как stable circuit, а как working local loop с честной closed-motion memory.",
     },
     {
         "node_id": "forest_settlement",
