@@ -2877,6 +2877,23 @@ STATIC_MAP_CONTEXT_ACTION_EFFECTS: tuple[dict[str, Any], ...] = (
     },
     {
         "node_id": "forest_settlement",
+        "action_id": "review_reclaimed_circulation_support",
+        "label": "Сверить circulation support",
+        "action_kind": "support",
+        "effect_type": "support",
+        "one_shot": True,
+        "result_type": "local_support_applied",
+        "summary": "Признать reclaimed triangle как useful local support fabric, которая реально несёт практическую помощь по всем трём legs.",
+        "result_summary": "Когда watch-road relay aid, reeds-side crossing help и marsh-edge carried watch support возвращаются домой уже как три согласованных practical traces, лесной посёлок видит reclaimed triangle не только как active local circulation, а как useful local support fabric. Relay road, cautious reeds pass и wet boundary watch теперь несут help through one another как один circulating frontier help-network: база помнит уже не только движение по треугольнику, а loop, который реально помогает frontier across the field.",
+        "discovered_notes": [
+            "Reclaimed triangle впервые remembered дома уже не только как active local circulation, а как practical circulating support fabric: три field support signals показывают, что loop реально несёт полезную помощь по всему треугольнику."
+        ],
+        "applied_effects": ["frontier_reclaimed_circulation_support:closed", "intel:frontier_reclaimed_circulation_support_closed"],
+        "node_state_flags": ["frontier_reclaimed_circulation_support_closed"],
+        "node_state_summary": "В лесном посёлке уже признали reclaimed triangle как useful local support fabric, которая реально несёт практическую помощь по всем трём reclaimed legs.",
+    },
+    {
+        "node_id": "forest_settlement",
         "action_id": "compile_frontier_report",
         "label": "Сверить frontier сводки",
         "action_kind": "clue",
@@ -3175,6 +3192,17 @@ STATIC_MAP_CONTEXT_ACTION_REQUIREMENTS: tuple[dict[str, Any], ...] = (
             "northwatch_marsh_edge_loop_traffic_marked",
         ],
         "unlock_hint": "Сначала замкнуть весь reclaimed loop traffic в поле, чтобы база могла признать не только working loop, а уже active local circulation.",
+    },
+    {
+        "node_id": "forest_settlement",
+        "action_id": "review_reclaimed_circulation_support",
+        "requires_node_state_flag": "frontier_reclaimed_circulation_closed",
+        "requires_all_group_node_state_flags": [
+            "western_road_watchroad_circulation_support_ready",
+            "deep_marsh_sidepass_circulation_support_set",
+            "northwatch_marsh_edge_circulation_support_carried",
+        ],
+        "unlock_hint": "Сначала замкнуть весь reclaimed circulation support в поле, чтобы база могла признать не только active local circulation, а уже useful local support fabric.",
     },
     {
         "node_id": "waystation_yard",
@@ -3782,6 +3810,13 @@ STATIC_MAP_NODE_STATE_OVERLAYS: tuple[dict[str, Any], ...] = (
         "context_note": "В лесном посёлке reclaimed triangle уже remembered как active local circulation, которая реально идёт через все три reclaimed legs.",
         "detail_note": "Watch-road relay traffic, reeds-side circulation и marsh-edge loop movement уже сводятся дома не просто в working loop, а в одну active local circulation: settlement видит ongoing frontier motion, где весь reclaimed triangle живёт как единая moving fabric.",
         "service_note": "После circulation review база знает reclaimed triangle уже не только как working loop, а как active local circulation с честной ongoing-motion memory.",
+    },
+    {
+        "node_id": "forest_settlement",
+        "state_flag": "frontier_reclaimed_circulation_support_closed",
+        "context_note": "В лесном посёлке reclaimed triangle уже remembered как useful local support fabric, которая реально несёт помощь через все три reclaimed legs.",
+        "detail_note": "Watch-road relay aid, reeds-side crossing help и marsh-edge carried watch support уже сводятся дома не просто в active local circulation, а в одну practical support fabric: settlement видит не isolated support traces, а circulating frontier help-network, который живёт по всему reclaimed triangle.",
+        "service_note": "После circulation-support review база знает reclaimed triangle уже не только как active local circulation, а как useful local support fabric с честной памятью о practical field help.",
     },
     {
         "node_id": "forest_settlement",
