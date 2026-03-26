@@ -4722,6 +4722,104 @@ def test_forest_settlement_maintained_post_review_stages_on_distinct_field_upkee
     assert any(entry["source_kind"] == "context_action" and entry["source_id"] == "review_maintained_frontier_posts" for entry in intel_entries)
 
 
+def test_forest_settlement_reclaimed_circuit_review_stays_locked_before_full_maintained_triangle() -> None:
+    player_id = uuid.uuid4()
+    sess = SimpleNamespace(settings={})
+    session_state._initialize_default_group(
+        sess,
+        [player_id],
+        {"map_level": "region", "node_type": "zone", "node_id": "forest_settlement", "label": "Лесной посёлок"},
+    )
+    session_state.get_current_group_current_region_state(sess, player_id=player_id)
+
+    session_state.add_group_node_state_flag(
+        sess,
+        "main",
+        "waystation_yard",
+        state_flag="western_road_watchroad_post_board_refreshed",
+        summary="На дворе уже обновили watch-road upkeep board.",
+        source="test",
+    )
+    session_state.add_group_node_state_flag(
+        sess,
+        "main",
+        "blackwater_run",
+        state_flag="deep_marsh_sidepass_reed_watch_refreshed",
+        summary="У чёрной протоки уже обновили reeds-side upkeep.",
+        source="test",
+    )
+
+    locked_actions = session_state.get_current_group_context_action_availability(sess, player_id=player_id)
+    locked = next(item for item in locked_actions if item["action_id"] == "review_reclaimed_frontier_circuit")
+    assert locked["availability_status"] == "locked"
+    assert locked["unavailable_reason"] in {
+        "requires_node_state_flag",
+        "requires_all_group_node_state_flags",
+    }
+    assert "stable local frontier circuit" in locked["unlock_hint"].lower()
+
+
+def test_forest_settlement_reclaimed_circuit_review_unlocks_after_full_maintained_triangle_and_persists_circuit_memory() -> None:
+    player_id = uuid.uuid4()
+    sess = SimpleNamespace(settings={})
+    session_state._initialize_default_group(
+        sess,
+        [player_id],
+        {"map_level": "region", "node_type": "zone", "node_id": "forest_settlement", "label": "Лесной посёлок"},
+    )
+    session_state.get_current_group_current_region_state(sess, player_id=player_id)
+
+    for node_id, flag, summary in (
+        ("waystation_yard", "western_road_watchroad_post_board_refreshed", "На дворе уже обновили watch-road upkeep board."),
+        ("blackwater_run", "deep_marsh_sidepass_reed_watch_refreshed", "У чёрной протоки уже обновили reeds-side upkeep."),
+        ("ash_pass", "northwatch_marsh_edge_watch_relief_refreshed", "На ash_pass уже обновили marsh-edge relief."),
+    ):
+        session_state.add_group_node_state_flag(
+            sess,
+            "main",
+            node_id,
+            state_flag=flag,
+            summary=summary,
+            source="test",
+        )
+
+    maintained_review, error = session_state.resolve_group_context_action(
+        sess,
+        "main",
+        action_id="review_maintained_frontier_posts",
+        player_id=player_id,
+        source="test",
+    )
+    assert error is None
+    assert maintained_review is not None
+
+    available_actions = session_state.get_current_group_context_action_availability(sess, player_id=player_id)
+    available = next(item for item in available_actions if item["action_id"] == "review_reclaimed_frontier_circuit")
+    assert available["availability_status"] == "available"
+
+    resolved, error = session_state.resolve_group_context_action(
+        sess,
+        "main",
+        action_id="review_reclaimed_frontier_circuit",
+        player_id=player_id,
+        source="test",
+    )
+    assert error is None
+    assert resolved is not None
+    assert "stable working loop" in resolved["last_context_action_result"]["result_summary"].lower()
+    assert "reeds-side pass" in resolved["last_context_action_result"]["result_summary"].lower()
+
+    context = session_state.get_current_group_node_context(sess, player_id=player_id)
+    assert "frontier_reclaimed_circuit_closed" in context["node_state_flags"]
+    assert any("stable local frontier circuit" in note.lower() for note in context["state_notes"])
+
+    detail = session_state.get_current_group_node_detail(sess, player_id=player_id)
+    assert any("one reclaimed local circuit" in note.lower() or "coherent loop" in note.lower() for note in detail["state_notes"])
+
+    intel_entries = session_state.get_current_group_map_intel(sess, player_id=player_id)
+    assert any(entry["source_kind"] == "context_action" and entry["source_id"] == "review_reclaimed_frontier_circuit" for entry in intel_entries)
+
+
 def test_forest_settlement_frontier_support_stays_locked_before_report() -> None:
     player_id = uuid.uuid4()
     sess = SimpleNamespace(settings={})

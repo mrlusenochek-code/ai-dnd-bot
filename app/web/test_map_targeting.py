@@ -1088,6 +1088,7 @@ def test_starter_frontier_nodes_expose_local_progression_arc_surfaces() -> None:
     assert any(item["action_id"] == "review_trusted_frontier_routines" for item in forest_actions)
     assert any(item["action_id"] == "review_frontier_standing_posts" for item in forest_actions)
     assert any(item["action_id"] == "review_maintained_frontier_posts" for item in forest_actions)
+    assert any(item["action_id"] == "review_reclaimed_frontier_circuit" for item in forest_actions)
     assert forest_action_requirements == [
         {
             "node_id": "forest_settlement",
@@ -1215,6 +1216,17 @@ def test_starter_frontier_nodes_expose_local_progression_arc_surfaces() -> None:
             "action_id": "review_maintained_frontier_posts",
             "unlock_hint": "Сначала довести хотя бы одну reopened side-line до реального field upkeep, чтобы база увидела не только held standing post, а уже maintained frontier holding.",
             "requires_any_group_node_state_flags": [
+                "western_road_watchroad_post_board_refreshed",
+                "deep_marsh_sidepass_reed_watch_refreshed",
+                "northwatch_marsh_edge_watch_relief_refreshed",
+            ],
+        },
+        {
+            "node_id": "forest_settlement",
+            "action_id": "review_reclaimed_frontier_circuit",
+            "unlock_hint": "Сначала полностью замкнуть maintained-post review по всему reclaimed triangle, чтобы база могла признать не три upkeep traces, а один stable local frontier circuit.",
+            "requires_node_state_flag": "frontier_maintained_posts_closed",
+            "requires_all_group_node_state_flags": [
                 "western_road_watchroad_post_board_refreshed",
                 "deep_marsh_sidepass_reed_watch_refreshed",
                 "northwatch_marsh_edge_watch_relief_refreshed",

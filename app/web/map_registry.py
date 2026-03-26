@@ -2673,6 +2673,23 @@ STATIC_MAP_CONTEXT_ACTION_EFFECTS: tuple[dict[str, Any], ...] = (
     },
     {
         "node_id": "forest_settlement",
+        "action_id": "review_reclaimed_frontier_circuit",
+        "label": "Признать reclaimed circuit",
+        "action_kind": "support",
+        "effect_type": "support",
+        "one_shot": True,
+        "result_type": "local_support_applied",
+        "summary": "Признать reclaimed triangle как первый stable local frontier circuit.",
+        "result_summary": "После полного maintained-post review лесной посёлок наконец сводит watch-road relay, reeds-side pass и marsh-edge relief не в три upkeep traces, а в один reclaimed local circuit. База помнит этот треугольник уже как stable working loop: короткий road relay, осторожный reeds crossing и boundary watch держатся вместе как один local frontier circuit, который реально живёт между домом и полем.",
+        "discovered_notes": [
+            "Reclaimed triangle впервые remembered в лесном посёлке уже не только как набор maintained posts, а как один stable local circuit, где relay road, reeds pass и marsh edge держатся вместе."
+        ],
+        "applied_effects": ["frontier_reclaimed_circuit:closed", "intel:frontier_reclaimed_circuit_closed"],
+        "node_state_flags": ["frontier_reclaimed_circuit_closed"],
+        "node_state_summary": "В лесном посёлке уже признали reclaimed triangle как stable local frontier circuit.",
+    },
+    {
+        "node_id": "forest_settlement",
         "action_id": "compile_frontier_report",
         "label": "Сверить frontier сводки",
         "action_kind": "clue",
@@ -2938,6 +2955,17 @@ STATIC_MAP_CONTEXT_ACTION_REQUIREMENTS: tuple[dict[str, Any], ...] = (
             "northwatch_marsh_edge_watch_relief_refreshed",
         ],
         "unlock_hint": "Сначала довести хотя бы одну reopened side-line до реального field upkeep, чтобы база увидела не только held standing post, а уже maintained frontier holding.",
+    },
+    {
+        "node_id": "forest_settlement",
+        "action_id": "review_reclaimed_frontier_circuit",
+        "requires_node_state_flag": "frontier_maintained_posts_closed",
+        "requires_all_group_node_state_flags": [
+            "western_road_watchroad_post_board_refreshed",
+            "deep_marsh_sidepass_reed_watch_refreshed",
+            "northwatch_marsh_edge_watch_relief_refreshed",
+        ],
+        "unlock_hint": "Сначала полностью замкнуть maintained-post review по всему reclaimed triangle, чтобы база могла признать не три upkeep traces, а один stable local frontier circuit.",
     },
     {
         "node_id": "waystation_yard",
@@ -3461,6 +3489,13 @@ STATIC_MAP_NODE_STATE_OVERLAYS: tuple[dict[str, Any], ...] = (
         "context_note": "В лесном посёлке уже собрали полную maintained-post frontier picture по всему reclaimed local triangle.",
         "detail_note": "Watch-road board refresh, cautious reeds-side upkeep и marsh-edge relief rhythm уже сводятся дома в одну maintained frontier post fabric: весь reclaimed triangle remembered как stable maintained holding, а не только как held standing-post memory.",
         "service_note": "После полного maintained-post review база знает reclaimed triangle уже как maintained frontier post fabric recognized back at home base.",
+    },
+    {
+        "node_id": "forest_settlement",
+        "state_flag": "frontier_reclaimed_circuit_closed",
+        "context_note": "В лесном посёлке reclaimed triangle уже remembered как stable local frontier circuit.",
+        "detail_note": "Watch-road relay, reeds-side pass и marsh-edge relief уже держатся дома не как три отдельных upkeep traces, а как один reclaimed local circuit: settlement видит здесь первый coherent loop, который реально связывает maintained triangle в working frontier holding.",
+        "service_note": "После reclaimed circuit review база знает maintained triangle уже не только как набор posts, а как stable local circuit с честной домашней памятью о whole loop.",
     },
     {
         "node_id": "forest_settlement",
