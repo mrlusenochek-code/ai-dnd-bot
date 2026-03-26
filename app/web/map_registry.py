@@ -1982,6 +1982,57 @@ STATIC_MAP_CONTEXT_ACTION_EFFECTS: tuple[dict[str, Any], ...] = (
         "node_state_summary": "На ash_pass уже обновили upkeep relief по held marsh-edge watch к deep_marsh.",
     },
     {
+        "node_id": "waystation_yard",
+        "action_id": "close_watchroad_circuit_handoff",
+        "label": "Свести relay circuit handoff",
+        "action_kind": "support",
+        "effect_type": "support",
+        "one_shot": True,
+        "result_type": "local_support_applied",
+        "summary": "Свести watch-road leg в circuit handoff после признания reclaimed triangle как stable local loop.",
+        "result_summary": "На постоялом дворе watch-road leg к northwatch читают уже не только как maintained board, а как relay handoff в одном reclaimed circuit order. Двор держит северную линию как короткое road-side звено общего loop: courier board, yard turn и домашняя circuit memory сходятся здесь в один рабочий relay leg, который уже не выпадает из целого треугольника.",
+        "discovered_notes": [
+            "На waystation_yard watch-road line к northwatch уже держат как relay leg общего reclaimed circuit, а не только как отдельно обслуженный maintained post."
+        ],
+        "applied_effects": ["frontier_circuit_leg:northwatch_western", "intel:watchroad_circuit_handoff"],
+        "node_state_flags": ["western_road_watchroad_circuit_handoff_closed"],
+        "node_state_summary": "На постоялом дворе уже свели watch-road leg к northwatch в relay handoff общего reclaimed circuit.",
+    },
+    {
+        "node_id": "blackwater_run",
+        "action_id": "tie_sidepass_circuit_handoff",
+        "label": "Связать side-pass circuit handoff",
+        "action_kind": "support",
+        "effect_type": "support",
+        "one_shot": True,
+        "result_type": "local_support_applied",
+        "summary": "Связать marsh-road leg в cautious circuit handoff после домашнего reclaimed-circuit review.",
+        "result_summary": "У чёрной протоки cautious side-pass к western_road держат уже не только как maintained reeds-watch, а как reeds-side handoff в общем circuit rhythm. У воды видно, что marsh leg живёт не сам по себе: guarded pass, yard-side relay и boundary watch уже читаются как один loop, где этот side-pass держит осторожную мокрую передачу между звеньями.",
+        "discovered_notes": [
+            "У blackwater_run cautious side-pass к western_road уже remembered как marsh leg общего reclaimed circuit, а не только как отдельно поддержанный reeds-side post."
+        ],
+        "applied_effects": ["frontier_circuit_leg:deep_marsh_western", "intel:sidepass_circuit_handoff"],
+        "node_state_flags": ["deep_marsh_sidepass_circuit_handoff_tied"],
+        "node_state_summary": "У чёрной протоки уже связали cautious side-pass к western_road в marsh-leg handoff общего reclaimed circuit.",
+    },
+    {
+        "node_id": "ash_pass",
+        "action_id": "mark_marsh_edge_circuit_handoff",
+        "label": "Отметить edge circuit handoff",
+        "action_kind": "support",
+        "effect_type": "support",
+        "one_shot": True,
+        "result_type": "local_support_applied",
+        "summary": "Отметить wet boundary leg как edge-watch handoff в общем reclaimed circuit order.",
+        "result_summary": "На ash_pass мокрую линию к deep_marsh отмечают уже не только как maintained relief watch, а как edge-watch handoff в одном reclaimed circuit. У кромки прохода boundary смена, болотный pass и road relay теперь читаются как части одной working loop memory, а сама мокрая граница держит понятную передачу между северным рубежом и чёрной водой.",
+        "discovered_notes": [
+            "На ash_pass wet boundary line к deep_marsh уже remembered как edge leg общего reclaimed circuit, а не только как отдельно обновляемый marsh-edge watch."
+        ],
+        "applied_effects": ["frontier_circuit_leg:northwatch_deep_marsh", "intel:marsh_edge_circuit_handoff"],
+        "node_state_flags": ["northwatch_marsh_edge_circuit_handoff_marked"],
+        "node_state_summary": "На ash_pass уже отметили wet boundary line к deep_marsh как edge-watch handoff общего reclaimed circuit.",
+    },
+    {
         "node_id": "forest_settlement",
         "action_id": "review_frontier_stabilization",
         "label": "Сверить frontier stabilization",
@@ -3055,6 +3106,27 @@ STATIC_MAP_CONTEXT_ACTION_REQUIREMENTS: tuple[dict[str, Any], ...] = (
         "unlock_hint": "Сначала дождаться standing-post review дома и уже после него обновлять мокрую boundary line как maintained marsh-edge relief watch.",
     },
     {
+        "node_id": "waystation_yard",
+        "action_id": "close_watchroad_circuit_handoff",
+        "requires_node_state_flag": "western_road_watchroad_post_board_refreshed",
+        "requires_any_group_node_state_flags": ["frontier_reclaimed_circuit_closed"],
+        "unlock_hint": "Сначала реально признать reclaimed triangle как stable circuit дома и уже после этого сводить watch-road line в relay handoff общего loop.",
+    },
+    {
+        "node_id": "blackwater_run",
+        "action_id": "tie_sidepass_circuit_handoff",
+        "requires_node_state_flag": "deep_marsh_sidepass_reed_watch_refreshed",
+        "requires_any_group_node_state_flags": ["frontier_reclaimed_circuit_closed"],
+        "unlock_hint": "Сначала реально признать reclaimed triangle как stable circuit дома и уже после этого связывать cautious side-pass в marsh-leg handoff общего loop.",
+    },
+    {
+        "node_id": "ash_pass",
+        "action_id": "mark_marsh_edge_circuit_handoff",
+        "requires_node_state_flag": "northwatch_marsh_edge_watch_relief_refreshed",
+        "requires_any_group_node_state_flags": ["frontier_reclaimed_circuit_closed"],
+        "unlock_hint": "Сначала реально признать reclaimed triangle как stable circuit дома и уже после этого отмечать мокрую boundary line как edge handoff общего loop.",
+    },
+    {
         "node_id": "northwatch_palisade",
         "action_id": "set_relay_watch",
         "requires_any_group_node_state_flags": [
@@ -3650,6 +3722,13 @@ STATIC_MAP_NODE_STATE_OVERLAYS: tuple[dict[str, Any], ...] = (
         "service_note": "После upkeep follow-up waystation_yard ведёт watch-road line как maintained post fabric, а не только как held standing post.",
     },
     {
+        "node_id": "waystation_yard",
+        "state_flag": "western_road_watchroad_circuit_handoff_closed",
+        "context_note": "На постоялом дворе уже держат watch-road line к northwatch как relay handoff общего reclaimed circuit.",
+        "detail_note": "Северная боковая линия здесь читается уже не только по maintained board, а как circuit relay leg: yard держит короткую передачу между домашним loop memory и road-side handoff к northwatch.",
+        "service_note": "После circuit handoff waystation_yard ведёт watch-road line уже как часть общего reclaimed loop, а не только как отдельно maintained post.",
+    },
+    {
         "node_id": "ash_pass",
         "state_flag": "northwatch_directive_fulfilled",
         "context_note": "На ash_pass уже держат не только ход к редуту, но и reopened боковую линию к болотной протоке.",
@@ -3687,6 +3766,13 @@ STATIC_MAP_NODE_STATE_OVERLAYS: tuple[dict[str, Any], ...] = (
         "context_note": "На ash_pass уже обновляют marsh-edge relief по held boundary watch к deep_marsh.",
         "detail_note": "Край прохода теперь показывает не только held edge-post, а maintained wet-line relief cycle: boundary watch у сырой кромки обновляют как рабочую практику смены.",
         "service_note": "После upkeep follow-up ash_pass ведёт мокрую boundary line как maintained marsh-edge watch, а не только как held standing post.",
+    },
+    {
+        "node_id": "ash_pass",
+        "state_flag": "northwatch_marsh_edge_circuit_handoff_marked",
+        "context_note": "На ash_pass уже держат мокрую линию к deep_marsh как edge handoff общего reclaimed circuit.",
+        "detail_note": "Край прохода теперь показывает не только maintained relief, а wet boundary leg общего loop: edge-watch handoff связывает marsh edge с остальными circuit lines, а не держится изолированной сменой.",
+        "service_note": "После circuit handoff ash_pass ведёт мокрую boundary line как часть общего reclaimed loop, а не только как maintained edge watch.",
     },
     {
         "node_id": "deep_marsh_threshold",
@@ -3834,6 +3920,13 @@ STATIC_MAP_NODE_STATE_OVERLAYS: tuple[dict[str, Any], ...] = (
         "context_note": "У чёрной протоки уже обновляют reeds-side upkeep по held side-pass к western_road.",
         "detail_note": "У воды теперь видно не только held crossing post, а maintained reeds-watch cycle: cautious side-pass к western_road держат в рабочем relief порядке у самой чёрной воды.",
         "service_note": "После upkeep follow-up blackwater_run ведёт side-pass как maintained reeds-side post fabric, а не только как held standing trace.",
+    },
+    {
+        "node_id": "blackwater_run",
+        "state_flag": "deep_marsh_sidepass_circuit_handoff_tied",
+        "context_note": "У чёрной протоки уже держат cautious side-pass к western_road как marsh-leg handoff общего reclaimed circuit.",
+        "detail_note": "У воды теперь видно не только maintained reeds-watch, а marsh-side leg общего loop: cautious pass держит понятную передачу между road relay и boundary watch внутри одного reclaimed circuit rhythm.",
+        "service_note": "После circuit handoff blackwater_run ведёт side-pass уже как часть общего reclaimed loop, а не только как maintained reeds-side post.",
     },
     {
         "node_id": "reed_shelter",

@@ -592,6 +592,7 @@ def test_northwatch_nodes_expose_services_actions_and_details() -> None:
     assert any(item["action_id"] == "keep_marsh_edge_watch_turn" for item in ash_pass_actions)
     assert any(item["action_id"] == "set_marsh_edge_post_watch" for item in ash_pass_actions)
     assert any(item["action_id"] == "refresh_marsh_edge_watch_relief" for item in ash_pass_actions)
+    assert any(item["action_id"] == "mark_marsh_edge_circuit_handoff" for item in ash_pass_actions)
     assert {
         "node_id": "northwatch_quartermaster",
         "action_id": "confirm_redoubt_watch",
@@ -660,6 +661,13 @@ def test_northwatch_nodes_expose_services_actions_and_details() -> None:
             "frontier_standing_posts_closed",
         ],
         "unlock_hint": "Сначала дождаться standing-post review дома и уже после него обновлять мокрую boundary line как maintained marsh-edge relief watch.",
+    } in ash_pass_requirements
+    assert {
+        "node_id": "ash_pass",
+        "action_id": "mark_marsh_edge_circuit_handoff",
+        "requires_node_state_flag": "northwatch_marsh_edge_watch_relief_refreshed",
+        "requires_any_group_node_state_flags": ["frontier_reclaimed_circuit_closed"],
+        "unlock_hint": "Сначала реально признать reclaimed triangle как stable circuit дома и уже после этого отмечать мокрую boundary line как edge handoff общего loop.",
     } in ash_pass_requirements
     redoubt_actions = get_current_node_context_actions(node_id="broken_redoubt")
     redoubt_requirements = get_static_node_context_action_requirements(node_id="broken_redoubt")
@@ -758,6 +766,7 @@ def test_western_road_nodes_expose_services_actions_events_and_scout_discovery()
     assert any(item["action_id"] == "mark_watchroad_relay_turn" for item in yard_actions)
     assert any(item["action_id"] == "set_watchroad_post_turn" for item in yard_actions)
     assert any(item["action_id"] == "refresh_watchroad_post_board" for item in yard_actions)
+    assert any(item["action_id"] == "close_watchroad_circuit_handoff" for item in yard_actions)
     assert {
         "node_id": "waystation_yard",
         "action_id": "stabilize_corridor_handling",
@@ -792,6 +801,13 @@ def test_western_road_nodes_expose_services_actions_events_and_scout_discovery()
             "frontier_standing_posts_closed",
         ],
         "unlock_hint": "Сначала дождаться standing-post review дома и уже после него обновлять watch-road post как maintained relief board.",
+    } in yard_action_requirements
+    assert {
+        "node_id": "waystation_yard",
+        "action_id": "close_watchroad_circuit_handoff",
+        "requires_node_state_flag": "western_road_watchroad_post_board_refreshed",
+        "requires_any_group_node_state_flags": ["frontier_reclaimed_circuit_closed"],
+        "unlock_hint": "Сначала реально признать reclaimed triangle как stable circuit дома и уже после этого сводить watch-road line в relay handoff общего loop.",
     } in yard_action_requirements
     assert any(item["action_id"] == "read_waybill_marks" for item in marker_actions)
     assert any(item["action_id"] == "reset_detour_markers" for item in marker_actions)
@@ -903,6 +919,7 @@ def test_deep_marsh_nodes_expose_services_actions_events_and_scout_discovery() -
     assert any(item["action_id"] == "keep_sidepass_reed_turn" for item in blackwater_actions)
     assert any(item["action_id"] == "set_sidepass_reed_post" for item in blackwater_actions)
     assert any(item["action_id"] == "refresh_sidepass_reed_watch" for item in blackwater_actions)
+    assert any(item["action_id"] == "tie_sidepass_circuit_handoff" for item in blackwater_actions)
     assert any(item["action_id"] == "braid_reed_wayline" for item in shelter_actions)
     assert any(item["action_id"] == "tie_crossing_orders" for item in shelter_actions)
     assert any(item["action_id"] == "secure_crossing_line" for item in shelter_actions)
@@ -951,6 +968,13 @@ def test_deep_marsh_nodes_expose_services_actions_events_and_scout_discovery() -
             "frontier_standing_posts_closed",
         ],
         "unlock_hint": "Сначала дождаться standing-post review дома и уже после него обновлять cautious side-pass как maintained reeds watch.",
+    } in blackwater_requirements
+    assert {
+        "node_id": "blackwater_run",
+        "action_id": "tie_sidepass_circuit_handoff",
+        "requires_node_state_flag": "deep_marsh_sidepass_reed_watch_refreshed",
+        "requires_any_group_node_state_flags": ["frontier_reclaimed_circuit_closed"],
+        "unlock_hint": "Сначала реально признать reclaimed triangle как stable circuit дома и уже после этого связывать cautious side-pass в marsh-leg handoff общего loop.",
     } in blackwater_requirements
     assert {
         "node_id": "reed_shelter",
