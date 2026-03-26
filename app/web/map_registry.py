@@ -2945,6 +2945,23 @@ STATIC_MAP_CONTEXT_ACTION_EFFECTS: tuple[dict[str, Any], ...] = (
     },
     {
         "node_id": "forest_settlement",
+        "action_id": "review_reclaimed_support_delivery",
+        "label": "Сверить delivered support",
+        "action_kind": "support",
+        "effect_type": "support",
+        "one_shot": True,
+        "result_type": "local_support_applied",
+        "summary": "Признать reclaimed triangle как working delivered-help fabric, которая реально доставляет practical support по всем трём legs.",
+        "result_summary": "Когда watch-road relay aid, reeds-side crossing help и marsh-edge watch help возвращаются домой уже как три delivered field traces, лесной посёлок видит reclaimed triangle не только как useful local support fabric, а как working delivered-help network. Relay road, cautious reeds pass и wet boundary watch теперь не просто несут support, а реально placing help where it is needed across the loop: база помнит reclaimed triangle уже как delivered frontier help-network, который надёжно доводит practical aid through the field.",
+        "discovered_notes": [
+            "Reclaimed triangle впервые remembered дома уже не только как support fabric, а как delivered-help network: три field delivery signals показывают, что loop реально доводит practical aid по всему треугольнику."
+        ],
+        "applied_effects": ["frontier_reclaimed_support_delivery:closed", "intel:frontier_reclaimed_support_delivery_closed"],
+        "node_state_flags": ["frontier_reclaimed_support_delivery_closed"],
+        "node_state_summary": "В лесном посёлке уже признали reclaimed triangle как working delivered-help fabric, которая реально доводит practical support по всем трём reclaimed legs.",
+    },
+    {
+        "node_id": "forest_settlement",
         "action_id": "compile_frontier_report",
         "label": "Сверить frontier сводки",
         "action_kind": "clue",
@@ -3254,6 +3271,17 @@ STATIC_MAP_CONTEXT_ACTION_REQUIREMENTS: tuple[dict[str, Any], ...] = (
             "northwatch_marsh_edge_circulation_support_carried",
         ],
         "unlock_hint": "Сначала замкнуть весь reclaimed circulation support в поле, чтобы база могла признать не только active local circulation, а уже useful local support fabric.",
+    },
+    {
+        "node_id": "forest_settlement",
+        "action_id": "review_reclaimed_support_delivery",
+        "requires_node_state_flag": "frontier_reclaimed_circulation_support_closed",
+        "requires_all_group_node_state_flags": [
+            "western_road_watchroad_support_delivered",
+            "deep_marsh_sidepass_support_delivered",
+            "northwatch_marsh_edge_support_delivered",
+        ],
+        "unlock_hint": "Сначала замкнуть весь reclaimed support delivery в поле, чтобы база могла признать не только useful local support fabric, а уже working delivered-help network.",
     },
     {
         "node_id": "waystation_yard",
@@ -3889,6 +3917,13 @@ STATIC_MAP_NODE_STATE_OVERLAYS: tuple[dict[str, Any], ...] = (
         "context_note": "В лесном посёлке reclaimed triangle уже remembered как useful local support fabric, которая реально несёт помощь через все три reclaimed legs.",
         "detail_note": "Watch-road relay aid, reeds-side crossing help и marsh-edge carried watch support уже сводятся дома не просто в active local circulation, а в одну practical support fabric: settlement видит не isolated support traces, а circulating frontier help-network, который живёт по всему reclaimed triangle.",
         "service_note": "После circulation-support review база знает reclaimed triangle уже не только как active local circulation, а как useful local support fabric с честной памятью о practical field help.",
+    },
+    {
+        "node_id": "forest_settlement",
+        "state_flag": "frontier_reclaimed_support_delivery_closed",
+        "context_note": "В лесном посёлке reclaimed triangle уже remembered как delivered frontier help-network, которая реально доводит practical aid через все три reclaimed legs.",
+        "detail_note": "Watch-road relay aid, reeds-side crossing help и marsh-edge watch help уже сводятся дома не просто в support fabric, а в одну delivered-help network: settlement видит не isolated support traces, а practical help, которая реально placed through the reclaimed loop там, где она нужна.",
+        "service_note": "После support-delivery review база знает reclaimed triangle уже не только как useful local support fabric, а как working delivered-help network с честной памятью о delivered field aid.",
     },
     {
         "node_id": "forest_settlement",

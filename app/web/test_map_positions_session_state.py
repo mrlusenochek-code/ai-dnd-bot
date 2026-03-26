@@ -5535,6 +5535,104 @@ def test_forest_settlement_reclaimed_circulation_support_review_unlocks_after_fu
     assert any(entry["source_kind"] == "context_action" and entry["source_id"] == "review_reclaimed_circulation_support" for entry in intel_entries)
 
 
+def test_forest_settlement_reclaimed_support_delivery_review_stays_locked_before_full_delivered_support() -> None:
+    player_id = uuid.uuid4()
+    sess = SimpleNamespace(settings={})
+    session_state._initialize_default_group(
+        sess,
+        [player_id],
+        {"map_level": "region", "node_type": "zone", "node_id": "forest_settlement", "label": "Лесной посёлок"},
+    )
+    session_state.get_current_group_current_region_state(sess, player_id=player_id)
+    session_state.add_group_node_state_flag(
+        sess,
+        "main",
+        "forest_settlement",
+        state_flag="frontier_reclaimed_circulation_support_closed",
+        summary="Home base already recognizes the reclaimed triangle as useful local support fabric.",
+        source="test",
+    )
+    for node_id, flag, summary in (
+        ("waystation_yard", "western_road_watchroad_support_delivered", "Watch-road support is already delivered at the yard."),
+        ("blackwater_run", "deep_marsh_sidepass_support_delivered", "Side-pass support is already delivered at blackwater_run."),
+    ):
+        session_state.add_group_node_state_flag(
+            sess,
+            "main",
+            node_id,
+            state_flag=flag,
+            summary=summary,
+            source="test",
+        )
+
+    locked_actions = session_state.get_current_group_context_action_availability(sess, player_id=player_id)
+    locked = next(item for item in locked_actions if item["action_id"] == "review_reclaimed_support_delivery")
+    assert locked["availability_status"] == "locked"
+    assert locked["unavailable_reason"] in {
+        "requires_node_state_flag",
+        "requires_all_group_node_state_flags",
+    }
+    assert "working delivered-help network" in locked["unlock_hint"].lower()
+
+
+def test_forest_settlement_reclaimed_support_delivery_review_unlocks_after_full_delivered_support_and_persists_delivery_memory() -> None:
+    player_id = uuid.uuid4()
+    sess = SimpleNamespace(settings={})
+    session_state._initialize_default_group(
+        sess,
+        [player_id],
+        {"map_level": "region", "node_type": "zone", "node_id": "forest_settlement", "label": "Лесной посёлок"},
+    )
+    session_state.get_current_group_current_region_state(sess, player_id=player_id)
+    session_state.add_group_node_state_flag(
+        sess,
+        "main",
+        "forest_settlement",
+        state_flag="frontier_reclaimed_circulation_support_closed",
+        summary="Home base already recognizes the reclaimed triangle as useful local support fabric.",
+        source="test",
+    )
+    for node_id, flag, summary in (
+        ("waystation_yard", "western_road_watchroad_support_delivered", "Watch-road support is already delivered at the yard."),
+        ("blackwater_run", "deep_marsh_sidepass_support_delivered", "Side-pass support is already delivered at blackwater_run."),
+        ("ash_pass", "northwatch_marsh_edge_support_delivered", "Marsh-edge support is already delivered at ash_pass."),
+    ):
+        session_state.add_group_node_state_flag(
+            sess,
+            "main",
+            node_id,
+            state_flag=flag,
+            summary=summary,
+            source="test",
+        )
+
+    available_actions = session_state.get_current_group_context_action_availability(sess, player_id=player_id)
+    available = next(item for item in available_actions if item["action_id"] == "review_reclaimed_support_delivery")
+    assert available["availability_status"] == "available"
+
+    resolved, error = session_state.resolve_group_context_action(
+        sess,
+        "main",
+        action_id="review_reclaimed_support_delivery",
+        player_id=player_id,
+        source="test",
+    )
+    assert error is None
+    assert resolved is not None
+    assert "working delivered-help network" in resolved["last_context_action_result"]["result_summary"].lower()
+    assert "placing help where it is needed" in resolved["last_context_action_result"]["result_summary"].lower()
+
+    context = session_state.get_current_group_node_context(sess, player_id=player_id)
+    assert "frontier_reclaimed_support_delivery_closed" in context["node_state_flags"]
+    assert any("delivered frontier help-network" in note.lower() for note in context["state_notes"])
+
+    detail = session_state.get_current_group_node_detail(sess, player_id=player_id)
+    assert any("delivered-help network" in note.lower() or "placed through the reclaimed loop" in note.lower() for note in detail["state_notes"])
+
+    intel_entries = session_state.get_current_group_map_intel(sess, player_id=player_id)
+    assert any(entry["source_kind"] == "context_action" and entry["source_id"] == "review_reclaimed_support_delivery" for entry in intel_entries)
+
+
 def test_reclaimed_circulation_support_field_follow_ups_stay_locked_before_home_circulation_review() -> None:
     waystation_player = uuid.uuid4()
     waystation_sess = SimpleNamespace(settings={})

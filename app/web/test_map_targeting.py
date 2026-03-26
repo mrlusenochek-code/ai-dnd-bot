@@ -1188,6 +1188,7 @@ def test_starter_frontier_nodes_expose_local_progression_arc_surfaces() -> None:
     assert any(item["action_id"] == "review_reclaimed_working_loop" for item in forest_actions)
     assert any(item["action_id"] == "review_reclaimed_loop_circulation" for item in forest_actions)
     assert any(item["action_id"] == "review_reclaimed_circulation_support" for item in forest_actions)
+    assert any(item["action_id"] == "review_reclaimed_support_delivery" for item in forest_actions)
     assert forest_action_requirements == [
         {
             "node_id": "forest_settlement",
@@ -1362,6 +1363,17 @@ def test_starter_frontier_nodes_expose_local_progression_arc_surfaces() -> None:
                 "western_road_watchroad_circulation_support_ready",
                 "deep_marsh_sidepass_circulation_support_set",
                 "northwatch_marsh_edge_circulation_support_carried",
+            ],
+        },
+        {
+            "node_id": "forest_settlement",
+            "action_id": "review_reclaimed_support_delivery",
+            "unlock_hint": "Сначала замкнуть весь reclaimed support delivery в поле, чтобы база могла признать не только useful local support fabric, а уже working delivered-help network.",
+            "requires_node_state_flag": "frontier_reclaimed_circulation_support_closed",
+            "requires_all_group_node_state_flags": [
+                "western_road_watchroad_support_delivered",
+                "deep_marsh_sidepass_support_delivered",
+                "northwatch_marsh_edge_support_delivered",
             ],
         },
     ]
