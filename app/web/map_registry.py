@@ -1931,6 +1931,57 @@ STATIC_MAP_CONTEXT_ACTION_EFFECTS: tuple[dict[str, Any], ...] = (
         "node_state_summary": "На ash_pass уже закрепили held marsh-edge standing watch по линии к deep_marsh.",
     },
     {
+        "node_id": "waystation_yard",
+        "action_id": "refresh_watchroad_post_board",
+        "label": "Обновить watch-road board",
+        "action_kind": "support",
+        "effect_type": "support",
+        "one_shot": True,
+        "result_type": "local_support_applied",
+        "summary": "Обновить relay-post turnover на watch-road line после home-base standing-post review.",
+        "result_summary": "На постоялом дворе освежают courier board по линии к northwatch: held watch-road post теперь живёт не только как выставленный пост, а как maintained relief rhythm с понятной сменой turn-mark и свежей постовой доской.",
+        "discovered_notes": [
+            "На waystation_yard уже держат refreshed watch-road upkeep board по линии к northwatch: relay post вошёл в поддерживаемый relief cycle, который стоит помнить дальше."
+        ],
+        "applied_effects": ["frontier_post_upkeep:northwatch_western", "intel:watchroad_post_upkeep"],
+        "node_state_flags": ["western_road_watchroad_post_board_refreshed"],
+        "node_state_summary": "На постоялом дворе уже обновили upkeep board по held watch-road post к northwatch.",
+    },
+    {
+        "node_id": "blackwater_run",
+        "action_id": "refresh_sidepass_reed_watch",
+        "label": "Обновить reeds watch",
+        "action_kind": "support",
+        "effect_type": "support",
+        "one_shot": True,
+        "result_type": "local_support_applied",
+        "summary": "Обновить reeds-side upkeep на cautious side-pass после home-base standing-post review.",
+        "result_summary": "У чёрной протоки осторожный side-pass к western_road доводят до maintained reeds-watch cycle: held crossing post теперь держится не только как выставленная стоянка, а как refreshed guarded pass с понятной relief mark у воды.",
+        "discovered_notes": [
+            "У blackwater_run уже держат refreshed reeds-side upkeep по side-pass к western_road: guarded crossing вошёл в поддерживаемый post cycle у чёрной воды."
+        ],
+        "applied_effects": ["frontier_post_upkeep:deep_marsh_western", "intel:sidepass_post_upkeep"],
+        "node_state_flags": ["deep_marsh_sidepass_reed_watch_refreshed"],
+        "node_state_summary": "У чёрной протоки уже обновили upkeep mark по held reeds-side post к western_road.",
+    },
+    {
+        "node_id": "ash_pass",
+        "action_id": "refresh_marsh_edge_watch_relief",
+        "label": "Обновить edge relief",
+        "action_kind": "support",
+        "effect_type": "support",
+        "one_shot": True,
+        "result_type": "local_support_applied",
+        "summary": "Обновить marsh-edge watch relief на мокрой boundary line после home-base standing-post review.",
+        "result_summary": "На ash_pass мокрую линию к deep_marsh доводят до maintained watch-relief cycle: held edge-post теперь держится не только как выставленный boundary watch, а как refreshed wet-line relief с заметной сменой стражи у кромки прохода.",
+        "discovered_notes": [
+            "На ash_pass уже держат refreshed marsh-edge relief по линии к deep_marsh: wet boundary watch вошёл в поддерживаемый upkeep cycle, одинаково заметный полю и базе."
+        ],
+        "applied_effects": ["frontier_post_upkeep:northwatch_deep_marsh", "intel:marsh_edge_post_upkeep"],
+        "node_state_flags": ["northwatch_marsh_edge_watch_relief_refreshed"],
+        "node_state_summary": "На ash_pass уже обновили upkeep relief по held marsh-edge watch к deep_marsh.",
+    },
+    {
         "node_id": "forest_settlement",
         "action_id": "review_frontier_stabilization",
         "label": "Сверить frontier stabilization",
@@ -2864,6 +2915,39 @@ STATIC_MAP_CONTEXT_ACTION_REQUIREMENTS: tuple[dict[str, Any], ...] = (
         "unlock_hint": "Сначала дождаться trusted routine review дома и уже после него удерживать мокрую boundary line как marsh-edge standing watch.",
     },
     {
+        "node_id": "waystation_yard",
+        "action_id": "refresh_watchroad_post_board",
+        "requires_node_state_flag": "western_road_watchroad_post_turn_set",
+        "requires_any_group_node_state_flags": [
+            "frontier_standing_posts_started",
+            "frontier_standing_posts_spanning",
+            "frontier_standing_posts_closed",
+        ],
+        "unlock_hint": "Сначала дождаться standing-post review дома и уже после него обновлять watch-road post как maintained relief board.",
+    },
+    {
+        "node_id": "blackwater_run",
+        "action_id": "refresh_sidepass_reed_watch",
+        "requires_node_state_flag": "deep_marsh_sidepass_reed_post_set",
+        "requires_any_group_node_state_flags": [
+            "frontier_standing_posts_started",
+            "frontier_standing_posts_spanning",
+            "frontier_standing_posts_closed",
+        ],
+        "unlock_hint": "Сначала дождаться standing-post review дома и уже после него обновлять cautious side-pass как maintained reeds watch.",
+    },
+    {
+        "node_id": "ash_pass",
+        "action_id": "refresh_marsh_edge_watch_relief",
+        "requires_node_state_flag": "northwatch_marsh_edge_post_watch_set",
+        "requires_any_group_node_state_flags": [
+            "frontier_standing_posts_started",
+            "frontier_standing_posts_spanning",
+            "frontier_standing_posts_closed",
+        ],
+        "unlock_hint": "Сначала дождаться standing-post review дома и уже после него обновлять мокрую boundary line как maintained marsh-edge relief watch.",
+    },
+    {
         "node_id": "northwatch_palisade",
         "action_id": "set_relay_watch",
         "requires_any_group_node_state_flags": [
@@ -3424,6 +3508,13 @@ STATIC_MAP_NODE_STATE_OVERLAYS: tuple[dict[str, Any], ...] = (
         "service_note": "После standing-post follow-up waystation_yard ведёт watch-road line как held relay post, а не только как remembered courier habit.",
     },
     {
+        "node_id": "waystation_yard",
+        "state_flag": "western_road_watchroad_post_board_refreshed",
+        "context_note": "На постоялом дворе уже обновляют upkeep board по held watch-road post к northwatch.",
+        "detail_note": "Северная боковая линия здесь теперь читается не только как выставленный post, а как maintained relief rhythm: courier board и turn-mark по watch-road держат в свежем порядке.",
+        "service_note": "После upkeep follow-up waystation_yard ведёт watch-road line как maintained post fabric, а не только как held standing post.",
+    },
+    {
         "node_id": "ash_pass",
         "state_flag": "northwatch_directive_fulfilled",
         "context_note": "На ash_pass уже держат не только ход к редуту, но и reopened боковую линию к болотной протоке.",
@@ -3454,6 +3545,13 @@ STATIC_MAP_NODE_STATE_OVERLAYS: tuple[dict[str, Any], ...] = (
         "context_note": "На ash_pass уже держат held marsh-edge standing watch по мокрой линии к deep_marsh.",
         "detail_note": "Край прохода теперь показывает не только remembered rhythm, а собранный edge-post порядок: wet boundary line к deep_marsh удерживается как реальная standing watch practice.",
         "service_note": "После standing-post follow-up ash_pass ведёт мокрую boundary line как held edge-post watch, а не только как remembered routine.",
+    },
+    {
+        "node_id": "ash_pass",
+        "state_flag": "northwatch_marsh_edge_watch_relief_refreshed",
+        "context_note": "На ash_pass уже обновляют marsh-edge relief по held boundary watch к deep_marsh.",
+        "detail_note": "Край прохода теперь показывает не только held edge-post, а maintained wet-line relief cycle: boundary watch у сырой кромки обновляют как рабочую практику смены.",
+        "service_note": "После upkeep follow-up ash_pass ведёт мокрую boundary line как maintained marsh-edge watch, а не только как held standing post.",
     },
     {
         "node_id": "deep_marsh_threshold",
@@ -3594,6 +3692,13 @@ STATIC_MAP_NODE_STATE_OVERLAYS: tuple[dict[str, Any], ...] = (
         "context_note": "У чёрной протоки уже держат held reeds-side standing post по cautious side-pass к western_road.",
         "detail_note": "У воды теперь видно не только remembered detour habit, а guarded crossing post: side-pass к western_road удерживается как рабочая постовая отметка и осторожный standing trace.",
         "service_note": "После standing-post follow-up blackwater_run ведёт marsh-road side-pass как held reeds-side post, а не только как safe-use habit.",
+    },
+    {
+        "node_id": "blackwater_run",
+        "state_flag": "deep_marsh_sidepass_reed_watch_refreshed",
+        "context_note": "У чёрной протоки уже обновляют reeds-side upkeep по held side-pass к western_road.",
+        "detail_note": "У воды теперь видно не только held crossing post, а maintained reeds-watch cycle: cautious side-pass к western_road держат в рабочем relief порядке у самой чёрной воды.",
+        "service_note": "После upkeep follow-up blackwater_run ведёт side-pass как maintained reeds-side post fabric, а не только как held standing trace.",
     },
     {
         "node_id": "reed_shelter",

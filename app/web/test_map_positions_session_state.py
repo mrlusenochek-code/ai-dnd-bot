@@ -4392,6 +4392,212 @@ def test_forest_settlement_standing_post_review_stages_on_distinct_field_post_si
     assert any(entry["source_kind"] == "context_action" and entry["source_id"] == "review_frontier_standing_posts" for entry in intel_entries)
 
 
+def test_frontier_standing_post_upkeep_stays_locked_before_home_post_review() -> None:
+    waystation_player = uuid.uuid4()
+    waystation_sess = SimpleNamespace(settings={})
+    session_state._initialize_default_group(
+        waystation_sess,
+        [waystation_player],
+        {"map_level": "region", "node_type": "zone", "node_id": "waystation_yard", "label": "Постоялый двор"},
+    )
+    session_state.add_group_node_state_flag(
+        waystation_sess,
+        "main",
+        "waystation_yard",
+        state_flag="western_road_watchroad_post_turn_set",
+        summary="Watch-road standing post already set at the yard.",
+        source="test",
+    )
+    locked_waystation = next(
+        item
+        for item in session_state.get_current_group_context_action_availability(waystation_sess, player_id=waystation_player)
+        if item["action_id"] == "refresh_watchroad_post_board"
+    )
+    assert locked_waystation["availability_status"] == "locked"
+    assert locked_waystation["unavailable_reason"] == "requires_any_group_node_state_flags"
+
+    blackwater_player = uuid.uuid4()
+    blackwater_sess = SimpleNamespace(settings={})
+    session_state._initialize_default_group(
+        blackwater_sess,
+        [blackwater_player],
+        {"map_level": "region", "node_type": "zone", "node_id": "blackwater_run", "label": "Чёрная протока"},
+    )
+    session_state.add_group_node_state_flag(
+        blackwater_sess,
+        "main",
+        "blackwater_run",
+        state_flag="deep_marsh_sidepass_reed_post_set",
+        summary="Reeds-side standing post already set at blackwater_run.",
+        source="test",
+    )
+    locked_blackwater = next(
+        item
+        for item in session_state.get_current_group_context_action_availability(blackwater_sess, player_id=blackwater_player)
+        if item["action_id"] == "refresh_sidepass_reed_watch"
+    )
+    assert locked_blackwater["availability_status"] == "locked"
+    assert locked_blackwater["unavailable_reason"] == "requires_any_group_node_state_flags"
+
+    ash_player = uuid.uuid4()
+    ash_sess = SimpleNamespace(settings={})
+    session_state._initialize_default_group(
+        ash_sess,
+        [ash_player],
+        {"map_level": "region", "node_type": "zone", "node_id": "ash_pass", "label": "Пепельный проход"},
+    )
+    session_state.add_group_node_state_flag(
+        ash_sess,
+        "main",
+        "ash_pass",
+        state_flag="northwatch_marsh_edge_post_watch_set",
+        summary="Marsh-edge standing post already set at ash_pass.",
+        source="test",
+    )
+    locked_ash = next(
+        item
+        for item in session_state.get_current_group_context_action_availability(ash_sess, player_id=ash_player)
+        if item["action_id"] == "refresh_marsh_edge_watch_relief"
+    )
+    assert locked_ash["availability_status"] == "locked"
+    assert locked_ash["unavailable_reason"] == "requires_any_group_node_state_flags"
+
+
+def test_frontier_standing_post_upkeep_unlocks_after_home_post_review_and_changes_field_state() -> None:
+    waystation_player = uuid.uuid4()
+    waystation_sess = SimpleNamespace(settings={})
+    session_state._initialize_default_group(
+        waystation_sess,
+        [waystation_player],
+        {"map_level": "region", "node_type": "zone", "node_id": "waystation_yard", "label": "Постоялый двор"},
+    )
+    session_state.add_group_node_state_flag(
+        waystation_sess,
+        "main",
+        "waystation_yard",
+        state_flag="western_road_watchroad_post_turn_set",
+        summary="Watch-road standing post already set at the yard.",
+        source="test",
+    )
+    session_state.add_group_node_state_flag(
+        waystation_sess,
+        "main",
+        "forest_settlement",
+        state_flag="frontier_standing_posts_started",
+        summary="Home base already recognized standing posts.",
+        source="test",
+    )
+    available_waystation = next(
+        item
+        for item in session_state.get_current_group_context_action_availability(waystation_sess, player_id=waystation_player)
+        if item["action_id"] == "refresh_watchroad_post_board"
+    )
+    assert available_waystation["availability_status"] == "available"
+    resolved_waystation, error = session_state.resolve_group_context_action(
+        waystation_sess,
+        "main",
+        action_id="refresh_watchroad_post_board",
+        player_id=waystation_player,
+        source="test",
+    )
+    assert error is None
+    assert resolved_waystation is not None
+    assert "maintained relief rhythm" in resolved_waystation["last_context_action_result"]["result_summary"].lower()
+    waystation_context = session_state.get_current_group_node_context(waystation_sess, player_id=waystation_player)
+    assert "western_road_watchroad_post_board_refreshed" in waystation_context["node_state_flags"]
+    assert any("upkeep board" in note.lower() or "relief rhythm" in note.lower() for note in waystation_context["state_notes"])
+    waystation_detail = session_state.get_current_group_node_detail(waystation_sess, player_id=waystation_player)
+    assert any("courier board" in note.lower() or "свежем порядке" in note.lower() for note in waystation_detail["state_notes"])
+    waystation_intel = session_state.get_current_group_map_intel(waystation_sess, player_id=waystation_player)
+    assert any(entry["source_kind"] == "context_action" and entry["source_id"] == "refresh_watchroad_post_board" for entry in waystation_intel)
+
+    blackwater_player = uuid.uuid4()
+    blackwater_sess = SimpleNamespace(settings={})
+    session_state._initialize_default_group(
+        blackwater_sess,
+        [blackwater_player],
+        {"map_level": "region", "node_type": "zone", "node_id": "blackwater_run", "label": "Чёрная протока"},
+    )
+    session_state.add_group_node_state_flag(
+        blackwater_sess,
+        "main",
+        "blackwater_run",
+        state_flag="deep_marsh_sidepass_reed_post_set",
+        summary="Reeds-side standing post already set at blackwater_run.",
+        source="test",
+    )
+    session_state.add_group_node_state_flag(
+        blackwater_sess,
+        "main",
+        "forest_settlement",
+        state_flag="frontier_standing_posts_spanning",
+        summary="Home base already holds a spanning standing-post picture.",
+        source="test",
+    )
+    available_blackwater = next(
+        item
+        for item in session_state.get_current_group_context_action_availability(blackwater_sess, player_id=blackwater_player)
+        if item["action_id"] == "refresh_sidepass_reed_watch"
+    )
+    assert available_blackwater["availability_status"] == "available"
+    resolved_blackwater, error = session_state.resolve_group_context_action(
+        blackwater_sess,
+        "main",
+        action_id="refresh_sidepass_reed_watch",
+        player_id=blackwater_player,
+        source="test",
+    )
+    assert error is None
+    assert resolved_blackwater is not None
+    assert "maintained reeds-watch cycle" in resolved_blackwater["last_context_action_result"]["result_summary"].lower()
+    blackwater_context = session_state.get_current_group_node_context(blackwater_sess, player_id=blackwater_player)
+    assert "deep_marsh_sidepass_reed_watch_refreshed" in blackwater_context["node_state_flags"]
+    assert any("upkeep" in note.lower() or "maintained reeds-watch" in note.lower() or "relief порядке" in note.lower() for note in blackwater_context["state_notes"])
+
+    ash_player = uuid.uuid4()
+    ash_sess = SimpleNamespace(settings={})
+    session_state._initialize_default_group(
+        ash_sess,
+        [ash_player],
+        {"map_level": "region", "node_type": "zone", "node_id": "ash_pass", "label": "Пепельный проход"},
+    )
+    session_state.add_group_node_state_flag(
+        ash_sess,
+        "main",
+        "ash_pass",
+        state_flag="northwatch_marsh_edge_post_watch_set",
+        summary="Marsh-edge standing post already set at ash_pass.",
+        source="test",
+    )
+    session_state.add_group_node_state_flag(
+        ash_sess,
+        "main",
+        "forest_settlement",
+        state_flag="frontier_standing_posts_closed",
+        summary="Home base already closed the standing-post review.",
+        source="test",
+    )
+    available_ash = next(
+        item
+        for item in session_state.get_current_group_context_action_availability(ash_sess, player_id=ash_player)
+        if item["action_id"] == "refresh_marsh_edge_watch_relief"
+    )
+    assert available_ash["availability_status"] == "available"
+    resolved_ash, error = session_state.resolve_group_context_action(
+        ash_sess,
+        "main",
+        action_id="refresh_marsh_edge_watch_relief",
+        player_id=ash_player,
+        source="test",
+    )
+    assert error is None
+    assert resolved_ash is not None
+    assert "maintained watch-relief cycle" in resolved_ash["last_context_action_result"]["result_summary"].lower()
+    ash_context = session_state.get_current_group_node_context(ash_sess, player_id=ash_player)
+    assert "northwatch_marsh_edge_watch_relief_refreshed" in ash_context["node_state_flags"]
+    assert any("relief" in note.lower() or "maintained marsh-edge" in note.lower() or "смены" in note.lower() for note in ash_context["state_notes"])
+
+
 def test_forest_settlement_frontier_support_stays_locked_before_report() -> None:
     player_id = uuid.uuid4()
     sess = SimpleNamespace(settings={})
