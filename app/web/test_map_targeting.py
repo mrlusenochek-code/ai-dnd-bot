@@ -1050,6 +1050,7 @@ def test_starter_frontier_nodes_expose_local_progression_arc_surfaces() -> None:
     assert any(item["action_id"] == "review_serviced_dispatch_board" for item in forest_actions)
     assert any(item["action_id"] == "review_returned_field_receipts" for item in forest_actions)
     assert any(item["action_id"] == "review_trusted_frontier_routines" for item in forest_actions)
+    assert any(item["action_id"] == "review_frontier_standing_posts" for item in forest_actions)
     assert forest_action_requirements == [
         {
             "node_id": "forest_settlement",
@@ -1160,6 +1161,16 @@ def test_starter_frontier_nodes_expose_local_progression_arc_surfaces() -> None:
                 "western_road_watchroad_relay_turn_marked",
                 "deep_marsh_sidepass_reed_turn_kept",
                 "northwatch_marsh_edge_watch_turn_kept",
+            ],
+        },
+        {
+            "node_id": "forest_settlement",
+            "action_id": "review_frontier_standing_posts",
+            "unlock_hint": "Сначала довести хотя бы одну reopened side-line до реального standing post в поле, чтобы база увидела не только trusted routine, а уже stable frontier holding.",
+            "requires_any_group_node_state_flags": [
+                "western_road_watchroad_post_turn_set",
+                "deep_marsh_sidepass_reed_post_set",
+                "northwatch_marsh_edge_post_watch_set",
             ],
         },
     ]
