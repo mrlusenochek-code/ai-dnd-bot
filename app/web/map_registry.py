@@ -2492,6 +2492,57 @@ STATIC_MAP_CONTEXT_ACTION_EFFECTS: tuple[dict[str, Any], ...] = (
         "node_state_summary": "На ash_pass уже подтвердили, что steadied traffic по wet-edge return continuation реально вливается дальше в reclaimed boundary fabric.",
     },
     {
+        "node_id": "waystation_yard",
+        "action_id": "receive_watchroad_arrival_word",
+        "label": "Принять arrival word",
+        "action_kind": "support",
+        "effect_type": "support",
+        "one_shot": True,
+        "result_type": "local_support_applied",
+        "summary": "Пустить arrival-confirmed watch-road continuation в первый живой returned word о том, что resumed wayfarers действительно дошли дальше по reclaimed triangle.",
+        "result_summary": "На постоялом дворе watch-road line к northwatch читают уже не только как arrival-confirmed continuation, а как leg, откуда приходит живое слово назад. Yard теперь не просто знает, что resumed wayfarers доходят дальше, а получает honest back-word, что линия держится: watch-road leg работает уже как roadside continuation with returned word, а не только как confirmed onward route.",
+        "discovered_notes": [
+            "На waystation_yard watch-road continuation уже не только arrival-confirmed, а и hears its own return word: назад приходит живое подтверждение, что resumed wayfarers реально дошли дальше."
+        ],
+        "applied_effects": ["frontier_arrival_word:northwatch_western", "intel:watchroad_arrival_word"],
+        "node_state_flags": ["western_road_watchroad_arrival_word_received"],
+        "node_state_summary": "На постоялом дворе уже приняли живое arrival word о том, что resumed wayfarers по watch-road continuation реально дошли дальше.",
+    },
+    {
+        "node_id": "blackwater_run",
+        "action_id": "gather_sidepass_arrival_word",
+        "label": "Собрать arrival word",
+        "action_kind": "support",
+        "effect_type": "support",
+        "one_shot": True,
+        "result_type": "local_support_applied",
+        "summary": "Пустить arrival-confirmed side-pass continuation в первый gathered back-word о том, что guided stragglers действительно прошли safer continuation reclaimed triangle.",
+        "result_summary": "У чёрной протоки cautious side-pass к western_road читают уже не только как arrival-confirmed forward line, а как marsh leg, которая слышит своё continued hold назад. Blackwater_run теперь не просто знает, что guided stragglers проходят дальше, а собирает honest arrival word, что safer continuation действительно сработала: reeds-side leg работает уже как lived returned-word line, и этот back-sign worth carrying forward по cautious pass.",
+        "discovered_notes": [
+            "У blackwater_run safer side-pass уже не только arrival-confirmed, а и hears its own back-word: по marsh leg возвращается живое подтверждение, что guided stragglers реально прошли дальше."
+        ],
+        "applied_effects": ["frontier_arrival_word:deep_marsh_western", "intel:sidepass_arrival_word"],
+        "node_state_flags": ["deep_marsh_sidepass_arrival_word_gathered"],
+        "node_state_summary": "У чёрной протоки уже собрали живое arrival word о том, что guided stragglers по safer side-pass continuation реально прошли дальше.",
+    },
+    {
+        "node_id": "ash_pass",
+        "action_id": "catch_marsh_edge_return_word",
+        "label": "Перехватить return word",
+        "action_kind": "support",
+        "effect_type": "support",
+        "one_shot": True,
+        "result_type": "local_support_applied",
+        "summary": "Пустить arrival-confirmed wet-edge continuation в первый caught return word о том, что steadied traffic действительно влилось обратно в watch continuity reclaimed triangle.",
+        "result_summary": "На ash_pass wet-edge return line к deep_marsh читают уже не только как arrival-confirmed continuation, а как boundary leg, откуда возвращается живое слово назад. Wet edge теперь не просто знает, что steadied traffic вливается дальше, а перехватывает honest return word, что watch continuity действительно приняла этот ход: marsh-edge leg работает уже как line that hears return continuity hold, а не только как confirmed edge-return route.",
+        "discovered_notes": [
+            "На ash_pass wet-edge continuation уже не только arrival-confirmed, а и hears its own return word: назад приходит живое подтверждение, что steadied traffic реально влилось в watch-side continuity."
+        ],
+        "applied_effects": ["frontier_arrival_word:northwatch_deep_marsh", "intel:marsh_edge_return_word"],
+        "node_state_flags": ["northwatch_marsh_edge_return_word_caught"],
+        "node_state_summary": "На ash_pass уже перехватили живое return word о том, что steadied traffic по wet-edge continuation реально влилось дальше в watch continuity.",
+    },
+    {
         "node_id": "forest_settlement",
         "action_id": "review_frontier_stabilization",
         "label": "Сверить frontier stabilization",
@@ -4055,6 +4106,27 @@ STATIC_MAP_CONTEXT_ACTION_REQUIREMENTS: tuple[dict[str, Any], ...] = (
         "unlock_hint": "Сначала реально признать reclaimed triangle как working lived continuation frontier fabric дома и уже после этого подтверждать arrival дальше по мокрой edge-return leg.",
     },
     {
+        "node_id": "waystation_yard",
+        "action_id": "receive_watchroad_arrival_word",
+        "requires_node_state_flag": "western_road_watchroad_reentry_arrivals_confirmed",
+        "requires_any_group_node_state_flags": ["frontier_reclaimed_arrival_confirmation_closed"],
+        "unlock_hint": "Сначала реально признать reclaimed triangle как working arrival-confirmed frontier fabric дома и уже после этого принимать живое arrival word на watch-road leg.",
+    },
+    {
+        "node_id": "blackwater_run",
+        "action_id": "gather_sidepass_arrival_word",
+        "requires_node_state_flag": "deep_marsh_sidepass_forward_arrivals_confirmed",
+        "requires_any_group_node_state_flags": ["frontier_reclaimed_arrival_confirmation_closed"],
+        "unlock_hint": "Сначала реально признать reclaimed triangle как working arrival-confirmed frontier fabric дома и уже после этого собирать arrival word на cautious side-pass leg.",
+    },
+    {
+        "node_id": "ash_pass",
+        "action_id": "catch_marsh_edge_return_word",
+        "requires_node_state_flag": "northwatch_marsh_edge_return_arrivals_confirmed",
+        "requires_any_group_node_state_flags": ["frontier_reclaimed_arrival_confirmation_closed"],
+        "unlock_hint": "Сначала реально признать reclaimed triangle как working arrival-confirmed frontier fabric дома и уже после этого перехватывать return word на мокрой edge-return leg.",
+    },
+    {
         "node_id": "northwatch_palisade",
         "action_id": "set_relay_watch",
         "requires_any_group_node_state_flags": [
@@ -4790,6 +4862,13 @@ STATIC_MAP_NODE_STATE_OVERLAYS: tuple[dict[str, Any], ...] = (
         "service_note": "После arrival-confirmation follow-up waystation_yard ведёт watch-road line уже как arrival-confirmed continuation, а не только как followed referral uptake.",
     },
     {
+        "node_id": "waystation_yard",
+        "state_flag": "western_road_watchroad_arrival_word_received",
+        "context_note": "На постоялом дворе уже держат watch-road line к northwatch как continuation, откуда назад приходит живое arrival word.",
+        "detail_note": "Северная боковая линия здесь даёт уже не только confirmed arrival proof, а practical returned word: yard слышит, что resumed traffic по watch-road leg действительно дошёл дальше, и делает этот roadside ход честно returned-word line, а не только outward continuation.",
+        "service_note": "После arrival-word follow-up waystation_yard ведёт watch-road line уже как line with returned living word, а не только как arrival-confirmed continuation.",
+    },
+    {
         "node_id": "ash_pass",
         "state_flag": "northwatch_directive_fulfilled",
         "context_note": "На ash_pass уже держат не только ход к редуту, но и reopened боковую линию к болотной протоке.",
@@ -4897,6 +4976,13 @@ STATIC_MAP_NODE_STATE_OVERLAYS: tuple[dict[str, Any], ...] = (
         "context_note": "На ash_pass уже держат мокрую линию к deep_marsh как arrival-confirmed edge-return continuation, по которой steadied traffic действительно вливается обратно в watch movement.",
         "detail_note": "Край прохода теперь даёт уже не только followed wet continuation, а practical arrival proof: wet boundary leg подтверждает, что steadied traffic реально доходит дальше в boundary/watch continuity и делает edge-return line честно arrival-confirmed, а не только lived-in.",
         "service_note": "После arrival-confirmation follow-up ash_pass ведёт мокрую boundary line уже как arrival-confirmed edge-return continuation, а не только как followed referral uptake.",
+    },
+    {
+        "node_id": "ash_pass",
+        "state_flag": "northwatch_marsh_edge_return_word_caught",
+        "context_note": "На ash_pass уже держат мокрую линию к deep_marsh как edge-return continuation, откуда назад перехватывают живое return word.",
+        "detail_note": "Край прохода теперь даёт уже не только confirmed arrival proof, а practical returned word: wet boundary leg слышит, что steadied traffic действительно влилось дальше в watch continuity, и делает edge-return line честно живой возвращающейся boundary line, а не только outward continuation.",
+        "service_note": "После arrival-word follow-up ash_pass ведёт мокрую boundary line уже как line with caught return word, а не только как arrival-confirmed edge-return continuation.",
     },
     {
         "node_id": "deep_marsh_threshold",
@@ -5114,6 +5200,13 @@ STATIC_MAP_NODE_STATE_OVERLAYS: tuple[dict[str, Any], ...] = (
         "context_note": "У чёрной протоки уже держат cautious side-pass к western_road как arrival-confirmed forward line, по которой guided stragglers действительно проходят дальше.",
         "detail_note": "Боковая линия здесь даёт уже не только taken safer continuation, а practical arrival proof: reeds-side leg подтверждает, что guided traffic реально проходит дальше по cautious pass и делает этот marsh ход честно arrival-confirmed, а не только lived-in.",
         "service_note": "После arrival-confirmation follow-up blackwater_run ведёт cautious side-pass уже как arrival-confirmed forward continuation, а не только как taken referral uptake.",
+    },
+    {
+        "node_id": "blackwater_run",
+        "state_flag": "deep_marsh_sidepass_arrival_word_gathered",
+        "context_note": "У чёрной протоки уже держат cautious side-pass к western_road как continuation, откуда назад собирают живое arrival word.",
+        "detail_note": "Боковая линия здесь даёт уже не только confirmed arrival proof, а practical returned word: reeds-side leg слышит, что guided traffic действительно прошло дальше по cautious pass, и делает этот marsh ход честно line with gathered back-word, а не только outward continuation.",
+        "service_note": "После arrival-word follow-up blackwater_run ведёт cautious side-pass уже как line with gathered arrival word, а не только как arrival-confirmed forward continuation.",
     },
     {
         "node_id": "reed_shelter",
