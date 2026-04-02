@@ -1363,6 +1363,7 @@ def test_starter_frontier_nodes_expose_local_progression_arc_surfaces() -> None:
     assert any(item["action_id"] == "review_reclaimed_onward_referral" for item in forest_actions)
     assert any(item["action_id"] == "review_reclaimed_referral_uptake" for item in forest_actions)
     assert any(item["action_id"] == "review_reclaimed_arrival_confirmation" for item in forest_actions)
+    assert any(item["action_id"] == "review_reclaimed_arrival_word" for item in forest_actions)
     assert forest_action_requirements == [
         {
             "node_id": "forest_settlement",
@@ -1614,6 +1615,17 @@ def test_starter_frontier_nodes_expose_local_progression_arc_surfaces() -> None:
                 "western_road_watchroad_reentry_arrivals_confirmed",
                 "deep_marsh_sidepass_forward_arrivals_confirmed",
                 "northwatch_marsh_edge_return_arrivals_confirmed",
+            ],
+        },
+        {
+            "node_id": "forest_settlement",
+            "action_id": "review_reclaimed_arrival_word",
+            "unlock_hint": "Сначала замкнуть весь reclaimed arrival word в поле, чтобы база могла признать не только working arrival-confirmed frontier fabric, а уже practical arrival-word / returned-continuation infrastructure.",
+            "requires_node_state_flag": "frontier_reclaimed_arrival_confirmation_closed",
+            "requires_all_group_node_state_flags": [
+                "western_road_watchroad_arrival_word_received",
+                "deep_marsh_sidepass_arrival_word_gathered",
+                "northwatch_marsh_edge_return_word_caught",
             ],
         },
     ]
