@@ -2150,10 +2150,41 @@ def _handle_group_action_request(
         available_services = list(surface.get("available_services") or [])
         locked_actions = list(surface.get("locked_actions") or [])
         locked_services = list(surface.get("locked_services") or [])
+
+        def _surface_item_label(item: Any, fallback_prefix: str, index: int) -> str:
+            if not isinstance(item, dict):
+                return f"{fallback_prefix} {index}"
+            label = str(
+                item.get("action_label")
+                or item.get("service_label")
+                or item.get("label")
+                or item.get("title")
+                or item.get("action_id")
+                or item.get("action_key")
+                or item.get("service_id")
+                or item.get("service_key")
+                or ""
+            ).strip()
+            return label or f"{fallback_prefix} {index}"
+
+        def _surface_item_list(items: list[Any], fallback_prefix: str) -> str:
+            labels: list[str] = []
+            for index, item in enumerate(items, start=1):
+                labels.append(_surface_item_label(item, fallback_prefix, index))
+            return ", ".join(labels) if labels else "—"
+
+        available_action_text = _surface_item_list(available_actions, "действие")
+        available_service_text = _surface_item_list(available_services, "услуга")
+        locked_action_text = _surface_item_list(locked_actions, "ограниченное действие")
+        locked_service_text = _surface_item_list(locked_services, "ограниченная услуга")
         return True, None, (
             f"Локальные взаимодействия группы {actor_group_key}: "
             f"{len(available_actions)} действий и {len(available_services)} услуг доступны, "
-            f"{len(locked_actions)} действий и {len(locked_services)} услуг ограничены."
+            f"{len(locked_actions)} действий и {len(locked_services)} услуг ограничены. "
+            f"Доступные действия: {available_action_text}. "
+            f"Доступные услуги: {available_service_text}. "
+            f"Ограниченные действия: {locked_action_text}. "
+            f"Ограниченные услуги: {locked_service_text}."
         )
 
     if action == "group_node_progress":

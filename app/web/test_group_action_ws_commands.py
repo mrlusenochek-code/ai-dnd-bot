@@ -350,6 +350,27 @@ def test_handle_group_local_interactions_and_locked_local_execution() -> None:
             "label": "Озёрный городок",
         },
     )
+    surface = session_state.get_current_group_local_interaction_surface(
+        sess,
+        player_id=player_id,
+        group_id="main",
+    )
+    assert surface is not None
+
+    def _surface_label(item: object) -> str:
+        if not isinstance(item, dict):
+            return ""
+        return str(
+            item.get("action_label")
+            or item.get("service_label")
+            or item.get("label")
+            or item.get("title")
+            or item.get("action_id")
+            or item.get("action_key")
+            or item.get("service_id")
+            or item.get("service_key")
+            or ""
+        ).strip()
 
     handled_surface, err_surface, msg_surface = ws_handlers._handle_group_action_request(
         sess,
@@ -376,6 +397,14 @@ def test_handle_group_local_interactions_and_locked_local_execution() -> None:
     assert handled_surface is True
     assert err_surface is None
     assert "действий" in str(msg_surface)
+    assert "Доступные действия:" in str(msg_surface)
+    assert "Доступные услуги:" in str(msg_surface)
+    assert "Ограниченные действия:" in str(msg_surface)
+    assert "Ограниченные услуги:" in str(msg_surface)
+    for category in ("available_actions", "available_services", "locked_actions", "locked_services"):
+        labels = [_surface_label(item) for item in list(surface.get(category) or [])]
+        for label in labels:
+            assert label in str(msg_surface)
     assert handled_action is True
     assert err_action == "Сначала получить береговую наводку при первом прибытии в городок."
     assert msg_action is None
