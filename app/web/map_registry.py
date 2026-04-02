@@ -2186,6 +2186,57 @@ STATIC_MAP_CONTEXT_ACTION_EFFECTS: tuple[dict[str, Any], ...] = (
         "node_state_summary": "На ash_pass уже передали delivered edge aid по wet boundary leg признанного reclaimed support fabric.",
     },
     {
+        "node_id": "waystation_yard",
+        "action_id": "use_watchroad_relay_aid",
+        "label": "Пустить relay aid в ход",
+        "action_kind": "support",
+        "effect_type": "support",
+        "one_shot": True,
+        "result_type": "local_support_applied",
+        "summary": "Пустить delivered relay aid в реальный road-leg use на watch-road line working delivered-help network.",
+        "result_summary": "На постоялом дворе watch-road line к northwatch читают уже не только как место, куда помощь дошла, а как leg, где её реально пустили в ход. Delivered relay aid здесь работает уже не как handed-in trace, а как practical courier-side help in use: yard держит короткий северный relay с готовым handoff rhythm, и поддержка уже помогает вести этот road leg в живой практике.",
+        "discovered_notes": [
+            "На waystation_yard delivered relay aid по watch-road leg уже не просто лежит на месте, а реально работает как road-side support in use внутри reclaimed help-network."
+        ],
+        "applied_effects": ["frontier_support_use:northwatch_western", "intel:watchroad_support_use"],
+        "node_state_flags": ["western_road_watchroad_support_in_use"],
+        "node_state_summary": "На постоялом дворе уже пустили delivered relay aid в практический use по watch-road leg reclaimed help-network.",
+    },
+    {
+        "node_id": "blackwater_run",
+        "action_id": "use_sidepass_crossing_aid",
+        "label": "Пустить crossing aid в ход",
+        "action_kind": "support",
+        "effect_type": "support",
+        "one_shot": True,
+        "result_type": "local_support_applied",
+        "summary": "Пустить delivered crossing aid в реальный marsh-leg use на cautious side-pass working delivered-help network.",
+        "result_summary": "У чёрной протоки cautious side-pass к western_road читают уже не только как место, куда crossing help дошла, а как leg, где её реально применили. Delivered reeds-side aid здесь работает уже не как field handoff memory, а как cautious marsh-pass support in use: сырой проход держат по более честному crossing rhythm, а сам delivered help даёт usable pacing note, которую стоит нести дальше по этой боковой линии.",
+        "discovered_notes": [
+            "У blackwater_run delivered crossing aid по cautious side-pass уже не просто delivered trace, а usable reeds-side support note: по сырому leg теперь держат более честный crossing rhythm."
+        ],
+        "applied_effects": ["frontier_support_use:deep_marsh_western", "intel:sidepass_support_use"],
+        "node_state_flags": ["deep_marsh_sidepass_support_in_use"],
+        "node_state_summary": "У чёрной протоки уже пустили delivered crossing aid в практический use по cautious side-pass reclaimed help-network.",
+    },
+    {
+        "node_id": "ash_pass",
+        "action_id": "use_marsh_edge_watch_aid",
+        "label": "Пустить edge aid в ход",
+        "action_kind": "support",
+        "effect_type": "support",
+        "one_shot": True,
+        "result_type": "local_support_applied",
+        "summary": "Пустить delivered edge aid в реальный boundary-leg use на wet watch line working delivered-help network.",
+        "result_summary": "На ash_pass мокрую линию к deep_marsh читают уже не только как место, куда edge aid дошла, а как leg, где её реально ввели в boundary watch. Delivered wet-boundary help здесь работает уже не как handed-in mark, а как practical edge-watch support in use: помощь идёт в сам watch turn у сырой кромки и делает мокрую передачу между northwatch и deep_marsh не только обслуженной, но и реально используемой в поле.",
+        "discovered_notes": [
+            "На ash_pass delivered edge aid по wet boundary leg уже не просто delivered trace, а реально введённая в watch turn edge-support practice reclaimed help-network."
+        ],
+        "applied_effects": ["frontier_support_use:northwatch_deep_marsh", "intel:marsh_edge_support_use"],
+        "node_state_flags": ["northwatch_marsh_edge_support_in_use"],
+        "node_state_summary": "На ash_pass уже пустили delivered edge aid в практический use по wet boundary leg reclaimed help-network.",
+    },
+    {
         "node_id": "forest_settlement",
         "action_id": "review_frontier_stabilization",
         "label": "Сверить frontier stabilization",
@@ -3455,6 +3506,27 @@ STATIC_MAP_CONTEXT_ACTION_REQUIREMENTS: tuple[dict[str, Any], ...] = (
         "unlock_hint": "Сначала реально признать reclaimed triangle как useful local support fabric дома и уже после этого передавать delivered edge aid на мокрой boundary leg.",
     },
     {
+        "node_id": "waystation_yard",
+        "action_id": "use_watchroad_relay_aid",
+        "requires_node_state_flag": "western_road_watchroad_support_delivered",
+        "requires_any_group_node_state_flags": ["frontier_reclaimed_support_delivery_closed"],
+        "unlock_hint": "Сначала реально признать reclaimed triangle как working delivered-help network дома и уже после этого пускать delivered relay aid в практический ход на watch-road leg.",
+    },
+    {
+        "node_id": "blackwater_run",
+        "action_id": "use_sidepass_crossing_aid",
+        "requires_node_state_flag": "deep_marsh_sidepass_support_delivered",
+        "requires_any_group_node_state_flags": ["frontier_reclaimed_support_delivery_closed"],
+        "unlock_hint": "Сначала реально признать reclaimed triangle как working delivered-help network дома и уже после этого пускать delivered crossing aid в практический ход на cautious side-pass leg.",
+    },
+    {
+        "node_id": "ash_pass",
+        "action_id": "use_marsh_edge_watch_aid",
+        "requires_node_state_flag": "northwatch_marsh_edge_support_delivered",
+        "requires_any_group_node_state_flags": ["frontier_reclaimed_support_delivery_closed"],
+        "unlock_hint": "Сначала реально признать reclaimed triangle как working delivered-help network дома и уже после этого пускать delivered edge aid в практический ход на мокрой boundary leg.",
+    },
+    {
         "node_id": "northwatch_palisade",
         "action_id": "set_relay_watch",
         "requires_any_group_node_state_flags": [
@@ -4106,6 +4178,13 @@ STATIC_MAP_NODE_STATE_OVERLAYS: tuple[dict[str, Any], ...] = (
         "service_note": "После support-delivery follow-up waystation_yard ведёт watch-road line уже как место delivered relay help, а не только как prepared support leg.",
     },
     {
+        "node_id": "waystation_yard",
+        "state_flag": "western_road_watchroad_support_in_use",
+        "context_note": "На постоялом дворе уже держат watch-road line к northwatch как leg, где delivered relay aid реально используется в поле.",
+        "detail_note": "Северная боковая линия здесь даёт уже не только delivered help, а practical road-leg use: yard ведёт короткий courier handoff по более собранному relay rhythm, и помощь здесь читается как реально применённая, а не просто доведённая.",
+        "service_note": "После support-use follow-up waystation_yard ведёт watch-road line уже как место, где delivered relay help реально работает в практике.",
+    },
+    {
         "node_id": "ash_pass",
         "state_flag": "northwatch_directive_fulfilled",
         "context_note": "На ash_pass уже держат не только ход к редуту, но и reopened боковую линию к болотной протоке.",
@@ -4171,6 +4250,13 @@ STATIC_MAP_NODE_STATE_OVERLAYS: tuple[dict[str, Any], ...] = (
         "context_note": "На ash_pass уже держат мокрую линию к deep_marsh как leg, куда practical edge aid реально delivered в поле.",
         "detail_note": "Край прохода теперь даёт уже не только carried support trace, а delivered wet-boundary help: edge-watch aid действительно handed in на сырой кромке и поддерживает boundary watch как usable field assistance.",
         "service_note": "После support-delivery follow-up ash_pass ведёт мокрую boundary line уже как место delivered edge help, а не только как carried support leg.",
+    },
+    {
+        "node_id": "ash_pass",
+        "state_flag": "northwatch_marsh_edge_support_in_use",
+        "context_note": "На ash_pass уже держат мокрую линию к deep_marsh как leg, где delivered edge aid реально используется в boundary watch.",
+        "detail_note": "Край прохода теперь даёт уже не только delivered wet-boundary help, а practical edge-leg use: помощь вошла в сам watch turn на сырой кромке и делает передачу между northwatch и deep_marsh реально используемой field practice.",
+        "service_note": "После support-use follow-up ash_pass ведёт мокрую boundary line уже как место, где delivered edge help реально работает в watch practice.",
     },
     {
         "node_id": "deep_marsh_threshold",
@@ -4346,6 +4432,13 @@ STATIC_MAP_NODE_STATE_OVERLAYS: tuple[dict[str, Any], ...] = (
         "context_note": "У чёрной протоки уже держат cautious side-pass к western_road как leg, куда practical crossing aid реально delivered в поле.",
         "detail_note": "Боковая линия здесь даёт уже не только support trace, а delivered marsh-leg help: reeds-side aid действительно handed in у протоки и поддерживает cautious crossing как usable field assistance.",
         "service_note": "После support-delivery follow-up blackwater_run ведёт cautious side-pass уже как место delivered crossing help, а не только как prepared support leg.",
+    },
+    {
+        "node_id": "blackwater_run",
+        "state_flag": "deep_marsh_sidepass_support_in_use",
+        "context_note": "У чёрной протоки уже держат cautious side-pass к western_road как leg, где delivered crossing aid реально используется в поле.",
+        "detail_note": "Боковая линия здесь даёт уже не только delivered marsh-leg help, а practical crossing use: reeds-side aid вошла в осторожный crossing rhythm и оставляет usable support note, которую можно нести дальше по сырому leg.",
+        "service_note": "После support-use follow-up blackwater_run ведёт cautious side-pass уже как место, где delivered crossing help реально работает в practice.",
     },
     {
         "node_id": "reed_shelter",

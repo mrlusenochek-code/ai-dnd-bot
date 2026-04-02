@@ -596,6 +596,7 @@ def test_northwatch_nodes_expose_services_actions_and_details() -> None:
     assert any(item["action_id"] == "mark_marsh_edge_loop_traffic" for item in ash_pass_actions)
     assert any(item["action_id"] == "carry_marsh_edge_circulation_support" for item in ash_pass_actions)
     assert any(item["action_id"] == "deliver_marsh_edge_support_aid" for item in ash_pass_actions)
+    assert any(item["action_id"] == "use_marsh_edge_watch_aid" for item in ash_pass_actions)
     assert {
         "node_id": "northwatch_quartermaster",
         "action_id": "confirm_redoubt_watch",
@@ -692,6 +693,13 @@ def test_northwatch_nodes_expose_services_actions_and_details() -> None:
         "requires_node_state_flag": "northwatch_marsh_edge_circulation_support_carried",
         "requires_any_group_node_state_flags": ["frontier_reclaimed_circulation_support_closed"],
         "unlock_hint": "Сначала реально признать reclaimed triangle как useful local support fabric дома и уже после этого передавать delivered edge aid на мокрой boundary leg.",
+    } in ash_pass_requirements
+    assert {
+        "node_id": "ash_pass",
+        "action_id": "use_marsh_edge_watch_aid",
+        "requires_node_state_flag": "northwatch_marsh_edge_support_delivered",
+        "requires_any_group_node_state_flags": ["frontier_reclaimed_support_delivery_closed"],
+        "unlock_hint": "Сначала реально признать reclaimed triangle как working delivered-help network дома и уже после этого пускать delivered edge aid в практический ход на мокрой boundary leg.",
     } in ash_pass_requirements
     redoubt_actions = get_current_node_context_actions(node_id="broken_redoubt")
     redoubt_requirements = get_static_node_context_action_requirements(node_id="broken_redoubt")
@@ -794,6 +802,7 @@ def test_western_road_nodes_expose_services_actions_events_and_scout_discovery()
     assert any(item["action_id"] == "send_watchroad_loop_traffic" for item in yard_actions)
     assert any(item["action_id"] == "stage_watchroad_circulation_support" for item in yard_actions)
     assert any(item["action_id"] == "deliver_watchroad_support_aid" for item in yard_actions)
+    assert any(item["action_id"] == "use_watchroad_relay_aid" for item in yard_actions)
     assert {
         "node_id": "waystation_yard",
         "action_id": "stabilize_corridor_handling",
@@ -856,6 +865,13 @@ def test_western_road_nodes_expose_services_actions_events_and_scout_discovery()
         "requires_node_state_flag": "western_road_watchroad_circulation_support_ready",
         "requires_any_group_node_state_flags": ["frontier_reclaimed_circulation_support_closed"],
         "unlock_hint": "Сначала реально признать reclaimed triangle как useful local support fabric дома и уже после этого передавать delivered relay aid на watch-road leg.",
+    } in yard_action_requirements
+    assert {
+        "node_id": "waystation_yard",
+        "action_id": "use_watchroad_relay_aid",
+        "requires_node_state_flag": "western_road_watchroad_support_delivered",
+        "requires_any_group_node_state_flags": ["frontier_reclaimed_support_delivery_closed"],
+        "unlock_hint": "Сначала реально признать reclaimed triangle как working delivered-help network дома и уже после этого пускать delivered relay aid в практический ход на watch-road leg.",
     } in yard_action_requirements
     assert any(item["action_id"] == "read_waybill_marks" for item in marker_actions)
     assert any(item["action_id"] == "reset_detour_markers" for item in marker_actions)
@@ -971,6 +987,7 @@ def test_deep_marsh_nodes_expose_services_actions_events_and_scout_discovery() -
     assert any(item["action_id"] == "trace_sidepass_loop_traffic" for item in blackwater_actions)
     assert any(item["action_id"] == "set_sidepass_circulation_support" for item in blackwater_actions)
     assert any(item["action_id"] == "deliver_sidepass_support_aid" for item in blackwater_actions)
+    assert any(item["action_id"] == "use_sidepass_crossing_aid" for item in blackwater_actions)
     assert any(item["action_id"] == "braid_reed_wayline" for item in shelter_actions)
     assert any(item["action_id"] == "tie_crossing_orders" for item in shelter_actions)
     assert any(item["action_id"] == "secure_crossing_line" for item in shelter_actions)
@@ -1047,6 +1064,13 @@ def test_deep_marsh_nodes_expose_services_actions_events_and_scout_discovery() -
         "requires_node_state_flag": "deep_marsh_sidepass_circulation_support_set",
         "requires_any_group_node_state_flags": ["frontier_reclaimed_circulation_support_closed"],
         "unlock_hint": "Сначала реально признать reclaimed triangle как useful local support fabric дома и уже после этого передавать delivered crossing aid на cautious side-pass leg.",
+    } in blackwater_requirements
+    assert {
+        "node_id": "blackwater_run",
+        "action_id": "use_sidepass_crossing_aid",
+        "requires_node_state_flag": "deep_marsh_sidepass_support_delivered",
+        "requires_any_group_node_state_flags": ["frontier_reclaimed_support_delivery_closed"],
+        "unlock_hint": "Сначала реально признать reclaimed triangle как working delivered-help network дома и уже после этого пускать delivered crossing aid в практический ход на cautious side-pass leg.",
     } in blackwater_requirements
     assert {
         "node_id": "reed_shelter",
