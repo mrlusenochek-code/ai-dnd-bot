@@ -2339,6 +2339,57 @@ STATIC_MAP_CONTEXT_ACTION_EFFECTS: tuple[dict[str, Any], ...] = (
         "node_state_summary": "На ash_pass уже возвращают steadied recoveries в line movement как practical wet-edge re-entry по reclaimed fabric.",
     },
     {
+        "node_id": "waystation_yard",
+        "action_id": "post_watchroad_reentry_referral",
+        "label": "Вывесить reentry referral",
+        "action_kind": "support",
+        "effect_type": "support",
+        "one_shot": True,
+        "result_type": "local_support_applied",
+        "summary": "Пустить watch-road re-entry point в первый practical onward-referral cue для resumed wayfarers reclaimed triangle.",
+        "result_summary": "На постоялом дворе watch-road line к northwatch читают уже не только как point of onward release, а как место, где resumed traffic получает понятный referral дальше по линии. Yard теперь не просто выпускает sheltered wayfarers обратно в движение, а даёт им honest continuation cue: watch-road leg работает как roadside reentry referral point, который указывает dependable onward continuation reclaimed triangle.",
+        "discovered_notes": [
+            "На waystation_yard watch-road leg уже работает не только как onward release point, а как roadside reentry referral: resumed wayfarers отсюда получают явный continuation cue по reclaimed line."
+        ],
+        "applied_effects": ["frontier_onward_referral:northwatch_western", "intel:watchroad_onward_referral"],
+        "node_state_flags": ["western_road_watchroad_reentry_referral_posted"],
+        "node_state_summary": "На постоялом дворе уже вывесили reentry referral для resumed wayfarers как dependable onward cue по watch-road leg reclaimed fabric.",
+    },
+    {
+        "node_id": "blackwater_run",
+        "action_id": "mark_sidepass_forward_referral",
+        "label": "Отметить forward referral",
+        "action_kind": "support",
+        "effect_type": "support",
+        "one_shot": True,
+        "result_type": "local_support_applied",
+        "summary": "Пустить cautious side-pass forward point в первый practical onward-referral mark для guided stragglers reclaimed triangle.",
+        "result_summary": "У чёрной протоки cautious side-pass к western_road читают уже не только как point of forward guidance, а как место, где resumed stragglers получают чёткий referral дальше по safer continuation. Blackwater_run теперь не просто ведёт их вперёд, а отмечает honest forward-referral point: reeds-side leg даёт clear continuation note, которую стоит нести дальше по мокрому ходу.",
+        "discovered_notes": [
+            "У blackwater_run cautious side-pass уже работает не только как forward-routing point, а как clear forward referral: guided stragglers отсюда получают safer continuation note по reclaimed marsh leg."
+        ],
+        "applied_effects": ["frontier_onward_referral:deep_marsh_western", "intel:sidepass_onward_referral"],
+        "node_state_flags": ["deep_marsh_sidepass_forward_referral_marked"],
+        "node_state_summary": "У чёрной протоки уже отметили forward referral для guided stragglers как dependable continuation cue по cautious side-pass reclaimed fabric.",
+    },
+    {
+        "node_id": "ash_pass",
+        "action_id": "set_marsh_edge_return_referral",
+        "label": "Задать return referral",
+        "action_kind": "support",
+        "effect_type": "support",
+        "one_shot": True,
+        "result_type": "local_support_applied",
+        "summary": "Пустить wet-edge re-entry point в первый practical onward-referral handoff для returned recoveries reclaimed triangle.",
+        "result_summary": "На ash_pass мокрую линию к deep_marsh читают уже не только как edge-return point, а как место, где returned recoveries получают явный referral обратно в boundary/watch continuity. Wet-edge handoff здесь уже не просто возвращает людей в line movement, а задаёт honest return-line referral: marsh-edge leg становится recognised continuation point для следующего dependable хода по сырой границе.",
+        "discovered_notes": [
+            "На ash_pass wet boundary leg уже работает не только как edge-return point, а как return-line referral: returned recoveries отсюда получают явный continuation cue обратно в watch-side movement."
+        ],
+        "applied_effects": ["frontier_onward_referral:northwatch_deep_marsh", "intel:marsh_edge_onward_referral"],
+        "node_state_flags": ["northwatch_marsh_edge_return_referral_set"],
+        "node_state_summary": "На ash_pass уже задали return referral для returned recoveries как dependable continuation cue по wet boundary leg reclaimed fabric.",
+    },
+    {
         "node_id": "forest_settlement",
         "action_id": "review_frontier_stabilization",
         "label": "Сверить frontier stabilization",
@@ -3755,6 +3806,27 @@ STATIC_MAP_CONTEXT_ACTION_REQUIREMENTS: tuple[dict[str, Any], ...] = (
         "unlock_hint": "Сначала реально признать reclaimed triangle как working refuge-facing frontier fabric дома и уже после этого возвращать steadied recoveries в line movement на мокрой boundary leg.",
     },
     {
+        "node_id": "waystation_yard",
+        "action_id": "post_watchroad_reentry_referral",
+        "requires_node_state_flag": "western_road_watchroad_wayfarers_sent_onward",
+        "requires_any_group_node_state_flags": ["frontier_reclaimed_return_to_line_closed"],
+        "unlock_hint": "Сначала реально признать reclaimed triangle как working return-to-line frontier fabric дома и уже после этого вывешивать reentry referral на watch-road leg.",
+    },
+    {
+        "node_id": "blackwater_run",
+        "action_id": "mark_sidepass_forward_referral",
+        "requires_node_state_flag": "deep_marsh_sidepass_stragglers_guided_forward",
+        "requires_any_group_node_state_flags": ["frontier_reclaimed_return_to_line_closed"],
+        "unlock_hint": "Сначала реально признать reclaimed triangle как working return-to-line frontier fabric дома и уже после этого отмечать forward referral на cautious side-pass leg.",
+    },
+    {
+        "node_id": "ash_pass",
+        "action_id": "set_marsh_edge_return_referral",
+        "requires_node_state_flag": "northwatch_marsh_edge_recoveries_returned_to_line",
+        "requires_any_group_node_state_flags": ["frontier_reclaimed_return_to_line_closed"],
+        "unlock_hint": "Сначала реально признать reclaimed triangle как working return-to-line frontier fabric дома и уже после этого задавать return referral на мокрой boundary leg.",
+    },
+    {
         "node_id": "northwatch_palisade",
         "action_id": "set_relay_watch",
         "requires_any_group_node_state_flags": [
@@ -4448,6 +4520,13 @@ STATIC_MAP_NODE_STATE_OVERLAYS: tuple[dict[str, Any], ...] = (
         "service_note": "После return-to-line follow-up waystation_yard ведёт watch-road line уже как onward release point, а не только как roadside fallback.",
     },
     {
+        "node_id": "waystation_yard",
+        "state_flag": "western_road_watchroad_reentry_referral_posted",
+        "context_note": "На постоялом дворе уже держат watch-road line к northwatch как reentry referral point, где resumed wayfarers получают явный continuation cue.",
+        "detail_note": "Северная боковая линия здесь даёт уже не только onward release, а practical onward-referral mark: yard указывает dependable continuation дальше по watch-road leg и делает этот roadside return point честной точкой referral, а не только повторного старта.",
+        "service_note": "После onward-referral follow-up waystation_yard ведёт watch-road line уже как reentry referral point, а не только как onward release point.",
+    },
+    {
         "node_id": "ash_pass",
         "state_flag": "northwatch_directive_fulfilled",
         "context_note": "На ash_pass уже держат не только ход к редуту, но и reopened боковую линию к болотной протоке.",
@@ -4534,6 +4613,13 @@ STATIC_MAP_NODE_STATE_OVERLAYS: tuple[dict[str, Any], ...] = (
         "context_note": "На ash_pass уже держат мокрую линию к deep_marsh как edge-return point, откуда steadied recoveries реально возвращают в line movement.",
         "detail_note": "Край прохода теперь даёт уже не только recovery shelter, а practical return-to-line handoff: после короткого восстановления recoveries снова вводят в wet boundary movement, и leg работает как честная точка edge re-entry в watch-side line.",
         "service_note": "После return-to-line follow-up ash_pass ведёт мокрую boundary line уже как recovery-to-line return point, а не только как recovery stop.",
+    },
+    {
+        "node_id": "ash_pass",
+        "state_flag": "northwatch_marsh_edge_return_referral_set",
+        "context_note": "На ash_pass уже держат мокрую линию к deep_marsh как return-line referral point, где returned recoveries получают явный continuation cue обратно в boundary/watch continuity.",
+        "detail_note": "Край прохода теперь даёт уже не только edge re-entry, а practical onward-referral handoff: returned recoveries здесь не просто снова идут в line movement, а получают чёткий return-line referral по wet boundary leg, который делает marsh-edge continuation понятной и dependable.",
+        "service_note": "После onward-referral follow-up ash_pass ведёт мокрую boundary line уже как return-line referral point, а не только как edge-return point.",
     },
     {
         "node_id": "deep_marsh_threshold",
@@ -4730,6 +4816,13 @@ STATIC_MAP_NODE_STATE_OVERLAYS: tuple[dict[str, Any], ...] = (
         "context_note": "У чёрной протоки уже держат cautious side-pass к western_road как forward-routing point, откуда received stragglers реально ведут дальше.",
         "detail_note": "Боковая линия здесь даёт уже не только fallback receiving point, а practical onward guidance: у воды принятых stragglers снова собирают в движение, и cautious side-pass начинает работать как честная точка forward return по reclaimed marsh leg.",
         "service_note": "После return-to-line follow-up blackwater_run ведёт cautious side-pass уже как forward-routing point, а не только как receiving fallback.",
+    },
+    {
+        "node_id": "blackwater_run",
+        "state_flag": "deep_marsh_sidepass_forward_referral_marked",
+        "context_note": "У чёрной протоки уже держат cautious side-pass к western_road как forward-referral point, где guided stragglers получают safer continuation cue.",
+        "detail_note": "Боковая линия здесь даёт уже не только onward guidance, а practical forward-referral mark: reeds-side leg явно указывает dependable safer continuation дальше по cautious pass и делает blackwater_run честной точкой referral, а не только возврата в движение.",
+        "service_note": "После onward-referral follow-up blackwater_run ведёт cautious side-pass уже как forward-referral point, а не только как forward-routing point.",
     },
     {
         "node_id": "reed_shelter",
