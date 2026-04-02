@@ -2288,6 +2288,57 @@ STATIC_MAP_CONTEXT_ACTION_EFFECTS: tuple[dict[str, Any], ...] = (
         "node_state_summary": "На ash_pass уже собирают recovery stop и steadied recoveries как practical wet-edge fallback по reclaimed fabric.",
     },
     {
+        "node_id": "waystation_yard",
+        "action_id": "send_watchroad_wayfarers_onward",
+        "label": "Пустить путников дальше",
+        "action_kind": "support",
+        "effect_type": "support",
+        "one_shot": True,
+        "result_type": "local_support_applied",
+        "summary": "Пустить watch-road fallback в первый practical return-to-line release для sheltered wayfarers reclaimed triangle.",
+        "result_summary": "На постоялом дворе watch-road line к northwatch читают уже не только как roadside fallback, а как место, откуда людей реально снова выпускают в линию. Sheltered wayfarers здесь не просто пережидают тяжёлый return, а получают practical onward release: yard превращает reclaimed road leg в honest re-entry point, через который измотанные путники снова входят в движение по frontier line.",
+        "discovered_notes": [
+            "На waystation_yard watch-road leg уже работает не только как fallback, а как re-entry point: sheltered wayfarers отсюда реально пускают дальше по reclaimed line."
+        ],
+        "applied_effects": ["frontier_return_to_line:northwatch_western", "intel:watchroad_return_to_line"],
+        "node_state_flags": ["western_road_watchroad_wayfarers_sent_onward"],
+        "node_state_summary": "На постоялом дворе уже пускают sheltered wayfarers дальше как practical re-entry release по watch-road leg reclaimed fabric.",
+    },
+    {
+        "node_id": "blackwater_run",
+        "action_id": "guide_sidepass_stragglers_forward",
+        "label": "Повести отбившихся вперёд",
+        "action_kind": "support",
+        "effect_type": "support",
+        "one_shot": True,
+        "result_type": "local_support_applied",
+        "summary": "Пустить cautious side-pass fallback в первый practical return-to-line guidance для received stragglers reclaimed triangle.",
+        "result_summary": "У чёрной протоки cautious side-pass к western_road читают уже не только как receiving point, а как место, где отбившихся реально выводят обратно вперёд. Received stragglers здесь получают не просто тихий приём, а cautious onward guidance: blackwater_run превращает reeds-side fallback в honest forward-routing point и оставляет guidance note, которую стоит нести дальше по мокрому leg.",
+        "discovered_notes": [
+            "У blackwater_run cautious side-pass уже работает не только как receiving point, а как forward-routing point: принятых stragglers отсюда реально ведут дальше по reclaimed marsh leg."
+        ],
+        "applied_effects": ["frontier_return_to_line:deep_marsh_western", "intel:sidepass_return_to_line"],
+        "node_state_flags": ["deep_marsh_sidepass_stragglers_guided_forward"],
+        "node_state_summary": "У чёрной протоки уже ведут received stragglers дальше как practical forward-routing release по cautious side-pass reclaimed fabric.",
+    },
+    {
+        "node_id": "ash_pass",
+        "action_id": "return_marsh_edge_recoveries_to_line",
+        "label": "Вернуть recoveries в линию",
+        "action_kind": "support",
+        "effect_type": "support",
+        "one_shot": True,
+        "result_type": "local_support_applied",
+        "summary": "Пустить wet-edge recovery stop в первый practical return-to-line handoff для steadied recoveries reclaimed triangle.",
+        "result_summary": "На ash_pass мокрую линию к deep_marsh читают уже не только как recovery stop, а как место, откуда steadied recoveries реально возвращаются в boundary movement. Wet-edge recovery здесь уже не просто держит людей на месте, а даёт practical return-to-line handoff: после короткого восстановления их снова вводят в watch-side line, и reclaimed boundary leg начинает работать как honest edge-return point.",
+        "discovered_notes": [
+            "На ash_pass wet boundary leg уже работает не только как recovery stop, а как edge-return point: steadied recoveries отсюда реально возвращают в line movement."
+        ],
+        "applied_effects": ["frontier_return_to_line:northwatch_deep_marsh", "intel:marsh_edge_return_to_line"],
+        "node_state_flags": ["northwatch_marsh_edge_recoveries_returned_to_line"],
+        "node_state_summary": "На ash_pass уже возвращают steadied recoveries в line movement как practical wet-edge re-entry по reclaimed fabric.",
+    },
+    {
         "node_id": "forest_settlement",
         "action_id": "review_frontier_stabilization",
         "label": "Сверить frontier stabilization",
@@ -3655,6 +3706,27 @@ STATIC_MAP_CONTEXT_ACTION_REQUIREMENTS: tuple[dict[str, Any], ...] = (
         "unlock_hint": "Сначала реально признать reclaimed triangle как actively used support fabric дома и уже после этого собирать recovery stop на мокрой boundary leg.",
     },
     {
+        "node_id": "waystation_yard",
+        "action_id": "send_watchroad_wayfarers_onward",
+        "requires_node_state_flag": "western_road_watchroad_wayfarers_sheltered",
+        "requires_any_group_node_state_flags": ["frontier_reclaimed_refuge_uptake_closed"],
+        "unlock_hint": "Сначала реально признать reclaimed triangle как working refuge-facing frontier fabric дома и уже после этого пускать sheltered wayfarers дальше по watch-road leg.",
+    },
+    {
+        "node_id": "blackwater_run",
+        "action_id": "guide_sidepass_stragglers_forward",
+        "requires_node_state_flag": "deep_marsh_sidepass_stragglers_received",
+        "requires_any_group_node_state_flags": ["frontier_reclaimed_refuge_uptake_closed"],
+        "unlock_hint": "Сначала реально признать reclaimed triangle как working refuge-facing frontier fabric дома и уже после этого вести received stragglers дальше по cautious side-pass leg.",
+    },
+    {
+        "node_id": "ash_pass",
+        "action_id": "return_marsh_edge_recoveries_to_line",
+        "requires_node_state_flag": "northwatch_marsh_edge_recoveries_steadied",
+        "requires_any_group_node_state_flags": ["frontier_reclaimed_refuge_uptake_closed"],
+        "unlock_hint": "Сначала реально признать reclaimed triangle как working refuge-facing frontier fabric дома и уже после этого возвращать steadied recoveries в line movement на мокрой boundary leg.",
+    },
+    {
         "node_id": "northwatch_palisade",
         "action_id": "set_relay_watch",
         "requires_any_group_node_state_flags": [
@@ -4334,6 +4406,13 @@ STATIC_MAP_NODE_STATE_OVERLAYS: tuple[dict[str, Any], ...] = (
         "service_note": "После refuge-uptake follow-up waystation_yard ведёт watch-road line уже как place of shelter fallback, а не только как support in use.",
     },
     {
+        "node_id": "waystation_yard",
+        "state_flag": "western_road_watchroad_wayfarers_sent_onward",
+        "context_note": "На постоялом дворе уже держат watch-road line к northwatch как re-entry point, откуда sheltered wayfarers реально пускают дальше.",
+        "detail_note": "Северная боковая линия здесь даёт уже не только fallback, а practical return-to-line release: yard выпускает road-weary wayfarers обратно в движение и делает watch-road leg честной точкой onward re-entry, а не только местом shelter.",
+        "service_note": "После return-to-line follow-up waystation_yard ведёт watch-road line уже как onward release point, а не только как roadside fallback.",
+    },
+    {
         "node_id": "ash_pass",
         "state_flag": "northwatch_directive_fulfilled",
         "context_note": "На ash_pass уже держат не только ход к редуту, но и reopened боковую линию к болотной протоке.",
@@ -4413,6 +4492,13 @@ STATIC_MAP_NODE_STATE_OVERLAYS: tuple[dict[str, Any], ...] = (
         "context_note": "На ash_pass уже держат мокрую линию к deep_marsh как recovery stop, где людей реально приводят в устойчивость на boundary edge.",
         "detail_note": "Край прохода теперь даёт уже не только applied edge-support use, а practical recovery uptake: на сырой кромке переводят дух, собирают вымотанных и steadied recoveries перед следующим ходом, так что wet boundary leg работает как честная recovery shelter inside reclaimed fabric.",
         "service_note": "После refuge-uptake follow-up ash_pass ведёт мокрую boundary line уже как recovery stop, а не только как support in use.",
+    },
+    {
+        "node_id": "ash_pass",
+        "state_flag": "northwatch_marsh_edge_recoveries_returned_to_line",
+        "context_note": "На ash_pass уже держат мокрую линию к deep_marsh как edge-return point, откуда steadied recoveries реально возвращают в line movement.",
+        "detail_note": "Край прохода теперь даёт уже не только recovery shelter, а practical return-to-line handoff: после короткого восстановления recoveries снова вводят в wet boundary movement, и leg работает как честная точка edge re-entry в watch-side line.",
+        "service_note": "После return-to-line follow-up ash_pass ведёт мокрую boundary line уже как recovery-to-line return point, а не только как recovery stop.",
     },
     {
         "node_id": "deep_marsh_threshold",
@@ -4602,6 +4688,13 @@ STATIC_MAP_NODE_STATE_OVERLAYS: tuple[dict[str, Any], ...] = (
         "context_note": "У чёрной протоки уже держат cautious side-pass к western_road как receiving point, куда реально принимают отбившихся stragglers.",
         "detail_note": "Боковая линия здесь даёт уже не только applied marsh-support use, а practical marsh fallback: у воды принимают запоздавших и вымотанных, а cautious side-pass начинает работать как честная receiving point для stragglers по reclaimed line.",
         "service_note": "После refuge-uptake follow-up blackwater_run ведёт cautious side-pass уже как fallback receiving point, а не только как support in use.",
+    },
+    {
+        "node_id": "blackwater_run",
+        "state_flag": "deep_marsh_sidepass_stragglers_guided_forward",
+        "context_note": "У чёрной протоки уже держат cautious side-pass к western_road как forward-routing point, откуда received stragglers реально ведут дальше.",
+        "detail_note": "Боковая линия здесь даёт уже не только fallback receiving point, а practical onward guidance: у воды принятых stragglers снова собирают в движение, и cautious side-pass начинает работать как честная точка forward return по reclaimed marsh leg.",
+        "service_note": "После return-to-line follow-up blackwater_run ведёт cautious side-pass уже как forward-routing point, а не только как receiving fallback.",
     },
     {
         "node_id": "reed_shelter",

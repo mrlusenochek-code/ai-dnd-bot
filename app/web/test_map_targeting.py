@@ -598,6 +598,7 @@ def test_northwatch_nodes_expose_services_actions_and_details() -> None:
     assert any(item["action_id"] == "deliver_marsh_edge_support_aid" for item in ash_pass_actions)
     assert any(item["action_id"] == "use_marsh_edge_watch_aid" for item in ash_pass_actions)
     assert any(item["action_id"] == "steady_marsh_edge_recoveries" for item in ash_pass_actions)
+    assert any(item["action_id"] == "return_marsh_edge_recoveries_to_line" for item in ash_pass_actions)
     assert {
         "node_id": "northwatch_quartermaster",
         "action_id": "confirm_redoubt_watch",
@@ -709,6 +710,13 @@ def test_northwatch_nodes_expose_services_actions_and_details() -> None:
         "requires_any_group_node_state_flags": ["frontier_reclaimed_support_use_closed"],
         "unlock_hint": "Сначала реально признать reclaimed triangle как actively used support fabric дома и уже после этого собирать recovery stop на мокрой boundary leg.",
     } in ash_pass_requirements
+    assert {
+        "node_id": "ash_pass",
+        "action_id": "return_marsh_edge_recoveries_to_line",
+        "requires_node_state_flag": "northwatch_marsh_edge_recoveries_steadied",
+        "requires_any_group_node_state_flags": ["frontier_reclaimed_refuge_uptake_closed"],
+        "unlock_hint": "Сначала реально признать reclaimed triangle как working refuge-facing frontier fabric дома и уже после этого возвращать steadied recoveries в line movement на мокрой boundary leg.",
+    } in ash_pass_requirements
     redoubt_actions = get_current_node_context_actions(node_id="broken_redoubt")
     redoubt_requirements = get_static_node_context_action_requirements(node_id="broken_redoubt")
     assert any(item["action_id"] == "log_redoubt_signal_cache" for item in redoubt_actions)
@@ -812,6 +820,7 @@ def test_western_road_nodes_expose_services_actions_events_and_scout_discovery()
     assert any(item["action_id"] == "deliver_watchroad_support_aid" for item in yard_actions)
     assert any(item["action_id"] == "use_watchroad_relay_aid" for item in yard_actions)
     assert any(item["action_id"] == "shelter_watchroad_wayfarers" for item in yard_actions)
+    assert any(item["action_id"] == "send_watchroad_wayfarers_onward" for item in yard_actions)
     assert {
         "node_id": "waystation_yard",
         "action_id": "stabilize_corridor_handling",
@@ -888,6 +897,13 @@ def test_western_road_nodes_expose_services_actions_events_and_scout_discovery()
         "requires_node_state_flag": "western_road_watchroad_support_in_use",
         "requires_any_group_node_state_flags": ["frontier_reclaimed_support_use_closed"],
         "unlock_hint": "Сначала реально признать reclaimed triangle как actively used support fabric дома и уже после этого подхватывать измотанных путников на watch-road leg.",
+    } in yard_action_requirements
+    assert {
+        "node_id": "waystation_yard",
+        "action_id": "send_watchroad_wayfarers_onward",
+        "requires_node_state_flag": "western_road_watchroad_wayfarers_sheltered",
+        "requires_any_group_node_state_flags": ["frontier_reclaimed_refuge_uptake_closed"],
+        "unlock_hint": "Сначала реально признать reclaimed triangle как working refuge-facing frontier fabric дома и уже после этого пускать sheltered wayfarers дальше по watch-road leg.",
     } in yard_action_requirements
     assert any(item["action_id"] == "read_waybill_marks" for item in marker_actions)
     assert any(item["action_id"] == "reset_detour_markers" for item in marker_actions)
@@ -1005,6 +1021,7 @@ def test_deep_marsh_nodes_expose_services_actions_events_and_scout_discovery() -
     assert any(item["action_id"] == "deliver_sidepass_support_aid" for item in blackwater_actions)
     assert any(item["action_id"] == "use_sidepass_crossing_aid" for item in blackwater_actions)
     assert any(item["action_id"] == "receive_sidepass_stragglers" for item in blackwater_actions)
+    assert any(item["action_id"] == "guide_sidepass_stragglers_forward" for item in blackwater_actions)
     assert any(item["action_id"] == "braid_reed_wayline" for item in shelter_actions)
     assert any(item["action_id"] == "tie_crossing_orders" for item in shelter_actions)
     assert any(item["action_id"] == "secure_crossing_line" for item in shelter_actions)
@@ -1095,6 +1112,13 @@ def test_deep_marsh_nodes_expose_services_actions_events_and_scout_discovery() -
         "requires_node_state_flag": "deep_marsh_sidepass_support_in_use",
         "requires_any_group_node_state_flags": ["frontier_reclaimed_support_use_closed"],
         "unlock_hint": "Сначала реально признать reclaimed triangle как actively used support fabric дома и уже после этого принимать отбившихся на cautious side-pass leg.",
+    } in blackwater_requirements
+    assert {
+        "node_id": "blackwater_run",
+        "action_id": "guide_sidepass_stragglers_forward",
+        "requires_node_state_flag": "deep_marsh_sidepass_stragglers_received",
+        "requires_any_group_node_state_flags": ["frontier_reclaimed_refuge_uptake_closed"],
+        "unlock_hint": "Сначала реально признать reclaimed triangle как working refuge-facing frontier fabric дома и уже после этого вести received stragglers дальше по cautious side-pass leg.",
     } in blackwater_requirements
     assert {
         "node_id": "reed_shelter",
