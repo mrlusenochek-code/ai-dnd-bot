@@ -600,6 +600,7 @@ def test_northwatch_nodes_expose_services_actions_and_details() -> None:
     assert any(item["action_id"] == "steady_marsh_edge_recoveries" for item in ash_pass_actions)
     assert any(item["action_id"] == "return_marsh_edge_recoveries_to_line" for item in ash_pass_actions)
     assert any(item["action_id"] == "set_marsh_edge_return_referral" for item in ash_pass_actions)
+    assert any(item["action_id"] == "follow_marsh_edge_return_referral" for item in ash_pass_actions)
     assert {
         "node_id": "northwatch_quartermaster",
         "action_id": "confirm_redoubt_watch",
@@ -725,6 +726,13 @@ def test_northwatch_nodes_expose_services_actions_and_details() -> None:
         "requires_any_group_node_state_flags": ["frontier_reclaimed_return_to_line_closed"],
         "unlock_hint": "Сначала реально признать reclaimed triangle как working return-to-line frontier fabric дома и уже после этого задавать return referral на мокрой boundary leg.",
     } in ash_pass_requirements
+    assert {
+        "node_id": "ash_pass",
+        "action_id": "follow_marsh_edge_return_referral",
+        "requires_node_state_flag": "northwatch_marsh_edge_return_referral_set",
+        "requires_any_group_node_state_flags": ["frontier_reclaimed_onward_referral_closed"],
+        "unlock_hint": "Сначала реально признать reclaimed triangle как working onward-referral frontier fabric дома и уже после этого пускать set return referral в живой ход на мокрой boundary leg.",
+    } in ash_pass_requirements
     redoubt_actions = get_current_node_context_actions(node_id="broken_redoubt")
     redoubt_requirements = get_static_node_context_action_requirements(node_id="broken_redoubt")
     assert any(item["action_id"] == "log_redoubt_signal_cache" for item in redoubt_actions)
@@ -830,6 +838,7 @@ def test_western_road_nodes_expose_services_actions_events_and_scout_discovery()
     assert any(item["action_id"] == "shelter_watchroad_wayfarers" for item in yard_actions)
     assert any(item["action_id"] == "send_watchroad_wayfarers_onward" for item in yard_actions)
     assert any(item["action_id"] == "post_watchroad_reentry_referral" for item in yard_actions)
+    assert any(item["action_id"] == "follow_watchroad_reentry_referral" for item in yard_actions)
     assert {
         "node_id": "waystation_yard",
         "action_id": "stabilize_corridor_handling",
@@ -920,6 +929,13 @@ def test_western_road_nodes_expose_services_actions_events_and_scout_discovery()
         "requires_node_state_flag": "western_road_watchroad_wayfarers_sent_onward",
         "requires_any_group_node_state_flags": ["frontier_reclaimed_return_to_line_closed"],
         "unlock_hint": "Сначала реально признать reclaimed triangle как working return-to-line frontier fabric дома и уже после этого вывешивать reentry referral на watch-road leg.",
+    } in yard_action_requirements
+    assert {
+        "node_id": "waystation_yard",
+        "action_id": "follow_watchroad_reentry_referral",
+        "requires_node_state_flag": "western_road_watchroad_reentry_referral_posted",
+        "requires_any_group_node_state_flags": ["frontier_reclaimed_onward_referral_closed"],
+        "unlock_hint": "Сначала реально признать reclaimed triangle как working onward-referral frontier fabric дома и уже после этого пускать posted reentry referral в живой ход на watch-road leg.",
     } in yard_action_requirements
     assert any(item["action_id"] == "read_waybill_marks" for item in marker_actions)
     assert any(item["action_id"] == "reset_detour_markers" for item in marker_actions)
@@ -1039,6 +1055,7 @@ def test_deep_marsh_nodes_expose_services_actions_events_and_scout_discovery() -
     assert any(item["action_id"] == "receive_sidepass_stragglers" for item in blackwater_actions)
     assert any(item["action_id"] == "guide_sidepass_stragglers_forward" for item in blackwater_actions)
     assert any(item["action_id"] == "mark_sidepass_forward_referral" for item in blackwater_actions)
+    assert any(item["action_id"] == "take_sidepass_forward_referral" for item in blackwater_actions)
     assert any(item["action_id"] == "braid_reed_wayline" for item in shelter_actions)
     assert any(item["action_id"] == "tie_crossing_orders" for item in shelter_actions)
     assert any(item["action_id"] == "secure_crossing_line" for item in shelter_actions)
@@ -1143,6 +1160,13 @@ def test_deep_marsh_nodes_expose_services_actions_events_and_scout_discovery() -
         "requires_node_state_flag": "deep_marsh_sidepass_stragglers_guided_forward",
         "requires_any_group_node_state_flags": ["frontier_reclaimed_return_to_line_closed"],
         "unlock_hint": "Сначала реально признать reclaimed triangle как working return-to-line frontier fabric дома и уже после этого отмечать forward referral на cautious side-pass leg.",
+    } in blackwater_requirements
+    assert {
+        "node_id": "blackwater_run",
+        "action_id": "take_sidepass_forward_referral",
+        "requires_node_state_flag": "deep_marsh_sidepass_forward_referral_marked",
+        "requires_any_group_node_state_flags": ["frontier_reclaimed_onward_referral_closed"],
+        "unlock_hint": "Сначала реально признать reclaimed triangle как working onward-referral frontier fabric дома и уже после этого пускать marked forward referral в живой safer continuation на cautious side-pass leg.",
     } in blackwater_requirements
     assert {
         "node_id": "reed_shelter",

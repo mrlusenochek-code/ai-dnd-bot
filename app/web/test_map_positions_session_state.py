@@ -7273,6 +7273,215 @@ def test_reclaimed_onward_referral_follow_ups_unlock_after_home_return_review_an
     assert any("referral" in note.lower() or "continuation" in note.lower() or "return-line" in note.lower() for note in ash_context["state_notes"])
 
 
+def test_reclaimed_referral_uptake_follow_ups_stay_locked_before_home_onward_review() -> None:
+    waystation_player = uuid.uuid4()
+    waystation_sess = SimpleNamespace(settings={})
+    session_state._initialize_default_group(
+        waystation_sess,
+        [waystation_player],
+        {"map_level": "region", "node_type": "zone", "node_id": "waystation_yard", "label": "Постоялый двор"},
+    )
+    session_state.add_group_node_state_flag(
+        waystation_sess,
+        "main",
+        "waystation_yard",
+        state_flag="western_road_watchroad_reentry_referral_posted",
+        summary="Watch-road referral is already posted at the yard.",
+        source="test",
+    )
+    locked_waystation = next(
+        item
+        for item in session_state.get_current_group_context_action_availability(waystation_sess, player_id=waystation_player)
+        if item["action_id"] == "follow_watchroad_reentry_referral"
+    )
+    assert locked_waystation["availability_status"] == "locked"
+    assert locked_waystation["unavailable_reason"] == "requires_any_group_node_state_flags"
+
+    blackwater_player = uuid.uuid4()
+    blackwater_sess = SimpleNamespace(settings={})
+    session_state._initialize_default_group(
+        blackwater_sess,
+        [blackwater_player],
+        {"map_level": "region", "node_type": "zone", "node_id": "blackwater_run", "label": "Чёрная протока"},
+    )
+    session_state.add_group_node_state_flag(
+        blackwater_sess,
+        "main",
+        "blackwater_run",
+        state_flag="deep_marsh_sidepass_forward_referral_marked",
+        summary="Forward referral is already marked at blackwater_run.",
+        source="test",
+    )
+    locked_blackwater = next(
+        item
+        for item in session_state.get_current_group_context_action_availability(blackwater_sess, player_id=blackwater_player)
+        if item["action_id"] == "take_sidepass_forward_referral"
+    )
+    assert locked_blackwater["availability_status"] == "locked"
+    assert locked_blackwater["unavailable_reason"] == "requires_any_group_node_state_flags"
+
+    ash_player = uuid.uuid4()
+    ash_sess = SimpleNamespace(settings={})
+    session_state._initialize_default_group(
+        ash_sess,
+        [ash_player],
+        {"map_level": "region", "node_type": "zone", "node_id": "ash_pass", "label": "Пепельный проход"},
+    )
+    session_state.add_group_node_state_flag(
+        ash_sess,
+        "main",
+        "ash_pass",
+        state_flag="northwatch_marsh_edge_return_referral_set",
+        summary="Return referral is already set at ash_pass.",
+        source="test",
+    )
+    locked_ash = next(
+        item
+        for item in session_state.get_current_group_context_action_availability(ash_sess, player_id=ash_player)
+        if item["action_id"] == "follow_marsh_edge_return_referral"
+    )
+    assert locked_ash["availability_status"] == "locked"
+    assert locked_ash["unavailable_reason"] == "requires_any_group_node_state_flags"
+
+
+def test_reclaimed_referral_uptake_follow_ups_unlock_after_home_onward_review_and_reflect_uptake_state() -> None:
+    waystation_player = uuid.uuid4()
+    waystation_sess = SimpleNamespace(settings={})
+    session_state._initialize_default_group(
+        waystation_sess,
+        [waystation_player],
+        {"map_level": "region", "node_type": "zone", "node_id": "waystation_yard", "label": "Постоялый двор"},
+    )
+    session_state.add_group_node_state_flag(
+        waystation_sess,
+        "main",
+        "waystation_yard",
+        state_flag="western_road_watchroad_reentry_referral_posted",
+        summary="Watch-road referral is already posted at the yard.",
+        source="test",
+    )
+    session_state.add_group_node_state_flag(
+        waystation_sess,
+        "main",
+        "forest_settlement",
+        state_flag="frontier_reclaimed_onward_referral_closed",
+        summary="Home base already recognizes the reclaimed triangle as working onward-referral frontier fabric.",
+        source="test",
+    )
+    available_waystation = next(
+        item
+        for item in session_state.get_current_group_context_action_availability(waystation_sess, player_id=waystation_player)
+        if item["action_id"] == "follow_watchroad_reentry_referral"
+    )
+    assert available_waystation["availability_status"] == "available"
+    resolved_waystation, error = session_state.resolve_group_context_action(
+        waystation_sess,
+        "main",
+        action_id="follow_watchroad_reentry_referral",
+        player_id=waystation_player,
+        source="test",
+    )
+    assert error is None
+    assert resolved_waystation is not None
+    assert "lived reentry continuation" in resolved_waystation["last_context_action_result"]["result_summary"].lower()
+    waystation_context = session_state.get_current_group_node_context(waystation_sess, player_id=waystation_player)
+    assert "western_road_watchroad_reentry_referral_followed" in waystation_context["node_state_flags"]
+    assert any("continuation" in note.lower() or "follows through" in note.lower() or "lived" in note.lower() for note in waystation_context["state_notes"])
+    waystation_detail = session_state.get_current_group_node_detail(waystation_sess, player_id=waystation_player)
+    assert any("lived continuation line" in note.lower() or "posted referral" in note.lower() for note in waystation_detail["state_notes"])
+
+    blackwater_player = uuid.uuid4()
+    blackwater_sess = SimpleNamespace(settings={})
+    session_state._initialize_default_group(
+        blackwater_sess,
+        [blackwater_player],
+        {"map_level": "region", "node_type": "zone", "node_id": "blackwater_run", "label": "Чёрная протока"},
+    )
+    session_state.add_group_node_state_flag(
+        blackwater_sess,
+        "main",
+        "blackwater_run",
+        state_flag="deep_marsh_sidepass_forward_referral_marked",
+        summary="Forward referral is already marked at blackwater_run.",
+        source="test",
+    )
+    session_state.add_group_node_state_flag(
+        blackwater_sess,
+        "main",
+        "forest_settlement",
+        state_flag="frontier_reclaimed_onward_referral_closed",
+        summary="Home base already recognizes the reclaimed triangle as working onward-referral frontier fabric.",
+        source="test",
+    )
+    available_blackwater = next(
+        item
+        for item in session_state.get_current_group_context_action_availability(blackwater_sess, player_id=blackwater_player)
+        if item["action_id"] == "take_sidepass_forward_referral"
+    )
+    assert available_blackwater["availability_status"] == "available"
+    resolved_blackwater, error = session_state.resolve_group_context_action(
+        blackwater_sess,
+        "main",
+        action_id="take_sidepass_forward_referral",
+        player_id=blackwater_player,
+        source="test",
+    )
+    assert error is None
+    assert resolved_blackwater is not None
+    assert "safer continuation" in resolved_blackwater["last_context_action_result"]["result_summary"].lower()
+    blackwater_context = session_state.get_current_group_node_context(blackwater_sess, player_id=blackwater_player)
+    assert "deep_marsh_sidepass_forward_referral_taken" in blackwater_context["node_state_flags"]
+    assert any("continuation" in note.lower() or "safer" in note.lower() or "lived" in note.lower() for note in blackwater_context["state_notes"])
+    blackwater_detail = session_state.get_current_group_node_detail(blackwater_sess, player_id=blackwater_player)
+    assert any("lived forward-taken continuation" in note.lower() or "safer cue" in note.lower() for note in blackwater_detail["state_notes"])
+    blackwater_intel = session_state.get_current_group_map_intel(blackwater_sess, player_id=blackwater_player)
+    assert any(entry["source_kind"] == "context_action" and entry["source_id"] == "take_sidepass_forward_referral" for entry in blackwater_intel)
+    assert any("safer continuation" in entry["result_summary"].lower() for entry in blackwater_intel if entry["source_id"] == "take_sidepass_forward_referral")
+
+    ash_player = uuid.uuid4()
+    ash_sess = SimpleNamespace(settings={})
+    session_state._initialize_default_group(
+        ash_sess,
+        [ash_player],
+        {"map_level": "region", "node_type": "zone", "node_id": "ash_pass", "label": "Пепельный проход"},
+    )
+    session_state.add_group_node_state_flag(
+        ash_sess,
+        "main",
+        "ash_pass",
+        state_flag="northwatch_marsh_edge_return_referral_set",
+        summary="Return referral is already set at ash_pass.",
+        source="test",
+    )
+    session_state.add_group_node_state_flag(
+        ash_sess,
+        "main",
+        "forest_settlement",
+        state_flag="frontier_reclaimed_onward_referral_closed",
+        summary="Home base already recognizes the reclaimed triangle as working onward-referral frontier fabric.",
+        source="test",
+    )
+    available_ash = next(
+        item
+        for item in session_state.get_current_group_context_action_availability(ash_sess, player_id=ash_player)
+        if item["action_id"] == "follow_marsh_edge_return_referral"
+    )
+    assert available_ash["availability_status"] == "available"
+    resolved_ash, error = session_state.resolve_group_context_action(
+        ash_sess,
+        "main",
+        action_id="follow_marsh_edge_return_referral",
+        player_id=ash_player,
+        source="test",
+    )
+    assert error is None
+    assert resolved_ash is not None
+    assert "lived return-followed continuation" in resolved_ash["last_context_action_result"]["result_summary"].lower()
+    ash_context = session_state.get_current_group_node_context(ash_sess, player_id=ash_player)
+    assert "northwatch_marsh_edge_return_referral_followed" in ash_context["node_state_flags"]
+    assert any("continuation" in note.lower() or "return" in note.lower() or "lived" in note.lower() for note in ash_context["state_notes"])
+
+
 def test_forest_settlement_frontier_support_stays_locked_before_report() -> None:
     player_id = uuid.uuid4()
     sess = SimpleNamespace(settings={})
