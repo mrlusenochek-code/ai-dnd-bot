@@ -1263,6 +1263,7 @@ def test_starter_frontier_nodes_expose_local_progression_arc_surfaces() -> None:
     assert any(item["action_id"] == "review_reclaimed_support_delivery" for item in forest_actions)
     assert any(item["action_id"] == "review_reclaimed_support_use" for item in forest_actions)
     assert any(item["action_id"] == "review_reclaimed_refuge_uptake" for item in forest_actions)
+    assert any(item["action_id"] == "review_reclaimed_return_to_line" for item in forest_actions)
     assert forest_action_requirements == [
         {
             "node_id": "forest_settlement",
@@ -1470,6 +1471,17 @@ def test_starter_frontier_nodes_expose_local_progression_arc_surfaces() -> None:
                 "western_road_watchroad_wayfarers_sheltered",
                 "deep_marsh_sidepass_stragglers_received",
                 "northwatch_marsh_edge_recoveries_steadied",
+            ],
+        },
+        {
+            "node_id": "forest_settlement",
+            "action_id": "review_reclaimed_return_to_line",
+            "unlock_hint": "Сначала замкнуть весь reclaimed return-to-line в поле, чтобы база могла признать не только refuge-facing fabric, а уже working return-to-line frontier fabric.",
+            "requires_node_state_flag": "frontier_reclaimed_refuge_uptake_closed",
+            "requires_all_group_node_state_flags": [
+                "western_road_watchroad_wayfarers_sent_onward",
+                "deep_marsh_sidepass_stragglers_guided_forward",
+                "northwatch_marsh_edge_recoveries_returned_to_line",
             ],
         },
     ]

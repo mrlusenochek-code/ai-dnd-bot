@@ -3149,6 +3149,23 @@ STATIC_MAP_CONTEXT_ACTION_EFFECTS: tuple[dict[str, Any], ...] = (
     },
     {
         "node_id": "forest_settlement",
+        "action_id": "review_reclaimed_return_to_line",
+        "label": "Сверить return to line",
+        "action_kind": "support",
+        "effect_type": "support",
+        "one_shot": True,
+        "result_type": "local_support_applied",
+        "summary": "Признать reclaimed triangle как working return-to-line frontier fabric, которая реально возвращает людей в движение по всем трём legs.",
+        "result_summary": "Когда watch-road onward release, reeds-side forward guidance и marsh-edge return handoff возвращаются домой уже как три return-to-line field proofs, лесной посёлок видит reclaimed triangle не только как refuge-facing fabric, а как working return-flow infrastructure. Relay road, cautious marsh pass и wet boundary watch теперь не просто подхватывают и восстанавливают людей, а реально вводят их обратно в движение: база помнит весь reclaimed triangle уже как practical return-to-line / onward-continuity fabric, на которую frontier действительно опирается.",
+        "discovered_notes": [
+            "Reclaimed triangle впервые remembered дома уже не только как refuge-facing fabric, а как practical return-to-line / onward-continuity infrastructure: три field return proofs показывают, что этот loop реально возвращает людей в движение."
+        ],
+        "applied_effects": ["frontier_reclaimed_return_to_line:closed", "intel:frontier_reclaimed_return_to_line_closed"],
+        "node_state_flags": ["frontier_reclaimed_return_to_line_closed"],
+        "node_state_summary": "В лесном посёлке уже признали reclaimed triangle как working return-to-line frontier fabric, которая реально возвращает людей в движение по всем трём reclaimed legs.",
+    },
+    {
+        "node_id": "forest_settlement",
         "action_id": "compile_frontier_report",
         "label": "Сверить frontier сводки",
         "action_kind": "clue",
@@ -3491,6 +3508,17 @@ STATIC_MAP_CONTEXT_ACTION_REQUIREMENTS: tuple[dict[str, Any], ...] = (
             "northwatch_marsh_edge_recoveries_steadied",
         ],
         "unlock_hint": "Сначала замкнуть весь reclaimed refuge uptake в поле, чтобы база могла признать не только actively used support fabric, а уже working refuge-facing frontier fabric.",
+    },
+    {
+        "node_id": "forest_settlement",
+        "action_id": "review_reclaimed_return_to_line",
+        "requires_node_state_flag": "frontier_reclaimed_refuge_uptake_closed",
+        "requires_all_group_node_state_flags": [
+            "western_road_watchroad_wayfarers_sent_onward",
+            "deep_marsh_sidepass_stragglers_guided_forward",
+            "northwatch_marsh_edge_recoveries_returned_to_line",
+        ],
+        "unlock_hint": "Сначала замкнуть весь reclaimed return-to-line в поле, чтобы база могла признать не только refuge-facing fabric, а уже working return-to-line frontier fabric.",
     },
     {
         "node_id": "waystation_yard",
@@ -4210,6 +4238,13 @@ STATIC_MAP_NODE_STATE_OVERLAYS: tuple[dict[str, Any], ...] = (
         "context_note": "В лесном посёлке reclaimed triangle уже remembered как working refuge-facing frontier fabric, на которую реально опираются для shelter, receiving и recovery.",
         "detail_note": "Watch-road wayfarers sheltered, reeds-side stragglers received и marsh-edge recoveries steadied уже сводятся дома не просто в support-use memory, а в одну practical refuge / recovery infrastructure: settlement видит, что reclaimed triangle реально работает как линия подхвата и восстановления по всем трём legs.",
         "service_note": "После refuge-uptake review база знает reclaimed triangle уже не только как actively used support fabric, а как working refuge-facing frontier fabric с честной памятью о shelter / receiving / recovery use.",
+    },
+    {
+        "node_id": "forest_settlement",
+        "state_flag": "frontier_reclaimed_return_to_line_closed",
+        "context_note": "В лесном посёлке reclaimed triangle уже remembered как working return-to-line frontier fabric, на которую реально опираются для onward release, forward guidance и edge-return handoff.",
+        "detail_note": "Watch-road wayfarers sent onward, reeds-side stragglers guided forward и marsh-edge recoveries returned to line уже сводятся дома не просто в refuge-facing memory, а в одну practical return-flow infrastructure: settlement видит, что reclaimed triangle реально возвращает людей в движение по всем трём legs.",
+        "service_note": "После return-to-line review база знает reclaimed triangle уже не только как refuge-facing fabric, а как working return-to-line frontier fabric с честной памятью о onward continuity across the whole loop.",
     },
     {
         "node_id": "forest_settlement",
