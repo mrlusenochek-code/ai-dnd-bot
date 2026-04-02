@@ -5927,6 +5927,104 @@ def test_forest_settlement_reclaimed_return_to_line_review_unlocks_after_full_re
     assert any(entry["source_kind"] == "context_action" and entry["source_id"] == "review_reclaimed_return_to_line" for entry in intel_entries)
 
 
+def test_forest_settlement_reclaimed_onward_referral_review_stays_locked_before_full_onward_referral_proof() -> None:
+    player_id = uuid.uuid4()
+    sess = SimpleNamespace(settings={})
+    session_state._initialize_default_group(
+        sess,
+        [player_id],
+        {"map_level": "region", "node_type": "zone", "node_id": "forest_settlement", "label": "Лесной посёлок"},
+    )
+    session_state.get_current_group_current_region_state(sess, player_id=player_id)
+    session_state.add_group_node_state_flag(
+        sess,
+        "main",
+        "forest_settlement",
+        state_flag="frontier_reclaimed_return_to_line_closed",
+        summary="Home base already recognizes the reclaimed triangle as working return-to-line frontier fabric.",
+        source="test",
+    )
+    for node_id, flag, summary in (
+        ("waystation_yard", "western_road_watchroad_reentry_referral_posted", "Watch-road reentry referral is already posted at the yard."),
+        ("blackwater_run", "deep_marsh_sidepass_forward_referral_marked", "Forward referral is already marked at blackwater_run."),
+    ):
+        session_state.add_group_node_state_flag(
+            sess,
+            "main",
+            node_id,
+            state_flag=flag,
+            summary=summary,
+            source="test",
+        )
+
+    locked_actions = session_state.get_current_group_context_action_availability(sess, player_id=player_id)
+    locked = next(item for item in locked_actions if item["action_id"] == "review_reclaimed_onward_referral")
+    assert locked["availability_status"] == "locked"
+    assert locked["unavailable_reason"] in {
+        "requires_node_state_flag",
+        "requires_all_group_node_state_flags",
+    }
+    assert "practical onward-referral / continuation infrastructure" in locked["unlock_hint"].lower()
+
+
+def test_forest_settlement_reclaimed_onward_referral_review_unlocks_after_full_onward_referral_proof_and_persists_home_memory() -> None:
+    player_id = uuid.uuid4()
+    sess = SimpleNamespace(settings={})
+    session_state._initialize_default_group(
+        sess,
+        [player_id],
+        {"map_level": "region", "node_type": "zone", "node_id": "forest_settlement", "label": "Лесной посёлок"},
+    )
+    session_state.get_current_group_current_region_state(sess, player_id=player_id)
+    session_state.add_group_node_state_flag(
+        sess,
+        "main",
+        "forest_settlement",
+        state_flag="frontier_reclaimed_return_to_line_closed",
+        summary="Home base already recognizes the reclaimed triangle as working return-to-line frontier fabric.",
+        source="test",
+    )
+    for node_id, flag, summary in (
+        ("waystation_yard", "western_road_watchroad_reentry_referral_posted", "Watch-road reentry referral is already posted at the yard."),
+        ("blackwater_run", "deep_marsh_sidepass_forward_referral_marked", "Forward referral is already marked at blackwater_run."),
+        ("ash_pass", "northwatch_marsh_edge_return_referral_set", "Return referral is already set at ash_pass."),
+    ):
+        session_state.add_group_node_state_flag(
+            sess,
+            "main",
+            node_id,
+            state_flag=flag,
+            summary=summary,
+            source="test",
+        )
+
+    available_actions = session_state.get_current_group_context_action_availability(sess, player_id=player_id)
+    available = next(item for item in available_actions if item["action_id"] == "review_reclaimed_onward_referral")
+    assert available["availability_status"] == "available"
+
+    resolved, error = session_state.resolve_group_context_action(
+        sess,
+        "main",
+        action_id="review_reclaimed_onward_referral",
+        player_id=player_id,
+        source="test",
+    )
+    assert error is None
+    assert resolved is not None
+    assert "working onward-guidance / continuation infrastructure" in resolved["last_context_action_result"]["result_summary"].lower()
+    assert "onward-referral field proofs" in resolved["last_context_action_result"]["result_summary"].lower()
+
+    context = session_state.get_current_group_node_context(sess, player_id=player_id)
+    assert "frontier_reclaimed_onward_referral_closed" in context["node_state_flags"]
+    assert any("working onward-referral frontier fabric" in note.lower() or "reentry referral" in note.lower() for note in context["state_notes"])
+
+    detail = session_state.get_current_group_node_detail(sess, player_id=player_id)
+    assert any("practical onward-guidance / continuation infrastructure" in note.lower() or "направляет resumed traffic" in note.lower() for note in detail["state_notes"])
+
+    intel_entries = session_state.get_current_group_map_intel(sess, player_id=player_id)
+    assert any(entry["source_kind"] == "context_action" and entry["source_id"] == "review_reclaimed_onward_referral" for entry in intel_entries)
+
+
 def test_reclaimed_circulation_support_field_follow_ups_stay_locked_before_home_circulation_review() -> None:
     waystation_player = uuid.uuid4()
     waystation_sess = SimpleNamespace(settings={})

@@ -1288,6 +1288,7 @@ def test_starter_frontier_nodes_expose_local_progression_arc_surfaces() -> None:
     assert any(item["action_id"] == "review_reclaimed_support_use" for item in forest_actions)
     assert any(item["action_id"] == "review_reclaimed_refuge_uptake" for item in forest_actions)
     assert any(item["action_id"] == "review_reclaimed_return_to_line" for item in forest_actions)
+    assert any(item["action_id"] == "review_reclaimed_onward_referral" for item in forest_actions)
     assert forest_action_requirements == [
         {
             "node_id": "forest_settlement",
@@ -1506,6 +1507,17 @@ def test_starter_frontier_nodes_expose_local_progression_arc_surfaces() -> None:
                 "western_road_watchroad_wayfarers_sent_onward",
                 "deep_marsh_sidepass_stragglers_guided_forward",
                 "northwatch_marsh_edge_recoveries_returned_to_line",
+            ],
+        },
+        {
+            "node_id": "forest_settlement",
+            "action_id": "review_reclaimed_onward_referral",
+            "unlock_hint": "Сначала замкнуть весь reclaimed onward referral в поле, чтобы база могла признать не только working return-to-line frontier fabric, а уже practical onward-referral / continuation infrastructure.",
+            "requires_node_state_flag": "frontier_reclaimed_return_to_line_closed",
+            "requires_all_group_node_state_flags": [
+                "western_road_watchroad_reentry_referral_posted",
+                "deep_marsh_sidepass_forward_referral_marked",
+                "northwatch_marsh_edge_return_referral_set",
             ],
         },
     ]

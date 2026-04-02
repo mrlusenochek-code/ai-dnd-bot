@@ -3217,6 +3217,23 @@ STATIC_MAP_CONTEXT_ACTION_EFFECTS: tuple[dict[str, Any], ...] = (
     },
     {
         "node_id": "forest_settlement",
+        "action_id": "review_reclaimed_onward_referral",
+        "label": "Сверить onward referral",
+        "action_kind": "support",
+        "effect_type": "support",
+        "one_shot": True,
+        "result_type": "local_support_applied",
+        "summary": "Признать reclaimed triangle как working onward-referral frontier fabric, которая реально направляет resumed traffic по надёжному продолжению линии на всех трёх legs.",
+        "result_summary": "Когда watch-road reentry referral, reeds-side forward referral и marsh-edge return referral возвращаются домой уже как три onward-referral field proofs, лесной посёлок видит reclaimed triangle не только как return-to-line fabric, а как working onward-guidance / continuation infrastructure. Relay road, cautious marsh pass и wet boundary watch теперь не просто возвращают людей в движение, а реально указывают resumed traffic надёжное продолжение линии: база помнит весь reclaimed triangle уже как practical onward-referral frontier fabric, на которую frontier действительно опирается.",
+        "discovered_notes": [
+            "Reclaimed triangle впервые remembered дома уже не только как return-to-line fabric, а как practical onward-referral / continuation infrastructure: три field referral proofs показывают, что этот loop реально направляет resumed traffic по надёжному продолжению линии."
+        ],
+        "applied_effects": ["frontier_reclaimed_onward_referral:closed", "intel:frontier_reclaimed_onward_referral_closed"],
+        "node_state_flags": ["frontier_reclaimed_onward_referral_closed"],
+        "node_state_summary": "В лесном посёлке уже признали reclaimed triangle как working onward-referral frontier fabric, которая реально направляет resumed traffic по всем трём reclaimed legs.",
+    },
+    {
+        "node_id": "forest_settlement",
         "action_id": "compile_frontier_report",
         "label": "Сверить frontier сводки",
         "action_kind": "clue",
@@ -3570,6 +3587,17 @@ STATIC_MAP_CONTEXT_ACTION_REQUIREMENTS: tuple[dict[str, Any], ...] = (
             "northwatch_marsh_edge_recoveries_returned_to_line",
         ],
         "unlock_hint": "Сначала замкнуть весь reclaimed return-to-line в поле, чтобы база могла признать не только refuge-facing fabric, а уже working return-to-line frontier fabric.",
+    },
+    {
+        "node_id": "forest_settlement",
+        "action_id": "review_reclaimed_onward_referral",
+        "requires_node_state_flag": "frontier_reclaimed_return_to_line_closed",
+        "requires_all_group_node_state_flags": [
+            "western_road_watchroad_reentry_referral_posted",
+            "deep_marsh_sidepass_forward_referral_marked",
+            "northwatch_marsh_edge_return_referral_set",
+        ],
+        "unlock_hint": "Сначала замкнуть весь reclaimed onward referral в поле, чтобы база могла признать не только working return-to-line frontier fabric, а уже practical onward-referral / continuation infrastructure.",
     },
     {
         "node_id": "waystation_yard",
@@ -4317,6 +4345,13 @@ STATIC_MAP_NODE_STATE_OVERLAYS: tuple[dict[str, Any], ...] = (
         "context_note": "В лесном посёлке reclaimed triangle уже remembered как working return-to-line frontier fabric, на которую реально опираются для onward release, forward guidance и edge-return handoff.",
         "detail_note": "Watch-road wayfarers sent onward, reeds-side stragglers guided forward и marsh-edge recoveries returned to line уже сводятся дома не просто в refuge-facing memory, а в одну practical return-flow infrastructure: settlement видит, что reclaimed triangle реально возвращает людей в движение по всем трём legs.",
         "service_note": "После return-to-line review база знает reclaimed triangle уже не только как refuge-facing fabric, а как working return-to-line frontier fabric с честной памятью о onward continuity across the whole loop.",
+    },
+    {
+        "node_id": "forest_settlement",
+        "state_flag": "frontier_reclaimed_onward_referral_closed",
+        "context_note": "В лесном посёлке reclaimed triangle уже remembered как working onward-referral frontier fabric, на которую реально опираются для reentry referral, forward referral и edge-return continuation.",
+        "detail_note": "Watch-road reentry referral posted, reeds-side forward referral marked и marsh-edge return referral set уже сводятся дома не просто в return-to-line memory, а в одну practical onward-guidance / continuation infrastructure: settlement видит, что reclaimed triangle реально направляет resumed traffic по надёжному продолжению линии на всех трёх legs.",
+        "service_note": "После onward-referral review база знает reclaimed triangle уже не только как return-to-line fabric, а как working onward-referral frontier fabric с честной памятью о dependable continuation across the whole loop.",
     },
     {
         "node_id": "forest_settlement",
