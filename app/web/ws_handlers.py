@@ -379,6 +379,14 @@ def _kickoff_lore_finalize_if_needed(session_id: str, sess: Any) -> bool:
     return True
 
 
+async def _auto_recover_lore_pending_on_connect(session_id: str) -> bool:
+    async with AsyncSessionLocal() as db:
+        sess = await get_session(db, session_id)
+        if not sess or _get_phase(sess) != "lore_pending":
+            return False
+        return _kickoff_lore_finalize_if_needed(session_id, sess)
+
+
 def _lucky_scope_enabled(race_features: Any, scope_key: str) -> bool:
     if not isinstance(race_features, dict):
         return False
@@ -6605,6 +6613,7 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
     logger.info("ws connected")
 
     try:
+        await _auto_recover_lore_pending_on_connect(session_id)
         await send_state_to_ws(session_id, ws)
 
         while True:
