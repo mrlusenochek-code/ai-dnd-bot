@@ -1238,6 +1238,7 @@ def test_starter_frontier_nodes_expose_local_progression_arc_surfaces() -> None:
     assert any(item["action_id"] == "review_reclaimed_circulation_support" for item in forest_actions)
     assert any(item["action_id"] == "review_reclaimed_support_delivery" for item in forest_actions)
     assert any(item["action_id"] == "review_reclaimed_support_use" for item in forest_actions)
+    assert any(item["action_id"] == "review_reclaimed_refuge_uptake" for item in forest_actions)
     assert forest_action_requirements == [
         {
             "node_id": "forest_settlement",
@@ -1434,6 +1435,17 @@ def test_starter_frontier_nodes_expose_local_progression_arc_surfaces() -> None:
                 "western_road_watchroad_support_in_use",
                 "deep_marsh_sidepass_support_in_use",
                 "northwatch_marsh_edge_support_in_use",
+            ],
+        },
+        {
+            "node_id": "forest_settlement",
+            "action_id": "review_reclaimed_refuge_uptake",
+            "unlock_hint": "Сначала замкнуть весь reclaimed refuge uptake в поле, чтобы база могла признать не только actively used support fabric, а уже working refuge-facing frontier fabric.",
+            "requires_node_state_flag": "frontier_reclaimed_support_use_closed",
+            "requires_all_group_node_state_flags": [
+                "western_road_watchroad_wayfarers_sheltered",
+                "deep_marsh_sidepass_stragglers_received",
+                "northwatch_marsh_edge_recoveries_steadied",
             ],
         },
     ]

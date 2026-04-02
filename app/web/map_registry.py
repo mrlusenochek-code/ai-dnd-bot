@@ -3081,6 +3081,23 @@ STATIC_MAP_CONTEXT_ACTION_EFFECTS: tuple[dict[str, Any], ...] = (
     },
     {
         "node_id": "forest_settlement",
+        "action_id": "review_reclaimed_refuge_uptake",
+        "label": "Сверить refuge uptake",
+        "action_kind": "support",
+        "effect_type": "support",
+        "one_shot": True,
+        "result_type": "local_support_applied",
+        "summary": "Признать reclaimed triangle как working refuge-facing fabric, на которую frontier реально опирается для shelter, receiving и recovery.",
+        "result_summary": "Когда watch-road shelter uptake, reeds-side receiving point и marsh-edge recovery stop возвращаются домой уже как три refuge-facing field proofs, лесной посёлок видит reclaimed triangle не только как actively used support fabric, а как practical refuge / recovery infrastructure. Relay road, cautious marsh pass и wet boundary watch теперь не просто несут помощь через loop, а реально подхватывают, принимают и восстанавливают людей в поле: база помнит весь reclaimed triangle уже как working refuge-facing frontier fabric, на которую frontier действительно опирается.",
+        "discovered_notes": [
+            "Reclaimed triangle впервые remembered дома уже не только как actively used support fabric, а как practical refuge / recovery infrastructure: три refuge-facing field proofs показывают, что на этот loop реально опираются для shelter, receiving и recovery."
+        ],
+        "applied_effects": ["frontier_reclaimed_refuge_uptake:closed", "intel:frontier_reclaimed_refuge_uptake_closed"],
+        "node_state_flags": ["frontier_reclaimed_refuge_uptake_closed"],
+        "node_state_summary": "В лесном посёлке уже признали reclaimed triangle как working refuge-facing fabric, на которую frontier реально опирается по всем трём reclaimed legs.",
+    },
+    {
+        "node_id": "forest_settlement",
         "action_id": "compile_frontier_report",
         "label": "Сверить frontier сводки",
         "action_kind": "clue",
@@ -3412,6 +3429,17 @@ STATIC_MAP_CONTEXT_ACTION_REQUIREMENTS: tuple[dict[str, Any], ...] = (
             "northwatch_marsh_edge_support_in_use",
         ],
         "unlock_hint": "Сначала замкнуть весь reclaimed support use в поле, чтобы база могла признать не только working delivered-help network, а уже actively used support fabric.",
+    },
+    {
+        "node_id": "forest_settlement",
+        "action_id": "review_reclaimed_refuge_uptake",
+        "requires_node_state_flag": "frontier_reclaimed_support_use_closed",
+        "requires_all_group_node_state_flags": [
+            "western_road_watchroad_wayfarers_sheltered",
+            "deep_marsh_sidepass_stragglers_received",
+            "northwatch_marsh_edge_recoveries_steadied",
+        ],
+        "unlock_hint": "Сначала замкнуть весь reclaimed refuge uptake в поле, чтобы база могла признать не только actively used support fabric, а уже working refuge-facing frontier fabric.",
     },
     {
         "node_id": "waystation_yard",
@@ -4103,6 +4131,13 @@ STATIC_MAP_NODE_STATE_OVERLAYS: tuple[dict[str, Any], ...] = (
         "context_note": "В лесном посёлке reclaimed triangle уже remembered как actively used support fabric, где delivered help реально работает через все три reclaimed legs.",
         "detail_note": "Watch-road relay aid in use, reeds-side crossing help in use и marsh-edge watch aid in use уже сводятся дома не просто в delivered-help network, а в одну operational support practice: settlement видит, что practical help уже не только доводят по loop, но и реально вводят в local field use на всём reclaimed triangle.",
         "service_note": "После support-use review база знает reclaimed triangle уже не только как delivered-help network, а как actively used support fabric с честной памятью о practical field use.",
+    },
+    {
+        "node_id": "forest_settlement",
+        "state_flag": "frontier_reclaimed_refuge_uptake_closed",
+        "context_note": "В лесном посёлке reclaimed triangle уже remembered как working refuge-facing frontier fabric, на которую реально опираются для shelter, receiving и recovery.",
+        "detail_note": "Watch-road wayfarers sheltered, reeds-side stragglers received и marsh-edge recoveries steadied уже сводятся дома не просто в support-use memory, а в одну practical refuge / recovery infrastructure: settlement видит, что reclaimed triangle реально работает как линия подхвата и восстановления по всем трём legs.",
+        "service_note": "После refuge-uptake review база знает reclaimed triangle уже не только как actively used support fabric, а как working refuge-facing frontier fabric с честной памятью о shelter / receiving / recovery use.",
     },
     {
         "node_id": "forest_settlement",
