@@ -1313,6 +1313,7 @@ def test_starter_frontier_nodes_expose_local_progression_arc_surfaces() -> None:
     assert any(item["action_id"] == "review_reclaimed_refuge_uptake" for item in forest_actions)
     assert any(item["action_id"] == "review_reclaimed_return_to_line" for item in forest_actions)
     assert any(item["action_id"] == "review_reclaimed_onward_referral" for item in forest_actions)
+    assert any(item["action_id"] == "review_reclaimed_referral_uptake" for item in forest_actions)
     assert forest_action_requirements == [
         {
             "node_id": "forest_settlement",
@@ -1542,6 +1543,17 @@ def test_starter_frontier_nodes_expose_local_progression_arc_surfaces() -> None:
                 "western_road_watchroad_reentry_referral_posted",
                 "deep_marsh_sidepass_forward_referral_marked",
                 "northwatch_marsh_edge_return_referral_set",
+            ],
+        },
+        {
+            "node_id": "forest_settlement",
+            "action_id": "review_reclaimed_referral_uptake",
+            "unlock_hint": "Сначала замкнуть весь reclaimed referral uptake в поле, чтобы база могла признать не только working onward-referral frontier fabric, а уже practical lived continuation / referral-uptake infrastructure.",
+            "requires_node_state_flag": "frontier_reclaimed_onward_referral_closed",
+            "requires_all_group_node_state_flags": [
+                "western_road_watchroad_reentry_referral_followed",
+                "deep_marsh_sidepass_forward_referral_taken",
+                "northwatch_marsh_edge_return_referral_followed",
             ],
         },
     ]
