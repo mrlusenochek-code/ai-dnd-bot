@@ -340,6 +340,9 @@ def _new_request_id() -> str:
     return uuid.uuid4().hex
 
 
+_LORE_PENDING_TASKS: set[str] = set()
+
+
 def _lore_needs_finalize(sess: Any) -> bool:
     lore_text = str(settings_get(sess, "lore_text", "") or "").strip()
     lore_generated = bool(settings_get(sess, "lore_generated", False))
@@ -347,10 +350,32 @@ def _lore_needs_finalize(sess: Any) -> bool:
     return bool(lore_text) and lore_generated and not lore_posted
 
 
-def _kickoff_lore_finalize_if_needed(session_id: str, sess: Any) -> bool:
-    if not _lore_needs_finalize(sess):
+def _lore_needs_restart(sess: Any) -> bool:
+    if _get_phase(sess) != "lore_pending":
         return False
-    asyncio.create_task(gm_orchestrator.run_lore_generation(session_id))
+    story = settings_get(sess, "story", {}) or {}
+    if not (isinstance(story, dict) and story.get("story_configured") is True):
+        return False
+    lore_text = str(settings_get(sess, "lore_text", "") or "").strip()
+    lore_generated = bool(settings_get(sess, "lore_generated", False))
+    lore_posted = bool(settings_get(sess, "lore_posted", False))
+    return not lore_text and not lore_generated and not lore_posted
+
+
+async def _run_lore_generation_task(session_id: str) -> None:
+    try:
+        await gm_orchestrator.run_lore_generation(session_id)
+    finally:
+        _LORE_PENDING_TASKS.discard(session_id)
+
+
+def _kickoff_lore_finalize_if_needed(session_id: str, sess: Any) -> bool:
+    if session_id in _LORE_PENDING_TASKS:
+        return False
+    if not (_lore_needs_finalize(sess) or _lore_needs_restart(sess)):
+        return False
+    _LORE_PENDING_TASKS.add(session_id)
+    asyncio.create_task(_run_lore_generation_task(session_id))
     return True
 
 
