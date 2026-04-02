@@ -6352,6 +6352,215 @@ def test_reclaimed_support_use_follow_ups_unlock_after_home_delivery_review_and_
     assert any("использ" in note.lower() or "watch practice" in note.lower() or "работ" in note.lower() for note in ash_context["state_notes"])
 
 
+def test_reclaimed_refuge_uptake_follow_ups_stay_locked_before_home_support_use_review() -> None:
+    waystation_player = uuid.uuid4()
+    waystation_sess = SimpleNamespace(settings={})
+    session_state._initialize_default_group(
+        waystation_sess,
+        [waystation_player],
+        {"map_level": "region", "node_type": "zone", "node_id": "waystation_yard", "label": "Постоялый двор"},
+    )
+    session_state.add_group_node_state_flag(
+        waystation_sess,
+        "main",
+        "waystation_yard",
+        state_flag="western_road_watchroad_support_in_use",
+        summary="Watch-road support is already in use at the yard.",
+        source="test",
+    )
+    locked_waystation = next(
+        item
+        for item in session_state.get_current_group_context_action_availability(waystation_sess, player_id=waystation_player)
+        if item["action_id"] == "shelter_watchroad_wayfarers"
+    )
+    assert locked_waystation["availability_status"] == "locked"
+    assert locked_waystation["unavailable_reason"] == "requires_any_group_node_state_flags"
+
+    blackwater_player = uuid.uuid4()
+    blackwater_sess = SimpleNamespace(settings={})
+    session_state._initialize_default_group(
+        blackwater_sess,
+        [blackwater_player],
+        {"map_level": "region", "node_type": "zone", "node_id": "blackwater_run", "label": "Чёрная протока"},
+    )
+    session_state.add_group_node_state_flag(
+        blackwater_sess,
+        "main",
+        "blackwater_run",
+        state_flag="deep_marsh_sidepass_support_in_use",
+        summary="Side-pass support is already in use at blackwater_run.",
+        source="test",
+    )
+    locked_blackwater = next(
+        item
+        for item in session_state.get_current_group_context_action_availability(blackwater_sess, player_id=blackwater_player)
+        if item["action_id"] == "receive_sidepass_stragglers"
+    )
+    assert locked_blackwater["availability_status"] == "locked"
+    assert locked_blackwater["unavailable_reason"] == "requires_any_group_node_state_flags"
+
+    ash_player = uuid.uuid4()
+    ash_sess = SimpleNamespace(settings={})
+    session_state._initialize_default_group(
+        ash_sess,
+        [ash_player],
+        {"map_level": "region", "node_type": "zone", "node_id": "ash_pass", "label": "Пепельный проход"},
+    )
+    session_state.add_group_node_state_flag(
+        ash_sess,
+        "main",
+        "ash_pass",
+        state_flag="northwatch_marsh_edge_support_in_use",
+        summary="Marsh-edge support is already in use at ash_pass.",
+        source="test",
+    )
+    locked_ash = next(
+        item
+        for item in session_state.get_current_group_context_action_availability(ash_sess, player_id=ash_player)
+        if item["action_id"] == "steady_marsh_edge_recoveries"
+    )
+    assert locked_ash["availability_status"] == "locked"
+    assert locked_ash["unavailable_reason"] == "requires_any_group_node_state_flags"
+
+
+def test_reclaimed_refuge_uptake_follow_ups_unlock_after_home_support_use_review_and_reflect_field_refuge() -> None:
+    waystation_player = uuid.uuid4()
+    waystation_sess = SimpleNamespace(settings={})
+    session_state._initialize_default_group(
+        waystation_sess,
+        [waystation_player],
+        {"map_level": "region", "node_type": "zone", "node_id": "waystation_yard", "label": "Постоялый двор"},
+    )
+    session_state.add_group_node_state_flag(
+        waystation_sess,
+        "main",
+        "waystation_yard",
+        state_flag="western_road_watchroad_support_in_use",
+        summary="Watch-road support is already in use at the yard.",
+        source="test",
+    )
+    session_state.add_group_node_state_flag(
+        waystation_sess,
+        "main",
+        "forest_settlement",
+        state_flag="frontier_reclaimed_support_use_closed",
+        summary="Home base already recognizes the reclaimed triangle as actively used support fabric.",
+        source="test",
+    )
+    available_waystation = next(
+        item
+        for item in session_state.get_current_group_context_action_availability(waystation_sess, player_id=waystation_player)
+        if item["action_id"] == "shelter_watchroad_wayfarers"
+    )
+    assert available_waystation["availability_status"] == "available"
+    resolved_waystation, error = session_state.resolve_group_context_action(
+        waystation_sess,
+        "main",
+        action_id="shelter_watchroad_wayfarers",
+        player_id=waystation_player,
+        source="test",
+    )
+    assert error is None
+    assert resolved_waystation is not None
+    assert "practical roadside fallback" in resolved_waystation["last_context_action_result"]["result_summary"].lower()
+    waystation_context = session_state.get_current_group_node_context(waystation_sess, player_id=waystation_player)
+    assert "western_road_watchroad_wayfarers_sheltered" in waystation_context["node_state_flags"]
+    assert any("fallback" in note.lower() or "путник" in note.lower() or "shelter" in note.lower() for note in waystation_context["state_notes"])
+    waystation_detail = session_state.get_current_group_node_detail(waystation_sess, player_id=waystation_player)
+    assert any("practical shelter uptake" in note.lower() or "roadside fallback" in note.lower() for note in waystation_detail["state_notes"])
+
+    blackwater_player = uuid.uuid4()
+    blackwater_sess = SimpleNamespace(settings={})
+    session_state._initialize_default_group(
+        blackwater_sess,
+        [blackwater_player],
+        {"map_level": "region", "node_type": "zone", "node_id": "blackwater_run", "label": "Чёрная протока"},
+    )
+    session_state.add_group_node_state_flag(
+        blackwater_sess,
+        "main",
+        "blackwater_run",
+        state_flag="deep_marsh_sidepass_support_in_use",
+        summary="Side-pass support is already in use at blackwater_run.",
+        source="test",
+    )
+    session_state.add_group_node_state_flag(
+        blackwater_sess,
+        "main",
+        "forest_settlement",
+        state_flag="frontier_reclaimed_support_use_closed",
+        summary="Home base already recognizes the reclaimed triangle as actively used support fabric.",
+        source="test",
+    )
+    available_blackwater = next(
+        item
+        for item in session_state.get_current_group_context_action_availability(blackwater_sess, player_id=blackwater_player)
+        if item["action_id"] == "receive_sidepass_stragglers"
+    )
+    assert available_blackwater["availability_status"] == "available"
+    resolved_blackwater, error = session_state.resolve_group_context_action(
+        blackwater_sess,
+        "main",
+        action_id="receive_sidepass_stragglers",
+        player_id=blackwater_player,
+        source="test",
+    )
+    assert error is None
+    assert resolved_blackwater is not None
+    assert "receiving point" in resolved_blackwater["last_context_action_result"]["result_summary"].lower()
+    blackwater_context = session_state.get_current_group_node_context(blackwater_sess, player_id=blackwater_player)
+    assert "deep_marsh_sidepass_stragglers_received" in blackwater_context["node_state_flags"]
+    assert any("stragglers" in note.lower() or "fallback" in note.lower() or "receiving" in note.lower() for note in blackwater_context["state_notes"])
+    blackwater_detail = session_state.get_current_group_node_detail(blackwater_sess, player_id=blackwater_player)
+    assert any("receiving point" in note.lower() or "marsh fallback" in note.lower() for note in blackwater_detail["state_notes"])
+    blackwater_intel = session_state.get_current_group_map_intel(blackwater_sess, player_id=blackwater_player)
+    assert any(entry["source_kind"] == "context_action" and entry["source_id"] == "receive_sidepass_stragglers" for entry in blackwater_intel)
+    assert any("marsh fallback receiving point" in entry["result_summary"].lower() for entry in blackwater_intel if entry["source_id"] == "receive_sidepass_stragglers")
+
+    ash_player = uuid.uuid4()
+    ash_sess = SimpleNamespace(settings={})
+    session_state._initialize_default_group(
+        ash_sess,
+        [ash_player],
+        {"map_level": "region", "node_type": "zone", "node_id": "ash_pass", "label": "Пепельный проход"},
+    )
+    session_state.add_group_node_state_flag(
+        ash_sess,
+        "main",
+        "ash_pass",
+        state_flag="northwatch_marsh_edge_support_in_use",
+        summary="Marsh-edge support is already in use at ash_pass.",
+        source="test",
+    )
+    session_state.add_group_node_state_flag(
+        ash_sess,
+        "main",
+        "forest_settlement",
+        state_flag="frontier_reclaimed_support_use_closed",
+        summary="Home base already recognizes the reclaimed triangle as actively used support fabric.",
+        source="test",
+    )
+    available_ash = next(
+        item
+        for item in session_state.get_current_group_context_action_availability(ash_sess, player_id=ash_player)
+        if item["action_id"] == "steady_marsh_edge_recoveries"
+    )
+    assert available_ash["availability_status"] == "available"
+    resolved_ash, error = session_state.resolve_group_context_action(
+        ash_sess,
+        "main",
+        action_id="steady_marsh_edge_recoveries",
+        player_id=ash_player,
+        source="test",
+    )
+    assert error is None
+    assert resolved_ash is not None
+    assert "practical recovery stop" in resolved_ash["last_context_action_result"]["result_summary"].lower()
+    ash_context = session_state.get_current_group_node_context(ash_sess, player_id=ash_player)
+    assert "northwatch_marsh_edge_recoveries_steadied" in ash_context["node_state_flags"]
+    assert any("recovery" in note.lower() or "устойчив" in note.lower() or "boundary" in note.lower() for note in ash_context["state_notes"])
+
+
 def test_forest_settlement_frontier_support_stays_locked_before_report() -> None:
     player_id = uuid.uuid4()
     sess = SimpleNamespace(settings={})
