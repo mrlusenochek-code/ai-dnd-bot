@@ -6123,6 +6123,104 @@ def test_forest_settlement_reclaimed_referral_uptake_review_unlocks_after_full_r
     assert any(entry["source_kind"] == "context_action" and entry["source_id"] == "review_reclaimed_referral_uptake" for entry in intel_entries)
 
 
+def test_forest_settlement_reclaimed_arrival_confirmation_review_stays_locked_before_full_arrival_confirmation_proof() -> None:
+    player_id = uuid.uuid4()
+    sess = SimpleNamespace(settings={})
+    session_state._initialize_default_group(
+        sess,
+        [player_id],
+        {"map_level": "region", "node_type": "zone", "node_id": "forest_settlement", "label": "Лесной посёлок"},
+    )
+    session_state.get_current_group_current_region_state(sess, player_id=player_id)
+    session_state.add_group_node_state_flag(
+        sess,
+        "main",
+        "forest_settlement",
+        state_flag="frontier_reclaimed_referral_uptake_closed",
+        summary="Home base already recognizes the reclaimed triangle as working lived continuation frontier fabric.",
+        source="test",
+    )
+    for node_id, flag, summary in (
+        ("waystation_yard", "western_road_watchroad_reentry_arrivals_confirmed", "Watch-road arrivals are already confirmed at the yard."),
+        ("blackwater_run", "deep_marsh_sidepass_forward_arrivals_confirmed", "Forward arrivals are already confirmed at blackwater_run."),
+    ):
+        session_state.add_group_node_state_flag(
+            sess,
+            "main",
+            node_id,
+            state_flag=flag,
+            summary=summary,
+            source="test",
+        )
+
+    locked_actions = session_state.get_current_group_context_action_availability(sess, player_id=player_id)
+    locked = next(item for item in locked_actions if item["action_id"] == "review_reclaimed_arrival_confirmation")
+    assert locked["availability_status"] == "locked"
+    assert locked["unavailable_reason"] in {
+        "requires_node_state_flag",
+        "requires_all_group_node_state_flags",
+    }
+    assert "practical arrival-confirmed continuation infrastructure" in locked["unlock_hint"].lower()
+
+
+def test_forest_settlement_reclaimed_arrival_confirmation_review_unlocks_after_full_arrival_confirmation_proof_and_persists_home_memory() -> None:
+    player_id = uuid.uuid4()
+    sess = SimpleNamespace(settings={})
+    session_state._initialize_default_group(
+        sess,
+        [player_id],
+        {"map_level": "region", "node_type": "zone", "node_id": "forest_settlement", "label": "Лесной посёлок"},
+    )
+    session_state.get_current_group_current_region_state(sess, player_id=player_id)
+    session_state.add_group_node_state_flag(
+        sess,
+        "main",
+        "forest_settlement",
+        state_flag="frontier_reclaimed_referral_uptake_closed",
+        summary="Home base already recognizes the reclaimed triangle as working lived continuation frontier fabric.",
+        source="test",
+    )
+    for node_id, flag, summary in (
+        ("waystation_yard", "western_road_watchroad_reentry_arrivals_confirmed", "Watch-road arrivals are already confirmed at the yard."),
+        ("blackwater_run", "deep_marsh_sidepass_forward_arrivals_confirmed", "Forward arrivals are already confirmed at blackwater_run."),
+        ("ash_pass", "northwatch_marsh_edge_return_arrivals_confirmed", "Return arrivals are already confirmed at ash_pass."),
+    ):
+        session_state.add_group_node_state_flag(
+            sess,
+            "main",
+            node_id,
+            state_flag=flag,
+            summary=summary,
+            source="test",
+        )
+
+    available_actions = session_state.get_current_group_context_action_availability(sess, player_id=player_id)
+    available = next(item for item in available_actions if item["action_id"] == "review_reclaimed_arrival_confirmation")
+    assert available["availability_status"] == "available"
+
+    resolved, error = session_state.resolve_group_context_action(
+        sess,
+        "main",
+        action_id="review_reclaimed_arrival_confirmation",
+        player_id=player_id,
+        source="test",
+    )
+    assert error is None
+    assert resolved is not None
+    assert "working confirmed onward-continuity infrastructure" in resolved["last_context_action_result"]["result_summary"].lower()
+    assert "arrival-confirmation field proofs" in resolved["last_context_action_result"]["result_summary"].lower()
+
+    context = session_state.get_current_group_node_context(sess, player_id=player_id)
+    assert "frontier_reclaimed_arrival_confirmation_closed" in context["node_state_flags"]
+    assert any("working arrival-confirmed frontier fabric" in note.lower() or "confirmed reentry" in note.lower() for note in context["state_notes"])
+
+    detail = session_state.get_current_group_node_detail(sess, player_id=player_id)
+    assert any("practical arrival-confirmed continuation infrastructure" in note.lower() or "подтверждает, что resumed traffic доходит дальше" in note.lower() for note in detail["state_notes"])
+
+    intel_entries = session_state.get_current_group_map_intel(sess, player_id=player_id)
+    assert any(entry["source_kind"] == "context_action" and entry["source_id"] == "review_reclaimed_arrival_confirmation" for entry in intel_entries)
+
+
 def test_reclaimed_circulation_support_field_follow_ups_stay_locked_before_home_circulation_review() -> None:
     waystation_player = uuid.uuid4()
     waystation_sess = SimpleNamespace(settings={})
