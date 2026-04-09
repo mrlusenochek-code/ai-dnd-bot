@@ -1983,6 +1983,72 @@ def _parse_group_command(cmdline: str) -> tuple[str | None, dict[str, Any]]:
     return None, {}
 
 
+_LOCAL_ACTION_TEXT_ALIASES: dict[str, tuple[str, ...]] = {
+    "inspect": (
+        "осмотреться",
+        "осмотрюсь",
+        "оглядеться",
+        "огляжусь",
+        "посмотреть вокруг",
+        "осмотреть место",
+    ),
+    "wait": (
+        "подождать",
+        "ждать",
+        "переждать",
+        "подожду",
+    ),
+    "navigate": (
+        "пойти дальше",
+        "идти дальше",
+        "пройти вперед",
+        "двинуться дальше",
+        "двигаться дальше",
+    ),
+}
+
+
+def _normalize_local_action_text(text: str) -> str:
+    normalized = str(text or "").strip().lower().replace("ё", "е")
+    if not normalized:
+        return ""
+    normalized = re.sub(r"[^\w\s]+", " ", normalized, flags=re.UNICODE)
+    normalized = re.sub(r"\s+", " ", normalized).strip()
+    return normalized
+
+
+def _surface_action_identity(item: Any) -> tuple[str, str]:
+    if not isinstance(item, dict):
+        return "", ""
+    action_key = str(item.get("action_id") or item.get("action_key") or item.get("interaction_id") or "").strip().lower()
+    label = str(item.get("action_label") or item.get("label") or item.get("title") or "").strip()
+    return action_key, label
+
+
+def _match_simple_text_local_action(cmdline: str, surface: dict[str, Any] | None) -> tuple[str | None, dict[str, Any]]:
+    normalized_text = _normalize_local_action_text(cmdline)
+    if not normalized_text or not isinstance(surface, dict):
+        return None, {}
+    for item in list(surface.get("available_actions") or []):
+        action_key, label = _surface_action_identity(item)
+        if not action_key:
+            continue
+        if str((item or {}).get("action_type") or "action").strip().lower() != "action":
+            continue
+        aliases = _LOCAL_ACTION_TEXT_ALIASES.get(action_key, ())
+        normalized_label = _normalize_local_action_text(label)
+        if normalized_text not in aliases and normalized_text != normalized_label:
+            continue
+        payload: dict[str, Any] = {"action_id": action_key, "action_key": action_key}
+        if action_key == "navigate":
+            target_node_id = str(item.get("target_node_id") or "").strip()
+            if not target_node_id:
+                return None, {}
+            payload["target_node_id"] = target_node_id
+        return "group_context_action", payload
+    return None, {}
+
+
 def _resolve_group_action_target(
     sess,
     *,
@@ -7089,6 +7155,29 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                         actor_player_id=player.id,
                         payload=group_payload,
                         source="ws_command",
+                    )
+                    if group_err:
+                        await ws_error(group_err, request_id=msg_request_id)
+                        continue
+                    if handled_group_action:
+                        await db.commit()
+                        if group_msg:
+                            await add_system_event(db, sess, group_msg)
+                        await broadcast_state(session_id)
+                        continue
+
+                surface = get_current_group_local_interaction_surface(
+                    sess,
+                    player_id=player.id,
+                )
+                group_action, group_payload = _match_simple_text_local_action(cmdline, surface)
+                if group_action:
+                    handled_group_action, group_err, group_msg = _handle_group_action_request(
+                        sess,
+                        action=group_action,
+                        actor_player_id=player.id,
+                        payload=group_payload,
+                        source="ws_text_auto_map",
                     )
                     if group_err:
                         await ws_error(group_err, request_id=msg_request_id)

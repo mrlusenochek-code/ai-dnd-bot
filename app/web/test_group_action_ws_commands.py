@@ -3227,3 +3227,106 @@ def test_handle_group_split_and_merge_requests_update_group_state() -> None:
             "movement_mode": "normal",
         }
     }
+
+
+def test_simple_text_inspect_autopicks_available_local_action() -> None:
+    player_id = uuid.uuid4()
+    sess = SimpleNamespace(settings={})
+    session_state._initialize_default_group(
+        sess,
+        [player_id],
+        {
+            "map_level": "region",
+            "node_type": "zone",
+            "node_id": "start_trakt",
+            "label": "Стартовый тракт",
+        },
+    )
+
+    surface = session_state.get_current_group_local_interaction_surface(sess, player_id=player_id)
+    action, payload = ws_handlers._match_simple_text_local_action("Осмотреться", surface)
+    handled, err, msg = ws_handlers._handle_group_action_request(
+        sess,
+        action=action or "",
+        actor_player_id=player_id,
+        payload=payload,
+        source="test",
+    )
+
+    assert (action, payload) == ("group_context_action", {"action_id": "inspect", "action_key": "inspect"})
+    assert handled is True
+    assert err is None
+    assert msg == "Группа main осматривает Стартовый тракт."
+
+
+def test_simple_text_wait_autopicks_available_local_action() -> None:
+    player_id = uuid.uuid4()
+    sess = SimpleNamespace(settings={})
+    session_state._initialize_default_group(
+        sess,
+        [player_id],
+        {
+            "map_level": "region",
+            "node_type": "zone",
+            "node_id": "start_trakt",
+            "label": "Стартовый тракт",
+        },
+    )
+
+    surface = session_state.get_current_group_local_interaction_surface(sess, player_id=player_id)
+    action, payload = ws_handlers._match_simple_text_local_action("Подождать", surface)
+    handled, err, msg = ws_handlers._handle_group_action_request(
+        sess,
+        action=action or "",
+        actor_player_id=player_id,
+        payload=payload,
+        source="test",
+    )
+
+    assert (action, payload) == ("group_context_action", {"action_id": "wait", "action_key": "wait"})
+    assert handled is True
+    assert err is None
+    assert msg == "Группа main ждёт."
+
+
+def test_simple_text_does_not_autopick_non_map_phrase() -> None:
+    surface = {
+        "available_actions": [
+            {"action_id": "inspect", "action_key": "inspect", "label": "Осмотреться", "action_type": "action", "availability_status": "available"},
+            {"action_id": "wait", "action_key": "wait", "label": "Подождать", "action_type": "action", "availability_status": "available"},
+        ]
+    }
+
+    action, payload = ws_handlers._match_simple_text_local_action("Я рассказываю трактирщику о дороге", surface)
+
+    assert action is None
+    assert payload == {}
+
+
+def test_simple_text_does_not_autopick_when_action_is_not_available() -> None:
+    surface = {
+        "available_actions": [
+            {"action_id": "navigate", "action_key": "navigate", "label": "Продолжить путь", "action_type": "action", "availability_status": "available"},
+        ],
+        "locked_actions": [
+            {"action_id": "inspect", "action_key": "inspect", "label": "Осмотреться", "action_type": "action", "availability_status": "locked"},
+        ],
+    }
+
+    action, payload = ws_handlers._match_simple_text_local_action("осмотреться", surface)
+
+    assert action is None
+    assert payload == {}
+
+
+def test_simple_text_navigate_does_not_autopick_without_safe_target() -> None:
+    surface = {
+        "available_actions": [
+            {"action_id": "navigate", "action_key": "navigate", "label": "Продолжить путь", "action_type": "action", "availability_status": "available"},
+        ]
+    }
+
+    action, payload = ws_handlers._match_simple_text_local_action("пойти дальше", surface)
+
+    assert action is None
+    assert payload == {}
