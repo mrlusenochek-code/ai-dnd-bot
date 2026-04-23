@@ -10927,6 +10927,29 @@ def test_group_route_planning_builds_reachable_destinations_and_frontiers() -> N
     assert planning["route_frontiers"] == frontiers
 
 
+def test_group_exploration_leads_include_unrevealed_branch_frontiers() -> None:
+    player_id = uuid.uuid4()
+    sess = SimpleNamespace(settings={})
+    session_state._initialize_default_group(
+        sess,
+        [player_id],
+        {"map_level": "region", "node_type": "zone", "node_id": "forest_road", "label": "Лесная дорога"},
+    )
+    session_state.grant_player_map_knowledge(sess, player_id, "road_hamlet", knowledge_kind="known", source="test")
+    session_state.reveal_player_map_node(sess, player_id, "road_hamlet", source="test")
+
+    planning = session_state.get_current_group_route_planning(sess, player_id=player_id)
+    frontier = next(item for item in planning["route_frontiers"] if item["frontier_type"] == "unrevealed_branch")
+    leads = session_state.get_current_group_exploration_leads(sess, player_id=player_id)
+
+    assert any(
+        lead["lead_type"] == "frontier_branch"
+        and lead["target_node_id"] == frontier["to_node_id"]
+        and lead["route_id"] == frontier["route_id"]
+        for lead in leads
+    )
+
+
 def test_group_route_plan_to_node_returns_current_reachable_blocked_and_unrevealed() -> None:
     player_id = uuid.uuid4()
     sess = SimpleNamespace(settings={})

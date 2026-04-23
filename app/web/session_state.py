@@ -4213,7 +4213,7 @@ def _normalize_group_exploration_lead(raw: Any) -> dict[str, Any] | None:
     title = str(raw.get("title") or "").strip()
     summary = str(raw.get("summary") or "").strip()
     target_node_id = str(raw.get("target_node_id") or "").strip().lower()
-    target_node_label = str(raw.get("target_node_label") or target_node_id).strip()
+    target_node_label = str(raw.get("target_node_label") or (target_node_id if lead_type != "frontier_branch" else "")).strip()
     route_id = str(raw.get("route_id") or "").strip().lower()
     source_kind = str(raw.get("source_kind") or "").strip().lower()
     source_ref = str(raw.get("source_ref") or "").strip().lower()
@@ -4225,7 +4225,7 @@ def _normalize_group_exploration_lead(raw: Any) -> dict[str, Any] | None:
         for item in (raw.get("tags") or [])
         if str(item or "").strip()
     ] if isinstance(raw.get("tags"), list) else []
-    if lead_type not in {"active_journey", "intel_target", "unvisited_reachable", "blocked_frontier", "local_opportunity"}:
+    if lead_type not in {"active_journey", "intel_target", "unvisited_reachable", "blocked_frontier", "frontier_branch", "local_opportunity"}:
         return None
     if priority_band not in {"high", "medium", "low"}:
         return None
@@ -5081,11 +5081,40 @@ def get_group_exploration_leads(sess: Session, group_id: str) -> list[dict[str, 
         )
 
     for item in frontiers:
-        if str(item.get("frontier_type") or "") != "blocked_route":
+        frontier_type = str(item.get("frontier_type") or "").strip().lower()
+        if frontier_type not in {"blocked_route", "unrevealed_branch"}:
             continue
         route_id = str(item.get("route_id") or "").strip().lower()
         target_node_id = str(item.get("to_node_id") or "").strip().lower()
         target_node = get_static_node(target_node_id) or {}
+        if frontier_type == "unrevealed_branch":
+            active_target_node_id = str((journey or {}).get("target_node_id") or "").strip().lower()
+            if target_node_id and target_node_id in {current_node_id, active_target_node_id}:
+                continue
+            from_node_id = str(item.get("from_node_id") or "").strip().lower()
+            from_node = get_static_node(from_node_id) or {}
+            from_node_label = str(from_node.get("label") or from_node_id).strip()
+            target_node_label = str(target_node.get("label") or target_node_id).strip()
+            _add(
+                build_group_exploration_lead(
+                    lead_id=f"frontier-branch:{route_id}",
+                    lead_type="frontier_branch",
+                    priority_band="low",
+                    title=f"Неразведанная ветка: {from_node_label} -> {target_node_label}",
+                    summary=str(item.get("summary") or f"От {from_node_label} есть неразведанная ветка к {target_node_label}."),
+                    target_node_id=target_node_id,
+                    target_node_label="",
+                    route_id=route_id,
+                    source_kind="route_frontier",
+                    source_ref=route_id,
+                    reachable=False,
+                    blocked=False,
+                    has_active_journey=has_active_journey,
+                    suggested_command="",
+                    tags=["frontier", "unrevealed"],
+                )
+            )
+            continue
         access = get_group_route_access_state(sess, group_key, route_id) or {}
         _add(
             build_group_exploration_lead(
@@ -5169,7 +5198,8 @@ def get_group_exploration_leads(sess: Session, group_id: str) -> list[dict[str, 
         "intel_target": 1,
         "unvisited_reachable": 2,
         "blocked_frontier": 3,
-        "local_opportunity": 4,
+        "frontier_branch": 4,
+        "local_opportunity": 5,
     }
     leads.sort(
         key=lambda item: (
