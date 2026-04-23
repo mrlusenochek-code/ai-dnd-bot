@@ -11128,9 +11128,63 @@ def test_group_exploration_leads_reflect_active_journey_and_primary_preference()
 
     session_state.advance_group_journey(sess, "main", player_id=player_id, source="test")
     arrived_primary = session_state.get_current_group_primary_exploration_lead(sess, player_id=player_id)
-    assert arrived_primary is not None
-    assert arrived_primary["lead_type"] == "active_journey"
-    assert arrived_primary["suggested_command"] == "group stop"
+    assert not (
+        arrived_primary
+        and arrived_primary["lead_type"] == "active_journey"
+        and arrived_primary["target_node_id"] == "fortress_gate"
+        and "arrived" in arrived_primary["tags"]
+    )
+
+
+def test_group_primary_exploration_lead_skips_arrived_journey_at_current_node() -> None:
+    player_id = uuid.uuid4()
+    sess = SimpleNamespace(settings={})
+    session_state._initialize_default_group(
+        sess,
+        [player_id],
+        {"map_level": "region", "node_type": "zone", "node_id": "start_trakt", "label": "Стартовый тракт"},
+    )
+    for node_id in ("fortress_gate", "craft_town"):
+        session_state.grant_player_map_knowledge(sess, player_id, node_id, knowledge_kind="known", source="test")
+        session_state.reveal_player_map_node(sess, player_id, node_id, source="test")
+    session_state.set_group_journey_target(sess, "main", "fortress_gate", player_id=player_id, source="test")
+    session_state.advance_group_journey(sess, "main", player_id=player_id, source="test")
+    session_state.add_group_map_intel_entry(
+        sess,
+        "main",
+        session_state.build_group_map_intel_entry(
+            entry_type="route_hint",
+            title="Зацепка к городку",
+            summary="У ворот нашли указатель к городку.",
+            result_summary="От ворот крепости виден путь к Озёрному городку.",
+            source_kind="travel_event",
+            source_id="hint-after-arrival",
+            node_id="fortress_gate",
+            node_label="Ворота крепости",
+            related_node_ids=["craft_town"],
+            related_route_ids=["fortress_gate->craft_town:move"],
+            tags=["craft_town", "hint"],
+            dedupe_key="hint|craft_town",
+            discovered_at="2026-03-15T00:00:00+00:00",
+        ),
+    )
+
+    leads = session_state.get_current_group_exploration_leads(sess, player_id=player_id)
+    primary = session_state.get_current_group_primary_exploration_lead(sess, player_id=player_id)
+
+    assert any(lead["target_node_id"] == "craft_town" for lead in leads)
+    assert not any(
+        lead["lead_type"] == "active_journey"
+        and lead["target_node_id"] == "fortress_gate"
+        and "arrived" in lead["tags"]
+        for lead in leads
+    )
+    assert primary is not None
+    assert not (
+        primary["lead_type"] == "active_journey"
+        and primary["target_node_id"] == "fortress_gate"
+        and "arrived" in primary["tags"]
+    )
 
 
 def test_group_node_progress_summary_supports_new_active_partial_changed_resolved_and_quiet_states() -> None:

@@ -4962,11 +4962,19 @@ def get_group_exploration_leads(sess: Session, group_id: str) -> list[dict[str, 
     frontiers = list(planning.get("route_frontiers") or [])
     map_intel = get_current_group_map_intel(sess, group_id=group_key)
     visit_map = _normalize_group_node_visit_state_map(group.get("node_visit_states"))
+    current_position = _normalize_map_position(group.get("current_map_position"))
+    current_node_id = str((current_position or {}).get("node_id") or "").strip().lower()
     current_context = get_current_group_node_context(sess, group_id=group_key) or {}
     current_services = get_current_group_node_services(sess, group_id=group_key)
     current_node_progress = get_current_group_current_node_progress(sess, group_id=group_key) or {}
     progression_status = str(current_node_progress.get("progression_status") or "").strip().lower()
-    has_active_journey = journey is not None
+    arrived_current_node_journey = bool(
+        journey
+        and str(journey.get("journey_status") or "").strip().lower() == "arrived"
+        and current_node_id
+        and str(journey.get("target_node_id") or "").strip().lower() == current_node_id
+    )
+    has_active_journey = journey is not None and not arrived_current_node_journey
 
     def _add(lead: dict[str, Any] | None) -> None:
         normalized = _normalize_group_exploration_lead(lead)
@@ -4978,7 +4986,7 @@ def get_group_exploration_leads(sess: Session, group_id: str) -> list[dict[str, 
         seen_keys.add(dedupe_key)
         leads.append(normalized)
 
-    if journey:
+    if journey and not arrived_current_node_journey:
         journey_status = str(journey.get("journey_status") or "").strip().lower()
         remaining_plan = get_group_journey_remaining_plan(sess, group_key) or {}
         blocked_reason = str((remaining_plan or {}).get("blocked_reason") or "").strip()
