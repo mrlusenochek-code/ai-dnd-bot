@@ -2212,9 +2212,15 @@ def _handle_group_action_request(
         if not all_entries:
             return True, None, f"У группы {actor_group_key} пока нет записей в журнале разведки."
         latest = recent_entries[-1] if recent_entries else all_entries[-1]
-        title = str((latest or {}).get("title") or "журнал разведки")
+        latest = latest or {}
+        title = str(latest.get("title") or "журнал разведки").strip() or "журнал разведки"
+        detail = str(latest.get("result_summary") or latest.get("summary") or title).strip() or title
+        node_label = str(latest.get("node_label") or "").strip()
+        latest_details = f"{node_label}: {detail}" if node_label else detail
+        if latest_details[-1:] not in {".", "!", "?"}:
+            latest_details = f"{latest_details}."
         count = len(all_entries)
-        return True, None, f"Журнал разведки группы {actor_group_key}: {count} записей. Последняя запись: {title}."
+        return True, None, f"Журнал разведки группы {actor_group_key}: {count} записей. Последняя запись: {title}. {latest_details}"
 
     if action == "group_node_entry":
         if not actor_group_key:

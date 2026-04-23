@@ -949,6 +949,21 @@ def test_handle_group_map_intel_returns_empty_and_recent_journal_summary() -> No
         },
     )
     session_state.resolve_group_scout(sess, "main", player_id=player_id, source="test")
+    session_state.add_group_map_intel_entry(
+        sess,
+        "main",
+        session_state.build_group_map_intel_entry(
+            entry_type="guidance",
+            title="Услуга у Ворота крепости",
+            summary="Местные дают дорожную подсказку.",
+            result_summary="Местные подскажут, какая дорога сейчас спокойнее и где не стоит задерживаться.",
+            source_kind="service",
+            source_id="test_guidance",
+            node_id="fortress_gate",
+            node_label="Ворота крепости",
+            dedupe_key="test:guidance:fortress_gate",
+        ),
+    )
 
     handled_filled, err_filled, msg_filled = ws_handlers._handle_group_action_request(
         sess,
@@ -962,6 +977,11 @@ def test_handle_group_map_intel_returns_empty_and_recent_journal_summary() -> No
     assert err_filled is None
     assert "Журнал разведки группы main" in str(msg_filled)
     assert "Последняя запись" in str(msg_filled)
+    assert "Услуга у Ворота крепости" in str(msg_filled)
+    assert (
+        "Ворота крепости: Местные подскажут, какая дорога сейчас спокойнее и где не стоит задерживаться."
+        in str(msg_filled)
+    )
 
 
 def test_handle_group_visit_history_returns_empty_and_recent_summary() -> None:
