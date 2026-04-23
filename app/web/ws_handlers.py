@@ -3153,11 +3153,11 @@ def _handle_group_action_request(
                     player_id=actor_player_id,
                     group_id=actor_group_key,
                 ) or []
-                exploration_leads = get_current_group_exploration_leads(
+                route_planning = get_current_group_route_planning(
                     sess,
                     player_id=actor_player_id,
                     group_id=actor_group_key,
-                ) or []
+                ) or {}
 
                 label = str(
                     inspect_result.get("label")
@@ -3243,10 +3243,10 @@ def _handle_group_action_request(
                     ).strip()
 
                 nearby_targets: list[str] = []
-                for item in exploration_leads:
+                for item in route_planning.get("reachable_destinations") or []:
                     if not isinstance(item, dict):
                         continue
-                    if bool(item.get("blocked")):
+                    if item.get("reachable") is False:
                         continue
                     target_node_id = str(item.get("target_node_id") or "").strip()
                     if target_node_id and current_node_id and target_node_id == current_node_id:

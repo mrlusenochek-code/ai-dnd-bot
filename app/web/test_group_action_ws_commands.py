@@ -3271,6 +3271,8 @@ def test_simple_text_inspect_autopicks_available_local_action() -> None:
             "label": "Стартовый тракт",
         },
     )
+    session_state.grant_player_map_knowledge(sess, player_id, "craft_town", knowledge_kind="known", source="test")
+    session_state.reveal_player_map_node(sess, player_id, "craft_town", source="test")
 
     surface = session_state.get_current_group_local_interaction_surface(sess, player_id=player_id)
     action, payload = ws_handlers._match_simple_text_local_action("Осмотреться", surface)
@@ -3289,7 +3291,8 @@ def test_simple_text_inspect_autopicks_available_local_action() -> None:
     assert msg.startswith("Стартовый тракт.")
     assert "Рядом видны: дежурные у стартового лагеря, несколько путников, собирающихся в дорогу." in msg
     assert "В глаза бросается: натоптанная развилка к воротам крепости и к озёрному городку, следы телег, сапог и недавних переходов по тракту." in msg
-    assert "Рядом можно держать путь к: Ворота крепости." in msg
+    assert "Рядом можно держать путь к: Ворота крепости, Озёрный городок." in msg
+    assert "Восточный берег" not in msg
     assert "Сейчас можно: Продолжить путь, Подождать, Разбить лагерь." in msg
 
 
