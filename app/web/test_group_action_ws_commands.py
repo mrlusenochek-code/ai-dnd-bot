@@ -1592,10 +1592,10 @@ def test_handle_group_region_status_and_discovered_regions_surface() -> None:
         empty_sess,
         [player_id],
         {
-            "map_level": "region",
-            "node_type": "zone",
-            "node_id": "start_trakt",
-            "label": "Стартовый тракт",
+            "map_level": "landmark",
+            "node_type": "landmark",
+            "node_id": "fortress_gate",
+            "label": "Ворота крепости",
         },
     )
     handled_here, err_here, msg_here = ws_handlers._handle_group_action_request(
@@ -1607,6 +1607,10 @@ def test_handle_group_region_status_and_discovered_regions_surface() -> None:
     )
     assert handled_here is True
     assert err_here is None
+    assert "Текущее место группы main: Ворота крепости" in str(msg_here)
+    assert "тип точки: landmark" in str(msg_here)
+    assert "уровень: landmark" in str(msg_here)
+    assert "Текущий регион:" in str(msg_here)
     assert "Стартовое пограничье" in str(msg_here)
 
     handled_regions, err_regions, msg_regions = ws_handlers._handle_group_action_request(

@@ -2377,11 +2377,29 @@ def _handle_group_action_request(
         )
         if not current_region and not last_entry:
             return True, None, f"У группы {actor_group_key} пока нет region residency истории."
+        group = _get_group_states(sess).get(actor_group_key)
+        current_map_position = group.get("current_map_position") if isinstance(group, dict) else None
+        place_label = ""
+        place_detail = ""
+        if isinstance(current_map_position, dict):
+            place_label = str(
+                current_map_position.get("label")
+                or current_map_position.get("node_id")
+                or ""
+            ).strip()
+            node_type = str(current_map_position.get("node_type") or "").strip()
+            map_level = str(current_map_position.get("map_level") or "").strip()
+            if node_type and node_type != "zone":
+                place_detail_parts = [f"тип точки: {node_type}"]
+                if map_level:
+                    place_detail_parts.append(f"уровень: {map_level}")
+                place_detail = f" ({', '.join(place_detail_parts)})"
         region_label = str((current_region or last_entry or {}).get("region_label") or "регион")
         visit_count = as_int((current_region or last_entry or {}).get("visit_count"), 0)
         status_note = str((last_entry or {}).get("result_type") or "current_region_confirmed")
         summary_parts = [
-            f"Текущий регион группы {actor_group_key}: {region_label}.",
+            f"Текущее место группы {actor_group_key}: {place_label}{place_detail}." if place_label else "",
+            f"Текущий регион: {region_label}.",
             f"Входов в регион: {visit_count}." if visit_count > 0 else "",
             f"Последний region-entry: {status_note}." if status_note else "",
         ]
