@@ -604,6 +604,7 @@ function openCharacterModal(){
     showCreateCharacterHint();
     return;
   }
+  const stats = (ch && typeof ch.stats === "object" && ch.stats) ? ch.stats : {};
   const klass = ch.class_skin || ch.class_kit || "Adventurer";
   const zone = resolveCharacterZone(lastState, me, ch);
   const statsText = [
