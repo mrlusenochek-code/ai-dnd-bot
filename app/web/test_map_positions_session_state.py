@@ -1652,7 +1652,11 @@ def test_resolve_group_service_can_reveal_and_update_node_state_with_already_use
     assert resolved is not None
     assert resolved["last_service_result"]["result_type"] == "guidance_received"
     assert resolved["last_service_result"]["reveal_applied"] is False
+    assert session_state.is_player_node_revealed(sess, player_id, "eastern_bank") is True
     assert session_state.is_player_node_revealed(sess, player_id, "watchtower") is True
+    eastern_bank_plan = session_state.get_group_route_plan_to_node(sess, "main", "eastern_bank")
+    assert eastern_bank_plan is not None
+    assert eastern_bank_plan["plan_status"] == "reachable"
     assert set(session_state.get_group_node_state(sess, "main", "craft_town")["state_flags"]) == {
         "craft_arrival_notice_taken",
         "craft_guidance_taken",
@@ -10843,7 +10847,11 @@ def test_successful_arrival_creates_destination_event_and_integrates_with_helper
     assert completed["last_node_entry_result"]["node_id"] == "craft_town"
     assert completed["last_destination_event_result"]["event_id"] == "craft_town_arrival_notice"
     assert completed["last_destination_event_result"]["result_type"] == "settlement_notice"
+    assert session_state.is_player_node_revealed(sess, player_id, "eastern_bank") is True
     assert session_state.is_player_node_revealed(sess, player_id, "watchtower") is True
+    eastern_bank_plan = session_state.get_group_route_plan_to_node(sess, "main", "eastern_bank")
+    assert eastern_bank_plan is not None
+    assert eastern_bank_plan["plan_status"] == "reachable"
     assert session_state.get_group_node_state(sess, "main", "craft_town")["state_flags"] == ["craft_arrival_notice_taken"]
     intel_entries = session_state.get_current_group_map_intel(sess, player_id=player_id)
     assert intel_entries[-1]["source_kind"] == "destination_event"

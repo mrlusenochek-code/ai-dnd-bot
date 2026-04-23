@@ -342,11 +342,16 @@ def test_get_static_node_destination_events_returns_authored_arrival_events() ->
             ],
             "intel_entry_type": "guidance",
             "intel_title": "Береговая наводка из Озёрного городка",
-            "reveal_node_ids": ["watchtower"],
+            "reveal_node_ids": ["eastern_bank", "watchtower"],
             "node_state_flags": ["craft_arrival_notice_taken"],
             "node_state_summary": "В городке уже отмечено первое береговое указание, которое группа получила при прибытии.",
-            "applied_effects": ["destination_notice:craft_town", "node_revealed:watchtower", "intel:guidance"],
-            "tags": ["settlement", "guidance", "watchtower"],
+            "applied_effects": [
+                "destination_notice:craft_town",
+                "node_revealed:eastern_bank",
+                "node_revealed:watchtower",
+                "intel:guidance",
+            ],
+            "tags": ["settlement", "guidance", "eastern_bank", "watchtower"],
             "required_state_flags": [],
         }
     ]
@@ -1800,8 +1805,8 @@ def test_static_node_services_and_service_results_expose_handcrafted_service_sur
             "source": "registry",
             "one_shot": True,
             "discovered_notes": ["Местные советуют держаться берегового ориентира у сторожевой башни: там проще не потерять темп и не свернуть в пустые дворы."],
-            "reveal_node_ids": ["watchtower"],
-            "applied_effects": ["guidance_recorded", "node_revealed:watchtower"],
+            "reveal_node_ids": ["eastern_bank", "watchtower"],
+            "applied_effects": ["guidance_recorded", "node_revealed:eastern_bank", "node_revealed:watchtower"],
             "node_state_flags": ["craft_guidance_taken"],
             "node_state_summary": "В городке уже собраны местные указания по береговому ориентиру у сторожевой башни.",
         }
