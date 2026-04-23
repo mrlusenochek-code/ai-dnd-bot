@@ -3248,6 +3248,8 @@ def _handle_group_action_request(
                         continue
                     if item.get("reachable") is False:
                         continue
+                    if int(item.get("step_count") or 0) != 1:
+                        continue
                     target_node_id = str(item.get("target_node_id") or "").strip()
                     if target_node_id and current_node_id and target_node_id == current_node_id:
                         continue

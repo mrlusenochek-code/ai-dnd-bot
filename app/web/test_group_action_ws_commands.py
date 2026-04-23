@@ -3326,6 +3326,39 @@ def test_inspect_excludes_current_node_from_nearby_targets() -> None:
     assert "Сейчас можно: Продолжить путь, Подождать." in msg
 
 
+def test_inspect_nearby_targets_only_include_adjacent_reachable_destinations() -> None:
+    player_id = uuid.uuid4()
+    sess = SimpleNamespace(settings={})
+    session_state._initialize_default_group(
+        sess,
+        [player_id],
+        {
+            "map_level": "region",
+            "node_type": "landmark",
+            "node_id": "watchtower",
+            "label": "Сторожевая башня",
+        },
+    )
+    for node_id in ("eastern_bank", "craft_town", "start_trakt"):
+        session_state.grant_player_map_knowledge(sess, player_id, node_id, knowledge_kind="known", source="test")
+        session_state.reveal_player_map_node(sess, player_id, node_id, source="test")
+
+    handled, err, msg = ws_handlers._handle_group_action_request(
+        sess,
+        action="group_context_action",
+        actor_player_id=player_id,
+        payload={"action_id": "inspect"},
+        source="test",
+    )
+
+    assert handled is True
+    assert err is None
+    assert msg is not None
+    assert "Рядом можно держать путь к: Восточный берег." in msg
+    assert "Рядом можно держать путь к: Восточный берег, Озёрный городок" not in msg
+    assert "Рядом можно держать путь к: Восточный берег, Стартовый тракт" not in msg
+
+
 def test_simple_text_wait_autopicks_available_local_action() -> None:
     player_id = uuid.uuid4()
     sess = SimpleNamespace(settings={})
