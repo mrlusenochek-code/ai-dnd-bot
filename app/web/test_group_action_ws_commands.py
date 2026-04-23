@@ -464,8 +464,10 @@ def test_handle_group_context_action_wait_camp_inspect_and_navigate() -> None:
     assert err_inspect is None
     assert msg_inspect is not None
     assert msg_inspect.startswith("Стартовый тракт.")
+    assert "Рядом видны: дежурные у стартового лагеря, несколько путников, собирающихся в дорогу." in msg_inspect
+    assert "В глаза бросается: натоптанная развилка к воротам крепости и к озёрному городку, следы телег, сапог и недавних переходов по тракту." in msg_inspect
     assert "Рядом можно держать путь к: Ворота крепости." in msg_inspect
-    assert "Сейчас можно: двигаться дальше, осмотреться, подождать, разбить лагерь." in msg_inspect
+    assert "Сейчас можно: двигаться дальше, подождать, разбить лагерь." in msg_inspect
 
     handled_navigate, err_navigate, msg_navigate = ws_handlers._handle_group_action_request(
         sess,
@@ -3261,8 +3263,10 @@ def test_simple_text_inspect_autopicks_available_local_action() -> None:
     assert err is None
     assert msg is not None
     assert msg.startswith("Стартовый тракт.")
+    assert "Рядом видны: дежурные у стартового лагеря, несколько путников, собирающихся в дорогу." in msg
+    assert "В глаза бросается: натоптанная развилка к воротам крепости и к озёрному городку, следы телег, сапог и недавних переходов по тракту." in msg
     assert "Рядом можно держать путь к: Ворота крепости." in msg
-    assert "Сейчас можно: двигаться дальше, осмотреться, подождать, разбить лагерь." in msg
+    assert "Сейчас можно: двигаться дальше, подождать, разбить лагерь." in msg
 
 
 def test_simple_text_wait_autopicks_available_local_action() -> None:

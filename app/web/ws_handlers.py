@@ -3166,6 +3166,21 @@ def _handle_group_action_request(
                     for item in (inspect_result.get("state_notes") or detail.get("state_notes") or [])
                     if str(item or "").strip()
                 ]
+                visible_npcs = [
+                    str(item).strip()
+                    for item in (inspect_result.get("visible_npcs") or detail.get("visible_npcs") or [])
+                    if str(item or "").strip()
+                ]
+                visible_objects = [
+                    str(item).strip()
+                    for item in (inspect_result.get("visible_objects") or detail.get("visible_objects") or [])
+                    if str(item or "").strip()
+                ]
+                visible_threats = [
+                    str(item).strip()
+                    for item in (inspect_result.get("visible_threats") or detail.get("visible_threats") or [])
+                    if str(item or "").strip()
+                ]
 
                 action_titles = {
                     "navigate": "двигаться дальше",
@@ -3181,6 +3196,8 @@ def _handle_group_action_request(
                         continue
                     action_id = str(item.get("action_id") or "").strip().lower()
                     if not action_id:
+                        continue
+                    if action_id == "inspect":
                         continue
                     title = action_titles.get(action_id, action_id.replace("_", " "))
                     if title not in available_actions:
@@ -3214,6 +3231,12 @@ def _handle_group_action_request(
                     parts.append(short_description.rstrip(".") + ".")
                 if inspect_summary and inspect_summary != short_description:
                     parts.append(inspect_summary.rstrip(".") + ".")
+                if visible_npcs:
+                    parts.append(f"Рядом видны: {', '.join(visible_npcs)}.")
+                if visible_objects:
+                    parts.append(f"В глаза бросается: {', '.join(visible_objects)}.")
+                if visible_threats:
+                    parts.append(f"Явные угрозы: {', '.join(visible_threats)}.")
                 if nearby_targets:
                     parts.append(f"Рядом можно держать путь к: {', '.join(nearby_targets)}.")
                 if travel_note:
