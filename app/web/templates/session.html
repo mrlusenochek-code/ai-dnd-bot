@@ -622,9 +622,9 @@ function openCharacterModal(){
   const skillsRows = skills.map((sk) => {
     const key = String(sk && sk.key ? sk.key : "skill").trim();
     const skillName = getSkillNameRu(key);
-    const rank = Number.isFinite(Number(sk && sk.rank)) ? Number(sk.rank) : 0;
-    const xp = Number.isFinite(Number(sk && sk.xp)) ? Number(sk.xp) : 0;
-    const xpToNext = Number.isFinite(Number(sk && sk.xp_to_next)) ? Number(sk.xp_to_next) : 0;
+    const rank = sk && Number.isFinite(Number(sk.rank)) ? Number(sk.rank) : 0;
+    const xp = sk && Number.isFinite(Number(sk.xp)) ? Number(sk.xp) : 0;
+    const xpToNext = sk && Number.isFinite(Number(sk.xp_to_next)) ? Number(sk.xp_to_next) : 0;
     return { key, skillName, rank, xp, xpToNext };
   });
   skillsRows.sort((a, b) => {
@@ -1715,7 +1715,7 @@ function openCharacterModal(){
     ? raceFeaturesMeta.fearless_vs_frightened
     : null;
   const kenderFearlessUsed = Number.isFinite(Number(runtime.fearless_auto_success_used)) ? Number(runtime.fearless_auto_success_used) : 0;
-  const kenderFearlessMax = Number.isFinite(Number(kenderFearless && kenderFearless.auto_success_max))
+  const kenderFearlessMax = kenderFearless && Number.isFinite(Number(kenderFearless.auto_success_max))
     ? Number(kenderFearless.auto_success_max)
     : 1;
   const kenderFearlessStatus = kenderFearlessUsed >= kenderFearlessMax ? "израсходовано" : "доступно";
@@ -2306,7 +2306,7 @@ function openCharacterModal(){
   const rebornHasDiseaseSaveAdvantage = saveAdvantageConditions.includes("disease");
   const rebornHasPoisonedSaveAdvantage = saveAdvantageConditions.includes("poison") || saveAdvantageConditions.includes("poisoned");
   const rebornHasDeathSaveAdvantage = saveAdvantageConditions.includes("death_saves");
-  const rebornLongRestHours = Number.isFinite(Number(rebornDeathlessNature && rebornDeathlessNature.long_rest_hours))
+  const rebornLongRestHours = rebornDeathlessNature && Number.isFinite(Number(rebornDeathlessNature.long_rest_hours))
     ? Number(rebornDeathlessNature.long_rest_hours)
     : 4;
   const rebornPb = Number.isFinite(Number(ch.level))
