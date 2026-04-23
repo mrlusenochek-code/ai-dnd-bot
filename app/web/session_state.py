@@ -5821,6 +5821,7 @@ def _normalize_group_region_exploration_summary(raw: Any) -> dict[str, Any] | No
         "visited_node_count": max(0, as_int(raw.get("visited_node_count"), 0)),
         "reachable_unvisited_count": max(0, as_int(raw.get("reachable_unvisited_count"), 0)),
         "blocked_frontier_count": max(0, as_int(raw.get("blocked_frontier_count"), 0)),
+        "unrevealed_frontier_count": max(0, as_int(raw.get("unrevealed_frontier_count"), 0)),
         "quiet_node_count": max(0, as_int(raw.get("quiet_node_count"), 0)),
         "active_local_node_count": max(0, as_int(raw.get("active_local_node_count"), 0)),
         "locally_resolved_node_count": max(0, as_int(raw.get("locally_resolved_node_count"), 0)),
@@ -5842,6 +5843,7 @@ def build_group_region_exploration_summary(
     visited_node_count: int = 0,
     reachable_unvisited_count: int = 0,
     blocked_frontier_count: int = 0,
+    unrevealed_frontier_count: int = 0,
     quiet_node_count: int = 0,
     active_local_node_count: int = 0,
     locally_resolved_node_count: int = 0,
@@ -5861,6 +5863,7 @@ def build_group_region_exploration_summary(
             "visited_node_count": visited_node_count,
             "reachable_unvisited_count": reachable_unvisited_count,
             "blocked_frontier_count": blocked_frontier_count,
+            "unrevealed_frontier_count": unrevealed_frontier_count,
             "quiet_node_count": quiet_node_count,
             "active_local_node_count": active_local_node_count,
             "locally_resolved_node_count": locally_resolved_node_count,
@@ -5899,6 +5902,11 @@ def get_current_group_region_frontier_summary(
         for item in (planning.get("route_frontiers") or [])
         if str(item.get("frontier_type") or "").strip().lower() == "blocked_route"
     ]
+    unrevealed_frontiers = [
+        dict(item)
+        for item in (planning.get("route_frontiers") or [])
+        if str(item.get("frontier_type") or "").strip().lower() == "unrevealed_branch"
+    ]
     unresolved_local_nodes: list[dict[str, Any]] = []
     for node_id in sorted((_normalize_group_node_visit_state_map(group.get("node_visit_states"))).keys()):
         progress = _build_group_node_progress_summary_for_node(sess, resolved_group_id, node_id)
@@ -5922,10 +5930,12 @@ def get_current_group_region_frontier_summary(
     summary = (
         f"У группы {len(reachable_unvisited_nodes)} достижимых непосещённых точек, "
         f"{len(blocked_frontiers)} заблокированных frontier-веток и "
+        f"{len(unrevealed_frontiers)} нераскрытых frontier-веток; "
         f"{len(unresolved_local_nodes)} локально незавершённых узлов."
     )
     return {
         "blocked_frontiers": blocked_frontiers,
+        "unrevealed_frontiers": unrevealed_frontiers,
         "reachable_unvisited_nodes": reachable_unvisited_nodes,
         "unresolved_local_nodes": unresolved_local_nodes,
         "summary": summary,
@@ -5945,15 +5955,21 @@ def get_group_region_exploration_summary(sess: Session, group_id: str) -> dict[s
     planning = build_group_route_plan(sess, group_key)
     frontier_summary = get_current_group_region_frontier_summary(sess, group_id=group_key) or {
         "blocked_frontiers": [],
+        "unrevealed_frontiers": [],
         "reachable_unvisited_nodes": [],
         "unresolved_local_nodes": [],
         "summary": "",
     }
     current_primary_lead = get_group_primary_exploration_lead(sess, group_key)
     blocked_frontiers = list(frontier_summary.get("blocked_frontiers") or [])
+    unrevealed_frontiers = list(frontier_summary.get("unrevealed_frontiers") or [])
     reachable_unvisited_nodes = list(frontier_summary.get("reachable_unvisited_nodes") or [])
     unresolved_local_nodes = list(frontier_summary.get("unresolved_local_nodes") or [])
-    current_primary_frontier = dict(blocked_frontiers[0]) if blocked_frontiers else (dict(reachable_unvisited_nodes[0]) if reachable_unvisited_nodes else None)
+    current_primary_frontier = dict(blocked_frontiers[0]) if blocked_frontiers else (
+        dict(reachable_unvisited_nodes[0]) if reachable_unvisited_nodes else (
+            dict(unrevealed_frontiers[0]) if unrevealed_frontiers else None
+        )
+    )
     quiet_node_count = 0
     active_local_node_count = 0
     locally_resolved_node_count = 0
@@ -5972,24 +5988,26 @@ def get_group_region_exploration_summary(sess: Session, group_id: str) -> dict[s
     visited_node_count = len(visit_map)
     reachable_unvisited_count = len(reachable_unvisited_nodes)
     blocked_frontier_count = len(blocked_frontiers)
-    if visited_node_count > 0 and (locally_resolved_node_count + quiet_node_count) >= visited_node_count and active_local_node_count == 0 and reachable_unvisited_count == 0 and blocked_frontier_count == 0:
+    unrevealed_frontier_count = len(unrevealed_frontiers)
+    route_activity_count = reachable_unvisited_count + unrevealed_frontier_count
+    if visited_node_count > 0 and (locally_resolved_node_count + quiet_node_count) >= visited_node_count and active_local_node_count == 0 and route_activity_count == 0 and blocked_frontier_count == 0:
         progression_status = "locally_saturated"
         summary = "Текущая раскрытая часть региона в основном уже посещена и локально выработана."
-    elif revealed_node_count <= 1 and reachable_unvisited_count == 0 and blocked_frontier_count == 0 and active_local_node_count == 0:
+    elif revealed_node_count <= 1 and route_activity_count == 0 and blocked_frontier_count == 0 and active_local_node_count == 0:
         progression_status = "region_quiet"
         summary = f"{current_node_label or 'Текущий регион'} пока выглядит тихим и почти не даёт новых направлений."
-    elif revealed_node_count <= 2 and visited_node_count <= 1 and blocked_frontier_count == 0:
-        progression_status = "newly_opened_region"
-        summary = f"Группа только начинает раскрывать регион вокруг {current_node_label or 'текущей точки'}."
     elif blocked_frontier_count > 0 and reachable_unvisited_count == 0:
         progression_status = "blocked_progress"
         summary = "Следующее расширение региона сейчас в основном упирается в известные заблокированные frontier-ветки."
-    elif reachable_unvisited_count >= 2:
+    elif route_activity_count >= 2:
         progression_status = "expanding_routes"
-        summary = "Раскрытая сеть маршрутов ещё расширяется, и у группы уже есть несколько достижимых направлений вперёд."
-    elif reachable_unvisited_count >= 1:
+        summary = "Раскрытая сеть маршрутов ещё расширяется, и у группы уже есть несколько достижимых или нераскрытых направлений вперёд."
+    elif route_activity_count >= 1:
         progression_status = "active_frontier"
-        summary = "У группы остаются достижимые непосещённые точки, так что frontier региона ещё активен."
+        summary = "У группы остаются достижимые точки или нераскрытые ветки, так что frontier региона ещё активен."
+    elif revealed_node_count <= 2 and visited_node_count <= 1 and blocked_frontier_count == 0:
+        progression_status = "newly_opened_region"
+        summary = f"Группа только начинает раскрывать регион вокруг {current_node_label or 'текущей точки'}."
     else:
         progression_status = "region_quiet"
         summary = "Текущая раскрытая часть региона пока даёт мало активных frontier-направлений."
@@ -6008,6 +6026,7 @@ def get_group_region_exploration_summary(sess: Session, group_id: str) -> dict[s
         visited_node_count=visited_node_count,
         reachable_unvisited_count=reachable_unvisited_count,
         blocked_frontier_count=blocked_frontier_count,
+        unrevealed_frontier_count=unrevealed_frontier_count,
         quiet_node_count=quiet_node_count,
         active_local_node_count=active_local_node_count,
         locally_resolved_node_count=locally_resolved_node_count,

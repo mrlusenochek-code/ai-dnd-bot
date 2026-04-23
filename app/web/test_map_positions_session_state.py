@@ -11654,7 +11654,8 @@ def test_group_region_exploration_summary_supports_quiet_active_expanding_blocke
     )
     active_summary = session_state.get_current_group_region_exploration_summary(frontier_sess, player_id=player_id)
     assert active_summary is not None
-    assert active_summary["progression_status"] == "newly_opened_region"
+    assert active_summary["progression_status"] == "expanding_routes"
+    assert active_summary["unrevealed_frontier_count"] > 0
 
     session_state.grant_player_map_knowledge(frontier_sess, player_id, "craft_town", knowledge_kind="known", source="test")
     session_state.reveal_player_map_node(frontier_sess, player_id, "craft_town", source="test")
@@ -11701,6 +11702,39 @@ def test_group_region_exploration_summary_supports_quiet_active_expanding_blocke
     saturated_summary = session_state.get_current_group_region_exploration_summary(saturated_sess, player_id=player_id)
     assert saturated_summary is not None
     assert saturated_summary["progression_status"] == "locally_saturated"
+
+
+def test_group_region_exploration_summary_counts_unrevealed_frontiers_as_active() -> None:
+    player_id = uuid.uuid4()
+    sess = SimpleNamespace(settings={})
+    session_state._initialize_default_group(
+        sess,
+        [player_id],
+        {"map_level": "region", "node_type": "zone", "node_id": "forest_road", "label": "Лесная дорога"},
+    )
+    session_state.grant_player_map_knowledge(sess, player_id, "road_hamlet", knowledge_kind="known", source="test")
+    session_state.reveal_player_map_node(sess, player_id, "road_hamlet", source="test")
+    session_state.record_group_node_visit(
+        sess,
+        "main",
+        "road_hamlet",
+        node_label="Дорожный хутор",
+        result_type="settlement_arrival",
+        summary="Группа уже была в хуторе.",
+    )
+
+    frontier = session_state.get_current_group_region_frontier_summary(sess, player_id=player_id)
+    summary = session_state.get_current_group_region_exploration_summary(sess, player_id=player_id)
+
+    assert frontier is not None
+    assert frontier["reachable_unvisited_nodes"] == []
+    assert frontier["blocked_frontiers"] == []
+    assert frontier["unrevealed_frontiers"]
+    assert summary is not None
+    assert summary["reachable_unvisited_count"] == 0
+    assert summary["blocked_frontier_count"] == 0
+    assert summary["unrevealed_frontier_count"] > 0
+    assert summary["progression_status"] in {"active_frontier", "expanding_routes"}
 
 
 def test_group_region_frontier_summary_counts_reachable_blocked_and_unresolved_nodes() -> None:
