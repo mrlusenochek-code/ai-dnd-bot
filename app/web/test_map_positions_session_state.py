@@ -11185,6 +11185,39 @@ def test_group_node_progress_summary_supports_new_active_partial_changed_resolve
     assert new_progress is not None
     assert new_progress["progression_status"] == "newly_arrived"
 
+    completed_first_visit_sess = SimpleNamespace(settings={})
+    session_state._initialize_default_group(
+        completed_first_visit_sess,
+        [player_id],
+        {"map_level": "region", "node_type": "zone", "node_id": "craft_town", "label": "Озёрный городок"},
+    )
+    session_state.record_group_node_visit(
+        completed_first_visit_sess,
+        "main",
+        "craft_town",
+        node_label="Озёрный городок",
+        result_type="first_arrival",
+        summary="Первый визит.",
+    )
+    session_state.resolve_group_node_entry(completed_first_visit_sess, "main", source="test")
+    session_state.resolve_group_destination_event(completed_first_visit_sess, "main", source="test")
+    session_state.execute_current_group_service(
+        completed_first_visit_sess,
+        player_id=player_id,
+        service_id="craft_town:resupply",
+        source="test",
+    )
+    completed_first_visit_progress = session_state.get_current_group_current_node_progress(
+        completed_first_visit_sess,
+        player_id=player_id,
+    )
+    assert completed_first_visit_progress is not None
+    assert completed_first_visit_progress["first_visit"] is True
+    assert completed_first_visit_progress["has_node_entry"] is True
+    assert completed_first_visit_progress["has_destination_event"] is True
+    assert completed_first_visit_progress["completed_service_count"] >= 1
+    assert completed_first_visit_progress["progression_status"] == "partially_resolved"
+
     partial_sess = SimpleNamespace(settings={})
     session_state._initialize_default_group(
         partial_sess,

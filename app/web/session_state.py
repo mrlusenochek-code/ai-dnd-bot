@@ -4531,7 +4531,7 @@ def _build_group_node_progress_summary_for_node(
     has_destination_event = destination_event_type not in {"", "no_event"}
     changed_signal = bool(node_state_flags) or destination_event_type == "changed_place_notice"
 
-    if visit_count <= 1 and (has_node_entry or has_destination_event):
+    if visit_count <= 1 and (has_node_entry or has_destination_event) and (completed_action_count + completed_service_count) == 0:
         progression_status = "newly_arrived"
         summary = f"{node_label} только что отмечено для группы, местный прогресс ещё почти не тронут."
     elif visit_count > 1 and changed_signal:
