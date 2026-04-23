@@ -11555,6 +11555,59 @@ def test_group_exploration_leads_skip_current_node_intel_targets() -> None:
     )
 
 
+def test_group_exploration_leads_skip_visited_intel_targets() -> None:
+    player_id = uuid.uuid4()
+    sess = SimpleNamespace(settings={})
+    session_state._initialize_default_group(
+        sess,
+        [player_id],
+        {"map_level": "region", "node_type": "landmark", "node_id": "watchtower", "label": "Сторожевая башня"},
+    )
+    for node_id in ("eastern_bank", "craft_town"):
+        session_state.grant_player_map_knowledge(sess, player_id, node_id, knowledge_kind="known", source="test")
+        session_state.reveal_player_map_node(sess, player_id, node_id, source="test")
+    session_state.record_group_node_visit(
+        sess,
+        "main",
+        "craft_town",
+        node_label="Озёрный городок",
+        result_type="settlement_arrival",
+        summary="Группа уже была в городке.",
+    )
+    session_state.add_group_map_intel_entry(
+        sess,
+        "main",
+        session_state.build_group_map_intel_entry(
+            entry_type="guidance",
+            title="Наводка к городку",
+            summary="Ориентир снова указывает к городку.",
+            result_summary="Ориентир указывает на уже посещённый Озёрный городок.",
+            source_kind="test",
+            source_id="visited-craft-town-hint",
+            node_id="watchtower",
+            node_label="Сторожевая башня",
+            related_node_ids=["craft_town"],
+            related_route_ids=["watchtower->eastern_bank:move", "eastern_bank->craft_town:move"],
+            tags=["craft_town", "guidance"],
+            dedupe_key="intel|visited-craft-town",
+            discovered_at="2026-03-15T00:00:00+00:00",
+        ),
+    )
+
+    leads = session_state.get_group_exploration_leads(sess, "main")
+    primary = session_state.get_group_primary_exploration_lead(sess, "main")
+
+    assert not any(
+        lead["lead_type"] == "intel_target" and lead["target_node_id"] == "craft_town"
+        for lead in leads
+    )
+    assert not (
+        primary
+        and primary["lead_type"] == "intel_target"
+        and primary["target_node_id"] == "craft_town"
+    )
+
+
 def test_group_exploration_leads_include_local_opportunities_only_when_available() -> None:
     player_id = uuid.uuid4()
     sess = SimpleNamespace(settings={})
