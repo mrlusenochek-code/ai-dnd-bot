@@ -467,7 +467,7 @@ def test_handle_group_context_action_wait_camp_inspect_and_navigate() -> None:
     assert "Рядом видны: дежурные у стартового лагеря, несколько путников, собирающихся в дорогу." in msg_inspect
     assert "В глаза бросается: натоптанная развилка к воротам крепости и к озёрному городку, следы телег, сапог и недавних переходов по тракту." in msg_inspect
     assert "Рядом можно держать путь к: Ворота крепости." in msg_inspect
-    assert "Сейчас можно: двигаться дальше, подождать, разбить лагерь." in msg_inspect
+    assert "Сейчас можно: Продолжить путь, Подождать, Разбить лагерь." in msg_inspect
 
     handled_navigate, err_navigate, msg_navigate = ws_handlers._handle_group_action_request(
         sess,
@@ -3266,7 +3266,37 @@ def test_simple_text_inspect_autopicks_available_local_action() -> None:
     assert "Рядом видны: дежурные у стартового лагеря, несколько путников, собирающихся в дорогу." in msg
     assert "В глаза бросается: натоптанная развилка к воротам крепости и к озёрному городку, следы телег, сапог и недавних переходов по тракту." in msg
     assert "Рядом можно держать путь к: Ворота крепости." in msg
-    assert "Сейчас можно: двигаться дальше, подождать, разбить лагерь." in msg
+    assert "Сейчас можно: Продолжить путь, Подождать, Разбить лагерь." in msg
+
+
+def test_inspect_excludes_current_node_from_nearby_targets() -> None:
+    player_id = uuid.uuid4()
+    sess = SimpleNamespace(settings={})
+    session_state._initialize_default_group(
+        sess,
+        [player_id],
+        {
+            "map_level": "region",
+            "node_type": "zone",
+            "node_id": "craft_town",
+            "label": "Озёрный городок",
+        },
+    )
+
+    handled, err, msg = ws_handlers._handle_group_action_request(
+        sess,
+        action="group_context_action",
+        actor_player_id=player_id,
+        payload={"action_id": "inspect"},
+        source="test",
+    )
+
+    assert handled is True
+    assert err is None
+    assert msg is not None
+    assert "Рядом можно держать путь к: Ворота крепости." in msg
+    assert "Рядом можно держать путь к: Озёрный городок" not in msg
+    assert "Сейчас можно: Продолжить путь, Подождать." in msg
 
 
 def test_simple_text_wait_autopicks_available_local_action() -> None:

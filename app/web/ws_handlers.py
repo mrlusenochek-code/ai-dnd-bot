@@ -3182,24 +3182,18 @@ def _handle_group_action_request(
                     if str(item or "").strip()
                 ]
 
-                action_titles = {
-                    "navigate": "двигаться дальше",
-                    "inspect": "осмотреться",
-                    "wait": "подождать",
-                    "camp": "разбить лагерь",
-                    "enter": "войти",
-                }
-
                 available_actions: list[str] = []
                 for item in surface.get("available_actions") or []:
                     if not isinstance(item, dict) or item.get("available") is False:
                         continue
-                    action_id = str(item.get("action_id") or "").strip().lower()
+                    action_id = str(item.get("action_id") or item.get("action_key") or "").strip().lower()
                     if not action_id:
                         continue
                     if action_id == "inspect":
                         continue
-                    title = action_titles.get(action_id, action_id.replace("_", " "))
+                    title = str(item.get("label") or item.get("action_label") or item.get("title") or "").strip()
+                    if not title:
+                        title = action_id.replace("_", " ")
                     if title not in available_actions:
                         available_actions.append(title)
 
@@ -3213,11 +3207,25 @@ def _handle_group_action_request(
                     if service_label not in available_services:
                         available_services.append(service_label)
 
+                current_position = (updated or {}).get("current_map_position")
+                current_node_id = ""
+                if isinstance(current_position, dict):
+                    current_node_id = str(current_position.get("node_id") or "").strip()
+                if not current_node_id:
+                    current_node_id = str(
+                        inspect_result.get("node_id")
+                        or detail.get("node_id")
+                        or ""
+                    ).strip()
+
                 nearby_targets: list[str] = []
                 for item in exploration_leads:
                     if not isinstance(item, dict):
                         continue
                     if bool(item.get("blocked")):
+                        continue
+                    target_node_id = str(item.get("target_node_id") or "").strip()
+                    if target_node_id and current_node_id and target_node_id == current_node_id:
                         continue
                     target_label = str(item.get("target_node_label") or "").strip()
                     if not target_label or target_label in nearby_targets:
