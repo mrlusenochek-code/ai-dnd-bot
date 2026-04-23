@@ -1034,6 +1034,24 @@ STATIC_MAP_CONTEXT_ACTION_EFFECTS: tuple[dict[str, Any], ...] = (
         "applied_effects": ["local_clue:watchtower_bearing"],
     },
     {
+        "node_id": "eastern_bank",
+        "action_id": "trace_chapel_path",
+        "label": "Сверить тропу к часовне",
+        "action_kind": "clue",
+        "effect_type": "clue",
+        "one_shot": True,
+        "result_type": "local_clue_found",
+        "summary": "Проверить береговые вехи и понять, куда уходит тропа к часовне.",
+        "result_summary": "Группа сверяет низкие береговые вехи и находит спокойный ход к Часовенному селу.",
+        "discovered_notes": [
+            "От восточного берега тропа к часовне уходит по сухой кромке выше воды, мимо низких каменных вех."
+        ],
+        "reveal_node_ids": ["chapel_village"],
+        "applied_effects": ["local_clue:chapel_path", "node_revealed:chapel_village"],
+        "node_state_flags": ["chapel_path_traced"],
+        "node_state_summary": "На восточном берегу уже сверили вехи и отметили спокойную тропу к часовне.",
+    },
+    {
         "node_id": "forest_road",
         "action_id": "clear_old_road",
         "label": "Расчистить старую дорогу",

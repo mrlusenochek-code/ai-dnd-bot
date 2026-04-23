@@ -9080,6 +9080,35 @@ def test_execute_current_group_context_action_rejects_unavailable_and_hint_only_
     assert unavailable_error == "Это contextual действие сейчас недоступно."
 
 
+def test_eastern_bank_context_action_reveals_chapel_village_route() -> None:
+    player_id = uuid.uuid4()
+    sess = SimpleNamespace(settings={})
+    session_state._initialize_default_group(
+        sess,
+        [player_id],
+        {"map_level": "region", "node_type": "zone", "node_id": "eastern_bank", "label": "Восточный берег"},
+    )
+
+    before_plan = session_state.get_group_route_plan_to_node(sess, "main", "chapel_village")
+    resolved, error = session_state.resolve_group_context_action(
+        sess,
+        "main",
+        action_id="trace_chapel_path",
+        player_id=player_id,
+        source="test",
+    )
+    after_plan = session_state.get_group_route_plan_to_node(sess, "main", "chapel_village")
+
+    assert before_plan is not None
+    assert before_plan["plan_status"] == "unrevealed"
+    assert error is None
+    assert resolved is not None
+    assert resolved["last_context_action_result"]["result_type"] == "local_clue_found"
+    assert session_state.is_player_node_revealed(sess, player_id, "chapel_village") is True
+    assert after_plan is not None
+    assert after_plan["plan_status"] == "reachable"
+
+
 def test_resolve_group_context_action_stores_canonical_result_and_updates_route_access() -> None:
     player_id = uuid.uuid4()
     sess = SimpleNamespace(settings={})
