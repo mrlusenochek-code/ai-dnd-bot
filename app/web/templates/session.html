@@ -839,7 +839,7 @@ function openCharacterModal(){
     : "";
   const furyOfTheSmallUsed = Boolean(runtime.fury_of_small_used);
   const furyOfTheSmallArmed = Boolean(runtime.fury_of_small_armed);
-  const furyOfTheSmallMax = Number.isFinite(Number(furyOfTheSmall && furyOfTheSmall.uses_max))
+  const furyOfTheSmallMax = furyOfTheSmall && Number.isFinite(Number(furyOfTheSmall.uses_max))
     ? Number(furyOfTheSmall.uses_max)
     : 1;
   const furyOfTheSmallRemaining = furyOfTheSmallUsed ? 0 : furyOfTheSmallMax;
@@ -1507,7 +1507,7 @@ function openCharacterModal(){
   const eerieToken = (raceFeaturesMeta.eerie_token && typeof raceFeaturesMeta.eerie_token === "object")
     ? raceFeaturesMeta.eerie_token
     : null;
-  const eerieUsesMax = Number.isFinite(Number((eerieToken && eerieToken.uses_max))) ? Number(eerieToken.uses_max) : 1;
+  const eerieUsesMax = eerieToken && Number.isFinite(Number(eerieToken.uses_max)) ? Number(eerieToken.uses_max) : 1;
   const eerieUsesUsed = Number.isFinite(Number(runtime.eerie_token_uses_used)) ? Number(runtime.eerie_token_uses_used) : 0;
   const eerieTokenId = String(runtime.eerie_token_id || "").trim();
   const eerieActive = Boolean(runtime.eerie_token_active);
@@ -1759,7 +1759,7 @@ function openCharacterModal(){
     ? raceFeaturesMeta.daunting_roar
     : null;
   const leoninRoarUsed = Number.isFinite(Number(runtime.daunting_roar_uses_used)) ? Number(runtime.daunting_roar_uses_used) : 0;
-  const leoninRoarMax = Number.isFinite(Number(leoninRoar && leoninRoar.uses_max)) ? Number(leoninRoar.uses_max) : 1;
+  const leoninRoarMax = leoninRoar && Number.isFinite(Number(leoninRoar.uses_max)) ? Number(leoninRoar.uses_max) : 1;
   const leoninRoarRemaining = Math.max(0, leoninRoarMax - leoninRoarUsed);
   const leoninRoarText = (raceKey === "leonin" && leoninRoar)
     ? `Устрашающий рёв: бонусным действием, Сл = 8 + БМ + модиф. Телосложения, 10 фт, цель провалила => «испуган» вами до конца вашего след. хода (1/кор/дл отдых). Осталось: ${leoninRoarRemaining}/${leoninRoarMax}`
@@ -1800,7 +1800,7 @@ function openCharacterModal(){
     ? raceFeaturesMeta.hungry_jaws
     : null;
   const lizardfolkHungryUsed = Number.isFinite(Number(runtime.hungry_jaws_uses_used)) ? Number(runtime.hungry_jaws_uses_used) : 0;
-  const lizardfolkHungryMax = Number.isFinite(Number(lizardfolkHungryJaws && lizardfolkHungryJaws.uses_max))
+  const lizardfolkHungryMax = lizardfolkHungryJaws && Number.isFinite(Number(lizardfolkHungryJaws.uses_max))
     ? Number(lizardfolkHungryJaws.uses_max)
     : 1;
   const lizardfolkHungryRemaining = Math.max(0, lizardfolkHungryMax - lizardfolkHungryUsed);
@@ -2270,12 +2270,12 @@ function openCharacterModal(){
   const shifterDefense = (raceFeaturesMeta.shifting_defense && typeof raceFeaturesMeta.shifting_defense === "object")
     ? raceFeaturesMeta.shifting_defense
     : null;
-  const shifterUsesMax = Number.isFinite(Number(shifterShift && shifterShift.uses_max)) ? Number(shifterShift.uses_max) : 1;
+  const shifterUsesMax = shifterShift && Number.isFinite(Number(shifterShift.uses_max)) ? Number(shifterShift.uses_max) : 1;
   const shifterUsesUsed = Number.isFinite(Number(runtime.shifting_uses_used)) ? Number(runtime.shifting_uses_used) : 0;
   const shifterUsesRemaining = Math.max(0, shifterUsesMax - shifterUsesUsed);
   const shifterShiftActive = !!runtime.shifted_active;
   const shifterRoundsLeft = Number.isFinite(Number(runtime.shifted_rounds_left)) ? Number(runtime.shifted_rounds_left) : 0;
-  const shifterMarkUsesMax = Number.isFinite(Number(shifterMarkedTarget && shifterMarkedTarget.uses_max)) ? Number(shifterMarkedTarget.uses_max) : 1;
+  const shifterMarkUsesMax = shifterMarkedTarget && Number.isFinite(Number(shifterMarkedTarget.uses_max)) ? Number(shifterMarkedTarget.uses_max) : 1;
   const shifterMarkUsesUsed = Number.isFinite(Number(runtime.marked_uses_used)) ? Number(runtime.marked_uses_used) : 0;
   const shifterMarkedTargetId = String(runtime.wildhunt_marked_target_id || "").trim();
   const shifterShiftText = (raceKey === "shifter" && shifterShift)
