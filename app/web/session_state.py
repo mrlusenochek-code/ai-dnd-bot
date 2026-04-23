@@ -4400,6 +4400,9 @@ def _build_group_node_progress_summary_for_node(
     group = _get_group_states(sess).get(group_key)
     if not isinstance(group, dict) or not normalized_node_id:
         return None
+    group_current_position = _normalize_map_position(group.get("current_map_position"))
+    group_current_node_id = str((group_current_position or {}).get("node_id") or "").strip().lower()
+    is_current_node = normalized_node_id == group_current_node_id
     position = _normalize_map_position(current_map_position)
     if not position:
         node_static = get_static_node(normalized_node_id) or {}
@@ -4531,7 +4534,7 @@ def _build_group_node_progress_summary_for_node(
     has_destination_event = destination_event_type not in {"", "no_event"}
     changed_signal = bool(node_state_flags) or destination_event_type == "changed_place_notice"
 
-    if visit_count <= 1 and (has_node_entry or has_destination_event) and (completed_action_count + completed_service_count) == 0:
+    if is_current_node and visit_count <= 1 and (has_node_entry or has_destination_event) and (completed_action_count + completed_service_count) == 0:
         progression_status = "newly_arrived"
         summary = f"{node_label} только что отмечено для группы, местный прогресс ещё почти не тронут."
     elif visit_count > 1 and changed_signal:
