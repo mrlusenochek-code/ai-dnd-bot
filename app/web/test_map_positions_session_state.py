@@ -1500,6 +1500,29 @@ def test_inspect_current_group_node_stores_canonical_inspect_result_and_updates_
     assert session_state.is_player_node_revealed(sess, player_id, "craft_town") is True
 
 
+def test_label_based_current_group_position_recovers_static_node_id_for_detail_and_inspect() -> None:
+    player_id = uuid.uuid4()
+    sess = SimpleNamespace(settings={})
+    session_state._initialize_default_group(sess, [player_id], "Стартовый тракт")
+    sess.settings["groups"]["main"]["current_map_position"] = {
+        "v": 1,
+        "map_level": "region",
+        "node_type": "zone",
+        "node_id": "Стартовый тракт",
+        "label": "Стартовый тракт",
+    }
+
+    detail = session_state.get_current_group_node_detail(sess, player_id=player_id)
+    inspected = session_state.inspect_current_group_node(sess, player_id=player_id, source="test")
+
+    assert detail is not None
+    assert detail["node_id"] == "start_trakt"
+    assert inspected is not None
+    assert inspected["current_map_position"]["node_id"] == "start_trakt"
+    assert inspected["current_map_position"]["label"] == "Стартовый тракт"
+    assert session_state.get_current_group_last_inspect_result(sess, player_id=player_id)["node_id"] == "start_trakt"
+
+
 def test_get_current_group_node_services_and_execute_service_store_result() -> None:
     player_id = uuid.uuid4()
     sess = SimpleNamespace(settings={})
@@ -9896,17 +9919,17 @@ def test_trigger_and_resolve_group_travel_event_update_state_honestly() -> None:
     assert resolved["travel_event"]["resolution"] == "resolve"
     assert resolved["travel_event"]["source"] == "test"
     assert resolved["travel_event"]["route_snapshot"]["traversal_kind"] == "marsh_path"
-    assert resolved["travel_event"]["route_snapshot"]["route_id"] == "стартовый тракт->marsh_edge:move"
+    assert resolved["travel_event"]["route_snapshot"]["route_id"] == "start_trakt->marsh_edge:move"
     assert resolved["last_travel_event_outcome"]["event_key"] == "blocked_path"
     assert resolved["last_travel_event_outcome"]["outcome_type"] == "obstacle_cleared"
     assert resolved["last_travel_event_outcome"]["applied_effects"] == ["event_closed", "travel_resumed"]
-    assert session_state.get_group_route_access_state(sess, "main", "стартовый тракт->marsh_edge:move") == {
-        "route_id": "стартовый тракт->marsh_edge:move",
+    assert session_state.get_group_route_access_state(sess, "main", "start_trakt->marsh_edge:move") == {
+        "route_id": "start_trakt->marsh_edge:move",
         "access_state": "cleared",
         "is_traversable": True,
         "summary": "Группа расчистила маршрут и может снова пройти этим путём.",
         "source": "test",
-        "updated_at": resolved["route_access_states"]["стартовый тракт->marsh_edge:move"]["updated_at"],
+        "updated_at": resolved["route_access_states"]["start_trakt->marsh_edge:move"]["updated_at"],
     }
 
 

@@ -32,6 +32,7 @@ from app.web.map_registry import (
     get_static_region_identity,
     get_static_region_onboarding,
     get_static_region_anchor_onboarding,
+    resolve_static_map_node,
 )
 from app.web.utils import as_int
 
@@ -125,8 +126,43 @@ def _touch_last_seen(sess: Session, player_id: uuid.UUID) -> None:
     settings_set(sess, "last_seen", m)
 
 
+def _static_node_map_position(node: dict[str, Any] | None) -> dict[str, Any] | None:
+    if not isinstance(node, dict):
+        return None
+    node_id = str(node.get("node_id") or "").strip()
+    label = str(node.get("label") or node_id).strip()
+    if not node_id or not label:
+        return None
+    node_type = str(node.get("node_type") or "zone").strip().lower()
+    if node_type not in {"zone", "landmark", "building", "interior_entry"}:
+        node_type = "zone"
+    map_level = str(node.get("map_level") or "").strip().lower() or _default_map_level_for_node_type(node_type)
+    area_label = str(node.get("area_label") or "").strip()
+    normalized = {
+        "v": 1,
+        "map_level": map_level[:32],
+        "node_type": node_type[:32],
+        "node_id": node_id[:120],
+        "label": label[:80],
+    }
+    if area_label:
+        normalized["area_label"] = area_label[:80]
+    return normalized
+
+
+def _static_zone_map_position_from_text(text: str | None) -> dict[str, Any] | None:
+    node = resolve_static_map_node(text)
+    node_type = str((node or {}).get("node_type") or "").strip().lower()
+    if node_type != "zone":
+        return None
+    return _static_node_map_position(node)
+
+
 def _default_map_position(zone_label: str = "стартовая локация") -> dict[str, Any]:
     label = str(zone_label or "").strip() or "стартовая локация"
+    static_position = _static_zone_map_position_from_text(label)
+    if static_position:
+        return static_position
     return {
         "v": 1,
         "map_level": "region",
@@ -157,6 +193,7 @@ def _normalize_map_position(raw: Any) -> dict[str, Any] | None:
     node_id = str(raw.get("node_id") or "").strip()
     label = str(raw.get("label") or "").strip()
     area_label = str(raw.get("area_label") or "").strip()
+    raw_node_id = node_id
 
     if not node_type:
         node_type = "zone"
@@ -171,6 +208,17 @@ def _normalize_map_position(raw: Any) -> dict[str, Any] | None:
 
     if not node_id:
         return None
+
+    is_label_based_zone = (
+        node_type == "zone"
+        and (
+            not raw_node_id
+            or (label and raw_node_id.strip().casefold() == label.strip().casefold())
+        )
+    )
+    static_position = _static_zone_map_position_from_text(node_id) if is_label_based_zone else None
+    if static_position:
+        return static_position
 
     normalized = {
         "v": 1,
