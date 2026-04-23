@@ -11516,6 +11516,45 @@ def test_group_exploration_leads_synthesize_intel_reachable_and_blocked_frontier
     assert blocked_frontier["blocked_reason"] == "blocked_path"
 
 
+def test_group_exploration_leads_skip_current_node_intel_targets() -> None:
+    player_id = uuid.uuid4()
+    sess = SimpleNamespace(settings={})
+    session_state._initialize_default_group(
+        sess,
+        [player_id],
+        {"map_level": "region", "node_type": "landmark", "node_id": "watchtower", "label": "Сторожевая башня"},
+    )
+    session_state.grant_player_map_knowledge(sess, player_id, "watchtower", knowledge_kind="known", source="test")
+    session_state.reveal_player_map_node(sess, player_id, "watchtower", source="test")
+    for source_id in ("watchtower-hint-1", "watchtower-hint-2"):
+        session_state.add_group_map_intel_entry(
+            sess,
+            "main",
+            session_state.build_group_map_intel_entry(
+                entry_type="guidance",
+                title="Наводка на башню",
+                summary="Следы снова указывают к башне.",
+                result_summary="Ориентир указывает на текущую сторожевую башню.",
+                source_kind="test",
+                source_id=source_id,
+                node_id="watchtower",
+                node_label="Сторожевая башня",
+                related_node_ids=["watchtower"],
+                related_route_ids=[],
+                tags=["watchtower", "guidance"],
+                dedupe_key=f"intel|{source_id}|watchtower",
+                discovered_at="2026-03-15T00:00:00+00:00",
+            ),
+        )
+
+    leads = session_state.get_group_exploration_leads(sess, "main")
+
+    assert not any(
+        lead["lead_type"] == "intel_target" and lead["target_node_id"] == "watchtower"
+        for lead in leads
+    )
+
+
 def test_group_exploration_leads_include_local_opportunities_only_when_available() -> None:
     player_id = uuid.uuid4()
     sess = SimpleNamespace(settings={})

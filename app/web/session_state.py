@@ -5026,6 +5026,8 @@ def get_group_exploration_leads(sess: Session, group_id: str) -> list[dict[str, 
         target_node_id = target_node_ids[0] if target_node_ids else ""
         if not target_node_id:
             continue
+        if current_node_id and target_node_id == current_node_id:
+            continue
         target_node = get_static_node(target_node_id) or {}
         target_node_label = str(target_node.get("label") or target_node_id).strip()
         plan = get_group_route_plan_to_node(sess, group_key, target_node_id) or {}
