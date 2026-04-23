@@ -462,7 +462,10 @@ def test_handle_group_context_action_wait_camp_inspect_and_navigate() -> None:
     )
     assert handled_inspect is True
     assert err_inspect is None
-    assert msg_inspect == "Группа main осматривает Стартовый тракт."
+    assert msg_inspect is not None
+    assert msg_inspect.startswith("Стартовый тракт.")
+    assert "Рядом можно держать путь к: Ворота крепости." in msg_inspect
+    assert "Сейчас можно: двигаться дальше, осмотреться, подождать, разбить лагерь." in msg_inspect
 
     handled_navigate, err_navigate, msg_navigate = ws_handlers._handle_group_action_request(
         sess,
@@ -3256,7 +3259,10 @@ def test_simple_text_inspect_autopicks_available_local_action() -> None:
     assert (action, payload) == ("group_context_action", {"action_id": "inspect", "action_key": "inspect"})
     assert handled is True
     assert err is None
-    assert msg == "Группа main осматривает Стартовый тракт."
+    assert msg is not None
+    assert msg.startswith("Стартовый тракт.")
+    assert "Рядом можно держать путь к: Ворота крепости." in msg
+    assert "Сейчас можно: двигаться дальше, осмотреться, подождать, разбить лагерь." in msg
 
 
 def test_simple_text_wait_autopicks_available_local_action() -> None:

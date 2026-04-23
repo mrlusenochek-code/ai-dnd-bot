@@ -87,6 +87,9 @@ from app.web.session_state import (
     get_current_group_exploration_leads,
     get_current_group_primary_exploration_lead,
     get_current_group_local_interaction_surface,
+    get_current_group_node_detail,
+    get_current_group_node_services,
+    get_current_group_last_inspect_result,
     get_current_group_current_node_progress,
     get_current_group_region_exploration_summary,
     get_current_group_region_frontier_summary,
@@ -3106,13 +3109,126 @@ def _handle_group_action_request(
                 )
                 return True, None, f"Группа {actor_group_key} подтверждает вход в {label}."
             if action_key == "inspect":
+                inspect_result = get_current_group_last_inspect_result(
+                    sess,
+                    player_id=actor_player_id,
+                    group_id=actor_group_key,
+                ) or {}
+                detail = get_current_group_node_detail(
+                    sess,
+                    player_id=actor_player_id,
+                    group_id=actor_group_key,
+                ) or {}
+                surface = get_current_group_local_interaction_surface(
+                    sess,
+                    player_id=actor_player_id,
+                    group_id=actor_group_key,
+                ) or {}
+                services = get_current_group_node_services(
+                    sess,
+                    player_id=actor_player_id,
+                    group_id=actor_group_key,
+                ) or []
+                exploration_leads = get_current_group_exploration_leads(
+                    sess,
+                    player_id=actor_player_id,
+                    group_id=actor_group_key,
+                ) or []
+
                 label = str(
-                    (updated or {}).get("last_travel_resolution", {}).get("target_label")
+                    inspect_result.get("label")
+                    or detail.get("label")
+                    or (updated or {}).get("last_travel_resolution", {}).get("target_label")
                     or (updated or {}).get("current_map_position", {}).get("label")
                     or (updated or {}).get("area_label")
                     or "место"
-                )
-                return True, None, f"Группа {actor_group_key} осматривает {label}."
+                ).strip()
+
+                short_description = str(
+                    detail.get("short_description")
+                    or inspect_result.get("short_description")
+                    or ""
+                ).strip()
+                inspect_summary = str(inspect_result.get("inspect_summary") or "").strip()
+                travel_note = str(
+                    inspect_result.get("travel_note")
+                    or detail.get("travel_note")
+                    or ""
+                ).strip()
+
+                service_hints = [
+                    str(item).strip()
+                    for item in (inspect_result.get("service_hints") or detail.get("service_hints") or [])
+                    if str(item or "").strip()
+                ]
+                state_notes = [
+                    str(item).strip()
+                    for item in (inspect_result.get("state_notes") or detail.get("state_notes") or [])
+                    if str(item or "").strip()
+                ]
+
+                action_titles = {
+                    "navigate": "двигаться дальше",
+                    "inspect": "осмотреться",
+                    "wait": "подождать",
+                    "camp": "разбить лагерь",
+                    "enter": "войти",
+                }
+
+                available_actions: list[str] = []
+                for item in surface.get("available_actions") or []:
+                    if not isinstance(item, dict) or item.get("available") is False:
+                        continue
+                    action_id = str(item.get("action_id") or "").strip().lower()
+                    if not action_id:
+                        continue
+                    title = action_titles.get(action_id, action_id.replace("_", " "))
+                    if title not in available_actions:
+                        available_actions.append(title)
+
+                available_services: list[str] = []
+                for item in services:
+                    if not isinstance(item, dict) or item.get("available") is False:
+                        continue
+                    service_label = str(item.get("label") or item.get("service_id") or "").strip()
+                    if not service_label:
+                        continue
+                    if service_label not in available_services:
+                        available_services.append(service_label)
+
+                nearby_targets: list[str] = []
+                for item in exploration_leads:
+                    if not isinstance(item, dict):
+                        continue
+                    if bool(item.get("blocked")):
+                        continue
+                    target_label = str(item.get("target_node_label") or "").strip()
+                    if not target_label or target_label in nearby_targets:
+                        continue
+                    nearby_targets.append(target_label)
+                    if len(nearby_targets) >= 3:
+                        break
+
+                parts: list[str] = [f"{label}."]
+                if short_description:
+                    parts.append(short_description.rstrip(".") + ".")
+                if inspect_summary and inspect_summary != short_description:
+                    parts.append(inspect_summary.rstrip(".") + ".")
+                if nearby_targets:
+                    parts.append(f"Рядом можно держать путь к: {', '.join(nearby_targets)}.")
+                if travel_note:
+                    parts.append(f"Ориентир: {travel_note.rstrip('.')}.")
+                if available_actions:
+                    parts.append(f"Сейчас можно: {', '.join(available_actions)}.")
+                if available_services:
+                    parts.append(f"Здесь доступны услуги: {', '.join(available_services)}.")
+                elif service_hints:
+                    parts.append(f"Полезно здесь: {', '.join(service_hints)}.")
+                if state_notes:
+                    formatted_notes = " ".join(note.rstrip(".") + "." for note in state_notes)
+                    parts.append(f"Примечания: {formatted_notes}")
+
+                return True, None, " ".join(parts)
             if action_key == "camp":
                 return True, None, f"Группа {actor_group_key} разбила лагерь."
             if action_key == "wait":
