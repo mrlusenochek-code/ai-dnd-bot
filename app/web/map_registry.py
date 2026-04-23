@@ -15,6 +15,14 @@ STATIC_MAP_NODES: tuple[dict[str, Any], ...] = (
         "inspect_summary": "По тракту удобно держать путь к воротам крепости и к озёрному городку.",
         "travel_note": "Хороший ориентир для сбора группы и спокойного перехода.",
         "service_hints": ["можно переждать у дороги", "подходит для сбора перед выходом"],
+        "visible_npcs": [
+            "дежурные у стартового лагеря",
+            "несколько путников, собирающихся в дорогу",
+        ],
+        "visible_objects": [
+            "натоптанная развилка к воротам крепости и к озёрному городку",
+            "следы телег, сапог и недавних переходов по тракту",
+        ],
         "aliases": (
             "стартовый тракт",
             "тракт",
@@ -7687,7 +7695,16 @@ def get_static_node_detail(
         "node_type": str(resolved_node.get("node_type") or "zone"),
         "area_label": str(resolved_node.get("area_label") or resolved_node.get("label") or ""),
     }
-    for key in ("short_description", "inspect_summary", "travel_note", "service_hints", "danger_note"):
+    for key in (
+        "short_description",
+        "inspect_summary",
+        "travel_note",
+        "service_hints",
+        "danger_note",
+        "visible_npcs",
+        "visible_objects",
+        "visible_threats",
+    ):
         value = resolved_node.get(key)
         if isinstance(value, list):
             detail[key] = [str(item) for item in value if str(item or "").strip()]
@@ -7705,14 +7722,21 @@ def get_static_node_inspect_result(
     detail = get_static_node_detail(node_id=node_id, current_map_position=current_map_position)
     if not detail:
         return None
-    return {
+
+    result: dict[str, Any] = {
         "node_id": detail["node_id"],
         "label": detail["label"],
         "node_type": detail["node_type"],
         "inspect_summary": str(detail.get("inspect_summary") or detail.get("short_description") or ""),
         "short_description": str(detail.get("short_description") or detail.get("inspect_summary") or ""),
         "travel_note": str(detail.get("travel_note") or "") or None,
-        "service_hints": list(detail.get("service_hints") or []) or None,
         "danger_note": str(detail.get("danger_note") or "") or None,
         "source": str(source or "registry"),
     }
+
+    for key in ("service_hints", "visible_npcs", "visible_objects", "visible_threats"):
+        values = [str(item) for item in (detail.get(key) or []) if str(item or "").strip()]
+        if values:
+            result[key] = values
+
+    return result
