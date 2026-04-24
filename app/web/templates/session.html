@@ -141,8 +141,10 @@
       <button id="btnGoChar" onclick="location.href='/c/' + SESSION_ID;">Создать/изменить персонажа</button>
     </div>
 
-    <h3 style="margin-top:18px;">Таймер</h3>
-    <div id="timer" class="player">—</div>
+<div id="timerPanel" style="margin-top:18px; display:none;">
+  <h3 style="margin:0 0 8px 0;">Таймер</h3>
+  <div id="timer" class="player">—</div>
+</div>
     <h3 style="margin-top:18px;">Боевой журнал</h3>
     <div class="combat-log" id="combatLog">
       <div class="combat-log-head">
@@ -340,20 +342,44 @@ let timerInt = null;
 let timerRemain = null;
 let timerSyncedAt = 0;
 
+function setTimerPanelVisible(visible){
+  const panel = document.getElementById("timerPanel");
+  if(!panel) return;
+  panel.style.display = visible ? "" : "none";
+}
+
 function stopLocalTimer(){
   if(timerInt){ clearInterval(timerInt); timerInt = null; }
   timerRemain = null;
   timerSyncedAt = 0;
+  const t = document.getElementById("timer");
+  if(t) t.textContent = "—";
 }
+
 function startLocalTimer(rem){
+  const normalized = Number(rem);
+  if(!Number.isFinite(normalized) || normalized <= 0){
+    stopLocalTimer();
+    setTimerPanelVisible(false);
+    return;
+  }
+
   stopLocalTimer();
-  timerRemain = Number(rem);
+  setTimerPanelVisible(true);
+  timerRemain = normalized;
   timerSyncedAt = Date.now();
+
+  const t = document.getElementById("timer");
+  if(t){
+    t.textContent = "Осталось: " + timerRemain + " сек";
+  }
+
   timerInt = setInterval(() => {
     const passed = Math.floor((Date.now() - timerSyncedAt) / 1000);
     const left = Math.max(0, timerRemain - passed);
-    const t = document.getElementById("timer");
-    t.textContent = "Осталось: " + left + " сек";
+    const timerEl = document.getElementById("timer");
+    if(!timerEl) return;
+    timerEl.textContent = "Осталось: " + left + " сек";
   }, 250);
 }
 
@@ -3433,14 +3459,27 @@ function renderState(st){
 
   // timer
   const t = document.getElementById("timer");
+  const remainingRaw = st.session.remaining_seconds;
+  const remainingNum = Number(remainingRaw);
+  const hasActiveTimer =
+    remainingRaw !== null &&
+    remainingRaw !== undefined &&
+    Number.isFinite(remainingNum) &&
+    remainingNum > 0;
+
   if(st.session.is_paused){
     stopLocalTimer();
-    t.textContent = "PAUSED";
-  } else if(st.session.remaining_seconds === null || st.session.remaining_seconds === undefined){
+    if(hasActiveTimer){
+      setTimerPanelVisible(true);
+      if(t) t.textContent = "PAUSED";
+    } else {
+      setTimerPanelVisible(false);
+    }
+  } else if(!hasActiveTimer){
     stopLocalTimer();
-    t.textContent = "—";
+    setTimerPanelVisible(false);
   } else {
-    startLocalTimer(st.session.remaining_seconds);
+    startLocalTimer(remainingNum);
   }
 
   updateSendAvailability();
