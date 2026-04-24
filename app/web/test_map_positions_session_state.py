@@ -11247,6 +11247,55 @@ def test_group_primary_exploration_lead_skips_arrived_journey_at_current_node() 
     )
 
 
+def test_group_primary_exploration_lead_prefers_local_frontier_branch_over_remote_same_priority(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    player_id = uuid.uuid4()
+    sess = SimpleNamespace(settings={})
+    session_state._initialize_default_group(
+        sess,
+        [player_id],
+        {"map_level": "region", "node_type": "zone", "node_id": "chapel_village", "label": "Часовенное село"},
+    )
+
+    mocked_leads = [
+        session_state.build_group_exploration_lead(
+            lead_id="frontier-branch:start_trakt->forest_road:move",
+            lead_type="frontier_branch",
+            priority_band="low",
+            title="Неразведанная ветка: Стартовый тракт -> Лесная дорога",
+            summary="Удалённая frontier-ветка.",
+            target_node_id="forest_road",
+            route_id="start_trakt->forest_road:move",
+            source_kind="route_frontier",
+            source_ref="start_trakt->forest_road:move",
+            tags=["frontier", "unrevealed"],
+        ),
+        session_state.build_group_exploration_lead(
+            lead_id="frontier-branch:chapel_village->road_hamlet:move",
+            lead_type="frontier_branch",
+            priority_band="low",
+            title="Неразведанная ветка: Часовенное село -> Дорожный хутор",
+            summary="Локальная frontier-ветка.",
+            target_node_id="road_hamlet",
+            route_id="chapel_village->road_hamlet:move",
+            source_kind="route_frontier",
+            source_ref="chapel_village->road_hamlet:move",
+            tags=["frontier", "unrevealed"],
+        ),
+    ]
+    monkeypatch.setattr(session_state, "get_group_exploration_leads", lambda _sess, _group_id: list(mocked_leads))
+
+    leads = session_state.get_current_group_exploration_leads(sess, player_id=player_id)
+    primary = session_state.get_current_group_primary_exploration_lead(sess, player_id=player_id)
+
+    assert leads[0]["route_id"] == "start_trakt->forest_road:move"
+    assert leads[1]["route_id"] == "chapel_village->road_hamlet:move"
+    assert primary is not None
+    assert primary["lead_type"] == "frontier_branch"
+    assert primary["route_id"] == "chapel_village->road_hamlet:move"
+
+
 def test_group_node_progress_summary_supports_new_active_partial_changed_resolved_and_quiet_states() -> None:
     player_id = uuid.uuid4()
 

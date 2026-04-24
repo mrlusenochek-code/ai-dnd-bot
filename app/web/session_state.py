@@ -5220,7 +5220,32 @@ def get_group_exploration_leads(sess: Session, group_id: str) -> list[dict[str, 
 
 def get_group_primary_exploration_lead(sess: Session, group_id: str) -> dict[str, Any] | None:
     leads = get_group_exploration_leads(sess, group_id)
-    return dict(leads[0]) if leads else None
+    if not leads:
+        return None
+    primary = dict(leads[0])
+    if str(primary.get("lead_type") or "").strip().lower() != "frontier_branch":
+        return primary
+    group = _get_group_states(sess).get(str(group_id or "").strip())
+    current_position = _normalize_map_position((group or {}).get("current_map_position"))
+    current_node_id = str((current_position or {}).get("node_id") or "").strip().lower()
+    if not current_node_id:
+        return primary
+
+    def _lead_from_node_id(lead: dict[str, Any]) -> str:
+        route_id = str(lead.get("route_id") or lead.get("source_ref") or "").strip().lower()
+        if "->" not in route_id:
+            return ""
+        return route_id.split("->", 1)[0].strip().lower()
+
+    primary_priority_band = str(primary.get("priority_band") or "").strip().lower()
+    for lead in leads:
+        if str(lead.get("priority_band") or "").strip().lower() != primary_priority_band:
+            break
+        if str(lead.get("lead_type") or "").strip().lower() != "frontier_branch":
+            continue
+        if _lead_from_node_id(lead) == current_node_id:
+            return dict(lead)
+    return primary
 
 
 def get_current_group_exploration_leads(
