@@ -11843,6 +11843,55 @@ def test_group_region_frontier_summary_does_not_keep_stale_first_visit_node_newl
     assert all(item["node_id"] != "start_trakt" for item in frontier["unresolved_local_nodes"])
 
 
+def test_group_region_frontier_summary_does_not_keep_stale_revisit_changed_node_active() -> None:
+    player_id = uuid.uuid4()
+    sess = SimpleNamespace(settings={})
+    session_state._initialize_default_group(
+        sess,
+        [player_id],
+        {"map_level": "region", "node_type": "zone", "node_id": "watchtower", "label": "Сторожевая башня"},
+    )
+    session_state.record_group_node_visit(
+        sess,
+        "main",
+        "watchtower",
+        node_label="Сторожевая башня",
+        result_type="first_arrival",
+        summary="Первый визит.",
+    )
+    session_state.record_group_node_visit(
+        sess,
+        "main",
+        "watchtower",
+        node_label="Сторожевая башня",
+        result_type="return_arrival",
+        summary="Повторный визит.",
+    )
+    session_state.add_group_node_state_flag(
+        sess,
+        "main",
+        "watchtower",
+        state_flag="tower_secured",
+        summary="Башня выглядит иначе после укрепления дозора.",
+        source="test",
+    )
+    session_state._set_group_map_position(
+        sess,
+        "main",
+        {"map_level": "region", "node_type": "zone", "node_id": "craft_town", "label": "Озёрный городок"},
+    )
+
+    stale_progress = session_state._build_group_node_progress_summary_for_node(sess, "main", "watchtower")
+    frontier = session_state.get_current_group_region_frontier_summary(sess, player_id=player_id)
+
+    assert stale_progress is not None
+    assert stale_progress["visit_count"] == 2
+    assert stale_progress["node_state_flags"]
+    assert stale_progress["progression_status"] != "revisit_changed"
+    assert frontier is not None
+    assert all(item["node_id"] != "watchtower" for item in frontier["unresolved_local_nodes"])
+
+
 def test_group_region_gateways_support_unavailable_locked_open_blocked_and_future_stub_states() -> None:
     player_id = uuid.uuid4()
 

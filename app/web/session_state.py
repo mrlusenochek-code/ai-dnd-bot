@@ -4537,7 +4537,7 @@ def _build_group_node_progress_summary_for_node(
     if is_current_node and visit_count <= 1 and (has_node_entry or has_destination_event) and (completed_action_count + completed_service_count) == 0:
         progression_status = "newly_arrived"
         summary = f"{node_label} только что отмечено для группы, местный прогресс ещё почти не тронут."
-    elif visit_count > 1 and changed_signal:
+    elif is_current_node and visit_count > 1 and changed_signal:
         progression_status = "revisit_changed"
         summary = f"{node_label} изменилось с прошлого визита, здесь есть новые локальные последствия."
     elif (available_action_count + available_service_count) > 0 and (completed_action_count + completed_service_count) > 0:
