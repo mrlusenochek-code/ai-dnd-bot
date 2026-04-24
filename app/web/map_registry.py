@@ -1019,6 +1019,24 @@ STATIC_MAP_SCOUT_DISCOVERIES: tuple[dict[str, Any], ...] = (
 
 STATIC_MAP_CONTEXT_ACTION_EFFECTS: tuple[dict[str, Any], ...] = (
     {
+        "node_id": "start_trakt",
+        "action_id": "trace_forest_turnoff",
+        "label": "Сверить лесное ответвление",
+        "action_kind": "clue",
+        "effect_type": "clue",
+        "one_shot": True,
+        "result_type": "local_clue_found",
+        "summary": "Проверить старые следы и понять, где тракт отдаёт в сторону лесной дороги.",
+        "result_summary": "Группа сверяет старую колею у развилки и уверенно отмечает ход на Лесную дорогу.",
+        "discovered_notes": [
+            "У развилки видна старая лесная колея: если держаться её, тракт уверенно выводит к Лесной дороге."
+        ],
+        "reveal_node_ids": ["forest_road"],
+        "applied_effects": ["local_clue:forest_turnoff", "node_revealed:forest_road"],
+        "node_state_flags": ["forest_turnoff_traced"],
+        "node_state_summary": "На стартовом тракте уже сверили лесное ответвление и отметили ход к Лесной дороге.",
+    },
+    {
         "node_id": "craft_town",
         "action_id": "trace_watchtower_bearing",
         "label": "Сверить береговой ориентир",

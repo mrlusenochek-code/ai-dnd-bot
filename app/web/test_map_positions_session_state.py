@@ -9276,6 +9276,43 @@ def test_context_action_can_keep_route_blocked_and_no_effect_is_explicit() -> No
     assert no_effect["last_context_action_result"]["result_type"] == "no_effect"
 
 
+def test_start_trakt_context_action_reveals_forest_road_and_makes_route_reachable() -> None:
+    player_id = uuid.uuid4()
+    sess = SimpleNamespace(settings={})
+    session_state._initialize_default_group(
+        sess,
+        [player_id],
+        {
+            "map_level": "region",
+            "node_type": "zone",
+            "node_id": "start_trakt",
+            "label": "Стартовый тракт",
+        },
+    )
+
+    before_plan = session_state.get_group_route_plan_to_node(sess, "main", "forest_road")
+    resolved, error = session_state.resolve_group_context_action(
+        sess,
+        "main",
+        action_id="trace_forest_turnoff",
+        player_id=player_id,
+        source="test",
+    )
+    after_plan = session_state.get_group_route_plan_to_node(sess, "main", "forest_road")
+
+    assert before_plan is not None
+    assert before_plan["plan_status"] == "unrevealed"
+    assert before_plan["target_revealed"] is False
+    assert error is None
+    assert resolved is not None
+    assert resolved["last_context_action_result"]["result_type"] == "local_clue_found"
+    assert session_state.is_player_node_revealed(sess, player_id, "forest_road") is True
+    assert after_plan is not None
+    assert after_plan["plan_status"] == "reachable"
+    assert after_plan["target_revealed"] is True
+    assert after_plan["path_route_ids"] == ["start_trakt->forest_road:move"]
+
+
 def test_group_node_state_storage_helpers_are_canonical_and_scoped_per_group() -> None:
     left_id = uuid.uuid4()
     right_id = uuid.uuid4()
@@ -11307,7 +11344,7 @@ def test_group_node_progress_summary_supports_new_active_partial_changed_resolve
     )
     quiet_progress = session_state.get_current_group_current_node_progress(quiet_sess, player_id=player_id)
     assert quiet_progress is not None
-    assert quiet_progress["progression_status"] == "quiet_location"
+    assert quiet_progress["progression_status"] == "locally_active"
 
     active_sess = SimpleNamespace(settings={})
     session_state._initialize_default_group(
@@ -11522,7 +11559,7 @@ def test_current_group_node_context_and_exploration_leads_reflect_node_progress(
         {"map_level": "region", "node_type": "zone", "node_id": "start_trakt", "label": "Стартовый тракт"},
     )
     quiet_leads = session_state.get_current_group_exploration_leads(quiet_sess, player_id=player_id)
-    assert all(lead["lead_type"] != "local_opportunity" for lead in quiet_leads)
+    assert any(lead["lead_type"] == "local_opportunity" for lead in quiet_leads)
 
 
 def test_group_exploration_leads_synthesize_intel_reachable_and_blocked_frontiers_without_duplicates() -> None:
@@ -11889,7 +11926,7 @@ def test_group_region_frontier_summary_does_not_keep_stale_first_visit_node_newl
     assert stale_progress["has_node_entry"] is True
     assert stale_progress["progression_status"] != "newly_arrived"
     assert frontier is not None
-    assert all(item["node_id"] != "start_trakt" for item in frontier["unresolved_local_nodes"])
+    assert any(item["node_id"] == "start_trakt" for item in frontier["unresolved_local_nodes"])
 
 
 def test_group_region_frontier_summary_does_not_keep_stale_revisit_changed_node_active() -> None:

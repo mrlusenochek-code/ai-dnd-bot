@@ -467,7 +467,7 @@ def test_handle_group_context_action_wait_camp_inspect_and_navigate() -> None:
     assert "Рядом видны: дежурные у стартового лагеря, несколько путников, собирающихся в дорогу." in msg_inspect
     assert "В глаза бросается: натоптанная развилка к воротам крепости и к озёрному городку, следы телег, сапог и недавних переходов по тракту." in msg_inspect
     assert "Рядом можно держать путь к: Ворота крепости." in msg_inspect
-    assert "Сейчас можно: Продолжить путь, Подождать, Разбить лагерь." in msg_inspect
+    assert "Сейчас можно: Продолжить путь, Подождать, Разбить лагерь, Сверить лесное ответвление." in msg_inspect
 
     handled_navigate, err_navigate, msg_navigate = ws_handlers._handle_group_action_request(
         sess,
@@ -1194,7 +1194,7 @@ def test_handle_group_node_progress_returns_quiet_and_active_summaries() -> None
 
     assert handled_quiet is True
     assert err_quiet is None
-    assert "quiet_location" in str(msg_quiet)
+    assert "locally_active" in str(msg_quiet)
 
     active_sess = SimpleNamespace(settings={})
     session_state._initialize_default_group(
@@ -3293,7 +3293,7 @@ def test_simple_text_inspect_autopicks_available_local_action() -> None:
     assert "В глаза бросается: натоптанная развилка к воротам крепости и к озёрному городку, следы телег, сапог и недавних переходов по тракту." in msg
     assert "Рядом можно держать путь к: Ворота крепости, Озёрный городок." in msg
     assert "Восточный берег" not in msg
-    assert "Сейчас можно: Продолжить путь, Подождать, Разбить лагерь." in msg
+    assert "Сейчас можно: Продолжить путь, Подождать, Разбить лагерь, Сверить лесное ответвление." in msg
 
 
 def test_inspect_excludes_current_node_from_nearby_targets() -> None:
