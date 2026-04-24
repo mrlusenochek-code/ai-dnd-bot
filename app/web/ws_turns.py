@@ -21,7 +21,7 @@ from app.web.session_state import (
 from app.web.utils import as_int
 
 
-TURN_TIMEOUT_SECONDS = int(os.getenv("TURN_TIMEOUT_SECONDS", "300"))
+TURN_TIMEOUT_SECONDS = int(os.getenv("TURN_TIMEOUT_SECONDS", "0"))
 
 
 def utcnow() -> datetime:
@@ -129,6 +129,8 @@ def _get_free_round(sess: Session) -> int:
 
 
 async def _compute_remaining(sess: Session) -> Optional[int]:
+    if TURN_TIMEOUT_SECONDS <= 0:
+        return None
     if not sess.turn_started_at or not sess.current_player_id:
         return None
     elapsed = (utcnow() - sess.turn_started_at).total_seconds()

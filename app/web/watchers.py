@@ -20,7 +20,7 @@ from app.web.ws_turns import TURN_TIMEOUT_SECONDS, _clear_paused_remaining, _rem
 
 
 logger = logging.getLogger(__name__)
-INACTIVE_TIMEOUT_SECONDS = int(os.getenv("DND_INACTIVE_TIMEOUT_SECONDS", "600"))
+INACTIVE_TIMEOUT_SECONDS = int(os.getenv("DND_INACTIVE_TIMEOUT_SECONDS", "0"))
 INACTIVE_SCAN_PERIOD_SECONDS = int(os.getenv("DND_INACTIVE_SCAN_PERIOD_SECONDS", "5"))
 
 
@@ -43,6 +43,10 @@ def _parse_iso(ts: Any) -> Optional[datetime]:
 async def timer_watcher():
     while True:
         try:
+            if TURN_TIMEOUT_SECONDS <= 0:
+                await asyncio.sleep(1)
+                continue
+
             async with AsyncSessionLocal() as db:
                 q = await db.execute(
                     select(Session).where(
@@ -84,6 +88,10 @@ async def timer_watcher():
 async def inactive_watcher():
     while True:
         try:
+            if INACTIVE_TIMEOUT_SECONDS <= 0:
+                await asyncio.sleep(INACTIVE_SCAN_PERIOD_SECONDS)
+                continue
+
             room_session_ids: list[uuid.UUID] = []
             for sid_raw in list(manager.rooms.keys()):
                 try:
