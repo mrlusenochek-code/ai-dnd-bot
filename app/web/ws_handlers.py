@@ -1942,7 +1942,15 @@ def _parse_group_command(cmdline: str) -> tuple[str | None, dict[str, Any]]:
     if lowered in {"group leads", "group_leads", "group next", "group_next"}:
         return "group_exploration_leads", {}
 
-    if lowered in {"group routes", "group_route_planning", "group_routes"}:
+    if lowered in {
+        "group route",
+        "group_route",
+        "group routes",
+        "group_routes",
+        "group_route_planning",
+        "group path",
+        "group_path",
+    }:
         return "group_route_planning", {}
 
     for prefix in ("group path ", "group_path ", "group route ", "group_route "):
