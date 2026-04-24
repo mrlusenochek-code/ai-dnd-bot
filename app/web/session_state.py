@@ -12304,8 +12304,18 @@ def _normalize_group_state(
     if region_onboarding_states:
         normalized["region_onboarding_states"] = region_onboarding_states
     active_journey = _normalize_group_active_journey(raw.get("active_journey"))
+    current_node_id = str((pos or {}).get("node_id") or "").strip().lower()
     if active_journey:
-        normalized["active_journey"] = active_journey
+        journey_status = str(active_journey.get("journey_status") or "").strip().lower()
+        journey_target_node_id = str(active_journey.get("target_node_id") or "").strip().lower()
+        stale_arrived_journey = (
+            journey_status == "arrived"
+            and current_node_id
+            and journey_target_node_id
+            and journey_target_node_id != current_node_id
+        )
+        if not stale_arrived_journey:
+            normalized["active_journey"] = active_journey
     last_journey_result = _normalize_group_last_journey_result(raw.get("last_journey_result"))
     if last_journey_result:
         normalized["last_journey_result"] = last_journey_result
