@@ -58,6 +58,14 @@ def test_inactive_watcher_short_circuits_when_inactive_timeout_disabled():
     assert "continue" in block
 
 
+def test_inactive_watcher_does_not_remove_player_from_session_settings():
+    src = _read_watchers_source()
+    block = _async_function_block(src, "inactive_watcher")
+
+    assert "_remove_player_from_session_settings(" not in block
+    assert "sp.is_active = False" in block
+
+
 def test_ws_turns_default_timeout_is_disabled():
     src = _read_ws_turns_source()
 

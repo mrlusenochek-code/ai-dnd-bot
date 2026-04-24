@@ -243,6 +243,8 @@ async def session_page(request: Request, session_id: str):
 
 @router.post("/api/join")
 async def api_join(payload: dict):
+    from app.web.session_state import _get_group_states
+
     session_id = payload.get("session_id")
     uid = int(payload.get("uid"))
     name = (payload.get("name") or "Игрок").strip()
@@ -271,11 +273,14 @@ async def api_join(payload: dict):
                 sp.is_active = True
                 _set_ready(sess, player.id, False)
                 _touch_last_seen(sess, player.id)
+                _get_group_states(sess, [player.id])
                 await db.commit()
                 await add_system_event(db, sess, f"Игрок вернулся: {player.display_name} (#{sp.join_order}).")
                 await broadcast_state(session_id)
                 return JSONResponse({"ok": True})
+
             _touch_last_seen(sess, player.id)
+            _get_group_states(sess, [player.id])
             await db.commit()
             return JSONResponse({"ok": True})
 
@@ -293,6 +298,7 @@ async def api_join(payload: dict):
         db.add(sp)
         _set_ready(sess, player.id, False)
         _touch_last_seen(sess, player.id)
+        _get_group_states(sess, [player.id])
         await db.commit()
 
         await add_system_event(db, sess, f"Игрок присоединился: {player.display_name} (#{join_order}).")

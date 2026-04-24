@@ -16,7 +16,7 @@ from app.web.session_lock import get_session_lock
 from app.web.session_state import _get_last_seen_map, _touch_last_seen
 from app.web.state_builder import _broadcast_state_unlocked
 from app.web.ws_manager import manager
-from app.web.ws_turns import TURN_TIMEOUT_SECONDS, _clear_paused_remaining, _remove_player_from_session_settings, advance_turn, utcnow
+from app.web.ws_turns import TURN_TIMEOUT_SECONDS, _clear_paused_remaining, advance_turn, utcnow
 
 
 logger = logging.getLogger(__name__)
@@ -139,7 +139,6 @@ async def inactive_watcher():
                                         await advance_turn(db, sess)
 
                                     sp.is_active = False
-                                    _remove_player_from_session_settings(sess, sp.player_id)
                                     changed = True
 
                                     pl = players_by_id.get(sp.player_id)
