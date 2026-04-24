@@ -6020,25 +6020,25 @@ def get_group_region_exploration_summary(sess: Session, group_id: str) -> dict[s
     route_activity_count = reachable_unvisited_count + unrevealed_frontier_count
     if visited_node_count > 0 and (locally_resolved_node_count + quiet_node_count) >= visited_node_count and active_local_node_count == 0 and route_activity_count == 0 and blocked_frontier_count == 0:
         progression_status = "locally_saturated"
-        summary = "Текущая раскрытая часть региона в основном уже посещена и локально выработана."
+        summary = "Окрестности уже хорошо изучены: здесь осталось мало новых троп, слухов и местных зацепок."
     elif revealed_node_count <= 1 and route_activity_count == 0 and blocked_frontier_count == 0 and active_local_node_count == 0:
         progression_status = "region_quiet"
-        summary = f"{current_node_label or 'Текущий регион'} пока выглядит тихим и почти не даёт новых направлений."
+        summary = f"Сейчас {current_node_label or 'эти места'} выглядят спокойно: поблизости мало явных следов для продолжения пути."
     elif blocked_frontier_count > 0 and reachable_unvisited_count == 0:
         progression_status = "blocked_progress"
-        summary = "Следующее расширение региона сейчас в основном упирается в известные заблокированные frontier-ветки."
+        summary = "Дальнейший путь здесь пока упирается в закрытые проходы, опасные преграды или неподготовленные тропы."
     elif route_activity_count >= 2:
         progression_status = "expanding_routes"
-        summary = "Раскрытая сеть маршрутов ещё расширяется, и у группы уже есть несколько достижимых или нераскрытых направлений вперёд."
+        summary = "Перед группой остаётся несколько понятных направлений: часть троп уже открыта, а часть ещё ждёт разведки."
     elif route_activity_count >= 1:
         progression_status = "active_frontier"
-        summary = "У группы остаются достижимые точки или нераскрытые ветки, так что frontier региона ещё активен."
+        summary = "Путь вперёд ещё есть: в регионе остаются заметные места и тропы, которые стоит проверить."
     elif revealed_node_count <= 2 and visited_node_count <= 1 and blocked_frontier_count == 0:
         progression_status = "newly_opened_region"
-        summary = f"Группа только начинает раскрывать регион вокруг {current_node_label or 'текущей точки'}."
+        summary = f"Группа только начинает осваиваться вокруг {current_node_label or 'этой точки'} и ещё лишь намечает безопасные выходы."
     else:
         progression_status = "region_quiet"
-        summary = "Текущая раскрытая часть региона пока даёт мало активных frontier-направлений."
+        summary = "Пока что эти места дают немного новых направлений, но могут раскрыться после осмотра и местных действий."
     current_region_state = _normalize_group_current_region_state(group.get("current_region_state"))
     region_identity = _resolve_region_identity_for_position(current_position) or {}
     region_id = str((current_region_state or {}).get("region_id") or region_identity.get("region_id") or (current_position or {}).get("map_level") or "region").strip().lower() or "region"
@@ -6374,7 +6374,7 @@ def get_group_discovered_region_summaries(sess: Session, group_id: str) -> list[
             current_progression_status = str(current_region_summary.get("progression_status") or "").strip().lower()
             if onboarding_status == "applied" and as_int(discovered_state.get("visit_count"), 0) <= 1 and as_int(current_region_summary.get("visited_node_count"), 0) <= 1:
                 region_status = "newly_onboarded_region"
-                summary_text = f"{region_label} только что onboarded и пока раскрывает стартовый срез вокруг якоря входа."
+                summary_text = f"{region_label} только что открылся для группы: известен входной узел и ближайшие надёжные пути вокруг него."
             elif current_progression_status == "blocked_progress":
                 region_status = "current_blocked_region"
                 summary_text = str(current_region_summary.get("summary") or "")
@@ -6405,19 +6405,19 @@ def get_group_discovered_region_summaries(sess: Session, group_id: str) -> list[
                     }
             if blocked_frontier_count > 0:
                 region_status = "blocked_region"
-                summary_text = f"В {region_label} дальнейший прогресс сейчас в основном упирается в известные заблокированные выходы."
+                summary_text = f"В {region_label} дальнейший путь пока упирается в препятствия или закрытые переходы."
             elif onboarding_status == "applied" and as_int(discovered_state.get("visit_count"), 0) <= 1 and len(visited_nodes_in_region) <= 1:
                 region_status = "newly_onboarded_region"
-                summary_text = f"{region_label} только что закреплён как новый регион и пока остаётся свежим стартовым плацдармом."
+                summary_text = f"{region_label} только что стал новым направлением: группа знает точку входа и ближайший безопасный срез местности."
             elif unresolved_local_nodes or reachable_unvisited_count > 0:
                 region_status = "active_region"
-                summary_text = f"{region_label} остаётся значимым направлением: там ещё есть незавершённые локальные точки или видимые непосещённые узлы."
+                summary_text = f"{region_label} всё ещё манит вперёд: там остаются непроверенные места, открытые тропы или незавершённые дела."
             elif len(visited_nodes_in_region) > 0 and len(revealed_nodes_in_region) <= len(visited_nodes_in_region):
                 region_status = "saturated_region"
-                summary_text = f"{region_label} в основном уже посещён и локально выработан."
+                summary_text = f"{region_label} уже в основном изучен: известных новых зацепок там сейчас немного."
             else:
                 region_status = "quiet_region"
-                summary_text = f"{region_label} пока выглядит тихим известным регионом без сильного текущего давления на прогресс."
+                summary_text = f"{region_label} пока выглядит спокойным известным краем без явного повода немедленно туда возвращаться."
         summary = build_group_discovered_region_summary(
             region_id=region_id,
             region_label=region_label,

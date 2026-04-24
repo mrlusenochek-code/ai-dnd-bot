@@ -2335,13 +2335,27 @@ def _handle_group_action_request(
         )
         if not summary:
             return True, "Не удалось определить региональный exploration summary группы.", None
-        return True, None, (
-            f"Региональный прогресс группы {actor_group_key}: "
-            f"{str(summary.get('region_label') or 'регион')} "
-            f"({str(summary.get('progression_status') or 'unknown')}). "
-            f"{str(summary.get('summary') or '')} "
-            f"{str((frontier or {}).get('summary') or '')}"
+
+        region_label = str(summary.get("region_label") or "регион").strip()
+        summary_text = str(summary.get("summary") or "").strip()
+        frontier_text = str((frontier or {}).get("summary") or "").strip()
+        primary_frontier = dict(summary.get("current_primary_frontier") or {}) if isinstance(summary.get("current_primary_frontier"), dict) else {}
+        primary_frontier_label = str(
+            primary_frontier.get("target_node_label")
+            or primary_frontier.get("gateway_label")
+            or primary_frontier.get("label")
+            or ""
         ).strip()
+
+        parts = [f"Региональный прогресс группы {actor_group_key}: {region_label}."]
+        if summary_text:
+            parts.append(summary_text)
+        if frontier_text and frontier_text != summary_text:
+            parts.append(frontier_text)
+        if primary_frontier_label:
+            parts.append(f"Сейчас самый заметный следующий ход — {primary_frontier_label}.")
+
+        return True, None, " ".join(parts).strip()
 
     if action == "group_region_gateways":
         if not actor_group_key:
@@ -2402,14 +2416,13 @@ def _handle_group_action_request(
                 if map_level:
                     place_detail_parts.append(f"уровень: {map_level}")
                 place_detail = f" ({', '.join(place_detail_parts)})"
-        region_label = str((current_region or last_entry or {}).get("region_label") or "регион")
-        visit_count = as_int((current_region or last_entry or {}).get("visit_count"), 0)
-        status_note = str((last_entry or {}).get("result_type") or "current_region_confirmed")
+        region_label = str((current_region or last_entry or {}).get("region_label") or "регион").strip()
+        entry_note = str((last_entry or {}).get("result_summary") or (last_entry or {}).get("summary") or "").strip()
+
         summary_parts = [
             f"Текущее место группы {actor_group_key}: {place_label}{place_detail}." if place_label else "",
             f"Текущий регион: {region_label}.",
-            f"Входов в регион: {visit_count}." if visit_count > 0 else "",
-            f"Последний region-entry: {status_note}." if status_note else "",
+            entry_note,
         ]
         return True, None, " ".join(part for part in summary_parts if part).strip()
 
@@ -2444,11 +2457,22 @@ def _handle_group_action_request(
         )
         if not overview:
             return True, None, f"У группы {actor_group_key} пока слишком мало discovered-region данных для world overview."
-        return True, None, (
-            f"Мировой обзор регионов группы {actor_group_key}: "
-            f"{str(overview.get('summary') or '')} "
-            f"Текущий регион: {str(overview.get('current_region_label') or 'регион')}."
-        ).strip()
+
+        overview_text = str(overview.get("summary") or "").strip()
+        current_region_label = str(overview.get("current_region_label") or "регион").strip()
+        primary_focus = dict(overview.get("primary_region_focus") or {}) if isinstance(overview.get("primary_region_focus"), dict) else {}
+        primary_focus_label = str(primary_focus.get("region_label") or "").strip()
+        primary_focus_summary = str(primary_focus.get("summary") or "").strip()
+
+        parts = [f"Обзор известных регионов группы {actor_group_key}: {overview_text}"]
+        parts.append(f"Сейчас группа находится в регионе {current_region_label}.")
+        if primary_focus_label:
+            focus_line = f"Главный текущий вектор — {primary_focus_label}."
+            if primary_focus_summary:
+                focus_line += f" {primary_focus_summary}"
+            parts.append(focus_line)
+
+        return True, None, " ".join(part for part in parts if part).strip()
 
     if action == "group_region_links":
         if not actor_group_key:
@@ -2833,16 +2857,16 @@ def _handle_group_action_request(
             group_id=actor_group_key,
         )
         if not leads:
-            return True, None, f"У группы {actor_group_key} сейчас нет явных exploration leads."
+            return True, None, "Сейчас у группы нет явных зацепок для дальнейшего пути."
         primary = get_current_group_primary_exploration_lead(
             sess,
             player_id=actor_player_id,
             group_id=actor_group_key,
         ) or leads[0]
-        return True, None, (
-            f"Exploration leads группы {actor_group_key}: {len(leads)}. "
-            f"Главная зацепка: {str(primary.get('title') or 'lead')}."
-        )
+        primary_title = str(primary.get("title") or "Новая зацепка").strip()
+        if len(leads) == 1:
+            return True, None, f"Сейчас у группы есть 1 явная зацепка. Главная: {primary_title}."
+        return True, None, f"Сейчас перед группой {len(leads)} зацепок для дальнейшего пути. Главная: {primary_title}."
 
     if action == "group_journey_status":
         if not actor_group_key:
@@ -2920,10 +2944,14 @@ def _handle_group_action_request(
         reachable = list(planning.get("reachable_destinations") or [])
         frontiers = list(planning.get("route_frontiers") or [])
         if not reachable and not frontiers:
-            return True, None, f"У группы {actor_group_key} пока нет доступных маршрутных планов."
+            return True, None, "Сейчас для группы не видно надёжных направлений дальнейшего пути."
+        if not frontiers:
+            return True, None, f"Из текущего места группе открыто {len(reachable)} достижимых точек."
+        if not reachable:
+            return True, None, f"Из текущего места группе видно {len(frontiers)} веток дальнейшего пути, но без уже готовых достижимых точек."
         return True, None, (
-            f"Маршрутный план группы {actor_group_key}: "
-            f"{len(reachable)} достижимых точек, {len(frontiers)} frontier-веток."
+            f"Из текущего места группе открыто {len(reachable)} достижимых точек "
+            f"и {len(frontiers)} веток дальнейшего пути."
         )
 
     if action == "group_route_plan_to":
@@ -2931,25 +2959,22 @@ def _handle_group_action_request(
             return True, "Группа игрока не найдена.", None
         target_node_id = str(payload.get("target_node_id") or "").strip()
         if not target_node_id:
-            return True, "Нужно указать target_node_id для route plan.", None
+            return True, "Нужно указать точку назначения для маршрута.", None
         plan = get_group_route_plan_to_node(sess, actor_group_key, target_node_id)
         if not plan:
-            return True, "Не удалось построить маршрутный план для этой цели.", None
+            return True, "Не удалось построить маршрут к этой точке.", None
         status = str(plan.get("plan_status") or "").strip()
         target_label = str(plan.get("target_node_label") or target_node_id).strip()
         if status == "current_location":
-            return True, None, f"Группа {actor_group_key} уже находится в точке {target_label}."
+            return True, None, f"Группа уже находится в точке {target_label}."
         if status == "reachable":
-            return True, None, (
-                f"Путь к {target_label} доступен: "
-                f"{int(plan.get('step_count') or 0)} шаг(а/ов), route_ids={plan.get('path_route_ids') or []}."
-            )
+            step_count = max(1, int(plan.get("step_count") or 0))
+            return True, None, f"Путь к {target_label} открыт: {step_count} переход(а/ов)."
         if status == "blocked":
-            block_reason = str(plan.get("blocked_reason") or "route_blocked").strip()
-            return True, None, f"Путь к {target_label} заблокирован: {block_reason}."
+            return True, None, f"Путь к {target_label} сейчас закрыт."
         if status == "unrevealed":
-            return True, None, f"Точка {target_label} ещё не раскрыта для текущей группы."
-        return True, None, str(plan.get("summary") or f"Для точки {target_label} нет корректного route plan.")
+            return True, None, f"Путь к {target_label} группе пока не известен."
+        return True, None, f"Сейчас не удаётся проложить понятный путь к {target_label}."
 
     if action in {"group_camp_resolve", "group_rest"}:
         if not actor_group_key:

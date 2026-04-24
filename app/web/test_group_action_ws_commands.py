@@ -1111,16 +1111,17 @@ def test_handle_group_route_planning_and_target_lookup_return_clean_summaries() 
 
     assert handled_routes is True
     assert err_routes is None
-    assert "Маршрутный план группы main" in str(msg_routes)
+    assert "Из текущего места группе открыто" in str(msg_routes)
+    assert "веток дальнейшего пути" in str(msg_routes)
     assert handled_reachable is True
     assert err_reachable is None
-    assert "Путь к Дорожный хутор доступен" in str(msg_reachable)
+    assert "Путь к Дорожный хутор открыт:" in str(msg_reachable)
     assert handled_blocked is True
     assert err_blocked is None
-    assert msg_blocked == "Путь к Шахтный вход заблокирован: blocked_path."
+    assert msg_blocked == "Путь к Шахтный вход сейчас закрыт."
     assert handled_unrevealed is True
     assert err_unrevealed is None
-    assert msg_unrevealed == "Точка Сторожевая башня ещё не раскрыта для текущей группы."
+    assert msg_unrevealed == "Путь к Сторожевая башня группе пока не известен."
 
 
 def test_handle_group_exploration_leads_returns_empty_and_primary_summary() -> None:
@@ -1138,7 +1139,7 @@ def test_handle_group_exploration_leads_returns_empty_and_primary_summary() -> N
 
     assert handled_empty is True
     assert err_empty is None
-    assert msg_empty == "У группы main сейчас нет явных exploration leads."
+    assert msg_empty == "Сейчас у группы нет явных зацепок для дальнейшего пути."
 
     sess = SimpleNamespace(settings={})
     session_state._initialize_default_group(
@@ -1166,8 +1167,8 @@ def test_handle_group_exploration_leads_returns_empty_and_primary_summary() -> N
 
     assert handled_filled is True
     assert err_filled is None
-    assert "Exploration leads группы main: " in str(msg_filled)
-    assert "Главная зацепка: Активный путь: Ворота крепости." in str(msg_filled)
+    assert "Сейчас перед группой" in str(msg_filled)
+    assert "Главная: Активный путь: Ворота крепости." in str(msg_filled)
 
 
 def test_handle_group_node_progress_returns_quiet_and_active_summaries() -> None:
@@ -1254,7 +1255,8 @@ def test_handle_group_region_progress_returns_minimal_and_frontier_summaries() -
 
     assert handled_min is True
     assert err_min is None
-    assert "region_quiet" in str(msg_min)
+    assert "Региональный прогресс группы main: Стартовое пограничье." in str(msg_min)
+    assert "0 достижимых непосещённых точек" in str(msg_min)
 
     frontier_sess = SimpleNamespace(settings={})
     session_state._initialize_default_group(
@@ -1280,11 +1282,8 @@ def test_handle_group_region_progress_returns_minimal_and_frontier_summaries() -
 
     assert handled_frontier is True
     assert err_frontier is None
-    assert (
-        "active_frontier" in str(msg_frontier)
-        or "expanding_routes" in str(msg_frontier)
-        or "newly_opened_region" in str(msg_frontier)
-    )
+    assert "Перед группой остаётся несколько понятных направлений" in str(msg_frontier)
+    assert "Сейчас самый заметный следующий ход — Озёрный городок." in str(msg_frontier)
 
 
 def test_handle_group_region_gateways_returns_clean_minimal_and_authored_gateway_summaries() -> None:
@@ -1750,7 +1749,7 @@ def test_handle_group_region_world_and_focus_surfaces() -> None:
     )
     assert handled_world is True
     assert err_world is None
-    assert "Мировой обзор регионов группы main" in str(msg_world)
+    assert "Обзор известных регионов группы main" in str(msg_world)
     assert "открытых регионов" in str(msg_world)
 
     handled_focus, err_focus, msg_focus = ws_handlers._handle_group_action_request(
