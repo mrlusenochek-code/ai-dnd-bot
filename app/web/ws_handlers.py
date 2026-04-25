@@ -8930,7 +8930,7 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
 
                     stats = ch.stats if isinstance(ch.stats, dict) else {}
                     con_stat = as_int(stats.get("con"), 50) if isinstance(stats, dict) else 50
-                    con_mod = ability_mod_from_stat100(con_stat)
+                    con_mod = ability_modifier_from_stat100(con_stat)
                     hp_before = _clamp(as_int(ch.hp, 0), 0, max(1, as_int(ch.hp_max, 1)))
 
                     hp_after, hd_after, heals, reroll_logs = _apply_short_rest_spend_hd_with_racial_reroll(
