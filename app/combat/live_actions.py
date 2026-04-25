@@ -1306,10 +1306,7 @@ def handle_live_combat_reaction(
     if last_damage <= 0 or last_damage_round != max(1, int(state.round_no)):
         return None, "Нет свежего полученного урона для применения реакции."
 
-    stats = actor.stats if isinstance(actor.stats, dict) else {}
-    con_raw = stats.get("con", 50)
-    con_score = int(con_raw) if isinstance(con_raw, int) and not isinstance(con_raw, bool) else 50
-    con_mod = ability_mod_from_stat100(con_score)
+    con_mod = _actor_ability_mod(actor, "con")
     roll = random.randint(1, 12)
     reduction = max(0, roll + con_mod)
     actual_reduction = min(reduction, last_damage)
@@ -3428,11 +3425,8 @@ def handle_live_combat_action(
         damage_dice = str(weapon.get("damage_dice") or "1d4").strip().lower()
         damage_type = str(weapon.get("damage_type") or "piercing").strip().lower()
 
-        attacker_stats = attacker.stats if isinstance(attacker.stats, dict) else {}
-        con_raw = attacker_stats.get("con")
-        con_stat = int(con_raw) if isinstance(con_raw, int) else 50
-        con_mod = ability_mod_from_stat100(con_stat)
-        prof = proficiency_bonus(max(1, int(getattr(attacker, "level", 1) or 1)))
+        con_mod = _actor_ability_mod(attacker, "con")
+        prof = _proficiency_bonus_for_actor(attacker)
         attack_bonus = con_mod + prof
         damage_bonus = con_mod
 
@@ -3562,8 +3556,7 @@ def handle_live_combat_action(
             race_features = attacker.race_features if isinstance(attacker.race_features, dict) else {}
             runtime_raw = race_features.get("runtime")
             runtime = dict(runtime_raw) if isinstance(runtime_raw, dict) else {}
-            level = max(1, int(getattr(attacker, "level", 1) or 1))
-            uses_max = max(1, int(proficiency_bonus(level)))
+            uses_max = _proficiency_bonus_for_actor(attacker)
             uses_used = max(0, int(runtime.get("vampiric_bite_uses_used") or 0))
             target_rf = target.race_features if isinstance(getattr(target, "race_features", None), dict) else {}
             target_type = str(target_rf.get("creature_type") or "").strip().lower()
@@ -4833,18 +4826,12 @@ def handle_live_combat_action(
         rolls = [random.randint(1, sides) for _ in range(max(1, n))]
         base_damage = sum(rolls)
 
-        attacker_stats = attacker.stats if isinstance(attacker.stats, dict) else {}
-        con_stat = int(attacker_stats.get("con", 50)) if isinstance(attacker_stats.get("con"), int) else 50
-        con_mod = ability_mod_from_stat100(con_stat)
-        prof = proficiency_bonus(max(1, int(getattr(attacker, "level", 1) or 1)))
+        con_mod = _actor_ability_mod(attacker, "con")
+        prof = _proficiency_bonus_for_actor(attacker)
         dc = 8 + con_mod + prof
 
         save_ability = str(breath_weapon.get("save_ability") or "").strip().lower()
-        target_stats = target.stats if isinstance(target.stats, dict) else {}
-        if save_ability and isinstance(target_stats.get(save_ability), int):
-            save_mod = ability_mod_from_stat100(int(target_stats.get(save_ability)))
-        else:
-            save_mod = 0
+        save_mod = _actor_ability_mod(target, save_ability) if save_ability else 0
         save_roll = random.randint(1, 20)
         save_total = save_roll + save_mod
         save_success = save_total >= dc
@@ -5358,8 +5345,7 @@ def handle_live_combat_action(
         _, _, roll = roll_check("normal")
         bfs_lines: list[dict[str, Any]] = []
         roll = _maybe_apply_built_for_success(actor, roll, bfs_lines)
-        wis = actor.stats.get("wis", 50) if isinstance(actor.stats, dict) else 50
-        wis_mod = ability_mod_from_stat100(wis)
+        wis_mod = _actor_ability_mod(actor, "wis")
         total = roll + wis_mod
 
         lines: list[dict[str, Any]] = [
