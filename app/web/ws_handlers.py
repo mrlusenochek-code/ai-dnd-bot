@@ -2328,37 +2328,69 @@ def _handle_group_action_request(
             player_id=actor_player_id,
             group_id=actor_group_key,
         )
-        frontier = get_current_group_region_frontier_summary(
-            sess,
-            player_id=actor_player_id,
-            group_id=actor_group_key,
-        )
         if not summary:
-            return True, "Не удалось определить региональный exploration summary группы.", None
+            return True, "Не удалось определить региональный обзор для группы.", None
+
+        def _ru_count(value: int, forms: tuple[str, str, str]) -> str:
+            n = abs(int(value))
+            n10 = n % 10
+            n100 = n % 100
+            if 11 <= n100 <= 14:
+                form = forms[2]
+            elif n10 == 1:
+                form = forms[0]
+            elif 2 <= n10 <= 4:
+                form = forms[1]
+            else:
+                form = forms[2]
+            return f"{n} {form}"
 
         region_label = str(summary.get("region_label") or "регион").strip()
         summary_text = str(summary.get("summary") or "").strip()
-        frontier_text = str((frontier or {}).get("summary") or "").strip()
+
+        reachable_unvisited_count = int(summary.get("reachable_unvisited_count") or 0)
+        blocked_frontier_count = int(summary.get("blocked_frontier_count") or 0)
+        unrevealed_frontier_count = int(summary.get("unrevealed_frontier_count") or 0)
+        active_local_node_count = int(summary.get("active_local_node_count") or 0)
+
         primary_lead = dict(summary.get("current_primary_lead") or {}) if isinstance(summary.get("current_primary_lead"), dict) else {}
         primary_frontier = dict(summary.get("current_primary_frontier") or {}) if isinstance(summary.get("current_primary_frontier"), dict) else {}
 
         next_step_label = str(
             primary_lead.get("target_node_label")
-            or
-            primary_frontier.get("target_node_label")
+            or primary_frontier.get("target_node_label")
             or primary_frontier.get("gateway_label")
             or primary_frontier.get("label")
             or primary_lead.get("title")
             or ""
         ).strip()
 
-        parts = [f"Региональный прогресс группы {actor_group_key}: {region_label}."]
+        for prefix in (
+            "Зацепка: ",
+            "Активный путь: ",
+            "Непосещённая точка: ",
+            "Неразведанная ветка: ",
+        ):
+            if next_step_label.startswith(prefix):
+                next_step_label = next_step_label[len(prefix):].strip()
+                break
+
+        parts = [f"Картина по региону {region_label}."]
         if summary_text:
             parts.append(summary_text)
-        if frontier_text and frontier_text != summary_text:
-            parts.append(frontier_text)
+
+        parts.append(
+            "Сейчас впереди "
+            f"{_ru_count(reachable_unvisited_count, ('ещё не посещённое место', 'ещё не посещённых места', 'ещё не посещённых мест'))}, "
+            f"{_ru_count(unrevealed_frontier_count, ('неразведанное направление', 'неразведанных направления', 'неразведанных направлений'))} "
+            f"и {_ru_count(blocked_frontier_count, ('явная преграда', 'явные преграды', 'явных преград'))}."
+        )
+        parts.append(
+            f"Незавершённых местных дел — {_ru_count(active_local_node_count, ('одно', 'два', 'много')) if False else active_local_node_count}."
+        )
+
         if next_step_label:
-            parts.append(f"Сейчас самый заметный следующий ход — {next_step_label}.")
+            parts.append(f"Сейчас лучше всего проверить {next_step_label}.")
 
         return True, None, " ".join(parts).strip()
 
