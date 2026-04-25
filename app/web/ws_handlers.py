@@ -27,7 +27,8 @@ from app.rules.phb_rest import (
     apply_short_rest,
     long_rest_recover_hit_dice,
 )
-from app.rules.phb_math import ability_mod_from_stat100, proficiency_bonus, roll_initiative
+from app.rules.phb_math import roll_initiative
+from app.rules.player_core import ability_modifier_from_stat100, proficiency_bonus_for_level
 from app.gm import combat_narration as gm_combat_narration
 from app.web import gm_orchestrator
 from app.web.db_helpers import get_or_create_player_web, get_session, list_session_players
@@ -4540,9 +4541,9 @@ def _roll_initiative_details(ch: Character | None, *, rng: Any = None) -> tuple[
             if isinstance(dex_raw, int):
                 dex = int(dex_raw)
         race_features = getattr(ch, "race_features", None)
-    dex_mod = ability_mod_from_stat100(dex)
+    dex_mod = ability_modifier_from_stat100(dex)
     base = roll_initiative(dex, rng=(rng if rng is not None else random))
-    bonus = proficiency_bonus(level) if _has_hare_trigger_feature(race_features) else 0
+    bonus = proficiency_bonus_for_level(level) if _has_hare_trigger_feature(race_features) else 0
     return base + bonus, base, dex_mod, bonus
 
 
@@ -4782,7 +4783,7 @@ def _reborn_past_life_uses_max(ch: Character, feature: dict[str, Any] | None = N
     formula = str(cfg.get("uses_formula") or "").strip().lower()
     if formula == "proficiency_bonus":
         level = max(1, as_int(getattr(ch, "level", 1), 1))
-        return max(1, int(proficiency_bonus(level)))
+        return max(1, int(proficiency_bonus_for_level(level)))
     uses_max = max(0, as_int(cfg.get("uses_max"), 0))
     return uses_max
 
@@ -5651,7 +5652,7 @@ def _apply_built_for_success_arm(ch: Character) -> tuple[Optional[str], bool]:
         return "Создан для успеха уже готово: следующий бросок d20 получит +1d4.", False
 
     level = max(1, as_int(getattr(ch, "level", 1), 1))
-    uses_max = max(1, int(proficiency_bonus(level)))
+    uses_max = max(1, int(proficiency_bonus_for_level(level)))
     used = max(0, as_int(runtime.get("built_for_success_used"), 0))
     if used >= uses_max:
         return "Создан для успеха уже использовано до долгого отдыха.", False
@@ -5678,7 +5679,7 @@ def _consume_built_for_success_for_d20(ch: Character) -> tuple[int, Optional[str
         return 0, None, False
 
     level = max(1, as_int(getattr(ch, "level", 1), 1))
-    uses_max = max(1, int(proficiency_bonus(level)))
+    uses_max = max(1, int(proficiency_bonus_for_level(level)))
     used = max(0, as_int(runtime.get("built_for_success_used"), 0))
     if used >= uses_max:
         runtime["built_for_success_armed"] = False
