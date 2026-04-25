@@ -28,7 +28,7 @@ from app.rules.phb_rest import (
     long_rest_recover_hit_dice,
 )
 from app.rules.phb_math import roll_initiative
-from app.rules.player_core import ability_modifier_from_stat100, proficiency_bonus_for_level
+from app.rules.player_core import ability_modifier_from_stat100, proficiency_bonus_for_level, total_skill_bonus
 from app.gm import combat_narration as gm_combat_narration
 from app.web import gm_orchestrator
 from app.web.db_helpers import get_or_create_player_web, get_session, list_session_players
@@ -9078,7 +9078,11 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                         ability_mod = _ability_mod_from_stats(ch.stats, ability_key) if ability_key else 0
                         sk = skills_by_key.get(candidate)
                         skill_bonus = _skill_bonus_from_rank_and_level(sk.rank, ch.level) if sk else 0
-                        return ability_mod + skill_bonus
+                        return total_skill_bonus(
+                            ability_mod=ability_mod,
+                            proficient=skill_bonus > 0,
+                            proficiency=skill_bonus,
+                        )
 
                     skills_by_key: dict[str, Skill] = {}
                     if "|" in key:
@@ -9110,7 +9114,11 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                         ability_key = SKILL_TO_ABILITY.get(key)
                         ability_mod = _ability_mod_from_stats(ch.stats, ability_key) if ability_key else 0
                         skill_bonus = _skill_bonus_from_rank_and_level(sk.rank, ch.level) if sk else 0
-                        mod = ability_mod + skill_bonus
+                        mod = total_skill_bonus(
+                            ability_mod=ability_mod,
+                            proficient=skill_bonus > 0,
+                            proficiency=skill_bonus,
+                        )
                         skill_proficient = bool(sk and int(getattr(sk, "rank", 0) or 0) > 0)
                     if "|" in key:
                         skill_proficient = False
