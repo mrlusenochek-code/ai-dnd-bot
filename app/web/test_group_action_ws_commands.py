@@ -1256,8 +1256,8 @@ def test_handle_group_region_progress_returns_minimal_and_frontier_summaries() -
 
     assert handled_min is True
     assert err_min is None
-    assert "Региональный прогресс группы main: Стартовое пограничье." in str(msg_min)
-    assert "0 достижимых непосещённых точек" in str(msg_min)
+    assert "Картина по региону Стартовое пограничье." in str(msg_min)
+    assert "0 ещё не посещённых мест" in str(msg_min)
 
     frontier_sess = SimpleNamespace(settings={})
     session_state._initialize_default_group(
@@ -1284,7 +1284,8 @@ def test_handle_group_region_progress_returns_minimal_and_frontier_summaries() -
     assert handled_frontier is True
     assert err_frontier is None
     assert "Перед группой остаётся несколько понятных направлений" in str(msg_frontier)
-    assert "Сейчас самый заметный следующий ход — Озёрный городок." in str(msg_frontier)
+    assert "неразведанных направлен" in str(msg_frontier)
+    assert "Сейчас лучше всего проверить Озёрный городок." in str(msg_frontier)
 
 
 def test_handle_group_region_gateways_returns_clean_minimal_and_authored_gateway_summaries() -> None:
