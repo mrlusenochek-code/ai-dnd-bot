@@ -1,0 +1,327 @@
+# PHB Task Queue
+
+## Правила использования очереди
+
+- брать задачи сверху вниз;
+- не смешивать несколько больших задач в одном этапе;
+- сначала `truth/core`, потом `integration/polish`;
+- каждая задача должна завершаться `python -m py_compile $(rg --files -g '*.py')` и `pytest -q`;
+- если задача упирается в архитектурный долг, сначала делать минимальный безопасный scaffolding, а не расширять поведение в обход текущих контрактов;
+- любые новые правила должны опираться на уже зафиксированные truth-docs и сопровождаться regression tests.
+
+## Очередь задач
+
+### Task 01. Вынести единый player_core helper layer
+- Цель:
+  - собрать в одном месте базовую PHB-математику игрока для ability mod, proficiency bonus, skill total и save total.
+- Почему это первый приоритет:
+  - сейчас вычисления размазаны между `app/rules/phb_math.py`, `app/rules/derived_stats.py`, `app/web/ws_checks.py` и `app/web/ws_handlers.py`;
+  - без единого player-core следующие задачи будут только множить дубли и расхождения.
+- Что именно изменить:
+  - ввести отдельный rules/helper module для базовых player-core вычислений;
+  - перенести туда общие вычисления `ability mod`, `proficiency bonus`, базовый skill/save total contract;
+  - заменить прямые локальные расчёты в `ws_checks.py` и там, где это безопасно, в `ws_handlers.py` вызовами нового слоя;
+  - не менять продуктовое поведение, только собрать единую точку истины и покрыть её тестами.
+- Какие файлы почти наверняка будут затронуты:
+  - `app/rules/phb_math.py`
+  - новый модуль в `app/rules/*` или `app/web/*` по месту
+  - `app/web/ws_checks.py`
+  - `app/web/ws_handlers.py`
+  - новые/обновлённые tests в `app/rules/` и `app/web/`
+- Что НЕ трогать:
+  - creation flow;
+  - combat runtime semantics;
+  - UI templates;
+  - region/exploration/session_state logic.
+- Проверки после выполнения:
+  - `python -m py_compile $(rg --files -g '*.py')`
+  - `pytest -q`
+  - отдельно прогнать `app/web/test_ws_checks_proficiency.py` и связанные tests на `PHB_TRUTH`.
+- Ожидаемый результат:
+  - единый player-core слой без дублирующих формул в web-логике;
+  - поведение не меняется, но следующие задачи получают стабильную базу.
+
+### Task 02. Формализовать generic save/proficiency truth
+- Цель:
+  - отделить общие saving throw и proficiency правила от race-specific helper-ов.
+- Почему это первый приоритет:
+  - матрица покрытия показывает, что saving throws сейчас частично реализованы и сильно зависят от частных feature-веток;
+  - без общего save truth невозможно нормально закрыть conditions, class saving throws и spellcasting DC logic.
+- Что именно изменить:
+  - ввести общий save contract: базовый ability mod, optional proficiency, optional advantage/disadvantage markers;
+  - описать и реализовать базовый pipeline, который принимает generic save context и уже поверх него применяет feature-specific modifiers;
+  - оставить текущие race-specific эффекты, но перевести их на входы нового generic слоя;
+  - зафиксировать это тестами на чистые save cases и на отсутствие behavioral drift в существующих race-specific сценариях.
+- Какие файлы почти наверняка будут затронуты:
+  - `app/web/ws_handlers.py`
+  - `app/web/ws_checks.py`
+  - новый общий rules/helper module
+  - `app/rules/character_catalog.py`
+  - tests в `app/rules/` и `app/web/`
+- Что НЕ трогать:
+  - class spellcasting;
+  - combat action economy;
+  - inventory/equipment;
+  - world/exploration.
+- Проверки после выполнения:
+  - `python -m py_compile $(rg --files -g '*.py')`
+  - `pytest -q`
+  - отдельно `app/combat/test_shared_save_advantage_pipeline.py`
+  - отдельно все tests на brave / fey ancestry / gnome cunning / kalashtar / dwarven resilience.
+- Ожидаемый результат:
+  - generic save/proficiency truth существует как отдельный контракт;
+  - race-specific save logic становится надстройкой, а не основой.
+
+### Task 03. Собрать shared condition contract
+- Цель:
+  - ввести единый минимальный контракт для PHB conditions, вместо разрозненных runtime-кусочков.
+- Почему это первый приоритет:
+  - `poisoned`, `frightened`, `grappled` и другие состояния уже встречаются в коде, но нет единого центра правил;
+  - без этого дальше нельзя безопасно расширять saves, combat truth и spellcasting.
+- Что именно изменить:
+  - описать минимальную структуру condition payload, пригодную для `combat state` и `race_features.runtime`;
+  - зафиксировать базовые операции: apply, clear, inspect, merge-safe cleanup;
+  - не пытаться сразу реализовать все PHB conditions, но создать общую модель хотя бы для уже используемых;
+  - перевести текущие boundary tests и helper-ы на единый shared contract.
+- Какие файлы почти наверняка будут затронуты:
+  - `app/combat/state.py`
+  - `app/combat/live_actions.py`
+  - новый shared conditions module
+  - tests в `app/combat/test_shared_*condition*`
+- Что НЕ трогать:
+  - new combat features;
+  - spellcasting;
+  - UI payload polish;
+  - story/GM text.
+- Проверки после выполнения:
+  - `python -m py_compile $(rg --files -g '*.py')`
+  - `pytest -q`
+  - отдельно condition boundary tests.
+- Ожидаемый результат:
+  - уже используемые состояния опираются на общий формат и cleanup rules;
+  - последующие combat/core задачи не размножают ad hoc condition payloads.
+
+### Task 04. Добавить class saving throw proficiency layer
+- Цель:
+  - сделать class saving throw proficiencies реальной частью player-core, а не отсутствующим PHB-пробелом.
+- Почему это первый приоритет:
+  - в class catalog уже есть `saving_throws`, но матрица показывает, что общей рабочей модели нет;
+  - это зависимость для generic saves, progression и spellcasting.
+- Что именно изменить:
+  - считать class saving throw proficiencies из `character_catalog` или другого единого источника;
+  - внедрить их в общий save total pipeline;
+  - покрыть fighter/barbarian/rogue и fallback cases regression tests;
+  - не менять class feature runtime beyond saving throws.
+- Какие файлы почти наверняка будут затронуты:
+  - `app/rules/character_catalog.py`
+  - новый/обновлённый player-core module
+  - `app/web/ws_handlers.py`
+  - tests в `app/rules/` и `app/web/`
+- Что НЕ трогать:
+  - subclass logic;
+  - level-up flow;
+  - equipment;
+  - exploration/session state.
+- Проверки после выполнения:
+  - `python -m py_compile $(rg --files -g '*.py')`
+  - `pytest -q`
+  - targeted tests на class save proficiency.
+- Ожидаемый результат:
+  - saving throw proficiency больше не является неявным пробелом;
+  - class data начинает реально участвовать в механике.
+
+### Task 05. Почистить дублированные расчёты в ws_checks / ws_handlers
+- Цель:
+  - свести web-layer к использованию общего player-core вместо локальных формул.
+- Почему это первый приоритет:
+  - даже после введения общего truth слоя риск расхождения останется, если web-модули продолжат считать сами;
+  - это прямой способ зафиксировать новую архитектурную границу.
+- Что именно изменить:
+  - найти и заменить локальные расчёты модификаторов, proficiency и save bonuses в `ws_checks.py` и `ws_handlers.py`;
+  - оставить только orchestration и formatting в web-слое;
+  - не менять пользовательские тексты и command wording, если это не требуется для прохождения тестов;
+  - добавить regression tests, доказывающие, что web-слой использует общий contract.
+- Какие файлы почти наверняка будут затронуты:
+  - `app/web/ws_checks.py`
+  - `app/web/ws_handlers.py`
+  - новый/обновлённый player-core module
+  - `app/web/test_ws_checks_proficiency.py`
+  - другие tests вокруг checks/saves.
+- Что НЕ трогать:
+  - chat command wording;
+  - region/exploration commands;
+  - session templates;
+  - combat UI patch format.
+- Проверки после выполнения:
+  - `python -m py_compile $(rg --files -g '*.py')`
+  - `pytest -q`
+  - targeted tests для `ws_checks`, save commands и skill checks.
+- Ожидаемый результат:
+  - web-слой больше не несёт собственную rule math;
+  - поведение checks/saves определяется общим truth-layer.
+
+### Task 06. Расширить class progression skeleton для всех PHB-классов
+- Цель:
+  - убрать текущую диспропорцию, где один класс описан заметно глубже, а остальные остаются заглушками.
+- Почему это высокий приоритет:
+  - progression и class-specific mechanics нельзя строить на пустом каталоге;
+  - это прямая зависимость для level-up и spellcasting core.
+- Что именно изменить:
+  - заполнить минимальный `features_by_level`, `saving_throws`, `primary_abilities`, `proficiencies` для всех PHB классов;
+  - не внедрять сразу всю runtime-логику этих feature-ов;
+  - отдельно пометить места, где данные всё ещё placeholder.
+- Какие файлы почти наверняка будут затронуты:
+  - `app/rules/character_catalog.py`
+  - tests в `app/rules/test_character_catalog.py` и рядом.
+- Что НЕ трогать:
+  - runtime feature execution;
+  - spell slot engine;
+  - UI.
+- Проверки после выполнения:
+  - `python -m py_compile $(rg --files -g '*.py')`
+  - `pytest -q`
+- Ожидаемый результат:
+  - class catalog становится пригодной базой для следующих progression/spellcasting задач.
+
+### Task 07. Развести project XP model и PHB progression truth
+- Цель:
+  - явно отделить текущую проектную XP-кривую от PHB progression contracts.
+- Почему это высокий приоритет:
+  - матрица уже фиксирует расхождение;
+  - без ясной границы level progression будет оставаться неоднозначным.
+- Что именно изменить:
+  - ввести явный contract/комментарии/обёртки вокруг project XP calculations в `server_impl.py`;
+  - отделить PHB-related helpers от project progression helpers;
+  - покрыть tests, фиксирующие ожидаемую роль каждой модели.
+- Какие файлы почти наверняка будут затронуты:
+  - `app/web/server_impl.py`
+  - `app/rules/phb_progression.py`
+  - tests around level progress payload.
+- Что НЕ трогать:
+  - actual XP economy balance;
+  - combat rewards logic, если не нужно для tests.
+- Проверки после выполнения:
+  - `python -m py_compile $(rg --files -g '*.py')`
+  - `pytest -q`
+- Ожидаемый результат:
+  - проектная progression-модель перестаёт маскироваться под PHB truth.
+
+### Task 08. Вынести action economy policy в отдельный модуль
+- Цель:
+  - сделать расход `action / bonus action / reaction / movement` явным и тестируемым.
+- Почему это высокий приоритет:
+  - action economy сейчас частично рассыпана по `live_actions` и feature-specific tests;
+  - это базовая зависимость для combat-core и spellcasting-core.
+- Что именно изменить:
+  - создать общий policy module для боевых затрат действий;
+  - перевести live actions на этот policy layer без изменения продуктового поведения;
+  - зафиксировать policy matrix tests.
+- Какие файлы почти наверняка будут затронуты:
+  - `app/combat/live_actions.py`
+  - `app/combat/state.py`
+  - новый module в `app/combat/`
+  - action-economy tests.
+- Что НЕ трогать:
+  - region/world logic;
+  - inventory normalization;
+  - GM orchestration.
+- Проверки после выполнения:
+  - `python -m py_compile $(rg --files -g '*.py')`
+  - `pytest -q`
+- Ожидаемый результат:
+  - combat actions опираются на единый policy contract, а не на локальные расходящиеся guards.
+
+### Task 09. Убрать hardcoded combat attack defaults
+- Цель:
+  - опереться на `compute_attack_profile` там, где это уже возможно, и сократить MVP-обходы.
+- Почему это высокий приоритет:
+  - `COMBAT_MAP` прямо указывает на hardcoded числа как на технический долг;
+  - это прямой шаг к combat truth.
+- Что именно изменить:
+  - найти места с захардкоженными attack/damage defaults;
+  - заменить их на derived stats path для PC и supported weapon setups;
+  - покрыть melee/ranged/finesse/natural weapon regression tests.
+- Какие файлы почти наверняка будут затронуты:
+  - `app/combat/live_actions.py`
+  - `app/rules/derived_stats.py`
+  - `app/web/combat_bridge.py` или `app/combat/sync_pcs.py` по необходимости
+  - combat tests.
+- Что НЕ трогать:
+  - new weapons outside minimal supported catalog;
+  - unrelated narration code.
+- Проверки после выполнения:
+  - `python -m py_compile $(rg --files -g '*.py')`
+  - `pytest -q`
+- Ожидаемый результат:
+  - боевая математика персонажа идёт из derived truth, а не из временных констант.
+
+### Task 10. Ввести минимальный class spellcasting contract
+- Цель:
+  - начать строить class spellcasting как отдельный core-layer, а не расширять innate-only flow.
+- Почему это высокий приоритет:
+  - spellcasting — один из главных пробелов матрицы;
+  - без контракта нельзя безопасно двигаться к slots/prepared/known spells.
+- Что именно изменить:
+  - ввести минимальную data model для class spellcasting;
+  - описать `spellcasting ability`, базовые spell slots placeholders, known/prepared mode;
+  - не запускать сразу полный runtime cast engine.
+- Какие файлы почти наверняка будут затронуты:
+  - `app/rules/character_catalog.py`
+  - новый rules module для spellcasting core
+  - tests в `app/rules/`
+- Что НЕ трогать:
+  - full spell list support;
+  - UI spellbook;
+  - innate spellcasting behavior, кроме совместимости.
+- Проверки после выполнения:
+  - `python -m py_compile $(rg --files -g '*.py')`
+  - `pytest -q`
+- Ожидаемый результат:
+  - spellcasting core получает минимальный общий каркас.
+
+### Task 11. Расширить item catalog до минимального PHB-core набора
+- Цель:
+  - довести catalog weapons/armor/shields до уровня, достаточного для derived stats и combat regression tests.
+- Почему это следующий приоритет:
+  - без предметного PHB-core невозможно стабильно расширять combat/equipment truth.
+- Что именно изменить:
+  - добавить минимальный PHB набор часто используемых weapons/armor/shields;
+  - заполнить свойства, нужные для текущего derived/combat слоя;
+  - расширить tests на compute_ac и compute_attack_profile.
+- Какие файлы почти наверняка будут затронуты:
+  - `app/rules/item_catalog.py`
+  - `docs/EQUIPMENT_SPEC.md` при необходимости синхронизации
+  - tests in `app/rules/`
+- Что НЕ трогать:
+  - weight/cost/economy;
+  - full shop/loot systems.
+- Проверки после выполнения:
+  - `python -m py_compile $(rg --files -g '*.py')`
+  - `pytest -q`
+- Ожидаемый результат:
+  - derived/combat layers перестают упираться в слишком узкий каталог.
+
+### Task 12. Подготовить exploration integration contract для player-core
+- Цель:
+  - определить, как player-core truth используется в exploration/session flows без дублирования логики в web-командах.
+- Почему это в первой дюжине:
+  - exploration — следующий слой после stabilizing player/combat core;
+  - лучше заранее зафиксировать contract, чем потом встраивать rules хаотично.
+- Что именно изменить:
+  - описать и минимально реализовать точки интеграции rest, movement intent, inventory use и player state с session/exploration layers;
+  - не менять authored map content;
+  - добавить integration tests там, где уже есть безопасный entrypoint.
+- Какие файлы почти наверняка будут затронуты:
+  - `app/web/session_state.py`
+  - `app/web/ws_handlers.py`
+  - `app/rules/move_intents.py`
+  - `app/web/test_*journey*` / `test_map_*`
+- Что НЕ трогать:
+  - region summary wording;
+  - authored map registry content;
+  - UI polish beyond needed payload alignment.
+- Проверки после выполнения:
+  - `python -m py_compile $(rg --files -g '*.py')`
+  - `pytest -q`
+- Ожидаемый результат:
+  - exploration начинает использовать уже выстроенный player-core, а не живёт отдельно от него.
