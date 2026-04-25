@@ -2536,7 +2536,7 @@ def _handle_group_action_request(
         primary_focus_local = int(primary_focus.get("unresolved_local_node_count") or 0)
 
         parts = [
-            f"Обзор известных регионов группы {actor_group_key}: "
+            f"Обзор известных регионов: "
             f"всего открытых регионов — {discovered_count}."
         ]
         parts.append(f"Сейчас группа находится в регионе {current_region_label}.")

@@ -1752,7 +1752,7 @@ def test_handle_group_region_world_and_focus_surfaces() -> None:
     )
     assert handled_world is True
     assert err_world is None
-    assert "Обзор известных регионов группы main" in str(msg_world)
+    assert "Обзор известных регионов:" in str(msg_world)
     assert "открытых регионов" in str(msg_world)
 
     handled_focus, err_focus, msg_focus = ws_handlers._handle_group_action_request(
