@@ -22,7 +22,6 @@ from app.combat.state import (
 )
 from app.rules.derived_stats import compute_attack_profile, parse_dice
 from app.rules.player_core import ability_modifier_from_stat100, proficiency_bonus_for_level
-from app.rules.phb_math import ability_mod_from_stat100, proficiency_bonus
 from app.rules.item_catalog import ITEMS
 from app.web.check_engine import roll_check
 
@@ -380,7 +379,7 @@ def _maybe_apply_built_for_success(actor: Any, d20_roll: int, lines: list[dict[s
     if not bool(runtime.get("built_for_success_armed")):
         return roll_out
     level = max(1, int(getattr(actor, "level", 1) or 1))
-    uses_max = max(1, int(proficiency_bonus(level)))
+    uses_max = proficiency_bonus_for_level(level)
     used = max(0, int(runtime.get("built_for_success_used") or 0))
     if used >= uses_max:
         runtime["built_for_success_armed"] = False
@@ -3322,8 +3321,7 @@ def handle_live_combat_action(
         _, _, roll = roll_check("normal")
         bfs_lines: list[dict[str, Any]] = []
         roll = _maybe_apply_built_for_success(attacker, roll, bfs_lines)
-        dex = attacker.stats.get("dex", 50) if isinstance(attacker.stats, dict) else 50
-        dex_mod = ability_mod_from_stat100(dex)
+        dex_mod = _actor_ability_mod(attacker, "dex")
         dc = 13
         total = roll + dex_mod
         success = total >= dc
