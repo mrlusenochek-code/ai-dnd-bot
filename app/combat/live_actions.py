@@ -21,6 +21,7 @@ from app.combat.state import (
     get_combat,
 )
 from app.rules.derived_stats import compute_attack_profile, parse_dice
+from app.rules.player_core import ability_modifier_from_stat100, proficiency_bonus_for_level
 from app.rules.phb_math import ability_mod_from_stat100, proficiency_bonus
 from app.rules.item_catalog import ITEMS
 from app.web.check_engine import roll_check
@@ -705,7 +706,7 @@ def _actor_current_speed_ft(actor: Any) -> int:
 
 def _proficiency_bonus_for_actor(actor: Any) -> int:
     level = max(1, int(getattr(actor, "level", 1) or 1))
-    return max(2, int(proficiency_bonus(level)))
+    return max(2, int(proficiency_bonus_for_level(level)))
 
 
 def _set_poisoned_condition(actor: Any, *, save_dc: int, rounds: int, source: str) -> bool:
@@ -779,7 +780,7 @@ def _consume_grung_weapon_poison_on_hit(
     dc = max(1, int(weapon_poison.get("save_dc") or 12))
     target_stats = target.stats if isinstance(getattr(target, "stats", None), dict) else {}
     con_stat = int(target_stats.get("con", 50)) if isinstance(target_stats.get("con"), int) else 50
-    con_mod = ability_mod_from_stat100(con_stat)
+    con_mod = _actor_ability_mod(target, "con")
     save_roll = random.randint(1, 20)
     save_total = save_roll + con_mod
     save_success = save_total >= dc
@@ -841,7 +842,7 @@ def _maybe_apply_grung_contact_poison_on_melee_hit(
         return
     attacker_stats = attacker.stats if isinstance(getattr(attacker, "stats", None), dict) else {}
     con_stat = int(attacker_stats.get("con", 50)) if isinstance(attacker_stats.get("con"), int) else 50
-    con_mod = ability_mod_from_stat100(con_stat)
+    con_mod = _actor_ability_mod(attacker, "con")
     save_roll = random.randint(1, 20)
     save_total = save_roll + con_mod
     save_success = save_total >= dc
@@ -1067,7 +1068,7 @@ def _actor_ability_mod(actor: Any, ability_key: str) -> int:
     stats = getattr(actor, "stats", None)
     stats_dict = stats if isinstance(stats, dict) else {}
     score = int(stats_dict.get(key, 50)) if isinstance(stats_dict.get(key), int) else 50
-    return ability_mod_from_stat100(score)
+    return ability_modifier_from_stat100(score)
 
 
 def _can_offer_saving_face(actor: Any) -> bool:
