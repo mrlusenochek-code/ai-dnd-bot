@@ -41,6 +41,7 @@ from app.rules.enemy_catalog_data import get_enemy
 from app.rules.equipment_slots import EquipmentSlot, EQUIPMENT_SLOT_ORDER, slot_label_ru
 from app.rules.item_catalog import ITEMS
 from app.rules.items import ItemDef, is_equipable, can_equip_to_slot
+from app.rules.player_core import total_skill_bonus
 from app.web.dice import parse_dice, roll_dice
 from app.web.machine_extract import _trim_for_log, _extract_inventory_machine_commands, _extract_machine_commands
 from app.web.machine_lines import (
@@ -1424,6 +1425,16 @@ def _compute_check_mod(
     name = _normalize_check_name(check.get("name"))
     skill_mods = skill_mods_by_char.get(character.id, {})
 
+    def _skill_total_for_name(skill_name: str) -> int:
+        ability_key = SKILL_TO_ABILITY.get(skill_name)
+        ability_mod = _ability_mod_from_stats(character.stats, ability_key) if ability_key else 0
+        skill_bonus = int(skill_mods.get(skill_name, 0))
+        return total_skill_bonus(
+            ability_mod=ability_mod,
+            proficient=skill_bonus > 0,
+            proficiency=skill_bonus,
+        )
+
     if "|" in name:
         candidates = [x.strip() for x in name.split("|") if x.strip()]
         if not candidates:
@@ -1438,10 +1449,7 @@ def _compute_check_mod(
                 else:
                     candidate_mods.append(0)
                 continue
-            ability_key = SKILL_TO_ABILITY.get(candidate)
-            ability_mod = _ability_mod_from_stats(character.stats, ability_key) if ability_key else 0
-            skill_bonus = int(skill_mods.get(candidate, 0))
-            candidate_mods.append(ability_mod + skill_bonus)
+            candidate_mods.append(_skill_total_for_name(candidate))
         return max(candidate_mods) if candidate_mods else 0
 
     kind = _check_kind_for_name(check.get("kind"), name)
@@ -1451,10 +1459,7 @@ def _compute_check_mod(
             return 0
         return _ability_mod_from_stats(character.stats, stat_key)
 
-    ability_key = SKILL_TO_ABILITY.get(name)
-    ability_mod = _ability_mod_from_stats(character.stats, ability_key) if ability_key else 0
-    skill_bonus = int(skill_mods.get(name, 0))
-    return ability_mod + skill_bonus
+    return _skill_total_for_name(name)
 
 
 def _build_check_result(check: dict[str, Any], mod: int, roll_a: int, roll_b: Optional[int], roll: int) -> dict[str, Any]:
