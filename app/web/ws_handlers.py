@@ -2403,9 +2403,11 @@ def _handle_group_action_request(
             group_id=actor_group_key,
         )
         if not current_region and not last_entry:
-            return True, None, f"У группы {actor_group_key} пока нет region residency истории."
+            return True, None, "Пока не удалось определить текущее положение группы."
+
         group = _get_group_states(sess).get(actor_group_key)
         current_map_position = group.get("current_map_position") if isinstance(group, dict) else None
+
         place_label = ""
         place_detail = ""
         if isinstance(current_map_position, dict):
@@ -2421,21 +2423,22 @@ def _handle_group_action_request(
                 if map_level:
                     place_detail_parts.append(f"уровень: {map_level}")
                 place_detail = f" ({', '.join(place_detail_parts)})"
+
         region_label = str((current_region or last_entry or {}).get("region_label") or "регион").strip()
         entry_type = str((last_entry or {}).get("result_type") or "").strip().lower()
 
         if entry_type == "first_region_entry":
-            entry_note = "Это первый вход группы в этот регион."
+            entry_note = "Это первое появление группы в этих землях."
         elif entry_type == "return_region_entry":
-            entry_note = "Группа уже бывала в этом регионе и быстро узнаёт знакомую землю."
+            entry_note = "Группа уже бывала здесь и узнаёт знакомую местность."
         elif entry_type == "region_transition_entry":
-            entry_note = "Группа только что перешла сюда из соседнего региона."
+            entry_note = "Группа только что вошла сюда из соседнего региона."
         else:
             entry_note = str((last_entry or {}).get("result_summary") or (last_entry or {}).get("summary") or "").strip()
 
         summary_parts = [
-            f"Текущее место группы {actor_group_key}: {place_label}{place_detail}." if place_label else "",
-            f"Текущий регион: {region_label}.",
+            f"Сейчас группа находится в точке {place_label}{place_detail}." if place_label else "",
+            f"Текущий регион — {region_label}.",
             entry_note,
         ]
         return True, None, " ".join(part for part in summary_parts if part).strip()

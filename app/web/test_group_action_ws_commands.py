@@ -1606,11 +1606,12 @@ def test_handle_group_region_status_and_discovered_regions_surface() -> None:
     )
     assert handled_here is True
     assert err_here is None
-    assert "Текущее место группы main: Ворота крепости" in str(msg_here)
+    assert "Сейчас группа находится в точке Ворота крепости" in str(msg_here)
     assert "тип точки: landmark" in str(msg_here)
     assert "уровень: landmark" in str(msg_here)
-    assert "Текущий регион:" in str(msg_here)
+    assert "Текущий регион —" in str(msg_here)
     assert "Стартовое пограничье" in str(msg_here)
+    assert "Это первое появление группы в этих землях." in str(msg_here)
 
     handled_regions, err_regions, msg_regions = ws_handlers._handle_group_action_request(
         empty_sess,
