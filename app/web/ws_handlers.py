@@ -2339,11 +2339,16 @@ def _handle_group_action_request(
         region_label = str(summary.get("region_label") or "регион").strip()
         summary_text = str(summary.get("summary") or "").strip()
         frontier_text = str((frontier or {}).get("summary") or "").strip()
+        primary_lead = dict(summary.get("current_primary_lead") or {}) if isinstance(summary.get("current_primary_lead"), dict) else {}
         primary_frontier = dict(summary.get("current_primary_frontier") or {}) if isinstance(summary.get("current_primary_frontier"), dict) else {}
-        primary_frontier_label = str(
+
+        next_step_label = str(
+            primary_lead.get("target_node_label")
+            or
             primary_frontier.get("target_node_label")
             or primary_frontier.get("gateway_label")
             or primary_frontier.get("label")
+            or primary_lead.get("title")
             or ""
         ).strip()
 
@@ -2352,8 +2357,8 @@ def _handle_group_action_request(
             parts.append(summary_text)
         if frontier_text and frontier_text != summary_text:
             parts.append(frontier_text)
-        if primary_frontier_label:
-            parts.append(f"Сейчас самый заметный следующий ход — {primary_frontier_label}.")
+        if next_step_label:
+            parts.append(f"Сейчас самый заметный следующий ход — {next_step_label}.")
 
         return True, None, " ".join(parts).strip()
 
@@ -2417,7 +2422,16 @@ def _handle_group_action_request(
                     place_detail_parts.append(f"уровень: {map_level}")
                 place_detail = f" ({', '.join(place_detail_parts)})"
         region_label = str((current_region or last_entry or {}).get("region_label") or "регион").strip()
-        entry_note = str((last_entry or {}).get("result_summary") or (last_entry or {}).get("summary") or "").strip()
+        entry_type = str((last_entry or {}).get("result_type") or "").strip().lower()
+
+        if entry_type == "first_region_entry":
+            entry_note = "Это первый вход группы в этот регион."
+        elif entry_type == "return_region_entry":
+            entry_note = "Группа уже бывала в этом регионе и быстро узнаёт знакомую землю."
+        elif entry_type == "region_transition_entry":
+            entry_note = "Группа только что перешла сюда из соседнего региона."
+        else:
+            entry_note = str((last_entry or {}).get("result_summary") or (last_entry or {}).get("summary") or "").strip()
 
         summary_parts = [
             f"Текущее место группы {actor_group_key}: {place_label}{place_detail}." if place_label else "",
@@ -2865,7 +2879,7 @@ def _handle_group_action_request(
         ) or leads[0]
         primary_title = str(primary.get("title") or "Новая зацепка").strip()
         if len(leads) == 1:
-            return True, None, f"Сейчас у группы есть 1 явная зацепка. Главная: {primary_title}."
+            return True, None, f"Сейчас перед группой 1 явная зацепка для дальнейшего пути. Главная: {primary_title}."
         return True, None, f"Сейчас перед группой {len(leads)} зацепок для дальнейшего пути. Главная: {primary_title}."
 
     if action == "group_journey_status":
@@ -2941,10 +2955,13 @@ def _handle_group_action_request(
             player_id=actor_player_id,
             group_id=actor_group_key,
         )
+        if not planning:
+            return True, None, "Сейчас для группы не видно надёжных маршрутов дальше."
+
         reachable = list(planning.get("reachable_destinations") or [])
         frontiers = list(planning.get("route_frontiers") or [])
         if not reachable and not frontiers:
-            return True, None, "Сейчас для группы не видно надёжных направлений дальнейшего пути."
+            return True, None, "Сейчас для группы не видно надёжных маршрутов дальше."
         if not frontiers:
             return True, None, f"Из текущего места группе открыто {len(reachable)} достижимых точек."
         if not reachable:
