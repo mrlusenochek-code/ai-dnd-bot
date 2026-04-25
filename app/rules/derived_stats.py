@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import Any
-from app.rules.phb_math import ability_mod_from_stat100, proficiency_bonus
+from app.rules.player_core import ability_modifier_from_stat100, proficiency_bonus_for_level
 from app.rules.equipment_slots import EquipmentSlot
 from app.rules.item_catalog import ITEMS
 from app.rules.items import ArmorCategory, ItemDef
@@ -170,13 +170,13 @@ def compute_attack_profile(
     int_stat = _safe_int(stats.get("int", 50), 50) if isinstance(stats, dict) else 50
     wis_stat = _safe_int(stats.get("wis", 50), 50) if isinstance(stats, dict) else 50
     cha_stat = _safe_int(stats.get("cha", 50), 50) if isinstance(stats, dict) else 50
-    str_mod = ability_mod_from_stat100(str_stat)
-    dex_mod = ability_mod_from_stat100(dex_stat)
-    con_mod = ability_mod_from_stat100(con_stat)
-    int_mod = ability_mod_from_stat100(int_stat)
-    wis_mod = ability_mod_from_stat100(wis_stat)
-    cha_mod = ability_mod_from_stat100(cha_stat)
-    prof = proficiency_bonus(level or 1)
+    str_mod = ability_modifier_from_stat100(str_stat)
+    dex_mod = ability_modifier_from_stat100(dex_stat)
+    con_mod = ability_modifier_from_stat100(con_stat)
+    int_mod = ability_modifier_from_stat100(int_stat)
+    wis_mod = ability_modifier_from_stat100(wis_stat)
+    cha_mod = ability_modifier_from_stat100(cha_stat)
+    prof = proficiency_bonus_for_level(level or 1)
 
     by_id: dict[str, dict[str, Any]] = {}
     for entry in inventory if isinstance(inventory, list) else []:
@@ -263,7 +263,7 @@ def compute_attack_profile(
 
 def compute_ac(*, stats: dict, inventory: list[dict], equip_map: dict[str, str], race_features: dict | None = None) -> int:
     dex = _safe_int(stats.get("dex", 50), 50) if isinstance(stats, dict) else 50
-    dex_mod = ability_mod_from_stat100(dex)
+    dex_mod = ability_modifier_from_stat100(dex)
     ac = 10 + dex_mod
     # Natural armor from race (stored in Character.race_features)
     nat = (race_features or {}).get("natural_armor") if isinstance(race_features, dict) else None
@@ -287,7 +287,7 @@ def compute_ac(*, stats: dict, inventory: list[dict], equip_map: dict[str, str],
                 nat_ac_base = 12 + dex_mod
             elif formula in ("12+con_mod", "12+conmod"):
                 con = _safe_int(stats.get("con", 50), 50) if isinstance(stats, dict) else 50
-                con_mod = ability_mod_from_stat100(con)
+                con_mod = ability_modifier_from_stat100(con)
                 nat_ac_base = 12 + con_mod
 
     by_id: dict[str, dict[str, Any]] = {}
