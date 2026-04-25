@@ -2929,10 +2929,21 @@ def _handle_group_action_request(
             player_id=actor_player_id,
             group_id=actor_group_key,
         ) or leads[0]
+
         primary_title = str(primary.get("title") or "Новая зацепка").strip()
+        for prefix in (
+            "Зацепка: ",
+            "Активный путь: ",
+            "Непосещённая точка: ",
+            "Неразведанная ветка: ",
+        ):
+            if primary_title.startswith(prefix):
+                primary_title = primary_title[len(prefix):].strip()
+                break
+
         if len(leads) == 1:
-            return True, None, f"Сейчас перед группой 1 явная зацепка для дальнейшего пути. Главная: {primary_title}."
-        return True, None, f"Сейчас перед группой {len(leads)} зацепок для дальнейшего пути. Главная: {primary_title}."
+            return True, None, f"Сейчас у группы есть одна заметная зацепка: {primary_title}."
+        return True, None, f"Сейчас у группы есть несколько заметных зацепок. Самая явная — {primary_title}."
 
     if action == "group_journey_status":
         if not actor_group_key:
@@ -3012,15 +3023,31 @@ def _handle_group_action_request(
 
         reachable = list(planning.get("reachable_destinations") or [])
         frontiers = list(planning.get("route_frontiers") or [])
+
+        def _ru_count(value: int, forms: tuple[str, str, str]) -> str:
+            n = abs(int(value))
+            n10 = n % 10
+            n100 = n % 100
+            if 11 <= n100 <= 14:
+                form = forms[2]
+            elif n10 == 1:
+                form = forms[0]
+            elif 2 <= n10 <= 4:
+                form = forms[1]
+            else:
+                form = forms[2]
+            return f"{n} {form}"
+
         if not reachable and not frontiers:
             return True, None, "Сейчас для группы не видно надёжных маршрутов дальше."
         if not frontiers:
-            return True, None, f"Из текущего места группе открыто {len(reachable)} достижимых точек."
+            return True, None, f"Отсюда группе видны {_ru_count(len(reachable), ('место', 'места', 'мест'))}, куда можно двинуться прямо сейчас."
         if not reachable:
-            return True, None, f"Из текущего места группе видно {len(frontiers)} веток дальнейшего пути, но без уже готовых достижимых точек."
+            return True, None, f"Отсюда группе видны {_ru_count(len(frontiers), ('неразведанное направление', 'неразведанных направления', 'неразведанных направлений'))} дальше."
         return True, None, (
-            f"Из текущего места группе открыто {len(reachable)} достижимых точек "
-            f"и {len(frontiers)} веток дальнейшего пути."
+            f"Отсюда группе видны {_ru_count(len(reachable), ('место', 'места', 'мест'))}, "
+            f"куда можно двинуться прямо сейчас, и "
+            f"{_ru_count(len(frontiers), ('неразведанное направление', 'неразведанных направления', 'неразведанных направлений'))} дальше."
         )
 
     if action == "group_route_plan_to":

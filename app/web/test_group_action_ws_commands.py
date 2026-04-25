@@ -1111,8 +1111,9 @@ def test_handle_group_route_planning_and_target_lookup_return_clean_summaries() 
 
     assert handled_routes is True
     assert err_routes is None
-    assert "Из текущего места группе открыто" in str(msg_routes)
-    assert "веток дальнейшего пути" in str(msg_routes)
+    assert "Отсюда группе видны" in str(msg_routes)
+    assert "куда можно двинуться прямо сейчас" in str(msg_routes)
+    assert "неразведанн" in str(msg_routes)
     assert handled_reachable is True
     assert err_reachable is None
     assert "Путь к Дорожный хутор открыт:" in str(msg_reachable)
@@ -1167,8 +1168,8 @@ def test_handle_group_exploration_leads_returns_empty_and_primary_summary() -> N
 
     assert handled_filled is True
     assert err_filled is None
-    assert "Сейчас перед группой" in str(msg_filled)
-    assert "Главная: Активный путь: Ворота крепости." in str(msg_filled)
+    assert "Сейчас у группы есть несколько заметных зацепок." in str(msg_filled)
+    assert "Ворота крепости" in str(msg_filled)
 
 
 def test_handle_group_node_progress_returns_quiet_and_active_summaries() -> None:
