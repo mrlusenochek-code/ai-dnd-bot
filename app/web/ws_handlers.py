@@ -2472,19 +2472,68 @@ def _handle_group_action_request(
         if not overview:
             return True, None, f"У группы {actor_group_key} пока слишком мало discovered-region данных для world overview."
 
-        overview_text = str(overview.get("summary") or "").strip()
+        def _ru_count(value: int, forms: tuple[str, str, str]) -> str:
+            n = abs(int(value))
+            n10 = n % 10
+            n100 = n % 100
+            if 11 <= n100 <= 14:
+                form = forms[2]
+            elif n10 == 1:
+                form = forms[0]
+            elif 2 <= n10 <= 4:
+                form = forms[1]
+            else:
+                form = forms[2]
+            return f"{n} {form}"
+
+        discovered_count = int(overview.get("discovered_region_count") or 0)
+        active_count = int(overview.get("active_region_count") or 0)
+        blocked_count = int(overview.get("blocked_region_count") or 0)
+        saturated_count = int(overview.get("saturated_region_count") or 0)
+        quiet_count = int(overview.get("quiet_region_count") or 0)
+
         current_region_label = str(overview.get("current_region_label") or "регион").strip()
         primary_focus = dict(overview.get("primary_region_focus") or {}) if isinstance(overview.get("primary_region_focus"), dict) else {}
         primary_focus_label = str(primary_focus.get("region_label") or "").strip()
-        primary_focus_summary = str(primary_focus.get("summary") or "").strip()
+        primary_focus_status = str(primary_focus.get("region_status") or "").strip().lower()
+        primary_focus_reachable = int(primary_focus.get("reachable_unvisited_count") or 0)
+        primary_focus_blocked = int(primary_focus.get("blocked_frontier_count") or 0)
+        primary_focus_local = int(primary_focus.get("unresolved_local_node_count") or 0)
 
-        parts = [f"Обзор известных регионов группы {actor_group_key}: {overview_text}"]
+        parts = [
+            f"Обзор известных регионов группы {actor_group_key}: "
+            f"всего открытых регионов — {discovered_count}."
+        ]
         parts.append(f"Сейчас группа находится в регионе {current_region_label}.")
+        parts.append(
+            "По общей карте видно: "
+            f"{_ru_count(active_count, ('активное направление', 'активных направления', 'активных направлений'))}, "
+            f"{_ru_count(blocked_count, ('упёршийся в преграду регион', 'упёршихся в преграду региона', 'упёршихся в преграду регионов'))}, "
+            f"{_ru_count(saturated_count, ('почти выработанный регион', 'почти выработанных региона', 'почти выработанных регионов'))} "
+            f"и {_ru_count(quiet_count, ('тихий регион', 'тихих региона', 'тихих регионов'))}."
+        )
+
         if primary_focus_label:
-            focus_line = f"Главный текущий вектор — {primary_focus_label}."
-            if primary_focus_summary:
-                focus_line += f" {primary_focus_summary}"
-            parts.append(focus_line)
+            if primary_focus_status == "newly_onboarded_region":
+                parts.append(
+                    f"Сейчас больше всего внимания просит {primary_focus_label}: "
+                    "это свежо открытая область, где группе уже известны вход и ближайшие надёжные пути."
+                )
+            elif primary_focus_status in {"current_blocked_region", "blocked_region"}:
+                parts.append(
+                    f"Сейчас больше всего внимания просит {primary_focus_label}: "
+                    f"дальнейший ход там упирается в "
+                    f"{_ru_count(primary_focus_blocked, ('блокирующую ветку', 'блокирующие ветки', 'блокирующих веток'))}."
+                )
+            elif primary_focus_status in {"current_active_region", "active_region"}:
+                parts.append(
+                    f"Сейчас больше всего внимания просит {primary_focus_label}: "
+                    f"там ещё остаются "
+                    f"{_ru_count(primary_focus_reachable, ('заметная цель', 'заметные цели', 'заметных целей'))} "
+                    f"и {_ru_count(primary_focus_local, ('незавершённая местная зацепка', 'незавершённые местные зацепки', 'незавершённых местных зацепок'))}."
+                )
+            else:
+                parts.append(f"Главный текущий вектор — {primary_focus_label}.")
 
         return True, None, " ".join(part for part in parts if part).strip()
 
