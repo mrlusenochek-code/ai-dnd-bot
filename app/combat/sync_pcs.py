@@ -4,7 +4,7 @@ from typing import Any
 
 from app.combat.state import upsert_pc
 from app.rules.derived_stats import compute_ac, effective_walk_speed_ft, fly_speed_available_by_armor
-from app.rules.phb_math import ability_mod_from_stat100
+from app.rules.player_core import ability_modifier_from_stat100
 
 
 def _safe_int(value: Any, default: int) -> int:
@@ -64,7 +64,7 @@ def sync_pcs_from_chars(session_id: str, chars_by_uid: dict[int, Any]) -> None:
             )
         else:
             dex = dex_default
-            ac = 10 + ability_mod_from_stat100(dex)
+            ac = 10 + ability_modifier_from_stat100(dex)
 
         shifter_runtime = runtime if isinstance(runtime, dict) else {}
         ac += max(0, _safe_int(shifter_runtime.get("shifting_ac_bonus_active"), 0))
