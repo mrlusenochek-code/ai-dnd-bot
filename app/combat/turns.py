@@ -4,7 +4,7 @@ import random
 
 from app.combat.shifter_runtime import clear_shifter_shift_runtime
 from app.combat.state import CombatState, Combatant
-from app.rules.phb_math import ability_mod_from_stat100
+from app.rules.player_core import ability_modifier_from_stat100
 
 
 def _copy_combatant_runtime(combatant: Combatant) -> tuple[dict, dict]:
@@ -78,7 +78,7 @@ def _advance_poisoned_condition_for_ending_combatant(combatant: Combatant) -> bo
     save_dc = max(1, int(poisoned.get("save_dc") or 12))
     stats = combatant.stats if isinstance(combatant.stats, dict) else {}
     con_stat = int(stats.get("con", 50)) if isinstance(stats.get("con"), int) else 50
-    con_mod = ability_mod_from_stat100(con_stat)
+    con_mod = ability_modifier_from_stat100(con_stat)
     save_roll = random.randint(1, 20)
     save_total = save_roll + con_mod
     save_success = save_total >= save_dc
