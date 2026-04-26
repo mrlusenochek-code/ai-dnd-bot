@@ -28,7 +28,7 @@ from app.rules.phb_rest import (
     long_rest_recover_hit_dice,
 )
 from app.rules.phb_math import roll_initiative
-from app.rules.player_core import ability_modifier_from_stat100, proficiency_bonus_for_level, total_skill_bonus
+from app.rules.player_core import ability_modifier_from_stat100, proficiency_bonus_for_level, total_saving_throw_bonus, total_skill_bonus
 from app.gm import combat_narration as gm_combat_narration
 from app.web import gm_orchestrator
 from app.web.db_helpers import get_or_create_player_web, get_session, list_session_players
@@ -9417,7 +9417,12 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                         if requested_mode == "normal" and mapped_mode == "advantage"
                         else ""
                     )
-                    mod = _ability_mod_from_stats(ch.stats, ability)
+                    ability_mod = _ability_mod_from_stats(ch.stats, ability)
+                    mod = total_saving_throw_bonus(
+                        ability_mod=ability_mod,
+                        proficient=False,
+                        proficiency=0,
+                    )
 
                     ra, rb, roll = roll_check(
                         mapped_mode,
