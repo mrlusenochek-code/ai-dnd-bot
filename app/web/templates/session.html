@@ -173,6 +173,15 @@
         <button id="charModalClose" class="char-modal-close" type="button" aria-label="Закрыть">×</button>
       </div>
     </div>
+    <div id="charSubclassBox" class="char-line" style="display:none;">
+      <div style="font-weight:700; margin-bottom:8px;">Архетип класса</div>
+      <div id="charSubclassHint" class="muted" style="margin-bottom:8px;"></div>
+      <div class="row" style="margin-top:0;">
+        <select id="charSubclassSelect"></select>
+        <button id="charSubclassSave" type="button">Выбрать архетип</button>
+      </div>
+      <div id="charSubclassMsg" class="muted" style="margin-top:8px;"></div>
+    </div>
     <div id="charModalBody" class="char-grid"></div>
   </div>
 </div>
@@ -621,6 +630,238 @@ function getCharacterFromState(){
 function showCreateCharacterHint(){
   logLine("[hint] Сначала создайте персонажа");
 }
+const LEGACY_SUBCLASS_CLASS_KEY_MAP = {
+  "mage": "wizard",
+  "маг": "wizard",
+};
+
+function _normalizeSubclassClassKey(raw){
+  const key = String(raw || "").trim().toLowerCase();
+  return LEGACY_SUBCLASS_CLASS_KEY_MAP[key] || key;
+}
+
+function _resetCharSubclassBox(){
+  const box = document.getElementById("charSubclassBox");
+  const hint = document.getElementById("charSubclassHint");
+  const select = document.getElementById("charSubclassSelect");
+  const saveBtn = document.getElementById("charSubclassSave");
+  const msg = document.getElementById("charSubclassMsg");
+
+  if(box) box.style.display = "none";
+  if(hint) hint.textContent = "";
+  if(msg) msg.textContent = "";
+  if(select){
+    select.innerHTML = "";
+    select.disabled = true;
+    select.style.display = "";
+  }
+  if(saveBtn){
+    saveBtn.disabled = true;
+    saveBtn.title = "";
+    saveBtn.onclick = null;
+    saveBtn.style.display = "";
+  }
+}
+
+function _classEntryMatchesCharacter(cls, ch){
+  const classKeys = new Set([
+    _normalizeSubclassClassKey(cls && cls.id),
+    _normalizeSubclassClassKey(cls && cls.name),
+    _normalizeSubclassClassKey(cls && cls.name_ru),
+    _normalizeSubclassClassKey(cls && cls.details && cls.details.key),
+    _normalizeSubclassClassKey(cls && cls.details && cls.details.name),
+    _normalizeSubclassClassKey(cls && cls.details && cls.details.name_ru),
+  ].filter(Boolean));
+
+  const characterKeys = [
+    _normalizeSubclassClassKey(ch && ch.class_kit),
+    _normalizeSubclassClassKey(ch && ch.class_skin),
+  ].filter(Boolean);
+
+  return characterKeys.some((key) => classKeys.has(key));
+}
+
+async function renderCharacterSubclassBox(ch){
+  const box = document.getElementById("charSubclassBox");
+  const hint = document.getElementById("charSubclassHint");
+  const select = document.getElementById("charSubclassSelect");
+  const saveBtn = document.getElementById("charSubclassSave");
+  const msg = document.getElementById("charSubclassMsg");
+
+  _resetCharSubclassBox();
+
+  if(!box || !hint || !select || !saveBtn || !msg || !ch){
+    return;
+  }
+
+  let data = {};
+  try{
+    const r = await fetch("/api/classes");
+    data = await r.json();
+    if(!r.ok){
+      throw new Error(data.detail || "Не удалось загрузить список классов");
+    }
+  }catch(err){
+    box.style.display = "";
+    hint.textContent = "Архетипы класса";
+    msg.textContent = `Не удалось загрузить данные классов: ${err && err.message ? err.message : "неизвестная ошибка"}`;
+    return;
+  }
+
+  const classes = Array.isArray(data.classes) ? data.classes : [];
+  const cls = classes.find((item) => _classEntryMatchesCharacter(item, ch)) || null;
+  const subclasses = Array.isArray(cls && cls.subclasses) ? cls.subclasses.filter((x) => x && typeof x === "object") : [];
+
+  if(!cls || !subclasses.length){
+    return;
+  }
+
+  box.style.display = "";
+
+  const currentSubclass = (ch.class_features && typeof ch.class_features === "object" && ch.class_features.subclass && typeof ch.class_features.subclass === "object")
+    ? ch.class_features.subclass
+    : null;
+  const currentSubclassKey = String(currentSubclass && currentSubclass.key || "").trim().toLowerCase();
+  const currentSubclassName = String(
+    (currentSubclass && (currentSubclass.name_ru || currentSubclass.name || currentSubclass.key)) || ""
+  ).trim();
+
+  const level = Number.isFinite(Number(ch.level)) ? Number(ch.level) : 1;
+
+  let minChoiceLevel = null;
+  let availableCount = 0;
+  const optionNamesByKey = {};
+
+  const placeholder = document.createElement("option");
+  placeholder.value = "";
+  placeholder.textContent = "(выберите архетип)";
+  select.appendChild(placeholder);
+
+  for(const subclass of subclasses){
+    const key = String(subclass.key || "").trim().toLowerCase();
+    if(!key) continue;
+
+    const name = String(subclass.name_ru || subclass.name || key).trim();
+    const choiceLevel = Math.max(1, Number.isFinite(Number(subclass.choice_level)) ? Number(subclass.choice_level) : 1);
+
+    optionNamesByKey[key] = name;
+
+    if(minChoiceLevel === null || choiceLevel < minChoiceLevel){
+      minChoiceLevel = choiceLevel;
+    }
+
+    const opt = document.createElement("option");
+    opt.value = key;
+
+    if(level < choiceLevel){
+      opt.textContent = `${name} — откроется на ${choiceLevel}-м уровне`;
+      opt.disabled = true;
+    }else{
+      opt.textContent = name;
+      availableCount += 1;
+    }
+
+    select.appendChild(opt);
+  }
+
+  if(currentSubclassKey){
+    const exists = Array.from(select.options).some((opt) => String(opt.value) === currentSubclassKey);
+    if(exists){
+      select.value = currentSubclassKey;
+    }
+  }
+
+  if(currentSubclassName){
+    box.style.display = "none";
+    return;
+  }
+
+  select.disabled = availableCount <= 0;
+  saveBtn.disabled = true;
+  saveBtn.title = availableCount > 0 ? "" : "Архетип ещё недоступен по уровню.";
+  select.style.display = "";
+  saveBtn.style.display = "";
+
+  if(minChoiceLevel !== null && level < minChoiceLevel){
+    hint.textContent = `Архетип этого класса станет доступен на ${minChoiceLevel}-м уровне. Сейчас у персонажа уровень ${level}.`;
+  }else{
+    hint.textContent = "Доступные архетипы показаны ниже. После выбора нажмите кнопку сохранения.";
+  }
+
+  if(availableCount > 0){
+    msg.textContent = "Архетип пока не выбран.";
+  }else{
+    msg.textContent = "";
+  }
+
+  const syncSaveState = () => {
+    const selectedKey = String(select.value || "").trim().toLowerCase();
+
+    if(!selectedKey){
+      saveBtn.disabled = true;
+      saveBtn.title = "Сначала выберите архетип.";
+      if(availableCount > 0){
+        msg.textContent = "Архетип пока не выбран.";
+      }else{
+        msg.textContent = "";
+      }
+      return;
+    }
+
+    saveBtn.disabled = false;
+    saveBtn.title = "";
+    const selectedName = optionNamesByKey[selectedKey] || selectedKey;
+    msg.textContent = `Будет выбран архетип: ${selectedName}.`;
+  };
+
+  select.onchange = syncSaveState;
+
+  saveBtn.onclick = async () => {
+    const selectedKey = String(select.value || "").trim().toLowerCase();
+    if(!selectedKey){
+      msg.textContent = "Сначала выберите архетип.";
+      return;
+    }
+
+    select.disabled = true;
+    saveBtn.disabled = true;
+    msg.textContent = "Сохраняем архетип...";
+
+    try{
+      const r = await fetch("/api/character/set_subclass", {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({
+          session_id: SESSION_ID,
+          uid: getUID(),
+          subclass_key: selectedKey,
+        }),
+      });
+
+      const resp = await r.json();
+      if(!r.ok){
+        throw new Error(resp.detail || "Не удалось сохранить архетип");
+      }
+
+      const updatedCharacter = resp && resp.character ? resp.character : null;
+      if(updatedCharacter && lastState && Array.isArray(lastState.players)){
+        const mePlayer = lastState.players.find((p) => p && p.uid === getUID()) || null;
+        if(mePlayer){
+          mePlayer.char = updatedCharacter;
+        }
+      }
+
+      openCharacterModal();
+    }catch(err){
+      select.disabled = availableCount <= 0;
+      saveBtn.disabled = !String(select.value || "").trim();
+      msg.textContent = `Ошибка сохранения: ${err && err.message ? err.message : "неизвестная ошибка"}`;
+    }
+  };
+
+  syncSaveState();
+}
+
 function openCharacterModal(){
   const me = lastState && Array.isArray(lastState.players)
     ? (lastState.players.find(p => p.uid === getUID()) || null)
@@ -630,6 +871,7 @@ function openCharacterModal(){
     showCreateCharacterHint();
     return;
   }
+  void renderCharacterSubclassBox(ch);
   const stats = (ch && typeof ch.stats === "object" && ch.stats) ? ch.stats : {};
   const klass = ch.class_skin || ch.class_kit || "Adventurer";
   const zone = resolveCharacterZone(lastState, me, ch);
@@ -2440,6 +2682,29 @@ function openCharacterModal(){
     "large": "Большой",
   };
   const sizeRu = baseSize ? (SIZE_RU[baseSize] || baseSize) : "";
+  const classFeatures = (ch && typeof ch.class_features === "object" && ch.class_features) ? ch.class_features : {};
+  const subclassInfo = (classFeatures.subclass && typeof classFeatures.subclass === "object") ? classFeatures.subclass : null;
+  const subclassName = String(
+    (subclassInfo && (subclassInfo.name_ru || subclassInfo.name || subclassInfo.key)) || ""
+  ).trim();
+  const subclassDescription = String(
+    (subclassInfo && (subclassInfo.description_ru || subclassInfo.description)) || ""
+  ).trim();
+  const subclassFeaturesByLevel = (subclassInfo && typeof subclassInfo.features_by_level === "object" && subclassInfo.features_by_level)
+    ? subclassInfo.features_by_level
+    : {};
+  const subclassCurrentLevel = Number.isFinite(Number(ch && ch.level)) ? Number(ch.level) : 1;
+  const subclassFeatureItems = Object.keys(subclassFeaturesByLevel)
+    .map((levelKey) => {
+      const levelNum = Number(levelKey);
+      if(!Number.isFinite(levelNum) || levelNum <= 0 || levelNum > subclassCurrentLevel){
+        return null;
+      }
+      const entries = Array.isArray(subclassFeaturesByLevel[levelKey]) ? subclassFeaturesByLevel[levelKey] : [];
+      return { level: levelNum, entries };
+    })
+    .filter(Boolean)
+    .sort((a, b) => a.level - b.level);
 
   let natArmorText = "";
   if(Number.isFinite(Number(natArmor.ac))) {
@@ -2453,6 +2718,31 @@ function openCharacterModal(){
   const details = [];
   details.push(`<div class="char-line"><strong>Имя:</strong> ${escapeHtml(ch.name || "—")}</div>`);
   details.push(`<div class="char-line"><strong>Класс:</strong> ${escapeHtml(klass)}</div>`);
+  if(subclassName){
+    details.push(`<div class="char-line"><strong>Архетип:</strong> ${escapeHtml(subclassName)}</div>`);
+    if(subclassDescription){
+      details.push(`<div class="char-line"><strong>Описание архетипа:</strong> ${escapeHtml(subclassDescription)}</div>`);
+    }
+    if(subclassFeatureItems.length){
+      const subclassFeaturesHtml = subclassFeatureItems.map((item) => {
+        const entries = Array.isArray(item.entries) ? item.entries : [];
+        if(!entries.length){
+          return `<li>${escapeHtml(`${item.level} уровень`)}</li>`;
+        }
+        const nested = entries.map((entry) => {
+          const featureName = String((entry && (entry.name_ru || entry.name || entry.key)) || `Особенность ${item.level} уровня`).trim();
+          const featureSummary = String((entry && (entry.summary_ru || entry.summary)) || "").trim();
+          if(featureSummary){
+            return `<li><strong>${escapeHtml(featureName)}</strong>: ${escapeHtml(featureSummary)}</li>`;
+          }
+          return `<li><strong>${escapeHtml(featureName)}</strong></li>`;
+        }).join("");
+        return `<li><strong>${escapeHtml(`${item.level} уровень`)}</strong><ul class="char-list">${nested}</ul></li>`;
+      }).join("");
+
+      details.push(`<div class="char-line"><strong>Особенности архетипа (по текущему уровню):</strong><ul class="char-list">${subclassFeaturesHtml}</ul></div>`);
+    }
+  }
   details.push(`<div class="char-line"><strong>Уровень:</strong> ${escapeHtml(String(ch.level ?? "—"))}</div>`);
   details.push(`<div class="char-line"><strong>Прогресс уровня:</strong> XP ${escapeHtml(String(xpTotal))}/${escapeHtml(String(nextLevelTotal))}, до след. ${escapeHtml(String(toNextLevel))}</div>`);
   if(String(ch.gender || "").trim()){

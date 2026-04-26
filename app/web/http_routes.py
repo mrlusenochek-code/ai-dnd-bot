@@ -3383,6 +3383,106 @@ async def api_character_update_stats(payload: dict):
         return JSONResponse({"ok": True, "character": _char_to_payload(ch)})
 
 
+@router.post("/api/character/set_subclass")
+async def api_character_set_subclass(payload: dict):
+    session_id = str(payload.get("session_id") or "").strip()
+    uid = as_int(payload.get("uid"), 0)
+    subclass_key = str(payload.get("subclass_key") or "").strip().lower()
+
+    if uid <= 0:
+        raise HTTPException(status_code=400, detail="Bad uid")
+    if not subclass_key:
+        raise HTTPException(status_code=400, detail="Subclass key is required")
+
+    async with AsyncSessionLocal() as db:
+        sess = await get_session(db, session_id)
+        if not sess:
+            raise HTTPException(status_code=404, detail="Session not found")
+
+        player = await get_or_create_player_web(db, uid, "")
+        q_sp = await db.execute(
+            select(SessionPlayer).where(
+                SessionPlayer.session_id == sess.id,
+                SessionPlayer.player_id == player.id,
+            )
+        )
+        sp = q_sp.scalar_one_or_none()
+        if not sp:
+            raise HTTPException(status_code=403, detail="Join session first")
+        if sp.is_active is False:
+            raise HTTPException(status_code=403, detail="You are offline in this session")
+
+        ch = await get_character(db, sess.id, player.id)
+        if not ch:
+            raise HTTPException(status_code=404, detail="No character found")
+
+        selected_class = resolve_class(str(ch.class_kit or "").strip().lower()) or resolve_class(
+            str(ch.class_skin or "").strip().lower()
+        )
+        if not selected_class:
+            raise HTTPException(status_code=400, detail="Class catalog entry not found for character")
+
+        subclasses = selected_class.get("subclasses") if isinstance(selected_class.get("subclasses"), list) else []
+        if not subclasses:
+            raise HTTPException(status_code=400, detail="This class has no subclasses in catalog")
+
+        selected_subclass = None
+        for item in subclasses:
+            if not isinstance(item, dict):
+                continue
+            item_key = str(item.get("key") or "").strip().lower()
+            if item_key == subclass_key:
+                selected_subclass = item
+                break
+
+        if not selected_subclass:
+            raise HTTPException(status_code=400, detail=f"Invalid subclass for class: {subclass_key}")
+
+        choice_level = max(1, as_int(selected_subclass.get("choice_level"), 0))
+        if as_int(ch.level, 1) < choice_level:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Subclass becomes available at level {choice_level}",
+            )
+
+        class_features = dict(ch.class_features or {})
+        current_subclass = class_features.get("subclass")
+        if isinstance(current_subclass, dict):
+            current_key = str(current_subclass.get("key") or "").strip().lower()
+            if current_key:
+                current_name = str(
+                    current_subclass.get("name_ru") or current_subclass.get("name") or current_key
+                ).strip()
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Subclass already selected: {current_name}",
+                )
+
+        class_features["subclass"] = {
+            "key": str(selected_subclass.get("key") or "").strip().lower(),
+            "name_ru": str(selected_subclass.get("name_ru") or "").strip(),
+            "name": str(selected_subclass.get("name") or "").strip(),
+            "description_ru": str(selected_subclass.get("description_ru") or "").strip(),
+            "choice_level": choice_level,
+            "features_by_level": dict(selected_subclass.get("features_by_level") or {}),
+        }
+
+        ch.class_features = class_features
+        await db.commit()
+        await db.refresh(ch)
+
+        subclass_name = str(
+            selected_subclass.get("name_ru") or selected_subclass.get("name") or subclass_key
+        ).strip()
+        await add_system_event(
+            db,
+            sess,
+            f"[CLASS] player #{sp.join_order} selected subclass: {subclass_name}.",
+        )
+
+        return JSONResponse({"ok": True, "character": _char_to_payload(ch)})
+
+
 @router.get("/api/character/me")
 async def api_character_me(session_id: str, uid: int):
     async with AsyncSessionLocal() as db:
