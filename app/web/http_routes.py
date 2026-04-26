@@ -314,6 +314,17 @@ async def api_classes():
         class_id = str(class_item.get("key") or "").strip().lower()
         if not class_id:
             continue
+
+        tags = {
+            str(x or "").strip().lower()
+            for x in (class_item.get("tags") or [])
+            if str(x or "").strip()
+        }
+        source = str(class_item.get("source") or "").strip().lower()
+
+        if source == "legacy" or "not_for_new_characters" in tags:
+            continue
+
         preset = CLASS_PRESETS.get(class_id) or {}
         stats = _resolve_character_stats(class_id if preset else None, None)
         items.append(
