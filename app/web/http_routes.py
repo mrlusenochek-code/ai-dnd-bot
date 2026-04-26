@@ -148,12 +148,16 @@ LANGUAGE_WHITELIST = {
 
 @router.get("/", response_class=HTMLResponse)
 async def index(request: Request):
-    return templates.TemplateResponse("index.html", {"request": request})
+    return templates.TemplateResponse(request, "index.html", {"request": request})
 
 
 @router.get("/c/{session_id}", response_class=HTMLResponse)
 async def character_create_page(request: Request, session_id: str):
-    return templates.TemplateResponse("character_create.html", {"request": request, "session_id": session_id})
+    return templates.TemplateResponse(
+        request,
+        "character_create.html",
+        {"request": request, "session_id": session_id},
+    )
 
 
 @router.get("/story/{session_id}", response_class=HTMLResponse)
@@ -181,6 +185,7 @@ async def story_setup_page(request: Request, session_id: str, uid: Optional[int]
             return RedirectResponse(url=f"/s/{session_id}", status_code=303)
 
     return templates.TemplateResponse(
+        request,
         "story_setup.html",
         {"request": request, "session_id": session_id, "uid": uid},
     )
@@ -233,7 +238,11 @@ async def api_new(payload: dict):
 
 @router.get("/s/{session_id}", response_class=HTMLResponse)
 async def session_page(request: Request, session_id: str):
-    resp = templates.TemplateResponse("session.html", {"request": request, "session_id": session_id})
+    resp = templates.TemplateResponse(
+        request,
+        "session.html",
+        {"request": request, "session_id": session_id},
+    )
     # чтобы не ловили старый session.html (кеш ломает cid/x-client-id)
     resp.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
     resp.headers["Pragma"] = "no-cache"
