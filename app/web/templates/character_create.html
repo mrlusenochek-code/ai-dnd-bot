@@ -50,6 +50,35 @@
     .race-list li .muted{display:block; margin-top:2px; font-size:12px; line-height:1.25;}
     .race-list details summary{cursor:pointer;}
     .race-list details{margin-top:2px;}
+    #subclassModal .modal-card{
+      background:#1f2937;
+      color:#f9fafb;
+      border:1px solid rgba(255,255,255,0.14);
+      box-shadow:0 20px 60px rgba(0,0,0,0.45);
+    }
+    #subclassModal .race-text{
+      color:#e5edf9;
+    }
+    #subclassModal .muted{
+      color:#c7d2e5;
+      opacity:1;
+    }
+    #subclassModal .race-section b,
+    #subclassModal h3,
+    #subclassModal li,
+    #subclassModal li div{
+      color:#f9fafb;
+    }
+    #subclassModal .ghost-btn{
+      background:#f3f4f6;
+      color:#111827;
+      border:1px solid #d1d5db;
+      border-radius:8px;
+      padding:8px 12px;
+    }
+    #subclassModal .ghost-btn:hover{
+      background:#e5e7eb;
+    }
     @media (max-width: 1200px){
       .grid{grid-template-columns:1fr 1fr;}
       .right-col{grid-column:1 / -1;} /* Class+Stats уезжают на строку ниже, но остаются рядом */
@@ -242,7 +271,31 @@
 
         <div class="race-section">
           <b>Архетипы</b>
+          <p id="classSubclassHint" class="race-text" style="margin:6px 0 8px 0;">
+            Архетипы сейчас показаны справочно. Выбор делается позже, когда персонаж достигнет нужного уровня класса.
+          </p>
           <ul id="classSubclasses" class="race-list"></ul>
+        </div>
+      </div>
+
+      <div id="subclassModal" class="modal" style="display:none;">
+        <div class="modal-card">
+          <div class="modal-head">
+            <h3 id="subclassModalTitle">Архетип</h3>
+            <button id="subclassModalClose" type="button" class="ghost-btn">Закрыть</button>
+          </div>
+
+          <p id="subclassModalText" class="race-text">Описание будет добавлено позже.</p>
+
+          <div class="race-section">
+            <b>Когда выбирается</b>
+            <div id="subclassModalChoiceLevel" class="race-text">—</div>
+          </div>
+
+          <div class="race-section">
+            <b>Ключевые особенности</b>
+            <ul id="subclassModalFeatures" class="race-list"></ul>
+          </div>
         </div>
       </div>
 
@@ -2166,12 +2219,359 @@ function renderRaceDetails(raceId){
   setSubraceItems(subracesEl, subraces);
   renderRaceChoices();
 }
+const CLASS_ABILITY_INFO = {
+  str: {
+    code: "str",
+    name: "Сила",
+    desc: "влияет на мощь в ближнем бою, перенос веса, толкание, прыжки, борьбу и другие грубые физические действия."
+  },
+  dex: {
+    code: "dex",
+    name: "Ловкость",
+    desc: "влияет на меткость дальних и точных атак, инициативу, скрытность, уклонение, лёгкость движений и класс доспеха у подвижных персонажей."
+  },
+  con: {
+    code: "con",
+    name: "Телосложение",
+    desc: "влияет на запас хитов, выносливость, сопротивление ядам, болезням и удержание концентрации."
+  },
+  int: {
+    code: "int",
+    name: "Интеллект",
+    desc: "влияет на знания, анализ, расследование, понимание магии и заклинания классов вроде волшебника и изобретателя."
+  },
+  wis: {
+    code: "wis",
+    name: "Мудрость",
+    desc: "влияет на внимательность, интуицию, восприятие, выживание, проницательность и магию классов вроде жреца, друида и следопыта."
+  },
+  cha: {
+    code: "cha",
+    name: "Харизма",
+    desc: "влияет на убеждение, обман, запугивание, выступления, силу личности и магию классов вроде барда, колдуна и чародея."
+  },
+};
+
+function _classStatMeta(){
+  return {
+    str: {
+      label: "Сила",
+      abilityText: "Влияет на мощь в ближнем бою, перенос веса, толкание, прыжки, борьбу и другие грубые физические действия.",
+      saveText: "Спасбросок этой характеристики помогает устоять там, где вас толкают, сбивают, удерживают, опутывают или пытаются сдвинуть грубой силой."
+    },
+    dex: {
+      label: "Ловкость",
+      abilityText: "Влияет на меткость дальних и точных атак, инициативу, скрытность, уклонение, лёгкость движений и класс доспеха у подвижных персонажей.",
+      saveText: "Спасбросок этой характеристики помогает уклоняться от взрывов, ловушек, огненных волн, падающих предметов и других эффектов, где важна реакция."
+    },
+    con: {
+      label: "Телосложение",
+      abilityText: "Влияет на выносливость, запас здоровья, сопротивление нагрузкам и общую физическую стойкость.",
+      saveText: "Спасбросок этой характеристики помогает переносить яды, болезни, истощение, сильную боль, холод, жар и другие тяжёлые удары по телу."
+    },
+    int: {
+      label: "Интеллект",
+      abilityText: "Влияет на знания, анализ, расследование, понимание магии и заклинания классов вроде волшебника и изобретателя.",
+      saveText: "Спасбросок этой характеристики помогает защищаться от эффектов, бьющих по разуму, памяти, логике, магическому пониманию и мышлению."
+    },
+    wis: {
+      label: "Мудрость",
+      abilityText: "Влияет на внимательность, интуицию, восприятие, выживание, проницательность и магию классов вроде жреца, друида и следопыта.",
+      saveText: "Спасбросок этой характеристики помогает сохранять самообладание, замечать опасность и противостоять влияниям, которые давят на чувства, инстинкты и волю."
+    },
+    cha: {
+      label: "Харизма",
+      abilityText: "Влияет на убеждение, давление, обман, лидерство, силу личности и магию классов вроде барда, колдуна, паладина и чародея.",
+      saveText: "Спасбросок этой характеристики помогает удерживать личность, волю и внутреннюю сущность против изгнания, подчинения и магического подавления."
+    }
+  };
+}
+
+function _clearNode(el){
+  if(el) el.innerHTML = "";
+}
+
+function _appendInfoItems(el, items){
+  if(!el) return;
+  _clearNode(el);
+
+  if(!Array.isArray(items) || !items.length){
+    const li = document.createElement("li");
+    li.textContent = "Пока нет подробных данных.";
+    el.appendChild(li);
+    return;
+  }
+
+  for(const item of items){
+    const li = document.createElement("li");
+
+    const title = document.createElement("div");
+    title.style.fontWeight = "600";
+    title.textContent = String(item.title || "—");
+    li.appendChild(title);
+
+    const text = String(item.text || "").trim();
+    if(text){
+      const body = document.createElement("div");
+      body.textContent = text;
+      li.appendChild(body);
+    }
+
+    el.appendChild(li);
+  }
+}
+
+function _classAbilityItems(statKeys){
+  const meta = _classStatMeta();
+  return (Array.isArray(statKeys) ? statKeys : [])
+    .map(x => String(x || "").trim().toLowerCase())
+    .filter(Boolean)
+    .map(key => {
+      const item = meta[key];
+      if(!item){
+        return { title: key, text: "" };
+      }
+      return {
+        title: `${item.label} (${key})`,
+        text: item.abilityText
+      };
+    });
+}
+
+function _classSaveItems(statKeys){
+  const meta = _classStatMeta();
+  const out = [
+    {
+      title: "Что такое спасбросок",
+      text: "Это защитный бросок против опасного эффекта: заклинания, ловушки, яда, падения, взрыва и других угроз."
+    }
+  ];
+
+  for(const raw of (Array.isArray(statKeys) ? statKeys : [])){
+    const key = String(raw || "").trim().toLowerCase();
+    if(!key) continue;
+    const item = meta[key];
+    if(!item){
+      out.push({ title: key, text: "" });
+      continue;
+    }
+    out.push({
+      title: `${item.label} (${key})`,
+      text: item.saveText
+    });
+  }
+
+  return out;
+}
+
+function _detectClassSubclassChoiceLevel(cls){
+  const subclasses = Array.isArray(cls && cls.subclasses) ? cls.subclasses : [];
+  const direct = subclasses
+    .map(x => Number(x && x.choice_level))
+    .filter(x => Number.isFinite(x) && x > 0);
+
+  if(direct.length){
+    return Math.min(...direct);
+  }
+
+  const details = (cls && cls.details) ? cls.details : {};
+  const byLevel = (details && details.features_by_level && typeof details.features_by_level === "object")
+    ? details.features_by_level
+    : {};
+
+  const levels = [];
+  for(const [levelKey, entries] of Object.entries(byLevel)){
+    const level = Number(levelKey);
+    if(!Number.isFinite(level) || level <= 0) continue;
+    const arr = Array.isArray(entries) ? entries : [];
+    const hasChoice = arr.some(entry => {
+      const mech = entry && typeof entry === "object" ? (entry.mechanics || {}) : {};
+      return String(mech.type || "").trim().toLowerCase() === "subclass_choice";
+    });
+    if(hasChoice){
+      levels.push(level);
+    }
+  }
+
+  return levels.length ? Math.min(...levels) : 0;
+}
+
+function _featurePreviewItems(subclass){
+  const byLevel = (subclass && subclass.features_by_level && typeof subclass.features_by_level === "object")
+    ? subclass.features_by_level
+    : {};
+  const levels = Object.keys(byLevel)
+    .map(x => Number(x))
+    .filter(x => Number.isFinite(x) && x > 0)
+    .sort((a, b) => a - b);
+
+  if(!levels.length){
+    return [];
+  }
+
+  const out = [];
+  for(const level of levels){
+    const entries = Array.isArray(byLevel[level]) ? byLevel[level] : [];
+    if(entries.length){
+      for(const entry of entries){
+        const name = String((entry && (entry.name_ru || entry.name || entry.key)) || `Особенность ${level} уровня`).trim();
+        const summary = String((entry && (entry.summary_ru || entry.summary)) || "").trim();
+        out.push({
+          title: `${level} уровень — ${name}`,
+          text: summary
+        });
+      }
+    } else {
+      out.push({
+        title: `${level} уровень`,
+        text: "Ключевая особенность архетипа."
+      });
+    }
+  }
+
+  return out;
+}
+
+function closeSubclassModal(){
+  const modal = document.getElementById("subclassModal");
+  if(modal){
+    modal.style.display = "none";
+  }
+}
+
+function openSubclassModal(subclass, cls){
+  const modal = document.getElementById("subclassModal");
+  const titleEl = document.getElementById("subclassModalTitle");
+  const textEl = document.getElementById("subclassModalText");
+  const choiceLevelEl = document.getElementById("subclassModalChoiceLevel");
+  const featuresEl = document.getElementById("subclassModalFeatures");
+
+  if(!modal || !titleEl || !textEl || !choiceLevelEl || !featuresEl){
+    return;
+  }
+
+  const subclassName = String(
+    (subclass && (subclass.name_ru || subclass.name || subclass.key)) || "Архетип"
+  ).trim();
+
+  const description = String(
+    (subclass && (subclass.description_ru || subclass.description)) || "Подробное описание пока не добавлено."
+  ).trim();
+
+  const choiceLevel = Number(
+    (subclass && subclass.choice_level) || _detectClassSubclassChoiceLevel(cls) || 0
+  );
+
+  titleEl.textContent = subclassName;
+  textEl.textContent = description || "Подробное описание пока не добавлено.";
+  choiceLevelEl.textContent = choiceLevel > 0
+    ? `Этот архетип выбирается на ${choiceLevel}-м уровне класса.`
+    : "Уровень выбора пока не указан.";
+
+  _appendInfoItems(featuresEl, _featurePreviewItems(subclass));
+
+  modal.style.display = "flex";
+}
+
+function ensureSubclassModalWired(){
+  const modal = document.getElementById("subclassModal");
+  const card = modal ? modal.querySelector(".modal-card") : null;
+  const head = card ? card.querySelector(".modal-head") : null;
+  const closeBtn = document.getElementById("subclassModalClose");
+
+  if(!modal || !card || !closeBtn){
+    return;
+  }
+
+  modal.style.position = "fixed";
+  modal.style.inset = "0";
+  modal.style.padding = "16px";
+  modal.style.background = "rgba(0, 0, 0, 0.55)";
+  modal.style.alignItems = "center";
+  modal.style.justifyContent = "center";
+  modal.style.zIndex = "9999";
+
+  card.style.width = "min(680px, 100%)";
+  card.style.maxHeight = "85vh";
+  card.style.overflowY = "auto";
+  card.style.padding = "16px";
+  card.style.borderRadius = "14px";
+  card.style.background = "var(--card-bg, #1f2937)";
+  card.style.color = "var(--text-color, #f9fafb)";
+  card.style.border = "1px solid rgba(255,255,255,0.12)";
+  card.style.boxSizing = "border-box";
+
+  if(head){
+    head.style.display = "flex";
+    head.style.alignItems = "center";
+    head.style.justifyContent = "space-between";
+    head.style.gap = "12px";
+  }
+
+  if(!closeBtn.dataset.bound){
+    closeBtn.dataset.bound = "1";
+    closeBtn.onclick = () => closeSubclassModal();
+  }
+
+  if(!modal.dataset.bound){
+    modal.dataset.bound = "1";
+    modal.addEventListener("click", (ev) => {
+      if(ev.target === modal){
+        closeSubclassModal();
+      }
+    });
+  }
+}
+
+function _renderSubclassItems(el, cls){
+  if(!el) return;
+  _clearNode(el);
+
+  const subclasses = Array.isArray(cls && cls.subclasses) ? cls.subclasses : [];
+  const choiceLevel = _detectClassSubclassChoiceLevel(cls);
+
+  if(!subclasses.length){
+    const li = document.createElement("li");
+    li.textContent = "Для этого класса пока нет архетипов в каталоге.";
+    el.appendChild(li);
+    return;
+  }
+
+  for(const subclass of subclasses){
+    const li = document.createElement("li");
+
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "ghost-btn";
+    btn.style.margin = "0";
+    btn.style.cursor = "pointer";
+    btn.textContent = String(
+      (subclass && (subclass.name_ru || subclass.name || subclass.key)) || "Архетип"
+    ).trim();
+    btn.onclick = () => openSubclassModal(subclass, cls);
+    li.appendChild(btn);
+
+    const note = document.createElement("div");
+    note.className = "muted";
+    note.style.marginTop = "4px";
+
+    const level = Number((subclass && subclass.choice_level) || choiceLevel || 0);
+    note.textContent = level > 0
+      ? `Нажми, чтобы посмотреть описание. Обычно выбор открывается на ${level}-м уровне.`
+      : "Нажми, чтобы посмотреть описание.";
+    li.appendChild(note);
+
+    el.appendChild(li);
+  }
+}
+
 function renderClassDetails(classId){
   const titleEl = document.getElementById("classTitle");
   const textEl = document.getElementById("classText");
   const abilitiesEl = document.getElementById("classAbilities");
   const savesEl = document.getElementById("classSaves");
   const subclassesEl = document.getElementById("classSubclasses");
+  const subclassHintEl = document.getElementById("classSubclassHint");
 
   const cls = classes.find(x => x.id === classId) || null;
   const details = (cls && cls.details) ? cls.details : {};
@@ -2182,23 +2582,21 @@ function renderClassDetails(classId){
   titleEl.textContent = String(title);
   textEl.textContent = String(description);
 
-  const abilities = Array.isArray(details.primary_abilities)
-    ? details.primary_abilities.map(x => String(x)).filter(Boolean)
-    : [];
-  const saves = Array.isArray(details.saving_throws)
-    ? details.saving_throws.map(x => String(x)).filter(Boolean)
-    : [];
-  const subclasses = Array.isArray(cls && cls.subclasses)
-    ? cls.subclasses.map(x => {
-        if(!x) return "";
-        if(typeof x === "string") return x;
-        return String(x.name_ru || x.name || x.key || "");
-      }).filter(Boolean)
-    : [];
+  const abilityItems = _classAbilityItems(details.primary_abilities);
+  const saveItems = _classSaveItems(details.saving_throws);
 
-  setListItems(abilitiesEl, abilities);
-  setListItems(savesEl, saves);
-  setListItems(subclassesEl, subclasses);
+  _appendInfoItems(abilitiesEl, abilityItems);
+  _appendInfoItems(savesEl, saveItems);
+
+  ensureSubclassModalWired();
+  _renderSubclassItems(subclassesEl, cls);
+
+  if(subclassHintEl){
+    const choiceLevel = _detectClassSubclassChoiceLevel(cls);
+    subclassHintEl.textContent = choiceLevel > 0
+      ? `Архетипы сейчас показаны справочно. Реальный выбор для этого класса делается на ${choiceLevel}-м уровне, а не при создании персонажа 1-го уровня.`
+      : "Архетипы сейчас показаны справочно. Реальный выбор делается позже, а не при создании персонажа 1-го уровня.";
+  }
 }
 async function ensureJoined(){
   const r = await fetch("/api/join", {
