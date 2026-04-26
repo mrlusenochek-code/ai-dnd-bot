@@ -1,5 +1,5 @@
 import uuid
-from datetime import datetime
+from datetime import UTC, datetime
 
 from sqlalchemy import (
     BigInteger, Boolean, DateTime, ForeignKey, Integer, String, Text, UniqueConstraint, text
@@ -7,6 +7,10 @@ from sqlalchemy import (
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from .base import Base
+
+
+def utcnow() -> datetime:
+    return datetime.now(UTC).replace(tzinfo=None)
 
 class Session(Base):
     turn_started_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
@@ -26,7 +30,7 @@ class Session(Base):
     turn_index: Mapped[int] = mapped_column(Integer, default=0)
     current_player_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
 
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
 
     players = relationship("SessionPlayer", back_populates="session", cascade="all, delete-orphan")
     events = relationship("Event", back_populates="session", cascade="all, delete-orphan")
@@ -42,7 +46,7 @@ class Player(Base):
     username: Mapped[str | None] = mapped_column(String(64), nullable=True)
     display_name: Mapped[str] = mapped_column(String(120))
 
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
 
     sessions = relationship("SessionPlayer", back_populates="player", cascade="all, delete-orphan")
 
@@ -138,6 +142,6 @@ class Event(Base):
     parsed_json: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     result_json: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
 
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
 
     session = relationship("Session", back_populates="events")
