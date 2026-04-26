@@ -5,7 +5,7 @@ import os
 import random
 import re
 from contextlib import asynccontextmanager
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 import uuid
 from typing import Any, Optional
 
@@ -359,7 +359,7 @@ STATE_COMMAND_ALIASES = {"state", "inv", "инв", "inventory"}
 
 
 def utcnow() -> datetime:
-    return datetime.utcnow()
+    return datetime.now(UTC).replace(tzinfo=None)
 
 
 @asynccontextmanager
