@@ -902,7 +902,7 @@ BASE_CLASS_CATALOG: list[dict[str, Any]] = [
         "features_by_level": {
             1: [
                 {"key": "fighting_style", "name_ru": "Стиль боя", "summary_ru": "Выбор боевого стиля, определяющего сильную сторону воина.", "mechanics": {}},
-                {"key": "second_wind", "name_ru": "Второе дыхание", "summary_ru": "Может быстро восстановить часть хитов в бою.", "mechanics": {}},
+                {"key": "second_wind", "name_ru": "Второе дыхание", "summary_ru": "Бонусным действием восстанавливает 1d10 + уровень воина хитов один раз до короткого или долгого отдыха.", "mechanics": {"type": "second_wind", "uses": "per_short_or_long_rest", "heal_dice": "1d10", "heal_bonus": "level", "action_cost": "bonus_action"}},
             ],
             2: [{"key": "action_surge", "name_ru": "Всплеск действий", "summary_ru": "Иногда получает дополнительное действие в ход.", "mechanics": {}}],
             3: [{"key": "martial_archetype", "name_ru": "Воинский архетип", "summary_ru": "Выбор подкласса воина.", "mechanics": {"type": "subclass_choice"}}],

@@ -22,6 +22,11 @@ from app.combat.test_actions import handle_admin_combat_test_action
 from app.core.log_context import client_id_var, request_id_var, session_id_var, uid_var, ws_conn_id_var
 from app.db.connection import AsyncSessionLocal
 from app.db.models import Character, Player, SessionPlayer, Skill
+from app.rules.class_feature_runtime import (
+    apply_second_wind_usage as _apply_second_wind_usage,
+    get_class_feature_mechanics as _class_feature_mechanics,
+    reset_class_rest_uses as _reset_class_rest_uses,
+)
 from app.rules.phb_rest import (
     apply_long_rest,
     apply_short_rest,
@@ -180,6 +185,9 @@ from app.web.ws_combat_prompting import (
     _looks_like_combat_drift,
     _sanitize_gm_output,
     _start_intent_text_needs_repair,
+)
+from app.web.ws_class_features import (
+    apply_combat_class_feature_action as _apply_combat_class_feature_action,
 )
 from app.web.ws_gameplay import STATE_COMMAND_ALIASES, _detect_chat_combat_action, _format_state_text_for_player, infer_zone_from_action
 from app.web.regexes import (
@@ -8193,7 +8201,7 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                 if combat_action in {"combat_fury_of_small", "combat_fury_of_the_small"} and not combat_active:
                     await ws_error("Разъярённая мелкота доступна только в бою.", request_id=msg_request_id)
                     continue
-                if combat_action in {"combat_hungry_jaws", "combat_rabbit_hop", "combat_lucky_footwork", "combat_saving_face", "combat_taunt", "combat_fearless", "combat_daunting_roar", "combat_grovel_cower_beg", "combat_goring_rush", "combat_hammering_horns", "combat_adrenaline_rush", "combat_aggressive", "combat_shift", "combat_shift_end", "combat_longtooth_bite", "combat_swiftstride_step", "combat_mark_target", "combat_feline_agility", "combat_cat_claws", "combat_shell_defense", "combat_shell_defense_exit", "combat_tortle_claws", "combat_acid_spit", "combat_grapple_appendages", "combat_appendages_grapple_bonus"} and not combat_active:
+                if combat_action in {"combat_hungry_jaws", "combat_rabbit_hop", "combat_lucky_footwork", "combat_saving_face", "combat_taunt", "combat_fearless", "combat_daunting_roar", "combat_grovel_cower_beg", "combat_goring_rush", "combat_hammering_horns", "combat_adrenaline_rush", "combat_second_wind", "combat_aggressive", "combat_shift", "combat_shift_end", "combat_longtooth_bite", "combat_swiftstride_step", "combat_mark_target", "combat_feline_agility", "combat_cat_claws", "combat_shell_defense", "combat_shell_defense_exit", "combat_tortle_claws", "combat_acid_spit", "combat_grapple_appendages", "combat_appendages_grapple_bonus"} and not combat_active:
                     await ws_error("Эта особенность доступна только в бою.", request_id=msg_request_id)
                     continue
                 if combat_action in {"combat_eerie_token_create", "combat_eerie_token_message", "combat_eerie_token_view"} and not combat_active:
@@ -8425,6 +8433,27 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                                 "lines": lines,
                             }
                             await _broadcast_state_unlocked(session_id, combat_log_ui_patch=patch)
+                            continue
+
+                        if combat_action == "combat_second_wind":
+                            ch = await get_character(db, sess.id, player.id)
+                            if not ch:
+                                await ws_error("Персонаж не найден.", request_id=msg_request_id)
+                                continue
+                            combat_patch, second_wind_err, changed = _apply_combat_class_feature_action(
+                                combat_action,
+                                session_id,
+                                player_key,
+                                ch,
+                            )
+                            if second_wind_err:
+                                await ws_error(second_wind_err, request_id=msg_request_id)
+                                continue
+                            if changed:
+                                flag_modified(ch, "class_features")
+                            await db.commit()
+                            if combat_patch:
+                                await _broadcast_state_unlocked(session_id, combat_log_ui_patch=combat_patch)
                             continue
 
                         if combat_action == "combat_healing_hands":
@@ -8818,6 +8847,8 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                     ch.hp = hp
                     ch.sta = sta
                     ch.hit_dice_remaining = hd_after
+                    if _reset_class_rest_uses(ch, long_rest=True):
+                        flag_modified(ch, "class_features")
                     if _reset_racial_rest_uses(ch, long_rest=True):
                         flag_modified(ch, "race_features")
                     water_level, water_changed = _apply_grung_water_dependency_long_rest(ch)
@@ -8864,6 +8895,8 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                     )
                     ch.hp = hp
                     ch.sta = sta
+                    if _reset_class_rest_uses(ch, long_rest=False):
+                        flag_modified(ch, "class_features")
                     if _reset_racial_rest_uses(ch, long_rest=False):
                         flag_modified(ch, "race_features")
                     player_uid = _player_uid(player)
@@ -10128,7 +10161,7 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                 if combat_action in {"combat_fury_of_small", "combat_fury_of_the_small"} and not combat_active:
                     await ws_error("Разъярённая мелкота доступна только в бою.", request_id=msg_request_id)
                     continue
-                if combat_action in {"combat_hungry_jaws", "combat_rabbit_hop", "combat_lucky_footwork", "combat_saving_face", "combat_taunt", "combat_fearless", "combat_daunting_roar", "combat_grovel_cower_beg", "combat_goring_rush", "combat_hammering_horns", "combat_adrenaline_rush", "combat_aggressive", "combat_shift", "combat_shift_end", "combat_longtooth_bite", "combat_swiftstride_step", "combat_mark_target", "combat_feline_agility", "combat_cat_claws", "combat_shell_defense", "combat_shell_defense_exit", "combat_tortle_claws", "combat_acid_spit", "combat_grapple_appendages", "combat_appendages_grapple_bonus"} and not combat_active:
+                if combat_action in {"combat_hungry_jaws", "combat_rabbit_hop", "combat_lucky_footwork", "combat_saving_face", "combat_taunt", "combat_fearless", "combat_daunting_roar", "combat_grovel_cower_beg", "combat_goring_rush", "combat_hammering_horns", "combat_adrenaline_rush", "combat_second_wind", "combat_aggressive", "combat_shift", "combat_shift_end", "combat_longtooth_bite", "combat_swiftstride_step", "combat_mark_target", "combat_feline_agility", "combat_cat_claws", "combat_shell_defense", "combat_shell_defense_exit", "combat_tortle_claws", "combat_acid_spit", "combat_grapple_appendages", "combat_appendages_grapple_bonus"} and not combat_active:
                     await ws_error("Эта особенность доступна только в бою.", request_id=msg_request_id)
                     continue
                 if combat_action in {"combat_eerie_token_create", "combat_eerie_token_message", "combat_eerie_token_view"} and not combat_active:
@@ -10372,6 +10405,27 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                                 "lines": lines,
                             }
                             await broadcast_state(session_id, combat_log_ui_patch=patch)
+                            continue
+
+                        if combat_action == "combat_second_wind":
+                            ch = await get_character(db, sess.id, player.id)
+                            if not ch:
+                                await ws_error("Персонаж не найден.")
+                                continue
+                            combat_patch, second_wind_err, changed = _apply_combat_class_feature_action(
+                                combat_action,
+                                session_id,
+                                player_key,
+                                ch,
+                            )
+                            if second_wind_err:
+                                await ws_error(second_wind_err)
+                                continue
+                            if changed:
+                                flag_modified(ch, "class_features")
+                            await db.commit()
+                            if combat_patch:
+                                await broadcast_state(session_id, combat_log_ui_patch=combat_patch)
                             continue
 
                         if combat_action == "combat_healing_hands":
