@@ -862,19 +862,30 @@ async function renderCharacterSubclassBox(ch){
   syncSaveState();
 }
 
-function openCharacterModal(){
+function openCharacterModal(targetPlayer = null){
   const me = lastState && Array.isArray(lastState.players)
     ? (lastState.players.find(p => p.uid === getUID()) || null)
     : null;
-  const ch = me && me.char ? me.char : null;
+  const playerForModal = targetPlayer && typeof targetPlayer === "object" ? targetPlayer : me;
+  const ch = playerForModal && playerForModal.char ? playerForModal.char : null;
   if(!ch){
-    showCreateCharacterHint();
+    if(playerForModal && playerForModal !== me){
+      logLine("[hint] У этого игрока пока нет персонажа");
+    }else{
+      showCreateCharacterHint();
+    }
     return;
   }
-  void renderCharacterSubclassBox(ch);
+
+  if(playerForModal === me){
+    void renderCharacterSubclassBox(ch);
+  }else{
+    _resetCharSubclassBox();
+  }
+
   const stats = (ch && typeof ch.stats === "object" && ch.stats) ? ch.stats : {};
   const klass = ch.class_skin || ch.class_kit || "Adventurer";
-  const zone = resolveCharacterZone(lastState, me, ch);
+  const zone = resolveCharacterZone(lastState, playerForModal, ch);
   const statsText = [
     `Сила: ${prettyStatValue(ch, ["str"])}`,
     `Ловкость: ${prettyStatValue(ch, ["dex"])}`,
@@ -2684,6 +2695,23 @@ function openCharacterModal(){
   const sizeRu = baseSize ? (SIZE_RU[baseSize] || baseSize) : "";
   const classFeatures = (ch && typeof ch.class_features === "object" && ch.class_features) ? ch.class_features : {};
   const subclassInfo = (classFeatures.subclass && typeof classFeatures.subclass === "object") ? classFeatures.subclass : null;
+  const classFeatureEntriesRaw = Array.isArray(classFeatures.features)
+    ? classFeatures.features.filter((x) => x && typeof x === "object")
+    : [];
+  const classFeatureEntries = classFeatureEntriesRaw
+    .filter((entry) => {
+      const mechanics = (entry && typeof entry.mechanics === "object" && entry.mechanics) ? entry.mechanics : {};
+      return String(mechanics.type || "").trim().toLowerCase() !== "subclass_choice";
+    })
+    .sort((a, b) => {
+      const aLevel = Number.isFinite(Number(a && a.level)) ? Number(a.level) : 0;
+      const bLevel = Number.isFinite(Number(b && b.level)) ? Number(b.level) : 0;
+      if(aLevel !== bLevel) return aLevel - bLevel;
+      const aName = String((a && (a.name_ru || a.name || a.key)) || "").trim();
+      const bName = String((b && (b.name_ru || b.name || b.key)) || "").trim();
+      return aName.localeCompare(bName, "ru");
+    });
+
   const subclassName = String(
     (subclassInfo && (subclassInfo.name_ru || subclassInfo.name || subclassInfo.key)) || ""
   ).trim();
@@ -2718,6 +2746,22 @@ function openCharacterModal(){
   const details = [];
   details.push(`<div class="char-line"><strong>Имя:</strong> ${escapeHtml(ch.name || "—")}</div>`);
   details.push(`<div class="char-line"><strong>Класс:</strong> ${escapeHtml(klass)}</div>`);
+
+  if(classFeatureEntries.length){
+    const classFeaturesHtml = classFeatureEntries.map((entry) => {
+      const featureLevel = Number.isFinite(Number(entry && entry.level)) ? Number(entry.level) : null;
+      const featureName = String((entry && (entry.name_ru || entry.name || entry.key)) || "Классовая особенность").trim();
+      const featureSummary = String((entry && (entry.summary_ru || entry.summary)) || "").trim();
+
+      if(featureSummary){
+        return `<li><strong>${escapeHtml(featureName)}</strong>${featureLevel ? ` (${escapeHtml(String(featureLevel))} ур.)` : ""}: ${escapeHtml(featureSummary)}</li>`;
+      }
+      return `<li><strong>${escapeHtml(featureName)}</strong>${featureLevel ? ` (${escapeHtml(String(featureLevel))} ур.)` : ""}</li>`;
+    }).join("");
+
+    details.push(`<div class="char-line"><strong>Классовые особенности:</strong><ul class="char-list">${classFeaturesHtml}</ul></div>`);
+  }
+
   if(subclassName){
     details.push(`<div class="char-line"><strong>Архетип:</strong> ${escapeHtml(subclassName)}</div>`);
     if(subclassDescription){
@@ -2743,6 +2787,7 @@ function openCharacterModal(){
       details.push(`<div class="char-line"><strong>Особенности архетипа (по текущему уровню):</strong><ul class="char-list">${subclassFeaturesHtml}</ul></div>`);
     }
   }
+
   details.push(`<div class="char-line"><strong>Уровень:</strong> ${escapeHtml(String(ch.level ?? "—"))}</div>`);
   details.push(`<div class="char-line"><strong>Прогресс уровня:</strong> XP ${escapeHtml(String(xpTotal))}/${escapeHtml(String(nextLevelTotal))}, до след. ${escapeHtml(String(toNextLevel))}</div>`);
   if(String(ch.gender || "").trim()){
@@ -3693,7 +3738,7 @@ function renderState(st){
   p.innerHTML = "";
   for(const pl of st.players){
     const div = document.createElement("div");
-    div.className = "player" + (pl.is_current ? " cur" : "") + (pl.uid === myUid ? " me" : "") + (!pl.is_active ? " inactive" : "");
+    div.className = "player char-card" + (pl.is_current ? " cur" : "") + (pl.uid === myUid ? " me" : "") + (!pl.is_active ? " inactive" : "");
 
     const readyMark = pl.is_active ? (pl.is_ready ? "✅" : "⏳") : "⚪";
     const adminMark = pl.is_admin ? " [admin]" : "";
@@ -3714,10 +3759,25 @@ function renderState(st){
       kickBtn.className = "btn-kick";
       kickBtn.textContent = "Кик";
       kickBtn.disabled = !uiCtx.connected;
-      kickBtn.onclick = () => prepareKick(pl.order, pl.name);
+      kickBtn.onclick = (e) => {
+        e.stopPropagation();
+        prepareKick(pl.order, pl.name);
+      };
       line.appendChild(kickBtn);
     }
+
     div.appendChild(line);
+
+    const hasChar = !!(pl && pl.char);
+    if(hasChar){
+      div.title = "Открыть карточку персонажа";
+      div.setAttribute("role", "button");
+      div.setAttribute("tabindex", "0");
+      div.dataset.playerUid = String(pl.uid || "");
+    }else{
+      div.title = "У игрока пока нет персонажа";
+    }
+
     p.appendChild(div);
   }
 
@@ -4019,9 +4079,19 @@ function toggleReady(){
 
 (function attachCharacterCardHandlers(){
   const card = document.getElementById("myChar");
+  const playersEl = document.getElementById("players");
   const modal = document.getElementById("charModal");
   const closeBtn = document.getElementById("charModalClose");
   const copyBtn = document.getElementById("charModalCopy");
+
+  const openPlayerCardByUid = (uid) => {
+    const targetUid = String(uid || "").trim();
+    if(!targetUid || !lastState || !Array.isArray(lastState.players)) return;
+    const targetPlayer = lastState.players.find((p) => String(p && p.uid) === targetUid) || null;
+    if(!targetPlayer) return;
+    openCharacterModal(targetPlayer);
+  };
+
   if(card){
     card.addEventListener("click", openCharacterModal);
     card.addEventListener("keydown", (e) => {
@@ -4031,6 +4101,23 @@ function toggleReady(){
       }
     });
   }
+
+  if(playersEl){
+    playersEl.addEventListener("click", (e) => {
+      const cardEl = e.target instanceof Element ? e.target.closest(".char-card[data-player-uid]") : null;
+      if(!cardEl || !playersEl.contains(cardEl)) return;
+      openPlayerCardByUid(cardEl.dataset.playerUid);
+    });
+
+    playersEl.addEventListener("keydown", (e) => {
+      if(e.key !== "Enter" && e.key !== " ") return;
+      const cardEl = e.target instanceof Element ? e.target.closest(".char-card[data-player-uid]") : null;
+      if(!cardEl || !playersEl.contains(cardEl)) return;
+      e.preventDefault();
+      openPlayerCardByUid(cardEl.dataset.playerUid);
+    });
+  }
+
   if(closeBtn){
     closeBtn.addEventListener("click", closeCharacterModal);
   }

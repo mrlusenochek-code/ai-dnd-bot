@@ -3313,6 +3313,42 @@ async def api_character_create(payload: dict):
         sta_max = max(1, as_int((selected_preset or {}).get("sta_max"), 10))
         if str((selected_subrace or {}).get("key") or "").strip().lower() == "hill_dwarf":
             hp_max += 1
+
+        class_features: dict[str, Any] = {}
+        if isinstance(selected_class, dict):
+            raw_features_by_level = selected_class.get("features_by_level")
+            features_by_level = raw_features_by_level if isinstance(raw_features_by_level, dict) else {}
+            unlocked_class_features: list[dict[str, Any]] = []
+
+            for level_key, entries in features_by_level.items():
+                level_num = as_int(level_key, 0)
+                if level_num <= 0 or level_num > 1:
+                    continue
+
+                entries_list = entries if isinstance(entries, list) else []
+                for entry in entries_list:
+                    if not isinstance(entry, dict):
+                        continue
+                    unlocked_class_features.append(
+                        {
+                            "level": level_num,
+                            "key": str(entry.get("key") or "").strip().lower(),
+                            "name_ru": str(entry.get("name_ru") or "").strip(),
+                            "name": str(entry.get("name") or "").strip(),
+                            "summary_ru": str(entry.get("summary_ru") or "").strip(),
+                            "summary": str(entry.get("summary") or "").strip(),
+                            "mechanics": dict(entry.get("mechanics") or {}) if isinstance(entry.get("mechanics"), dict) else {},
+                        }
+                    )
+
+            class_features = {
+                "class_key": str(selected_class.get("key") or class_kit).strip().lower(),
+                "name_ru": str(selected_class.get("name_ru") or "").strip(),
+                "name": str(selected_class.get("name") or class_skin).strip(),
+                "features_by_level": dict(features_by_level),
+                "features": unlocked_class_features,
+            }
+
         ch = await create_character(
             db,
             sess.id,
@@ -3326,6 +3362,7 @@ async def api_character_create(payload: dict):
             sta_max=sta_max,
             stats=stats,
             race_features=race_features,
+            class_features=class_features,
             speed_ft=walk_speed,
         )
         await _upsert_starter_skills(db, ch, (selected_preset or {}).get("starter_skills") or {})
