@@ -9,6 +9,7 @@ from app.ai.gm import generate_from_prompt
 from app.db.models import Skill
 from app.gm import checks as gm_checks, contracts as gm_contracts, narration, sanitize as gm_sanitize
 from app.rules.phb_rest import sync_hit_dice_on_level_change
+from app.rules.class_progression import sync_class_features_for_level
 
 ENTITY_TOKEN_RE = re.compile(r"\b(?:[А-ЯЁ][а-яё]{2,}|[A-Z][a-z]{2,})\b")
 ENTITY_SENTENCE_LEADING_SKIP = " \t\r\n\"'«»“”„-—–([{"
@@ -554,6 +555,10 @@ async def run_two_pass(
             ch.level = new_level
             ch.hit_dice_max = hd_max
             ch.hit_dice_remaining = hd_rem
+            ch.class_features = sync_class_features_for_level(
+                getattr(ch, "class_features", {}) or {},
+                new_level,
+            )
             xp_changed = True
         name = gm_checks._normalize_check_name(str(result.get("name") or ""))
         skill_key: Optional[str] = None

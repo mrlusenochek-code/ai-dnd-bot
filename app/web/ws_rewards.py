@@ -9,6 +9,7 @@ from app.rules.defeat_outcomes import pick_defeat_outcome
 from app.rules.item_catalog import ITEMS
 from app.rules.loot_tables import roll_loot
 from app.rules.phb_rest import sync_hit_dice_on_level_change
+from app.rules.class_progression import sync_class_features_for_level
 from app.web.constants import COMBAT_STATE_KEY
 from app.web.gameplay_helpers import add_system_event
 from app.web.inventory_helpers import _character_inventory_from_stats, _inv_add_on_character, _inv_remove_on_character
@@ -375,6 +376,10 @@ async def _grant_combat_rewards_once(
             ch.level = new_level
             ch.hit_dice_max = hd_max
             ch.hit_dice_remaining = hd_rem
+            ch.class_features = sync_class_features_for_level(
+                getattr(ch, "class_features", {}) or {},
+                new_level,
+            )
 
     if leader_uid is not None:
         leader_ch = chars_by_uid.get(leader_uid)
