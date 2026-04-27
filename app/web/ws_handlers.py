@@ -22,7 +22,10 @@ from app.combat.test_actions import handle_admin_combat_test_action
 from app.core.log_context import client_id_var, request_id_var, session_id_var, uid_var, ws_conn_id_var
 from app.db.connection import AsyncSessionLocal
 from app.db.models import Character, Player, SessionPlayer, Skill
-from app.rules.class_feature_runtime import reset_class_rest_uses as _reset_class_rest_uses
+from app.rules.class_feature_runtime import (
+    mark_failed_save_for_indomitable as _mark_failed_save_for_indomitable,
+    reset_class_rest_uses as _reset_class_rest_uses,
+)
 from app.rules.phb_rest import (
     apply_long_rest,
     apply_short_rest,
@@ -7385,6 +7388,7 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                     "combat_rabbit_hop",
                     "combat_lucky_footwork",
                     "combat_saving_face",
+                    "combat_indomitable",
                     "combat_taunt",
                     "combat_fearless",
                     "combat_daunting_roar",
@@ -8197,7 +8201,7 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                 if combat_action in {"combat_fury_of_small", "combat_fury_of_the_small"} and not combat_active:
                     await ws_error("Разъярённая мелкота доступна только в бою.", request_id=msg_request_id)
                     continue
-                if combat_action in {"combat_hungry_jaws", "combat_rabbit_hop", "combat_lucky_footwork", "combat_saving_face", "combat_taunt", "combat_fearless", "combat_daunting_roar", "combat_grovel_cower_beg", "combat_goring_rush", "combat_hammering_horns", "combat_adrenaline_rush", "combat_second_wind", "combat_action_surge", "combat_aggressive", "combat_shift", "combat_shift_end", "combat_longtooth_bite", "combat_swiftstride_step", "combat_mark_target", "combat_feline_agility", "combat_cat_claws", "combat_shell_defense", "combat_shell_defense_exit", "combat_tortle_claws", "combat_acid_spit", "combat_grapple_appendages", "combat_appendages_grapple_bonus"} and not combat_active:
+                if combat_action in {"combat_hungry_jaws", "combat_rabbit_hop", "combat_lucky_footwork", "combat_saving_face", "combat_indomitable", "combat_taunt", "combat_fearless", "combat_daunting_roar", "combat_grovel_cower_beg", "combat_goring_rush", "combat_hammering_horns", "combat_adrenaline_rush", "combat_second_wind", "combat_action_surge", "combat_aggressive", "combat_shift", "combat_shift_end", "combat_longtooth_bite", "combat_swiftstride_step", "combat_mark_target", "combat_feline_agility", "combat_cat_claws", "combat_shell_defense", "combat_shell_defense_exit", "combat_tortle_claws", "combat_acid_spit", "combat_grapple_appendages", "combat_appendages_grapple_bonus"} and not combat_active:
                     await ws_error("Эта особенность доступна только в бою.", request_id=msg_request_id)
                     continue
                 if combat_action in {"combat_eerie_token_create", "combat_eerie_token_message", "combat_eerie_token_view"} and not combat_active:
@@ -8388,7 +8392,7 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                         turn_key: Optional[str] = None
                         if combat_state and combat_state.order and 0 <= combat_state.turn_index < len(combat_state.order):
                             turn_key = combat_state.order[combat_state.turn_index]
-                        reaction_actions = {"combat_saving_face", "combat_lucky_footwork", "combat_fearless", "arm_past_life_knowledge", "combat_swiftstride_step"}
+                        reaction_actions = {"combat_saving_face", "combat_lucky_footwork", "combat_fearless", "combat_indomitable", "arm_past_life_knowledge", "combat_swiftstride_step"}
                         if combat_action not in reaction_actions:
                             if not turn_key or turn_key != player_key:
                                 current_name = current_turn_label(combat_state) if combat_state else "другой участник"
@@ -8431,7 +8435,7 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                             await _broadcast_state_unlocked(session_id, combat_log_ui_patch=patch)
                             continue
 
-                        if combat_action in {"combat_second_wind", "combat_action_surge"}:
+                        if combat_action in {"combat_second_wind", "combat_action_surge", "combat_indomitable"}:
                             ch = await get_character(db, sess.id, player.id)
                             if not ch:
                                 await ws_error("Персонаж не найден.", request_id=msg_request_id)
@@ -9571,6 +9575,27 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                                 flag_modified(ch, "race_features")
                                 await db.commit()
                                 msg += " | Можно реакцией «Бесстрашие» сделать спасбросок успешным (1/дл. отдых)."
+                        if not ok:
+                            indomitable_bonus_texts: list[str] = []
+                            if bfs_bonus > 0 and bfs_bonus_text:
+                                indomitable_bonus_texts.append(bfs_bonus_text)
+                            if footwork_bonus > 0 and footwork_bonus_text:
+                                indomitable_bonus_texts.append(footwork_bonus_text)
+                            indomitable_changed = _mark_failed_save_for_indomitable(
+                                ch,
+                                ability=ability,
+                                vs_tag=vs_tag,
+                                dc=dc,
+                                total=total,
+                                mode=mapped_mode,
+                                mod=mod,
+                                bonus_total=int(total - roll - mod),
+                                bonus_texts=indomitable_bonus_texts,
+                            )
+                            if indomitable_changed:
+                                flag_modified(ch, "class_features")
+                                await db.commit()
+                                msg += " | Можно использовать «Несгибаемый», чтобы перебросить проваленный спасбросок."
                     await add_system_event(db, sess, msg)
                     await broadcast_state(session_id)
                     continue
@@ -10157,7 +10182,7 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                 if combat_action in {"combat_fury_of_small", "combat_fury_of_the_small"} and not combat_active:
                     await ws_error("Разъярённая мелкота доступна только в бою.", request_id=msg_request_id)
                     continue
-                if combat_action in {"combat_hungry_jaws", "combat_rabbit_hop", "combat_lucky_footwork", "combat_saving_face", "combat_taunt", "combat_fearless", "combat_daunting_roar", "combat_grovel_cower_beg", "combat_goring_rush", "combat_hammering_horns", "combat_adrenaline_rush", "combat_second_wind", "combat_action_surge", "combat_aggressive", "combat_shift", "combat_shift_end", "combat_longtooth_bite", "combat_swiftstride_step", "combat_mark_target", "combat_feline_agility", "combat_cat_claws", "combat_shell_defense", "combat_shell_defense_exit", "combat_tortle_claws", "combat_acid_spit", "combat_grapple_appendages", "combat_appendages_grapple_bonus"} and not combat_active:
+                if combat_action in {"combat_hungry_jaws", "combat_rabbit_hop", "combat_lucky_footwork", "combat_saving_face", "combat_indomitable", "combat_taunt", "combat_fearless", "combat_daunting_roar", "combat_grovel_cower_beg", "combat_goring_rush", "combat_hammering_horns", "combat_adrenaline_rush", "combat_second_wind", "combat_action_surge", "combat_aggressive", "combat_shift", "combat_shift_end", "combat_longtooth_bite", "combat_swiftstride_step", "combat_mark_target", "combat_feline_agility", "combat_cat_claws", "combat_shell_defense", "combat_shell_defense_exit", "combat_tortle_claws", "combat_acid_spit", "combat_grapple_appendages", "combat_appendages_grapple_bonus"} and not combat_active:
                     await ws_error("Эта особенность доступна только в бою.", request_id=msg_request_id)
                     continue
                 if combat_action in {"combat_eerie_token_create", "combat_eerie_token_message", "combat_eerie_token_view"} and not combat_active:
@@ -10360,7 +10385,7 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                         turn_key: Optional[str] = None
                         if combat_state and combat_state.order and 0 <= combat_state.turn_index < len(combat_state.order):
                             turn_key = combat_state.order[combat_state.turn_index]
-                        reaction_actions = {"combat_saving_face", "combat_lucky_footwork", "combat_fearless", "arm_past_life_knowledge", "combat_swiftstride_step"}
+                        reaction_actions = {"combat_saving_face", "combat_lucky_footwork", "combat_fearless", "combat_indomitable", "arm_past_life_knowledge", "combat_swiftstride_step"}
                         if combat_action not in reaction_actions:
                             if not turn_key or turn_key != player_key:
                                 current_name = current_turn_label(combat_state) if combat_state else "другой участник"
@@ -10403,7 +10428,7 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                             await broadcast_state(session_id, combat_log_ui_patch=patch)
                             continue
 
-                        if combat_action in {"combat_second_wind", "combat_action_surge"}:
+                        if combat_action in {"combat_second_wind", "combat_action_surge", "combat_indomitable"}:
                             ch = await get_character(db, sess.id, player.id)
                             if not ch:
                                 await ws_error("Персонаж не найден.")

@@ -10,6 +10,10 @@ _SECOND_WIND_MECHANIC_TYPE = "second_wind"
 _ACTION_SURGE_RUNTIME_KEY = "action_surge_used"
 _ACTION_SURGE_MECHANIC_TYPE = "action_surge"
 _ACTION_SURGE_IMPROVEMENT_TYPE = "action_surge_improvement"
+_INDOMITABLE_RUNTIME_KEY = "indomitable_used"
+_INDOMITABLE_PENDING_KEY = "indomitable_pending_failed_save"
+_INDOMITABLE_MECHANIC_TYPE = "indomitable"
+_INDOMITABLE_IMPROVEMENT_TYPE = "indomitable_improvement"
 
 
 def _as_int(value: Any, default: int = 0) -> int:
@@ -87,6 +91,18 @@ def _store_class_feature_runtime(ch: Any, class_features: dict[str, Any], runtim
     ch.class_features = class_features
 
 
+def _roll_d20_mode(mode: str, *, rng: Any = None) -> tuple[int, int | None, int]:
+    roller = rng if rng is not None else random
+    normalized = str(mode or "normal").strip().lower()
+    if normalized not in {"advantage", "disadvantage"}:
+        roll = max(1, int(roller.randint(1, 20)))
+        return roll, None, roll
+    roll_a = max(1, int(roller.randint(1, 20)))
+    roll_b = max(1, int(roller.randint(1, 20)))
+    chosen = max(roll_a, roll_b) if normalized == "advantage" else min(roll_a, roll_b)
+    return roll_a, roll_b, chosen
+
+
 def apply_second_wind_usage(ch: Any, *, rng: Any = None) -> tuple[int | None, str | None, bool]:
     class_features, mechanics = get_class_feature_mechanics(
         ch,
@@ -138,7 +154,6 @@ def _action_surge_uses_max(class_features: dict[str, Any], mechanics: dict[str, 
     improvement = find_class_feature_entry(
         class_features,
         feature_key="action_surge_2",
-        mechanic_type=_ACTION_SURGE_IMPROVEMENT_TYPE,
     )
     improvement_mechanics_raw = (improvement or {}).get("mechanics")
     improvement_mechanics = dict(improvement_mechanics_raw) if isinstance(improvement_mechanics_raw, dict) else {}
@@ -166,6 +181,110 @@ def apply_action_surge_usage(ch: Any) -> tuple[bool | None, str | None, bool]:
     runtime[_ACTION_SURGE_RUNTIME_KEY] = used + 1
     _store_class_feature_runtime(ch, class_features, runtime)
     return True, None, True
+
+
+def _indomitable_uses_max(class_features: dict[str, Any], mechanics: dict[str, Any]) -> int:
+    uses_max = max(1, _as_int(mechanics.get("uses_max"), 1))
+    uses_bonus = 0
+    for feature_key in ("indomitable_2", "indomitable_3"):
+        improvement = find_class_feature_entry(
+            class_features,
+            feature_key=feature_key,
+        )
+        improvement_mechanics_raw = (improvement or {}).get("mechanics")
+        improvement_mechanics = dict(improvement_mechanics_raw) if isinstance(improvement_mechanics_raw, dict) else {}
+        uses_bonus += max(0, _as_int(improvement_mechanics.get("uses_max_bonus"), 0))
+    return uses_max + uses_bonus
+
+
+def mark_failed_save_for_indomitable(
+    ch: Any,
+    *,
+    ability: str,
+    vs_tag: str,
+    dc: int,
+    total: int,
+    mode: str,
+    mod: int,
+    bonus_total: int = 0,
+    bonus_texts: list[str] | None = None,
+) -> bool:
+    class_features, mechanics = get_class_feature_mechanics(
+        ch,
+        feature_key="indomitable_1",
+        mechanic_type=_INDOMITABLE_MECHANIC_TYPE,
+    )
+    if not mechanics:
+        return False
+
+    runtime_raw = class_features.get("runtime")
+    runtime = dict(runtime_raw) if isinstance(runtime_raw, dict) else {}
+    pending = {
+        "kind": "save",
+        "ability": str(ability or "").strip().lower(),
+        "vs_tag": str(vs_tag or "").strip().lower(),
+        "dc": max(0, int(dc)),
+        "old_total": int(total),
+        "mode": str(mode or "normal").strip().lower() or "normal",
+        "mod": int(mod),
+        "bonus_total": int(bonus_total),
+        "bonus_texts": [str(text) for text in (bonus_texts or []) if str(text).strip()],
+    }
+    if runtime.get(_INDOMITABLE_PENDING_KEY) == pending:
+        return False
+    runtime[_INDOMITABLE_PENDING_KEY] = pending
+    _store_class_feature_runtime(ch, class_features, runtime)
+    return True
+
+
+def apply_indomitable_usage(ch: Any, *, rng: Any = None) -> tuple[dict[str, Any] | None, str | None, bool]:
+    class_features, mechanics = get_class_feature_mechanics(
+        ch,
+        feature_key="indomitable_1",
+        mechanic_type=_INDOMITABLE_MECHANIC_TYPE,
+    )
+    if not mechanics:
+        return None, "Несгибаемый недоступен вашему классу.", False
+
+    runtime_raw = class_features.get("runtime")
+    runtime = dict(runtime_raw) if isinstance(runtime_raw, dict) else {}
+    pending_raw = runtime.get(_INDOMITABLE_PENDING_KEY)
+    pending = dict(pending_raw) if isinstance(pending_raw, dict) else {}
+    if not pending:
+        return None, "Нет проваленного спасброска для «Несгибаемого».", False
+
+    uses = str(mechanics.get("uses") or "").strip().lower()
+    uses_max = _indomitable_uses_max(class_features, mechanics)
+    used = max(0, _as_int(runtime.get(_INDOMITABLE_RUNTIME_KEY), 0))
+    if uses == "per_long_rest" and used >= uses_max:
+        return None, "Несгибаемый уже использован до долгого отдыха.", False
+
+    mode = str(pending.get("mode") or "normal").strip().lower() or "normal"
+    roll_a, roll_b, new_roll = _roll_d20_mode(mode, rng=rng)
+    mod = int(_as_int(pending.get("mod"), 0))
+    bonus_total = int(_as_int(pending.get("bonus_total"), 0))
+    new_total = int(new_roll + mod + bonus_total)
+    dc = max(0, _as_int(pending.get("dc"), 0))
+
+    runtime[_INDOMITABLE_RUNTIME_KEY] = used + 1
+    runtime.pop(_INDOMITABLE_PENDING_KEY, None)
+    _store_class_feature_runtime(ch, class_features, runtime)
+
+    return {
+        "ability": str(pending.get("ability") or "").strip().lower(),
+        "vs_tag": str(pending.get("vs_tag") or "").strip().lower(),
+        "dc": dc,
+        "old_total": int(_as_int(pending.get("old_total"), 0)),
+        "mode": mode,
+        "roll_a": int(roll_a),
+        "roll_b": int(roll_b) if roll_b is not None else None,
+        "new_roll": int(new_roll),
+        "mod": mod,
+        "bonus_total": bonus_total,
+        "bonus_texts": [str(text) for text in (pending.get("bonus_texts") or []) if str(text).strip()],
+        "new_total": new_total,
+        "success": bool(new_total >= dc),
+    }, None, True
 
 
 def reset_class_rest_uses(ch: Any, *, long_rest: bool = True) -> bool:
@@ -198,6 +317,13 @@ def reset_class_rest_uses(ch: Any, *, long_rest: bool = True) -> bool:
     should_reset_action_surge = long_rest or action_surge_uses == "per_short_or_long_rest"
     if should_reset_action_surge and _ACTION_SURGE_RUNTIME_KEY in runtime:
         runtime.pop(_ACTION_SURGE_RUNTIME_KEY, None)
+        changed = True
+
+    if long_rest and _INDOMITABLE_RUNTIME_KEY in runtime:
+        runtime.pop(_INDOMITABLE_RUNTIME_KEY, None)
+        changed = True
+    if long_rest and _INDOMITABLE_PENDING_KEY in runtime:
+        runtime.pop(_INDOMITABLE_PENDING_KEY, None)
         changed = True
 
     if not changed:

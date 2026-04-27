@@ -3,7 +3,13 @@ from __future__ import annotations
 from types import SimpleNamespace
 
 from app.rules.character_catalog import CLASS_CATALOG
-from app.rules.class_feature_runtime import apply_action_surge_usage, apply_second_wind_usage, reset_class_rest_uses
+from app.rules.class_feature_runtime import (
+    apply_action_surge_usage,
+    apply_indomitable_usage,
+    apply_second_wind_usage,
+    mark_failed_save_for_indomitable,
+    reset_class_rest_uses,
+)
 from app.rules.class_progression import sync_class_features_for_level
 
 
@@ -49,6 +55,36 @@ def _fighter_action_surge_improvement_mechanics() -> dict:
     action_surge_2 = next((item for item in features if str((item or {}).get("key") or "") == "action_surge_2"), None)
     assert isinstance(action_surge_2, dict)
     mechanics = action_surge_2.get("mechanics") or {}
+    assert isinstance(mechanics, dict)
+    return mechanics
+
+
+def _fighter_indomitable_mechanics() -> dict:
+    fighter = _fighter_catalog_entry()
+    features = (fighter.get("features_by_level") or {}).get(9) or []
+    indomitable = next((item for item in features if str((item or {}).get("key") or "") == "indomitable_1"), None)
+    assert isinstance(indomitable, dict)
+    mechanics = indomitable.get("mechanics") or {}
+    assert isinstance(mechanics, dict)
+    return mechanics
+
+
+def _fighter_indomitable_improvement_2_mechanics() -> dict:
+    fighter = _fighter_catalog_entry()
+    features = (fighter.get("features_by_level") or {}).get(13) or []
+    indomitable = next((item for item in features if str((item or {}).get("key") or "") == "indomitable_2"), None)
+    assert isinstance(indomitable, dict)
+    mechanics = indomitable.get("mechanics") or {}
+    assert isinstance(mechanics, dict)
+    return mechanics
+
+
+def _fighter_indomitable_improvement_3_mechanics() -> dict:
+    fighter = _fighter_catalog_entry()
+    features = (fighter.get("features_by_level") or {}).get(17) or []
+    indomitable = next((item for item in features if str((item or {}).get("key") or "") == "indomitable_3"), None)
+    assert isinstance(indomitable, dict)
+    mechanics = indomitable.get("mechanics") or {}
     assert isinstance(mechanics, dict)
     return mechanics
 
@@ -233,3 +269,183 @@ def test_action_surge_improvement_allows_two_uses_before_rest() -> None:
     assert err_3 is not None
     assert "короткого или долгого отдыха" in err_3
     assert changed_3 is False
+
+
+def test_indomitable_unavailable_without_feature() -> None:
+    ch = SimpleNamespace(class_features={"features": [], "runtime": {}})
+    changed = mark_failed_save_for_indomitable(
+        ch,
+        ability="wis",
+        vs_tag="frightened",
+        dc=15,
+        total=12,
+        mode="normal",
+        mod=2,
+    )
+    assert changed is False
+
+    payload, err, runtime_changed = apply_indomitable_usage(ch, rng=_FixedRng(18))
+    assert payload is None
+    assert err == "Несгибаемый недоступен вашему классу."
+    assert runtime_changed is False
+
+
+def test_indomitable_level_9_allows_one_use_until_long_rest() -> None:
+    ch = SimpleNamespace(
+        class_features={
+            "features": [{"key": "indomitable_1", "mechanics": _fighter_indomitable_mechanics()}],
+            "runtime": {},
+        }
+    )
+
+    marked = mark_failed_save_for_indomitable(
+        ch,
+        ability="wis",
+        vs_tag="frightened",
+        dc=15,
+        total=12,
+        mode="normal",
+        mod=2,
+    )
+    assert marked is True
+
+    payload_1, err_1, changed_1 = apply_indomitable_usage(ch, rng=_FixedRng(17))
+    assert isinstance(payload_1, dict)
+    assert err_1 is None
+    assert changed_1 is True
+    runtime_after_first = (ch.class_features or {}).get("runtime") or {}
+    assert int(runtime_after_first.get("indomitable_used") or 0) == 1
+    assert "indomitable_pending_failed_save" not in runtime_after_first
+
+    mark_failed_save_for_indomitable(
+        ch,
+        ability="wis",
+        vs_tag="frightened",
+        dc=15,
+        total=12,
+        mode="normal",
+        mod=2,
+    )
+    payload_2, err_2, changed_2 = apply_indomitable_usage(ch, rng=_FixedRng(14))
+    assert payload_2 is None
+    assert err_2 == "Несгибаемый уже использован до долгого отдыха."
+    assert changed_2 is False
+
+
+def test_indomitable_level_13_allows_two_uses_until_long_rest() -> None:
+    ch = SimpleNamespace(
+        class_features={
+            "features": [
+                {"key": "indomitable_1", "mechanics": _fighter_indomitable_mechanics()},
+                {"key": "indomitable_2", "mechanics": _fighter_indomitable_improvement_2_mechanics()},
+            ],
+            "runtime": {},
+        }
+    )
+
+    for expected_used, roll in ((1, 16), (2, 15)):
+        mark_failed_save_for_indomitable(
+            ch,
+            ability="con",
+            vs_tag="poison",
+            dc=14,
+            total=11,
+            mode="normal",
+            mod=3,
+        )
+        payload, err, changed = apply_indomitable_usage(ch, rng=_FixedRng(roll))
+        assert isinstance(payload, dict)
+        assert err is None
+        assert changed is True
+        runtime_now = (ch.class_features or {}).get("runtime") or {}
+        assert int(runtime_now.get("indomitable_used") or 0) == expected_used
+
+    mark_failed_save_for_indomitable(
+        ch,
+        ability="con",
+        vs_tag="poison",
+        dc=14,
+        total=11,
+        mode="normal",
+        mod=3,
+    )
+    payload_3, err_3, changed_3 = apply_indomitable_usage(ch, rng=_FixedRng(18))
+    assert payload_3 is None
+    assert err_3 == "Несгибаемый уже использован до долгого отдыха."
+    assert changed_3 is False
+
+
+def test_indomitable_level_17_allows_three_uses_until_long_rest() -> None:
+    ch = SimpleNamespace(
+        class_features={
+            "features": [
+                {"key": "indomitable_1", "mechanics": _fighter_indomitable_mechanics()},
+                {"key": "indomitable_2", "mechanics": _fighter_indomitable_improvement_2_mechanics()},
+                {"key": "indomitable_3", "mechanics": _fighter_indomitable_improvement_3_mechanics()},
+            ],
+            "runtime": {},
+        }
+    )
+
+    for expected_used, roll in ((1, 15), (2, 16), (3, 17)):
+        mark_failed_save_for_indomitable(
+            ch,
+            ability="str",
+            vs_tag="",
+            dc=13,
+            total=10,
+            mode="normal",
+            mod=2,
+        )
+        payload, err, changed = apply_indomitable_usage(ch, rng=_FixedRng(roll))
+        assert isinstance(payload, dict)
+        assert err is None
+        assert changed is True
+        runtime_now = (ch.class_features or {}).get("runtime") or {}
+        assert int(runtime_now.get("indomitable_used") or 0) == expected_used
+
+    mark_failed_save_for_indomitable(
+        ch,
+        ability="str",
+        vs_tag="",
+        dc=13,
+        total=10,
+        mode="normal",
+        mod=2,
+    )
+    payload_4, err_4, changed_4 = apply_indomitable_usage(ch, rng=_FixedRng(19))
+    assert payload_4 is None
+    assert err_4 == "Несгибаемый уже использован до долгого отдыха."
+    assert changed_4 is False
+
+
+def test_indomitable_long_rest_resets_used_and_pending_but_short_rest_does_not() -> None:
+    ch = SimpleNamespace(
+        class_features={
+            "features": [{"key": "indomitable_1", "mechanics": _fighter_indomitable_mechanics()}],
+            "runtime": {
+                "indomitable_used": 1,
+                "indomitable_pending_failed_save": {
+                    "ability": "wis",
+                    "dc": 15,
+                    "old_total": 12,
+                    "mode": "normal",
+                    "mod": 2,
+                    "bonus_total": 0,
+                    "bonus_texts": [],
+                },
+            },
+        }
+    )
+
+    short_changed = reset_class_rest_uses(ch, long_rest=False)
+    assert short_changed is False
+    runtime_after_short = (ch.class_features or {}).get("runtime") or {}
+    assert int(runtime_after_short.get("indomitable_used") or 0) == 1
+    assert "indomitable_pending_failed_save" in runtime_after_short
+
+    long_changed = reset_class_rest_uses(ch, long_rest=True)
+    assert long_changed is True
+    runtime_after_long = (ch.class_features or {}).get("runtime") or {}
+    assert "indomitable_used" not in runtime_after_long
+    assert "indomitable_pending_failed_save" not in runtime_after_long

@@ -140,6 +140,10 @@ CHAT_COMBAT_ACTION_PATTERNS: list[tuple[str, re.Pattern[str]]] = [
         re.compile(r"(использую\s+всплеск\s+действий|всплеск\s+действий|action\s+surge)", re.IGNORECASE),
     ),
     (
+        "combat_indomitable",
+        re.compile(r"(использую\s+несгибаем\w*|несгибаем\w*|indomitable)", re.IGNORECASE),
+    ),
+    (
         "combat_shift",
         re.compile(r"(смена\s+формы|шифт\w*|превращаюс\w*|shift\b)", re.IGNORECASE),
     ),
