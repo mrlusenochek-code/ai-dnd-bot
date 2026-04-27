@@ -904,7 +904,7 @@ BASE_CLASS_CATALOG: list[dict[str, Any]] = [
                 {"key": "fighting_style", "name_ru": "Стиль боя", "summary_ru": "Выбор боевого стиля, определяющего сильную сторону воина.", "mechanics": {}},
                 {"key": "second_wind", "name_ru": "Второе дыхание", "summary_ru": "Бонусным действием восстанавливает 1d10 + уровень воина хитов один раз до короткого или долгого отдыха.", "mechanics": {"type": "second_wind", "uses": "per_short_or_long_rest", "heal_dice": "1d10", "heal_bonus": "level", "action_cost": "bonus_action"}},
             ],
-            2: [{"key": "action_surge", "name_ru": "Всплеск действий", "summary_ru": "Иногда получает дополнительное действие в ход.", "mechanics": {}}],
+            2: [{"key": "action_surge", "name_ru": "Всплеск действий", "summary_ru": "Иногда получает дополнительное действие в ход.", "mechanics": {"type": "action_surge", "uses": "per_short_or_long_rest", "uses_max": 1, "action_cost": "none"}}],
             3: [{"key": "martial_archetype", "name_ru": "Воинский архетип", "summary_ru": "Выбор подкласса воина.", "mechanics": {"type": "subclass_choice"}}],
             4: [{"key": "asi", "name_ru": "Увеличение характеристик", "summary_ru": "Улучшение характеристик или выбор таланта.", "mechanics": {}}],
             5: [{"key": "extra_attack", "name_ru": "Дополнительная атака", "summary_ru": "Совершает больше атак действием.", "mechanics": {}}],
@@ -920,7 +920,7 @@ BASE_CLASS_CATALOG: list[dict[str, Any]] = [
             15: [{"key": "archetype_feature_15", "name_ru": "Умение архетипа (15)", "summary_ru": "Особенность выбранного архетипа на 15 уровне.", "mechanics": {}}],
             16: [{"key": "asi", "name_ru": "Увеличение характеристик", "summary_ru": "Улучшение характеристик или выбор таланта.", "mechanics": {}}],
             17: [
-                {"key": "action_surge_2", "name_ru": "Всплеск действий (2)", "summary_ru": "Получает два использования Всплеска действий между отдыхами.", "mechanics": {}},
+                {"key": "action_surge_2", "name_ru": "Всплеск действий (2)", "summary_ru": "Получает два использования Всплеска действий между отдыхами.", "mechanics": {"type": "action_surge_improvement", "uses_max_bonus": 1}},
                 {"key": "indomitable_3", "name_ru": "Несгибаемый (3)", "summary_ru": "Третье использование Несгибаемого между отдыхами.", "mechanics": {}},
             ],
             18: [{"key": "archetype_feature_18", "name_ru": "Умение архетипа (18)", "summary_ru": "Высшая особенность выбранного архетипа.", "mechanics": {}}],

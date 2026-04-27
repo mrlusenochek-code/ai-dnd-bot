@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import Any
 
 from app.combat.state import current_turn_label, get_combat
-from app.rules.class_feature_runtime import apply_second_wind_usage
+from app.rules.class_feature_runtime import apply_action_surge_usage, apply_second_wind_usage
 
 
 def _apply_second_wind_in_combat(
@@ -46,6 +46,41 @@ def _apply_second_wind_in_combat(
     return patch, None, True
 
 
+def _apply_action_surge_in_combat(
+    session_id: str,
+    actor_key: str,
+    ch: Any,
+) -> tuple[dict[str, Any] | None, str | None, bool]:
+    state = get_combat(session_id)
+    if state is None or not state.active:
+        return None, "Combat is not active", False
+    if not state.order or state.turn_index < 0 or state.turn_index >= len(state.order):
+        return None, "Combat state is inconsistent", False
+    if state.order[state.turn_index] != actor_key:
+        return None, f"Сейчас ходит {current_turn_label(state)}. Дождись своего хода.", False
+
+    actor = state.combatants.get(actor_key)
+    if actor is None:
+        return None, "Боец не найден.", False
+
+    ok, err, changed = apply_action_surge_usage(ch)
+    if err:
+        return None, err, False
+    if not ok:
+        return None, "Всплеск действий не сработал.", False
+
+    actor.action_available = True
+    actor_name = str(getattr(ch, "name", "") or getattr(actor, "name", "") or "Персонаж").strip() or "Персонаж"
+    patch = {
+        "status": f"⚔ Бой • Раунд {state.round_no} • Ход: {current_turn_label(state)}",
+        "open": True,
+        "lines": [
+            {"text": f"{actor_name} использует Всплеск действий и получает дополнительное действие."},
+        ],
+    }
+    return patch, None, changed
+
+
 def apply_combat_class_feature_action(
     combat_action: str,
     session_id: str,
@@ -57,4 +92,6 @@ def apply_combat_class_feature_action(
     action = str(combat_action or "").strip().lower()
     if action == "combat_second_wind":
         return _apply_second_wind_in_combat(session_id, actor_key, ch, rng=rng)
+    if action == "combat_action_surge":
+        return _apply_action_surge_in_combat(session_id, actor_key, ch)
     return None, f"Неизвестная классовая особенность: {combat_action}", False

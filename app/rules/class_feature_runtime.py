@@ -7,6 +7,9 @@ from typing import Any
 
 _SECOND_WIND_RUNTIME_KEY = "second_wind_used"
 _SECOND_WIND_MECHANIC_TYPE = "second_wind"
+_ACTION_SURGE_RUNTIME_KEY = "action_surge_used"
+_ACTION_SURGE_MECHANIC_TYPE = "action_surge"
+_ACTION_SURGE_IMPROVEMENT_TYPE = "action_surge_improvement"
 
 
 def _as_int(value: Any, default: int = 0) -> int:
@@ -130,6 +133,41 @@ def apply_second_wind_usage(ch: Any, *, rng: Any = None) -> tuple[int | None, st
     return max(0, hp_after - hp_before), None, changed
 
 
+def _action_surge_uses_max(class_features: dict[str, Any], mechanics: dict[str, Any]) -> int:
+    uses_max = max(1, _as_int(mechanics.get("uses_max"), 1))
+    improvement = find_class_feature_entry(
+        class_features,
+        feature_key="action_surge_2",
+        mechanic_type=_ACTION_SURGE_IMPROVEMENT_TYPE,
+    )
+    improvement_mechanics_raw = (improvement or {}).get("mechanics")
+    improvement_mechanics = dict(improvement_mechanics_raw) if isinstance(improvement_mechanics_raw, dict) else {}
+    uses_bonus = max(0, _as_int(improvement_mechanics.get("uses_max_bonus"), 0))
+    return uses_max + uses_bonus
+
+
+def apply_action_surge_usage(ch: Any) -> tuple[bool | None, str | None, bool]:
+    class_features, mechanics = get_class_feature_mechanics(
+        ch,
+        feature_key="action_surge",
+        mechanic_type=_ACTION_SURGE_MECHANIC_TYPE,
+    )
+    if not mechanics:
+        return None, "Всплеск действий недоступен вашему классу.", False
+
+    runtime_raw = class_features.get("runtime")
+    runtime = dict(runtime_raw) if isinstance(runtime_raw, dict) else {}
+    uses = str(mechanics.get("uses") or "").strip().lower()
+    uses_max = _action_surge_uses_max(class_features, mechanics)
+    used = max(0, _as_int(runtime.get(_ACTION_SURGE_RUNTIME_KEY), 0))
+    if uses == "per_short_or_long_rest" and used >= uses_max:
+        return None, "Всплеск действий уже использован до короткого или долгого отдыха.", False
+
+    runtime[_ACTION_SURGE_RUNTIME_KEY] = used + 1
+    _store_class_feature_runtime(ch, class_features, runtime)
+    return True, None, True
+
+
 def reset_class_rest_uses(ch: Any, *, long_rest: bool = True) -> bool:
     class_features, runtime = get_class_feature_runtime(ch)
     if not runtime:
@@ -147,6 +185,19 @@ def reset_class_rest_uses(ch: Any, *, long_rest: bool = True) -> bool:
     should_reset_second_wind = long_rest or second_wind_uses == "per_short_or_long_rest"
     if should_reset_second_wind and _SECOND_WIND_RUNTIME_KEY in runtime:
         runtime.pop(_SECOND_WIND_RUNTIME_KEY, None)
+        changed = True
+
+    action_surge_entry = find_class_feature_entry(
+        class_features,
+        feature_key="action_surge",
+        mechanic_type=_ACTION_SURGE_MECHANIC_TYPE,
+    )
+    action_surge_mechanics_raw = (action_surge_entry or {}).get("mechanics")
+    action_surge_mechanics = dict(action_surge_mechanics_raw) if isinstance(action_surge_mechanics_raw, dict) else {}
+    action_surge_uses = str(action_surge_mechanics.get("uses") or "").strip().lower()
+    should_reset_action_surge = long_rest or action_surge_uses == "per_short_or_long_rest"
+    if should_reset_action_surge and _ACTION_SURGE_RUNTIME_KEY in runtime:
+        runtime.pop(_ACTION_SURGE_RUNTIME_KEY, None)
         changed = True
 
     if not changed:

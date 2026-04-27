@@ -3,7 +3,7 @@ from __future__ import annotations
 from types import SimpleNamespace
 
 from app.rules.character_catalog import CLASS_CATALOG
-from app.rules.class_feature_runtime import apply_second_wind_usage, reset_class_rest_uses
+from app.rules.class_feature_runtime import apply_action_surge_usage, apply_second_wind_usage, reset_class_rest_uses
 from app.rules.class_progression import sync_class_features_for_level
 
 
@@ -33,6 +33,26 @@ def _fighter_second_wind_mechanics() -> dict:
     return mechanics
 
 
+def _fighter_action_surge_mechanics() -> dict:
+    fighter = _fighter_catalog_entry()
+    features = (fighter.get("features_by_level") or {}).get(2) or []
+    action_surge = next((item for item in features if str((item or {}).get("key") or "") == "action_surge"), None)
+    assert isinstance(action_surge, dict)
+    mechanics = action_surge.get("mechanics") or {}
+    assert isinstance(mechanics, dict)
+    return mechanics
+
+
+def _fighter_action_surge_improvement_mechanics() -> dict:
+    fighter = _fighter_catalog_entry()
+    features = (fighter.get("features_by_level") or {}).get(17) or []
+    action_surge_2 = next((item for item in features if str((item or {}).get("key") or "") == "action_surge_2"), None)
+    assert isinstance(action_surge_2, dict)
+    mechanics = action_surge_2.get("mechanics") or {}
+    assert isinstance(mechanics, dict)
+    return mechanics
+
+
 def test_fighter_second_wind_catalog_has_runtime_mechanics() -> None:
     mechanics = _fighter_second_wind_mechanics()
     assert mechanics == {
@@ -56,6 +76,23 @@ def test_sync_class_features_for_level_preserves_second_wind_mechanics() -> None
 
     assert isinstance(second_wind, dict)
     assert second_wind.get("mechanics") == _fighter_second_wind_mechanics()
+
+
+def test_sync_class_features_for_level_preserves_action_surge_mechanics() -> None:
+    fighter = _fighter_catalog_entry()
+    class_features = {
+        "class_key": "fighter",
+        "features_by_level": dict(fighter.get("features_by_level") or {}),
+    }
+
+    synced = sync_class_features_for_level(class_features, 17)
+    action_surge = next((item for item in synced["features"] if item.get("key") == "action_surge"), None)
+    action_surge_2 = next((item for item in synced["features"] if item.get("key") == "action_surge_2"), None)
+
+    assert isinstance(action_surge, dict)
+    assert action_surge.get("mechanics") == _fighter_action_surge_mechanics()
+    assert isinstance(action_surge_2, dict)
+    assert action_surge_2.get("mechanics") == _fighter_action_surge_improvement_mechanics()
 
 
 def test_apply_second_wind_usage_heals_and_blocks_repeat_until_rest() -> None:
@@ -128,3 +165,71 @@ def test_reset_class_rest_uses_supports_short_and_long_rest_and_empty_runtime() 
         }
     )
     assert reset_class_rest_uses(empty_runtime_char, long_rest=False) is False
+
+
+def test_action_surge_usage_blocks_repeat_until_short_rest() -> None:
+    ch = SimpleNamespace(
+        class_features={
+            "features": [
+                {
+                    "key": "action_surge",
+                    "mechanics": _fighter_action_surge_mechanics(),
+                }
+            ],
+            "runtime": {},
+        }
+    )
+
+    ok_1, err_1, changed_1 = apply_action_surge_usage(ch)
+    assert ok_1 is True
+    assert err_1 is None
+    assert changed_1 is True
+    runtime_after_first = (ch.class_features or {}).get("runtime") or {}
+    assert int(runtime_after_first.get("action_surge_used") or 0) == 1
+
+    ok_2, err_2, changed_2 = apply_action_surge_usage(ch)
+    assert ok_2 is None
+    assert err_2 is not None
+    assert "короткого или долгого отдыха" in err_2
+    assert changed_2 is False
+
+    reset_changed = reset_class_rest_uses(ch, long_rest=False)
+    assert reset_changed is True
+    runtime_after_reset = (ch.class_features or {}).get("runtime") or {}
+    assert "action_surge_used" not in runtime_after_reset
+
+
+def test_action_surge_improvement_allows_two_uses_before_rest() -> None:
+    ch = SimpleNamespace(
+        class_features={
+            "features": [
+                {
+                    "key": "action_surge",
+                    "mechanics": _fighter_action_surge_mechanics(),
+                },
+                {
+                    "key": "action_surge_2",
+                    "mechanics": _fighter_action_surge_improvement_mechanics(),
+                },
+            ],
+            "runtime": {},
+        }
+    )
+
+    ok_1, err_1, changed_1 = apply_action_surge_usage(ch)
+    assert ok_1 is True
+    assert err_1 is None
+    assert changed_1 is True
+
+    ok_2, err_2, changed_2 = apply_action_surge_usage(ch)
+    assert ok_2 is True
+    assert err_2 is None
+    assert changed_2 is True
+    runtime_after_second = (ch.class_features or {}).get("runtime") or {}
+    assert int(runtime_after_second.get("action_surge_used") or 0) == 2
+
+    ok_3, err_3, changed_3 = apply_action_surge_usage(ch)
+    assert ok_3 is None
+    assert err_3 is not None
+    assert "короткого или долгого отдыха" in err_3
+    assert changed_3 is False
