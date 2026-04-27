@@ -8,6 +8,7 @@ from app.db.models import Session
 from app.rules.defeat_outcomes import pick_defeat_outcome
 from app.rules.item_catalog import ITEMS
 from app.rules.loot_tables import roll_loot
+from app.rules.phb_rest import sync_hit_dice_on_level_change
 from app.web.constants import COMBAT_STATE_KEY
 from app.web.gameplay_helpers import add_system_event
 from app.web.inventory_helpers import _character_inventory_from_stats, _inv_add_on_character, _inv_remove_on_character
@@ -357,8 +358,23 @@ async def _grant_combat_rewards_once(
         ch = chars_by_uid.get(uid)
         if ch is None:
             continue
-        ch.xp_total = max(0, as_int(ch.xp_total, 0)) + max(0, xp_each)
-        ch.level = _level_from_xp_total(ch.xp_total, as_int(ch.level, 1))
+
+        old_level = as_int(ch.level, 1)
+        new_xp_total = max(0, as_int(ch.xp_total, 0)) + max(0, xp_each)
+        new_level = _level_from_xp_total(new_xp_total, old_level)
+
+        ch.xp_total = new_xp_total
+
+        if old_level != new_level:
+            hd_max, hd_rem = sync_hit_dice_on_level_change(
+                old_level=old_level,
+                new_level=new_level,
+                hit_dice_max=as_int(getattr(ch, "hit_dice_max", None), old_level),
+                hit_dice_remaining=as_int(getattr(ch, "hit_dice_remaining", None), old_level),
+            )
+            ch.level = new_level
+            ch.hit_dice_max = hd_max
+            ch.hit_dice_remaining = hd_rem
 
     if leader_uid is not None:
         leader_ch = chars_by_uid.get(leader_uid)
