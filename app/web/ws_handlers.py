@@ -7376,6 +7376,9 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                     "combat_move",
                     "combat_disengage",
                     "combat_hide",
+                    "combat_cunning_dash",
+                    "combat_cunning_disengage",
+                    "combat_cunning_hide",
                     "combat_takeoff",
                     "combat_land",
                     "combat_mode_walk",
@@ -8201,7 +8204,7 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                 if combat_action in {"combat_fury_of_small", "combat_fury_of_the_small"} and not combat_active:
                     await ws_error("Разъярённая мелкота доступна только в бою.", request_id=msg_request_id)
                     continue
-                if combat_action in {"combat_hungry_jaws", "combat_rabbit_hop", "combat_lucky_footwork", "combat_saving_face", "combat_indomitable", "combat_taunt", "combat_fearless", "combat_daunting_roar", "combat_grovel_cower_beg", "combat_goring_rush", "combat_hammering_horns", "combat_adrenaline_rush", "combat_second_wind", "combat_action_surge", "combat_aggressive", "combat_shift", "combat_shift_end", "combat_longtooth_bite", "combat_swiftstride_step", "combat_mark_target", "combat_feline_agility", "combat_cat_claws", "combat_shell_defense", "combat_shell_defense_exit", "combat_tortle_claws", "combat_acid_spit", "combat_grapple_appendages", "combat_appendages_grapple_bonus"} and not combat_active:
+                if combat_action in {"combat_hungry_jaws", "combat_rabbit_hop", "combat_lucky_footwork", "combat_saving_face", "combat_indomitable", "combat_taunt", "combat_fearless", "combat_daunting_roar", "combat_grovel_cower_beg", "combat_goring_rush", "combat_hammering_horns", "combat_adrenaline_rush", "combat_second_wind", "combat_action_surge", "combat_cunning_dash", "combat_cunning_disengage", "combat_cunning_hide", "combat_aggressive", "combat_shift", "combat_shift_end", "combat_longtooth_bite", "combat_swiftstride_step", "combat_mark_target", "combat_feline_agility", "combat_cat_claws", "combat_shell_defense", "combat_shell_defense_exit", "combat_tortle_claws", "combat_acid_spit", "combat_grapple_appendages", "combat_appendages_grapple_bonus"} and not combat_active:
                     await ws_error("Эта особенность доступна только в бою.", request_id=msg_request_id)
                     continue
                 if combat_action in {"combat_eerie_token_create", "combat_eerie_token_message", "combat_eerie_token_view"} and not combat_active:
@@ -8435,7 +8438,7 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                             await _broadcast_state_unlocked(session_id, combat_log_ui_patch=patch)
                             continue
 
-                        if combat_action in {"combat_second_wind", "combat_action_surge", "combat_indomitable"}:
+                        if combat_action in {"combat_second_wind", "combat_action_surge", "combat_indomitable", "combat_cunning_dash", "combat_cunning_disengage", "combat_cunning_hide"}:
                             ch = await get_character(db, sess.id, player.id)
                             if not ch:
                                 await ws_error("Персонаж не найден.", request_id=msg_request_id)
@@ -10182,7 +10185,7 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                 if combat_action in {"combat_fury_of_small", "combat_fury_of_the_small"} and not combat_active:
                     await ws_error("Разъярённая мелкота доступна только в бою.", request_id=msg_request_id)
                     continue
-                if combat_action in {"combat_hungry_jaws", "combat_rabbit_hop", "combat_lucky_footwork", "combat_saving_face", "combat_indomitable", "combat_taunt", "combat_fearless", "combat_daunting_roar", "combat_grovel_cower_beg", "combat_goring_rush", "combat_hammering_horns", "combat_adrenaline_rush", "combat_second_wind", "combat_action_surge", "combat_aggressive", "combat_shift", "combat_shift_end", "combat_longtooth_bite", "combat_swiftstride_step", "combat_mark_target", "combat_feline_agility", "combat_cat_claws", "combat_shell_defense", "combat_shell_defense_exit", "combat_tortle_claws", "combat_acid_spit", "combat_grapple_appendages", "combat_appendages_grapple_bonus"} and not combat_active:
+                if combat_action in {"combat_hungry_jaws", "combat_rabbit_hop", "combat_lucky_footwork", "combat_saving_face", "combat_indomitable", "combat_taunt", "combat_fearless", "combat_daunting_roar", "combat_grovel_cower_beg", "combat_goring_rush", "combat_hammering_horns", "combat_adrenaline_rush", "combat_second_wind", "combat_action_surge", "combat_cunning_dash", "combat_cunning_disengage", "combat_cunning_hide", "combat_aggressive", "combat_shift", "combat_shift_end", "combat_longtooth_bite", "combat_swiftstride_step", "combat_mark_target", "combat_feline_agility", "combat_cat_claws", "combat_shell_defense", "combat_shell_defense_exit", "combat_tortle_claws", "combat_acid_spit", "combat_grapple_appendages", "combat_appendages_grapple_bonus"} and not combat_active:
                     await ws_error("Эта особенность доступна только в бою.", request_id=msg_request_id)
                     continue
                 if combat_action in {"combat_eerie_token_create", "combat_eerie_token_message", "combat_eerie_token_view"} and not combat_active:
@@ -10428,7 +10431,7 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                             await broadcast_state(session_id, combat_log_ui_patch=patch)
                             continue
 
-                        if combat_action in {"combat_second_wind", "combat_action_surge", "combat_indomitable"}:
+                        if combat_action in {"combat_second_wind", "combat_action_surge", "combat_indomitable", "combat_cunning_dash", "combat_cunning_disengage", "combat_cunning_hide"}:
                             ch = await get_character(db, sess.id, player.id)
                             if not ch:
                                 await ws_error("Персонаж не найден.")

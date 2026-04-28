@@ -14,6 +14,7 @@ _INDOMITABLE_RUNTIME_KEY = "indomitable_used"
 _INDOMITABLE_PENDING_KEY = "indomitable_pending_failed_save"
 _INDOMITABLE_MECHANIC_TYPE = "indomitable"
 _INDOMITABLE_IMPROVEMENT_TYPE = "indomitable_improvement"
+_CUNNING_ACTION_MECHANIC_TYPE = "cunning_action"
 
 
 def _as_int(value: Any, default: int = 0) -> int:
@@ -81,6 +82,17 @@ def get_class_feature_runtime(ch: Any) -> tuple[dict[str, Any], dict[str, Any]]:
     runtime_raw = class_features.get("runtime")
     runtime = dict(runtime_raw) if isinstance(runtime_raw, dict) else {}
     return class_features, runtime
+
+
+def get_cunning_action_mechanics(ch: Any) -> tuple[dict[str, Any], str | None]:
+    _class_features, mechanics = get_class_feature_mechanics(
+        ch,
+        feature_key="cunning_action",
+        mechanic_type=_CUNNING_ACTION_MECHANIC_TYPE,
+    )
+    if not mechanics:
+        return {}, "Хитрое действие недоступно вашему классу."
+    return mechanics, None
 
 
 def _store_class_feature_runtime(ch: Any, class_features: dict[str, Any], runtime: dict[str, Any]) -> None:

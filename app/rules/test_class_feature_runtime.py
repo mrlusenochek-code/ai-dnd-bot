@@ -5,6 +5,7 @@ from types import SimpleNamespace
 from app.rules.character_catalog import CLASS_CATALOG
 from app.rules.class_feature_runtime import (
     apply_action_surge_usage,
+    get_cunning_action_mechanics,
     apply_indomitable_usage,
     apply_second_wind_usage,
     mark_failed_save_for_indomitable,
@@ -27,6 +28,12 @@ def _fighter_catalog_entry() -> dict:
     fighter = next((item for item in CLASS_CATALOG if str(item.get("key") or "") == "fighter"), None)
     assert fighter is not None
     return fighter
+
+
+def _rogue_catalog_entry() -> dict:
+    rogue = next((item for item in CLASS_CATALOG if str(item.get("key") or "") == "rogue"), None)
+    assert rogue is not None
+    return rogue
 
 
 def _fighter_second_wind_mechanics() -> dict:
@@ -89,6 +96,16 @@ def _fighter_indomitable_improvement_3_mechanics() -> dict:
     return mechanics
 
 
+def _rogue_cunning_action_mechanics() -> dict:
+    rogue = _rogue_catalog_entry()
+    features = (rogue.get("features_by_level") or {}).get(2) or []
+    cunning_action = next((item for item in features if str((item or {}).get("key") or "") == "cunning_action"), None)
+    assert isinstance(cunning_action, dict)
+    mechanics = cunning_action.get("mechanics") or {}
+    assert isinstance(mechanics, dict)
+    return mechanics
+
+
 def test_fighter_second_wind_catalog_has_runtime_mechanics() -> None:
     mechanics = _fighter_second_wind_mechanics()
     assert mechanics == {
@@ -97,6 +114,15 @@ def test_fighter_second_wind_catalog_has_runtime_mechanics() -> None:
         "heal_dice": "1d10",
         "heal_bonus": "level",
         "action_cost": "bonus_action",
+    }
+
+
+def test_rogue_cunning_action_catalog_has_runtime_mechanics() -> None:
+    mechanics = _rogue_cunning_action_mechanics()
+    assert mechanics == {
+        "type": "cunning_action",
+        "action_cost": "bonus_action",
+        "allowed_actions": ["combat_dash", "combat_disengage", "combat_hide"],
     }
 
 
@@ -449,3 +475,26 @@ def test_indomitable_long_rest_resets_used_and_pending_but_short_rest_does_not()
     runtime_after_long = (ch.class_features or {}).get("runtime") or {}
     assert "indomitable_used" not in runtime_after_long
     assert "indomitable_pending_failed_save" not in runtime_after_long
+
+
+def test_get_cunning_action_mechanics_returns_error_without_feature() -> None:
+    mechanics, err = get_cunning_action_mechanics(SimpleNamespace(class_features={"features": [], "runtime": {}}))
+    assert mechanics == {}
+    assert err == "Хитрое действие недоступно вашему классу."
+
+
+def test_get_cunning_action_mechanics_finds_rogue_feature() -> None:
+    ch = SimpleNamespace(
+        class_features={
+            "features": [
+                {
+                    "key": "cunning_action",
+                    "mechanics": _rogue_cunning_action_mechanics(),
+                }
+            ],
+            "runtime": {},
+        }
+    )
+    mechanics, err = get_cunning_action_mechanics(ch)
+    assert err is None
+    assert mechanics == _rogue_cunning_action_mechanics()

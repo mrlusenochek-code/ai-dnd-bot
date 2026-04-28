@@ -2,8 +2,14 @@ from __future__ import annotations
 
 from typing import Any
 
+from app.combat.live_actions import handle_live_combat_action
 from app.combat.state import current_turn_label, get_combat
-from app.rules.class_feature_runtime import apply_action_surge_usage, apply_indomitable_usage, apply_second_wind_usage
+from app.rules.class_feature_runtime import (
+    apply_action_surge_usage,
+    apply_indomitable_usage,
+    apply_second_wind_usage,
+    get_cunning_action_mechanics,
+)
 
 
 def _format_d20_roll(mode: str, roll_a: int, roll_b: int | None, chosen: int) -> str:
@@ -140,6 +146,50 @@ def _apply_indomitable_in_combat(
     return patch, None, changed
 
 
+def _apply_cunning_action_in_combat(
+    session_id: str,
+    actor_key: str,
+    ch: Any,
+    *,
+    target_action: str,
+) -> tuple[dict[str, Any] | None, str | None, bool]:
+    state = get_combat(session_id)
+    if state is None or not state.active:
+        return None, "Combat is not active", False
+    if not state.order or state.turn_index < 0 or state.turn_index >= len(state.order):
+        return None, "Combat state is inconsistent", False
+    if state.order[state.turn_index] != actor_key:
+        return None, f"Сейчас ходит {current_turn_label(state)}. Дождись своего хода.", False
+
+    mechanics, err = get_cunning_action_mechanics(ch)
+    if err:
+        return None, err, False
+
+    allowed_actions_raw = mechanics.get("allowed_actions")
+    allowed_actions = [
+        str(item or "").strip().lower()
+        for item in allowed_actions_raw
+        if str(item or "").strip()
+    ] if isinstance(allowed_actions_raw, list) else []
+    normalized_target = str(target_action or "").strip().lower()
+    if normalized_target not in allowed_actions:
+        return None, "Это действие не входит в «Хитрое действие».", False
+
+    patch, live_err = handle_live_combat_action(
+        normalized_target,
+        session_id,
+        use_bonus_action=True,
+    )
+    if live_err:
+        return None, live_err, False
+    line_items = patch.get("lines") if isinstance(patch, dict) else []
+    if isinstance(line_items, list) and line_items and isinstance(line_items[0], dict):
+        first_text = str(line_items[0].get("text") or "")
+        if "бонусное действие уже потрачено" in first_text.lower():
+            return None, first_text, False
+    return patch, None, False
+
+
 def apply_combat_class_feature_action(
     combat_action: str,
     session_id: str,
@@ -155,4 +205,10 @@ def apply_combat_class_feature_action(
         return _apply_action_surge_in_combat(session_id, actor_key, ch)
     if action == "combat_indomitable":
         return _apply_indomitable_in_combat(session_id, actor_key, ch, rng=rng)
+    if action == "combat_cunning_dash":
+        return _apply_cunning_action_in_combat(session_id, actor_key, ch, target_action="combat_dash")
+    if action == "combat_cunning_disengage":
+        return _apply_cunning_action_in_combat(session_id, actor_key, ch, target_action="combat_disengage")
+    if action == "combat_cunning_hide":
+        return _apply_cunning_action_in_combat(session_id, actor_key, ch, target_action="combat_hide")
     return None, f"Неизвестная классовая особенность: {combat_action}", False

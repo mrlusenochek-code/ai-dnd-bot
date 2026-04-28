@@ -144,6 +144,18 @@ CHAT_COMBAT_ACTION_PATTERNS: list[tuple[str, re.Pattern[str]]] = [
         re.compile(r"(использую\s+несгибаем\w*|несгибаем\w*|indomitable)", re.IGNORECASE),
     ),
     (
+        "combat_cunning_dash",
+        re.compile(r"(хитр\w*\s+действ\w*\s+рыв\w*|хитр\w*\s+действ\w*\s+спринт\w*|бонусн\w*\s+действ\w*\s+(?:делаю\s+)?рыв\w*|cunning\s+action\s+dash)", re.IGNORECASE),
+    ),
+    (
+        "combat_cunning_disengage",
+        re.compile(r"(хитр\w*\s+действ\w*\s+(?:отхож\w*|отход\w*|отступ\w*|отступаю|отхожу)|бонусн\w*\s+действ\w*\s+(?:отступаю|отступ\w*|отхожу|разрыва\w+\s+дистанц\w*)|cunning\s+action\s+disengage)", re.IGNORECASE),
+    ),
+    (
+        "combat_cunning_hide",
+        re.compile(r"(хитр\w*\s+действ\w*\s+(?:пряч\w*|скрываюсь|засад\w*)|бонусн\w*\s+действ\w*\s+(?:пряч\w*|скрываюсь|скрыт\w*|засад\w*)|cunning\s+action\s+hide)", re.IGNORECASE),
+    ),
+    (
         "combat_shift",
         re.compile(r"(смена\s+формы|шифт\w*|превращаюс\w*|shift\b)", re.IGNORECASE),
     ),

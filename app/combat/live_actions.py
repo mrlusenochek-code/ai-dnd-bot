@@ -1538,6 +1538,7 @@ def handle_live_combat_action(
     distance_ft: int | None = None,
     empower: str | None = None,
     raw_text: str | None = None,
+    use_bonus_action: bool = False,
 ) -> tuple[Optional[dict[str, Any]], Optional[str]]:
     state = get_combat(session_id)
     if state is not None and state.active:
@@ -1716,7 +1717,7 @@ def handle_live_combat_action(
         attacker = state.combatants.get(attacker_key)
         if attacker is None:
             return None, "Combat state is inconsistent"
-        blocked = _spend_action_or_block(state, attacker)
+        blocked = _spend_bonus_action_or_block(state, attacker) if use_bonus_action else _spend_action_or_block(state, attacker)
         if blocked is not None:
             return blocked, None
 
@@ -1729,6 +1730,8 @@ def handle_live_combat_action(
             {"text": f"Рывок: {attacker.name} (до следующего хода)", "muted": True},
             {"text": f"Движение: +{base_move_speed} (итого {attacker.move_remaining_ft})", "muted": True},
         ]
+        if use_bonus_action:
+            lines.append({"text": "Хитрое действие: потрачено бонусное действие.", "muted": True})
         return (
             {
                 "status": _combat_status(state),
@@ -1835,7 +1838,10 @@ def handle_live_combat_action(
             return None, "Combat state is inconsistent"
         blocked = None
         used_bonus_action = False
-        if _has_nimble_escape(attacker) and bool(getattr(attacker, "bonus_action_available", False)):
+        if use_bonus_action:
+            blocked = _spend_bonus_action_or_block(state, attacker)
+            used_bonus_action = blocked is None
+        elif _has_nimble_escape(attacker) and bool(getattr(attacker, "bonus_action_available", False)):
             blocked = _spend_bonus_action_or_block(state, attacker)
             used_bonus_action = blocked is None
         else:
@@ -1846,7 +1852,7 @@ def handle_live_combat_action(
         attacker.disengage_active = True
         lines: list[dict[str, Any]] = [{"text": f"Отход: {attacker.name} (до следующего хода)", "muted": True}]
         if used_bonus_action:
-            lines.append({"text": "Ловкое бегство: потрачено бонусное действие.", "muted": True})
+            lines.append({"text": "Хитрое действие: потрачено бонусное действие.", "muted": True} if use_bonus_action else {"text": "Ловкое бегство: потрачено бонусное действие.", "muted": True})
 
         state = advance_turn(session_id)
         if state is None:
@@ -1880,20 +1886,29 @@ def handle_live_combat_action(
         attacker = state.combatants.get(attacker_key)
         if attacker is None:
             return None, "Combat state is inconsistent"
-        if not _has_nimble_escape(attacker):
-            return None, "Скрытность бонусным действием доступна только через «Шустрый побег»."
-        blocked = _spend_bonus_action_or_block(state, attacker)
+        used_bonus_action = False
+        if use_bonus_action:
+            blocked = _spend_bonus_action_or_block(state, attacker)
+            used_bonus_action = blocked is None
+        elif _has_nimble_escape(attacker):
+            blocked = _spend_bonus_action_or_block(state, attacker)
+            used_bonus_action = blocked is None
+        else:
+            blocked = _spend_action_or_block(state, attacker)
         if blocked is not None:
             return blocked, None
         _arm_nimble_escape_hide(attacker)
+        lines = [
+            {"text": f"{attacker.name} прячется.", "muted": True},
+            {"text": "Скрытность: преимущество на следующую атаку.", "muted": True},
+        ]
+        if used_bonus_action:
+            lines.append({"text": "Хитрое действие: потрачено бонусное действие.", "muted": True} if use_bonus_action else {"text": "Шустрый побег: потрачено бонусное действие.", "muted": True})
         return (
             {
                 "status": _combat_status(state),
                 "open": True,
-                "lines": [
-                    {"text": f"{attacker.name} прячется (Шустрый побег).", "muted": True},
-                    {"text": "Скрытность: преимущество на следующую атаку.", "muted": True},
-                ],
+                "lines": lines,
             },
             None,
         )
