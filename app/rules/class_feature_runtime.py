@@ -20,6 +20,7 @@ _SNEAK_ATTACK_MECHANIC_TYPE = "sneak_attack"
 _EXPERTISE_MECHANIC_TYPE = "expertise"
 _UNCANNY_DODGE_MECHANIC_TYPE = "uncanny_dodge"
 _UNCANNY_DODGE_USED_DAMAGE_KEYS = "uncanny_dodge_used_damage_keys"
+_EVASION_MECHANIC_TYPE = "evasion"
 
 
 def _as_int(value: Any, default: int = 0) -> int:
@@ -180,6 +181,22 @@ def get_uncanny_dodge_mechanics(ch: Any) -> tuple[dict[str, Any], str | None]:
     if not mechanics:
         return {}, "Невероятное уклонение недоступно вашему классу."
     return mechanics, None
+
+
+def get_evasion_mechanics(ch: Any) -> tuple[dict[str, Any], str | None]:
+    _class_features, mechanics = get_class_feature_mechanics(
+        ch,
+        feature_key="evasion",
+        mechanic_type=_EVASION_MECHANIC_TYPE,
+    )
+    if not mechanics:
+        return {}, "Увёртливость недоступна вашему классу."
+    return mechanics, None
+
+
+def has_evasion(ch: Any) -> bool:
+    mechanics, err = get_evasion_mechanics(ch)
+    return bool(mechanics) and err is None
 
 
 def _normalized_damage_key(raw: Any) -> str:

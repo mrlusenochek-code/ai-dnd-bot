@@ -23,6 +23,7 @@ from app.combat.state import (
 from app.rules.class_feature_runtime import (
     can_use_uncanny_dodge,
     can_use_sneak_attack_this_turn,
+    has_evasion,
     mark_uncanny_dodge_used_for_damage,
     mark_sneak_attack_used,
     get_uncanny_dodge_mechanics,
@@ -1263,6 +1264,32 @@ def _breath_area_text(area: dict[str, Any]) -> str:
         if line_ft > 0:
             return f"линия {line_ft} фт"
     return shape or "область"
+
+
+def _apply_evasion_to_save_damage(
+    actor: Any,
+    *,
+    ability: str,
+    save_success: bool,
+    incoming_damage: int,
+    half_damage_on_success: bool,
+) -> tuple[int, list[dict[str, Any]]]:
+    damage = max(0, int(incoming_damage or 0))
+    lines: list[dict[str, Any]] = []
+    if str(getattr(actor, "side", "") or "").strip().lower() != "pc":
+        return damage, lines
+    if not has_evasion(actor):
+        return damage, lines
+    if str(ability or "").strip().lower() != "dex":
+        return damage, lines
+    if not bool(half_damage_on_success):
+        return damage, lines
+    if save_success:
+        lines.append({"text": "Увёртливость: успешный спасбросок Ловкости отменяет урон.", "muted": True})
+        return 0, lines
+    reduced = damage // 2
+    lines.append({"text": "Увёртливость: проваленный спасбросок Ловкости уменьшает урон вдвое.", "muted": True})
+    return reduced, lines
 
 
 def _spend_action_or_block(state: Any, actor: Any) -> dict[str, Any] | None:
@@ -5055,6 +5082,15 @@ def handle_live_combat_action(
         save_success = save_total >= dc
 
         final_damage = base_damage // 2 if save_success else base_damage
+        evasion_damage, evasion_lines = _apply_evasion_to_save_damage(
+            target,
+            ability=save_ability,
+            save_success=save_success,
+            incoming_damage=base_damage,
+            half_damage_on_success=True,
+        )
+        if evasion_lines:
+            final_damage = evasion_damage
         damage_type = str(breath_weapon.get("damage_type") or "").strip().lower() or "energy"
         target_hp_before = max(0, int(getattr(target, "hp_current", 0) or 0))
         extra_outcome_lines: list[dict[str, Any]] = []
@@ -5093,6 +5129,7 @@ def handle_live_combat_action(
             {"text": f"Фактически получено урона: {actual_damage}"},
             {"text": f"HP врага: {target.hp_current}/{target.hp_max}"},
         ]
+        lines.extend(evasion_lines)
         lines.extend(extra_outcome_lines)
         if hidden_step_broken:
             lines.append({"text": "Незримая поступь прерывается: невидимость спадает.", "muted": True})

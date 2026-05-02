@@ -1712,7 +1712,19 @@ BASE_CLASS_CATALOG: list[dict[str, Any]] = [
                     },
                 }
             ],
-            7: [{"key": "evasion", "name_ru": "Уклонение", "summary_ru": "Лучше избегает урона от областных эффектов.", "mechanics": {}}],
+            7: [
+                {
+                    "key": "evasion",
+                    "name_ru": "Увёртливость",
+                    "summary_ru": "При успешном спасброске Ловкости против эффекта на пол-урона не получает урон, а при провале получает только половину.",
+                    "mechanics": {
+                        "type": "evasion",
+                        "trigger": "dex_save_for_half_damage",
+                        "success_damage": "none",
+                        "failure_damage": "half",
+                    },
+                }
+            ],
             8: [{"key": "asi", "name_ru": "Увеличение характеристик", "summary_ru": "Улучшение характеристик или выбор таланта.", "mechanics": {}}],
             9: [{"key": "archetype_feature_9", "name_ru": "Умение архетипа (9)", "summary_ru": "Особенность выбранного архетипа на 9 уровне.", "mechanics": {}}],
             10: [{"key": "asi", "name_ru": "Увеличение характеристик", "summary_ru": "Улучшение характеристик или выбор таланта.", "mechanics": {}}],

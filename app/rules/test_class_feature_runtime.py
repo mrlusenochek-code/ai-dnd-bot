@@ -11,8 +11,10 @@ from app.rules.class_feature_runtime import (
     can_use_sneak_attack_this_turn,
     get_expertise_targets,
     get_cunning_action_mechanics,
+    get_evasion_mechanics,
     get_sneak_attack_mechanics,
     get_uncanny_dodge_mechanics,
+    has_evasion,
     has_expertise,
     mark_uncanny_dodge_used_for_damage,
     mark_sneak_attack_used,
@@ -155,6 +157,16 @@ def _rogue_uncanny_dodge_mechanics() -> dict:
     return mechanics
 
 
+def _rogue_evasion_mechanics() -> dict:
+    rogue = _rogue_catalog_entry()
+    features = (rogue.get("features_by_level") or {}).get(7) or []
+    evasion = next((item for item in features if str((item or {}).get("key") or "") == "evasion"), None)
+    assert isinstance(evasion, dict)
+    mechanics = evasion.get("mechanics") or {}
+    assert isinstance(mechanics, dict)
+    return mechanics
+
+
 def test_fighter_second_wind_catalog_has_runtime_mechanics() -> None:
     mechanics = _fighter_second_wind_mechanics()
     assert mechanics == {
@@ -219,6 +231,15 @@ def test_rogue_uncanny_dodge_catalog_has_runtime_mechanics() -> None:
         "trigger": "after_hit_by_attack",
         "cost": "reaction",
         "damage_reduction": "half",
+    }
+
+
+def test_rogue_evasion_catalog_has_runtime_mechanics() -> None:
+    assert _rogue_evasion_mechanics() == {
+        "type": "evasion",
+        "trigger": "dex_save_for_half_damage",
+        "success_damage": "none",
+        "failure_damage": "half",
     }
 
 
@@ -622,6 +643,30 @@ def test_get_uncanny_dodge_mechanics_returns_error_without_feature() -> None:
     mechanics, err = get_uncanny_dodge_mechanics(SimpleNamespace(class_features={"features": [], "runtime": {}}))
     assert mechanics == {}
     assert err == "Невероятное уклонение недоступно вашему классу."
+
+
+def test_get_evasion_mechanics_returns_error_without_feature() -> None:
+    mechanics, err = get_evasion_mechanics(SimpleNamespace(class_features={"features": [], "runtime": {}}))
+    assert mechanics == {}
+    assert err == "Увёртливость недоступна вашему классу."
+
+
+def test_has_evasion_detects_rogue_feature() -> None:
+    ch = SimpleNamespace(
+        class_features={
+            "features": [
+                {
+                    "key": "evasion",
+                    "mechanics": _rogue_evasion_mechanics(),
+                }
+            ],
+            "runtime": {},
+        }
+    )
+    mechanics, err = get_evasion_mechanics(ch)
+    assert err is None
+    assert mechanics == _rogue_evasion_mechanics()
+    assert has_evasion(ch) is True
 
 
 def test_uncanny_dodge_runtime_marks_damage_key_once() -> None:
