@@ -1854,10 +1854,11 @@ def handle_live_combat_action(
         if used_bonus_action:
             lines.append({"text": "Хитрое действие: потрачено бонусное действие.", "muted": True} if use_bonus_action else {"text": "Ловкое бегство: потрачено бонусное действие.", "muted": True})
 
-        state = advance_turn(session_id)
-        if state is None:
-            return None, "Combat is not active"
-        lines.append({"text": f"Ход автоматически передан: {current_turn_label(state)}", "muted": True})
+        if not used_bonus_action:
+            state = advance_turn(session_id)
+            if state is None:
+                return None, "Combat is not active"
+            lines.append({"text": f"Ход автоматически передан: {current_turn_label(state)}", "muted": True})
         return (
             {
                 "status": _combat_status(state),

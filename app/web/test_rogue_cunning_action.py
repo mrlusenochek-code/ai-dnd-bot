@@ -188,7 +188,7 @@ def test_cunning_hide_and_disengage_route_through_class_feature_router() -> None
         disengage_actor = disengage_state.combatants["pc_1"]
         assert disengage_actor.action_available is True
         assert disengage_actor.bonus_action_available is False
-        assert disengage_state.turn_index == 1
+        assert disengage_state.turn_index == 0
     finally:
         end_combat(hide_session)
         end_combat(disengage_session)
