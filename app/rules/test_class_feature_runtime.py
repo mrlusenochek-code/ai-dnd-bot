@@ -4,6 +4,7 @@ from types import SimpleNamespace
 
 from app.rules.character_catalog import CLASS_CATALOG
 from app.rules.class_feature_runtime import (
+    apply_reliable_talent_to_d20,
     apply_action_surge_usage,
     apply_indomitable_usage,
     apply_second_wind_usage,
@@ -12,9 +13,11 @@ from app.rules.class_feature_runtime import (
     get_expertise_targets,
     get_cunning_action_mechanics,
     get_evasion_mechanics,
+    get_reliable_talent_mechanics,
     get_sneak_attack_mechanics,
     get_uncanny_dodge_mechanics,
     has_evasion,
+    has_reliable_talent,
     has_expertise,
     mark_uncanny_dodge_used_for_damage,
     mark_sneak_attack_used,
@@ -167,6 +170,16 @@ def _rogue_evasion_mechanics() -> dict:
     return mechanics
 
 
+def _rogue_reliable_talent_mechanics() -> dict:
+    rogue = _rogue_catalog_entry()
+    features = (rogue.get("features_by_level") or {}).get(11) or []
+    reliable_talent = next((item for item in features if str((item or {}).get("key") or "") == "reliable_talent"), None)
+    assert isinstance(reliable_talent, dict)
+    mechanics = reliable_talent.get("mechanics") or {}
+    assert isinstance(mechanics, dict)
+    return mechanics
+
+
 def test_fighter_second_wind_catalog_has_runtime_mechanics() -> None:
     mechanics = _fighter_second_wind_mechanics()
     assert mechanics == {
@@ -240,6 +253,15 @@ def test_rogue_evasion_catalog_has_runtime_mechanics() -> None:
         "trigger": "dex_save_for_half_damage",
         "success_damage": "none",
         "failure_damage": "half",
+    }
+
+
+def test_rogue_reliable_talent_catalog_has_runtime_mechanics() -> None:
+    assert _rogue_reliable_talent_mechanics() == {
+        "type": "reliable_talent",
+        "min_d20": 10,
+        "requires_proficiency": True,
+        "applies_to": ["ability_check"],
     }
 
 
@@ -651,6 +673,12 @@ def test_get_evasion_mechanics_returns_error_without_feature() -> None:
     assert err == "Увёртливость недоступна вашему классу."
 
 
+def test_get_reliable_talent_mechanics_returns_error_without_feature() -> None:
+    mechanics, err = get_reliable_talent_mechanics(SimpleNamespace(class_features={"features": [], "runtime": {}}))
+    assert mechanics == {}
+    assert err == "Надёжный талант недоступен вашему классу."
+
+
 def test_has_evasion_detects_rogue_feature() -> None:
     ch = SimpleNamespace(
         class_features={
@@ -667,6 +695,26 @@ def test_has_evasion_detects_rogue_feature() -> None:
     assert err is None
     assert mechanics == _rogue_evasion_mechanics()
     assert has_evasion(ch) is True
+
+
+def test_reliable_talent_applies_only_to_proficient_checks() -> None:
+    ch = SimpleNamespace(
+        class_features={
+            "features": [
+                {
+                    "key": "reliable_talent",
+                    "mechanics": _rogue_reliable_talent_mechanics(),
+                }
+            ],
+            "runtime": {},
+        }
+    )
+    assert has_reliable_talent(ch) is True
+    assert apply_reliable_talent_to_d20(ch, kind="skill", roll=3, proficient=True) == (10, True)
+    assert apply_reliable_talent_to_d20(ch, kind="tool", roll=9, proficient=True) == (10, True)
+    assert apply_reliable_talent_to_d20(ch, kind="skill", roll=3, proficient=False) == (3, False)
+    assert apply_reliable_talent_to_d20(ch, kind="save", roll=3, proficient=True) == (3, False)
+    assert apply_reliable_talent_to_d20(ch, kind="attack", roll=3, proficient=True) == (3, False)
 
 
 def test_uncanny_dodge_runtime_marks_damage_key_once() -> None:

@@ -23,7 +23,9 @@ from app.core.log_context import client_id_var, request_id_var, session_id_var, 
 from app.db.connection import AsyncSessionLocal
 from app.db.models import Character, Player, SessionPlayer, Skill
 from app.rules.class_feature_runtime import (
+    apply_reliable_talent_to_d20 as _apply_reliable_talent_to_d20,
     has_expertise as _has_expertise,
+    has_reliable_talent as _has_reliable_talent,
     mark_failed_save_for_indomitable as _mark_failed_save_for_indomitable,
     reset_class_rest_uses as _reset_class_rest_uses,
 )
@@ -692,6 +694,18 @@ def _effective_toolcheck_mod(ch: Any, tool_key: str) -> int:
     if _has_expertise(ch, "tool", tool_key):
         return 2 * prof
     return prof
+
+
+def _reliable_talent_adjusted_roll(
+    ch: Any,
+    *,
+    kind: str,
+    roll: int,
+    proficient: bool,
+) -> tuple[int, bool]:
+    if not _has_reliable_talent(ch):
+        return int(roll), False
+    return _apply_reliable_talent_to_d20(ch, kind=kind, roll=int(roll), proficient=proficient)
 
 
 def _parse_check_command(
@@ -9142,6 +9156,8 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                         )
 
                     skills_by_key: dict[str, Skill] = {}
+                    reliable_kind = "ability" if key in CHAR_STAT_KEYS else "skill"
+                    reliable_proficient = False
                     if "|" in key:
                         candidates = [x.strip() for x in key.split("|") if x.strip()]
                         if not candidates:
@@ -9156,10 +9172,24 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                                     )
                                 )
                                 skills_by_key = {str(sk.skill_key or "").strip().lower(): sk for sk in q_skills.scalars().all()}
-                            mod = max(_manual_candidate_mod(c, skills_by_key) for c in candidates)
+                            candidate_results: list[tuple[int, bool, str]] = []
+                            for candidate in candidates:
+                                candidate_mod = _manual_candidate_mod(candidate, skills_by_key)
+                                if candidate in CHAR_STAT_KEYS:
+                                    candidate_results.append((candidate_mod, False, "ability"))
+                                    continue
+                                sk_candidate = skills_by_key.get(candidate)
+                                candidate_proficient = bool(sk_candidate and int(getattr(sk_candidate, "rank", 0) or 0) > 0)
+                                candidate_results.append((candidate_mod, candidate_proficient, "skill"))
+                            best_mod, best_proficient, best_kind = max(candidate_results, key=lambda item: item[0])
+                            mod = best_mod
+                            reliable_proficient = best_proficient
+                            reliable_kind = best_kind
                     elif key in CHAR_STAT_KEYS:
                         mod = _ability_mod_from_stats(ch.stats, key)
                         skill_proficient = False
+                        reliable_proficient = False
+                        reliable_kind = "ability"
                     else:
                         q_skill = await db.execute(
                             select(Skill).where(
@@ -9178,6 +9208,8 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                             proficiency=skill_bonus,
                         )
                         skill_proficient = bool(sk and int(getattr(sk, "rank", 0) or 0) > 0)
+                        reliable_proficient = skill_proficient
+                        reliable_kind = "skill"
                     if "|" in key:
                         skill_proficient = False
                     elif key in CHAR_STAT_KEYS:
@@ -9211,6 +9243,12 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                         mapped_mode,
                         reroll_ones=_lucky_scope_enabled(getattr(ch, "race_features", None), "check"),
                     )
+                    adjusted_roll, reliable_applied = _reliable_talent_adjusted_roll(
+                        ch,
+                        kind=reliable_kind,
+                        roll=roll,
+                        proficient=reliable_proficient,
+                    )
                     check_payload = {
                         "actor_uid": _player_uid(player),
                         "kind": "ability" if key in CHAR_STAT_KEYS else "skill",
@@ -9218,7 +9256,7 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                         "dc": dc if dc is not None else 0,
                         "mode": mapped_mode,
                     }
-                    res = build_check_result(check_payload, mod=mod, roll_a=ra, roll_b=rb, roll=roll)
+                    res = build_check_result(check_payload, mod=mod, roll_a=ra, roll_b=rb, roll=adjusted_roll)
                     base_total = int(res["total"])
                     bfs_bonus, bfs_bonus_text, bfs_changed = _consume_built_for_success_for_d20(ch)
                     vamp_bonus, vamp_bonus_text, vamp_changed = _consume_vampiric_bite_bonus_for_d20(ch)
@@ -9286,10 +9324,11 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                         key=key,
                         roll_a=ra,
                         roll_b=rb,
-                        roll=roll,
+                        roll=adjusted_roll,
                         mod=mod,
                         tp_bonus_text=tp_bonus_text,
                         extra_bonus_texts=[
+                            "Надёжный талант: d20 ниже 10 считается как 10." if reliable_applied else None,
                             bfs_bonus_text,
                             vamp_bonus_text,
                             past_life_bonus_text,
@@ -9360,6 +9399,12 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                         mapped_mode,
                         reroll_ones=_lucky_scope_enabled(getattr(ch, "race_features", None), "check"),
                     )
+                    adjusted_roll, reliable_applied = _reliable_talent_adjusted_roll(
+                        ch,
+                        kind="tool",
+                        roll=roll,
+                        proficient=True,
+                    )
                     check_payload = {
                         "actor_uid": _player_uid(player),
                         "kind": "tool",
@@ -9367,7 +9412,7 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                         "dc": dc if dc is not None else 0,
                         "mode": mapped_mode,
                     }
-                    res = build_check_result(check_payload, mod=mod, roll_a=ra, roll_b=rb, roll=roll)
+                    res = build_check_result(check_payload, mod=mod, roll_a=ra, roll_b=rb, roll=adjusted_roll)
                     base_total = int(res["total"])
                     vamp_bonus, vamp_bonus_text, vamp_changed = _consume_vampiric_bite_bonus_for_d20(ch)
                     past_life_bonus, past_life_bonus_text, past_life_uses_text, past_life_changed, past_life_error = (
@@ -9404,13 +9449,14 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                         mode=mapped_mode,
                         roll_a=ra,
                         roll_b=rb,
-                        roll=roll,
+                        roll=adjusted_roll,
                         mod=mod,
                         tp_bonus=tp_bonus,
                         tp_bonus_text=tp_bonus_text,
                         extra_bonus_texts=[
                             text
                             for text in (
+                                "Надёжный талант: d20 ниже 10 считается как 10." if reliable_applied else "",
                                 vamp_bonus_text,
                                 f"{past_life_bonus_text.replace('Knowledge from a Past Life ', 'Knowledge from a Past Life: +')}"
                                 if past_life_bonus_text

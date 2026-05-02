@@ -71,6 +71,7 @@ async def run_two_pass(
         compute_check_mod=server_mod._compute_check_mod,
         roll_check=server_mod._roll_check,
         build_check_result=server_mod._build_check_result,
+        apply_reliable_talent_for_check=server_mod._apply_reliable_talent_for_check,
         character_xp_gain_from_check=server_mod._character_xp_gain_from_check,
         level_from_xp_total=server_mod._level_from_xp_total,
         skill_xp_gain=server_mod._skill_xp_gain,

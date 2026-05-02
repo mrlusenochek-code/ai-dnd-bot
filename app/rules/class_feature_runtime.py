@@ -21,6 +21,7 @@ _EXPERTISE_MECHANIC_TYPE = "expertise"
 _UNCANNY_DODGE_MECHANIC_TYPE = "uncanny_dodge"
 _UNCANNY_DODGE_USED_DAMAGE_KEYS = "uncanny_dodge_used_damage_keys"
 _EVASION_MECHANIC_TYPE = "evasion"
+_RELIABLE_TALENT_MECHANIC_TYPE = "reliable_talent"
 
 
 def _as_int(value: Any, default: int = 0) -> int:
@@ -197,6 +198,44 @@ def get_evasion_mechanics(ch: Any) -> tuple[dict[str, Any], str | None]:
 def has_evasion(ch: Any) -> bool:
     mechanics, err = get_evasion_mechanics(ch)
     return bool(mechanics) and err is None
+
+
+def get_reliable_talent_mechanics(ch: Any) -> tuple[dict[str, Any], str | None]:
+    _class_features, mechanics = get_class_feature_mechanics(
+        ch,
+        feature_key="reliable_talent",
+        mechanic_type=_RELIABLE_TALENT_MECHANIC_TYPE,
+    )
+    if not mechanics:
+        return {}, "Надёжный талант недоступен вашему классу."
+    return mechanics, None
+
+
+def has_reliable_talent(ch: Any) -> bool:
+    mechanics, err = get_reliable_talent_mechanics(ch)
+    return bool(mechanics) and err is None
+
+
+def apply_reliable_talent_to_d20(
+    ch: Any,
+    *,
+    kind: str,
+    roll: int,
+    proficient: bool,
+) -> tuple[int, bool]:
+    mechanics, err = get_reliable_talent_mechanics(ch)
+    if err or not mechanics:
+        return int(roll), False
+    normalized_kind = str(kind or "").strip().lower()
+    if normalized_kind not in {"skill", "tool", "ability", "check"}:
+        return int(roll), False
+    if not bool(proficient):
+        return int(roll), False
+    min_d20 = max(1, _as_int(mechanics.get("min_d20"), 10))
+    normalized_roll = max(1, int(roll))
+    if normalized_roll < min_d20:
+        return min_d20, True
+    return normalized_roll, False
 
 
 def _normalized_damage_key(raw: Any) -> str:

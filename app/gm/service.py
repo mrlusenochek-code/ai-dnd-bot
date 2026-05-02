@@ -403,6 +403,7 @@ async def run_two_pass(
     level_from_xp_total: Callable[[int, int], int],
     skill_xp_gain: Callable[[dict[str, Any]], int],
     xp_to_next_skill_rank: Callable[[int], int],
+    apply_reliable_talent_for_check: Optional[Callable[[dict[str, Any], Any, dict[Any, dict[str, int]], int], tuple[int, bool]]] = None,
     clamp_fn: Callable[[int, int, int], int] = _default_clamp,
     as_int_fn: Callable[[Any, int], int] = _default_as_int,
     get_phase_fn: Optional[Callable[[Any], str]] = None,
@@ -527,7 +528,21 @@ async def run_two_pass(
         character = chars_by_uid.get(actor_uid)
         mod = compute_check_mod(check, character, skill_mods_by_char)
         roll_a, roll_b, roll = roll_check(str(check.get("mode") or "normal"))
+        if apply_reliable_talent_for_check is not None:
+            roll, reliable_applied = apply_reliable_talent_for_check(
+                check,
+                character,
+                skill_mods_by_char,
+                roll=int(roll),
+            )
+        else:
+            reliable_applied = False
         result = build_check_result(check, mod, roll_a, roll_b, roll)
+        if reliable_applied:
+            notes_raw = result.get("extra_bonus_texts")
+            notes = [str(text) for text in notes_raw if str(text).strip()] if isinstance(notes_raw, list) else []
+            notes.append("Надёжный талант: d20 ниже 10 считается как 10.")
+            result["extra_bonus_texts"] = notes
         check_results.append(result)
 
     xp_changed = False

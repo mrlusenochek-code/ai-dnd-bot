@@ -38,7 +38,7 @@ from app.gm import (
 from app.rules.derived_stats import compute_ac
 from app.rules.encounters import pick_encounter
 from app.rules.enemy_catalog_data import get_enemy
-from app.rules.class_feature_runtime import has_expertise
+from app.rules.class_feature_runtime import apply_reliable_talent_to_d20, has_expertise
 from app.rules.equipment_slots import EquipmentSlot, EQUIPMENT_SLOT_ORDER, slot_label_ru
 from app.rules.item_catalog import ITEMS
 from app.rules.items import ItemDef, is_equipable, can_equip_to_slot
@@ -1416,53 +1416,106 @@ async def _load_actor_context(
     return uid_map, chars_by_uid, skill_mods_by_char
 
 
-def _compute_check_mod(
+def _compute_check_context(
     check: dict[str, Any],
     character: Optional[Character],
     skill_mods_by_char: dict[uuid.UUID, dict[str, int]],
-) -> int:
+) -> dict[str, Any]:
     if not character:
-        return 0
+        return {"mod": 0, "proficient": False, "kind": "ability", "name": ""}
     name = _normalize_check_name(check.get("name"))
     skill_mods = skill_mods_by_char.get(character.id, {})
 
-    def _skill_total_for_name(skill_name: str) -> int:
+    def _skill_total_for_name(skill_name: str) -> tuple[int, bool]:
         ability_key = SKILL_TO_ABILITY.get(skill_name)
         ability_mod = _ability_mod_from_stats(character.stats, ability_key) if ability_key else 0
         skill_bonus = int(skill_mods.get(skill_name, 0))
         if skill_bonus > 0 and has_expertise(character, "skill", skill_name):
             skill_bonus = max(skill_bonus, 2 * proficiency_bonus_for_level(max(1, int(getattr(character, "level", 1) or 1))))
+        proficient = skill_bonus > 0
         return total_skill_bonus(
             ability_mod=ability_mod,
-            proficient=skill_bonus > 0,
+            proficient=proficient,
             proficiency=skill_bonus,
-        )
+        ), proficient
 
     if "|" in name:
         candidates = [x.strip() for x in name.split("|") if x.strip()]
         if not candidates:
-            return 0
-        candidate_mods: list[int] = []
+            return {"mod": 0, "proficient": False, "kind": "ability", "name": ""}
+        candidate_contexts: list[dict[str, Any]] = []
         for candidate in candidates:
             candidate_kind = _check_kind_for_name(check.get("kind"), candidate)
             if candidate_kind in {"ability", "stat"} or candidate in CHAR_STAT_KEYS:
                 stat_key = STAT_ALIASES.get(candidate, candidate)
                 if stat_key in CHAR_STAT_KEYS:
-                    candidate_mods.append(_ability_mod_from_stats(character.stats, stat_key))
+                    candidate_contexts.append(
+                        {
+                            "mod": _ability_mod_from_stats(character.stats, stat_key),
+                            "proficient": False,
+                            "kind": "ability",
+                            "name": candidate,
+                        }
+                    )
                 else:
-                    candidate_mods.append(0)
+                    candidate_contexts.append({"mod": 0, "proficient": False, "kind": "ability", "name": candidate})
                 continue
-            candidate_mods.append(_skill_total_for_name(candidate))
-        return max(candidate_mods) if candidate_mods else 0
+            candidate_mod, proficient = _skill_total_for_name(candidate)
+            candidate_contexts.append(
+                {
+                    "mod": candidate_mod,
+                    "proficient": proficient,
+                    "kind": "skill",
+                    "name": candidate,
+                }
+            )
+        return max(candidate_contexts, key=lambda item: int(item.get("mod", 0))) if candidate_contexts else {
+            "mod": 0,
+            "proficient": False,
+            "kind": "ability",
+            "name": "",
+        }
 
     kind = _check_kind_for_name(check.get("kind"), name)
     if kind in {"ability", "stat"} or name in CHAR_STAT_KEYS:
         stat_key = STAT_ALIASES.get(name, name)
         if stat_key not in CHAR_STAT_KEYS:
-            return 0
-        return _ability_mod_from_stats(character.stats, stat_key)
+            return {"mod": 0, "proficient": False, "kind": "ability", "name": name}
+        return {
+            "mod": _ability_mod_from_stats(character.stats, stat_key),
+            "proficient": False,
+            "kind": "ability",
+            "name": name,
+        }
 
-    return _skill_total_for_name(name)
+    mod, proficient = _skill_total_for_name(name)
+    return {"mod": mod, "proficient": proficient, "kind": "skill", "name": name}
+
+
+def _compute_check_mod(
+    check: dict[str, Any],
+    character: Optional[Character],
+    skill_mods_by_char: dict[uuid.UUID, dict[str, int]],
+) -> int:
+    return int(_compute_check_context(check, character, skill_mods_by_char).get("mod", 0))
+
+
+def _apply_reliable_talent_for_check(
+    check: dict[str, Any],
+    character: Optional[Character],
+    skill_mods_by_char: dict[uuid.UUID, dict[str, int]],
+    *,
+    roll: int,
+) -> tuple[int, bool]:
+    if not character:
+        return int(roll), False
+    context = _compute_check_context(check, character, skill_mods_by_char)
+    return apply_reliable_talent_to_d20(
+        character,
+        kind=str(context.get("kind") or "ability"),
+        roll=int(roll),
+        proficient=bool(context.get("proficient")),
+    )
 
 
 def _build_check_result(check: dict[str, Any], mod: int, roll_a: int, roll_b: Optional[int], roll: int) -> dict[str, Any]:

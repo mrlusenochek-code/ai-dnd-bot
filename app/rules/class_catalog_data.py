@@ -1728,7 +1728,19 @@ BASE_CLASS_CATALOG: list[dict[str, Any]] = [
             8: [{"key": "asi", "name_ru": "Увеличение характеристик", "summary_ru": "Улучшение характеристик или выбор таланта.", "mechanics": {}}],
             9: [{"key": "archetype_feature_9", "name_ru": "Умение архетипа (9)", "summary_ru": "Особенность выбранного архетипа на 9 уровне.", "mechanics": {}}],
             10: [{"key": "asi", "name_ru": "Увеличение характеристик", "summary_ru": "Улучшение характеристик или выбор таланта.", "mechanics": {}}],
-            11: [{"key": "reliable_talent", "name_ru": "Надёжный талант", "summary_ru": "Почти не проваливает проверки освоенных навыков.", "mechanics": {}}],
+            11: [
+                {
+                    "key": "reliable_talent",
+                    "name_ru": "Надёжный талант",
+                    "summary_ru": "Если при проверке с мастерством выпадает меньше 10 на d20, считается 10.",
+                    "mechanics": {
+                        "type": "reliable_talent",
+                        "min_d20": 10,
+                        "requires_proficiency": True,
+                        "applies_to": ["ability_check"],
+                    },
+                }
+            ],
             12: [{"key": "asi", "name_ru": "Увеличение характеристик", "summary_ru": "Улучшение характеристик или выбор таланта.", "mechanics": {}}],
             13: [{"key": "archetype_feature_13", "name_ru": "Умение архетипа (13)", "summary_ru": "Особенность выбранного архетипа на 13 уровне.", "mechanics": {}}],
             14: [{"key": "blindsense", "name_ru": "Слепое чутьё", "summary_ru": "Чувствует скрытых врагов рядом.", "mechanics": {}}],
