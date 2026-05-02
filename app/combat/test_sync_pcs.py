@@ -22,6 +22,7 @@ def test_sync_pcs_from_chars_non_dict_stats_uses_phb_fallback_ac(monkeypatch) ->
             level=1,
             speed_ft=35,
             stats=None,
+            class_features={"features": [{"key": "sneak_attack"}], "runtime": {}},
         )
     }
 
@@ -30,3 +31,4 @@ def test_sync_pcs_from_chars_non_dict_stats_uses_phb_fallback_ac(monkeypatch) ->
     assert len(calls) == 1
     assert calls[0]["ac"] == 10
     assert calls[0]["speed_ft"] == 35
+    assert calls[0]["class_features"] == {"features": [{"key": "sneak_attack"}], "runtime": {}}

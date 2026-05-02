@@ -1647,7 +1647,30 @@ BASE_CLASS_CATALOG: list[dict[str, Any]] = [
         "features_by_level": {
             1: [
                 {"key": "expertise", "name_ru": "Компетентность", "summary_ru": "Удваивает бонус мастерства для выбранных навыков или инструментов.", "mechanics": {}},
-                {"key": "sneak_attack", "name_ru": "Скрытая атака", "summary_ru": "Наносит дополнительный урон, используя уязвимость врага.", "mechanics": {}},
+                {
+                    "key": "sneak_attack",
+                    "name_ru": "Скрытая атака",
+                    "summary_ru": "Раз в ход наносит доп. урон атакой подходящим оружием при преимуществе или если союзник рядом с целью.",
+                    "mechanics": {
+                        "type": "sneak_attack",
+                        "frequency": "once_per_turn",
+                        "requires_weapon": True,
+                        "requires_finesse_or_ranged": True,
+                        "condition": "advantage_or_adjacent_ally_and_no_disadvantage",
+                        "damage_progression": [
+                            {"level_from": 1, "dice": "1d6"},
+                            {"level_from": 3, "dice": "2d6"},
+                            {"level_from": 5, "dice": "3d6"},
+                            {"level_from": 7, "dice": "4d6"},
+                            {"level_from": 9, "dice": "5d6"},
+                            {"level_from": 11, "dice": "6d6"},
+                            {"level_from": 13, "dice": "7d6"},
+                            {"level_from": 15, "dice": "8d6"},
+                            {"level_from": 17, "dice": "9d6"},
+                            {"level_from": 19, "dice": "10d6"},
+                        ],
+                    },
+                },
                 {"key": "thieves_cant", "name_ru": "Воровской жаргон", "summary_ru": "Знает тайный язык преступного мира.", "mechanics": {}},
             ],
             2: [{"key": "cunning_action", "name_ru": "Хитрое действие", "summary_ru": "Бонусным действием может совершить Рывок, Отход или Засаду/Скрытие.", "mechanics": {"type": "cunning_action", "action_cost": "bonus_action", "allowed_actions": ["combat_dash", "combat_disengage", "combat_hide"]}}],

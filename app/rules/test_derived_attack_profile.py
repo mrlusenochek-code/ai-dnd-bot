@@ -14,7 +14,10 @@ def test_compute_attack_profile_dagger_finesse_uses_best_of_str_and_dex() -> Non
     assert profile.damage_bonus == 4
     assert profile.damage_dice == "1d4"
     assert profile.damage_type == "piercing"
+    assert profile.is_weapon_attack is True
     assert profile.is_melee_weapon is True
+    assert profile.is_finesse_weapon is True
+    assert profile.is_ranged_weapon is False
 
 
 def test_compute_attack_profile_longsword_uses_str() -> None:
@@ -30,7 +33,9 @@ def test_compute_attack_profile_longsword_uses_str() -> None:
     assert profile.damage_bonus == 4
     assert profile.damage_dice == "1d8"
     assert profile.damage_type == "slashing"
+    assert profile.is_weapon_attack is True
     assert profile.is_melee_weapon is True
+    assert profile.is_finesse_weapon is False
 
 
 def test_compute_attack_profile_shortbow_ammunition_uses_dex() -> None:
@@ -46,7 +51,9 @@ def test_compute_attack_profile_shortbow_ammunition_uses_dex() -> None:
     assert profile.damage_bonus == 0
     assert profile.damage_dice == "1d6"
     assert profile.damage_type == "piercing"
+    assert profile.is_weapon_attack is True
     assert profile.is_melee_weapon is False
+    assert profile.is_ranged_weapon is True
 
 
 def test_compute_attack_profile_shortbow_level_five_gains_prof_bonus() -> None:
@@ -87,4 +94,28 @@ def test_compute_attack_profile_uses_race_natural_unarmed_weapon_when_no_weapon_
 
     assert profile.damage_dice == "1d4"
     assert profile.damage_type == "slashing"
+    assert profile.is_weapon_attack is False
     assert profile.is_melee_weapon is False
+
+
+def test_compute_attack_profile_dagger_exposes_weapon_properties() -> None:
+    stats = {"str": 60, "dex": 80}
+    inv = [{"id": "w1", "def": "dagger"}]
+    equip_map = {"main_hand": "w1"}
+
+    profile = compute_attack_profile(stats=stats, inventory=inv, equip_map=equip_map, level=1)
+
+    assert profile.is_weapon_attack is True
+    assert profile.is_finesse_weapon is True
+    assert profile.is_ranged_weapon is False
+    assert "finesse" in profile.weapon_properties
+
+
+def test_compute_attack_profile_unarmed_fallback_is_not_weapon_attack() -> None:
+    profile = compute_attack_profile(stats={"str": 60, "dex": 60}, inventory=[], equip_map={}, level=1, race_features={})
+
+    assert profile.damage_dice == "1d4"
+    assert profile.damage_type == "bludgeoning"
+    assert profile.is_weapon_attack is False
+    assert profile.is_finesse_weapon is False
+    assert profile.is_ranged_weapon is False

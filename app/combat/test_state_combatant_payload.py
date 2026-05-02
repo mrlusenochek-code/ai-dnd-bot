@@ -12,7 +12,7 @@ from app.combat.state import (
 
 
 class CombatantPayloadSerializationTests(unittest.TestCase):
-    def test_roundtrip_preserves_stats_inventory_and_equip(self) -> None:
+    def test_roundtrip_preserves_stats_inventory_equip_and_class_features(self) -> None:
         session_id = "test_state_combatant_payload"
         start_combat(session_id)
 
@@ -37,6 +37,7 @@ class CombatantPayloadSerializationTests(unittest.TestCase):
                     }
                 ],
                 equip={"main_hand": "sword_1", "slot": "shield_1"},
+                class_features={"features": [{"key": "sneak_attack"}], "runtime": {"sneak_attack_last_turn_id": "t1"}},
             )
 
             state = get_combat(session_id)
@@ -70,6 +71,7 @@ class CombatantPayloadSerializationTests(unittest.TestCase):
             self.assertEqual(raw_combatant.get("speed_ft"), 35)
             self.assertEqual(raw_combatant.get("move_remaining"), 15)
             self.assertEqual(combatant.equip, {"main_hand": "sword_1", "slot": "shield_1"})
+            self.assertEqual(combatant.class_features, {"features": [{"key": "sneak_attack"}], "runtime": {"sneak_attack_last_turn_id": "t1"}})
             self.assertIsInstance(combatant.stats, dict)
             assert combatant.stats is not None
             self.assertEqual(combatant.stats.get("dex"), 16)

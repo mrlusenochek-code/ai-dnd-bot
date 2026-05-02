@@ -15,6 +15,8 @@ _INDOMITABLE_PENDING_KEY = "indomitable_pending_failed_save"
 _INDOMITABLE_MECHANIC_TYPE = "indomitable"
 _INDOMITABLE_IMPROVEMENT_TYPE = "indomitable_improvement"
 _CUNNING_ACTION_MECHANIC_TYPE = "cunning_action"
+_SNEAK_ATTACK_RUNTIME_KEY = "sneak_attack_last_turn_id"
+_SNEAK_ATTACK_MECHANIC_TYPE = "sneak_attack"
 
 
 def _as_int(value: Any, default: int = 0) -> int:
@@ -93,6 +95,58 @@ def get_cunning_action_mechanics(ch: Any) -> tuple[dict[str, Any], str | None]:
     if not mechanics:
         return {}, "Хитрое действие недоступно вашему классу."
     return mechanics, None
+
+
+def get_sneak_attack_mechanics(ch: Any) -> tuple[dict[str, Any], str | None]:
+    _class_features, mechanics = get_class_feature_mechanics(
+        ch,
+        feature_key="sneak_attack",
+        mechanic_type=_SNEAK_ATTACK_MECHANIC_TYPE,
+    )
+    if not mechanics:
+        return {}, "Скрытая атака недоступна вашему классу."
+    return mechanics, None
+
+
+def sneak_attack_dice_for_level(level: int, mechanics: dict[str, Any]) -> str:
+    lvl = max(1, _as_int(level, 1))
+    progression_raw = mechanics.get("damage_progression")
+    progression = progression_raw if isinstance(progression_raw, list) else []
+    out = "1d6"
+    for step in progression:
+        if not isinstance(step, dict):
+            continue
+        level_from = max(1, _as_int(step.get("level_from"), 1))
+        dice = str(step.get("dice") or "").strip().lower()
+        if not dice:
+            continue
+        if lvl >= level_from:
+            out = dice
+    return out
+
+
+def can_use_sneak_attack_this_turn(ch: Any, *, turn_id: str) -> tuple[dict[str, Any], str | None]:
+    mechanics, err = get_sneak_attack_mechanics(ch)
+    if err:
+        return {}, err
+    _class_features, runtime = get_class_feature_runtime(ch)
+    last_turn_id = str(runtime.get(_SNEAK_ATTACK_RUNTIME_KEY) or "").strip()
+    normalized_turn_id = str(turn_id or "").strip()
+    if normalized_turn_id and last_turn_id == normalized_turn_id:
+        return mechanics, "Скрытая атака уже использована в этот ход."
+    return mechanics, None
+
+
+def mark_sneak_attack_used(ch: Any, *, turn_id: str) -> bool:
+    normalized_turn_id = str(turn_id or "").strip()
+    if not normalized_turn_id:
+        return False
+    class_features, runtime = get_class_feature_runtime(ch)
+    if str(runtime.get(_SNEAK_ATTACK_RUNTIME_KEY) or "").strip() == normalized_turn_id:
+        return False
+    runtime[_SNEAK_ATTACK_RUNTIME_KEY] = normalized_turn_id
+    _store_class_feature_runtime(ch, class_features, runtime)
+    return True
 
 
 def _store_class_feature_runtime(ch: Any, class_features: dict[str, Any], runtime: dict[str, Any]) -> None:
@@ -336,6 +390,9 @@ def reset_class_rest_uses(ch: Any, *, long_rest: bool = True) -> bool:
         changed = True
     if long_rest and _INDOMITABLE_PENDING_KEY in runtime:
         runtime.pop(_INDOMITABLE_PENDING_KEY, None)
+        changed = True
+    if _SNEAK_ATTACK_RUNTIME_KEY in runtime:
+        runtime.pop(_SNEAK_ATTACK_RUNTIME_KEY, None)
         changed = True
 
     if not changed:

@@ -20,6 +20,11 @@ from app.combat.state import (
     end_combat,
     get_combat,
 )
+from app.rules.class_feature_runtime import (
+    can_use_sneak_attack_this_turn,
+    mark_sneak_attack_used,
+    sneak_attack_dice_for_level,
+)
 from app.rules.derived_stats import compute_attack_profile, parse_dice
 from app.rules.player_core import ability_modifier_from_stat100, proficiency_bonus_for_level
 from app.rules.item_catalog import ITEMS
@@ -310,6 +315,125 @@ def _apply_surprise_attack_bonus(
     attacker.surprise_attack_used = True
     extra_lines.append(
         {"text": f"Внезапное нападение: +{bonus} ({'4d6' if is_crit else '2d6'}) (1/бой).", "muted": True}
+    )
+    return total_damage + bonus, extra_lines
+
+
+def _current_combat_turn_id(state: Any) -> str:
+    if state is None:
+        return ""
+    current_key = ""
+    order = getattr(state, "order", None)
+    turn_index = int(getattr(state, "turn_index", 0) or 0)
+    if isinstance(order, list) and 0 <= turn_index < len(order):
+        current_key = str(order[turn_index] or "").strip()
+    round_no = max(1, int(getattr(state, "round_no", 1) or 1))
+    return f"round:{round_no}:turn:{turn_index}:actor:{current_key}"
+
+
+def _combat_position_payload(actor: Any) -> dict[str, Any]:
+    for attr_name in ("combat_position", "map_position", "position"):
+        raw = getattr(actor, attr_name, None)
+        if isinstance(raw, dict):
+            return raw
+    return {}
+
+
+def _combat_position_xy(actor: Any) -> tuple[float, float] | None:
+    pos = _combat_position_payload(actor)
+    for x_key, y_key in (("x_ft", "y_ft"), ("x", "y"), ("tile_x", "tile_y"), ("grid_x", "grid_y")):
+        x_raw = pos.get(x_key)
+        y_raw = pos.get(y_key)
+        if isinstance(x_raw, (int, float)) and not isinstance(x_raw, bool) and isinstance(y_raw, (int, float)) and not isinstance(y_raw, bool):
+            return float(x_raw), float(y_raw)
+    return None
+
+
+def _same_position_node(left: Any, right: Any) -> bool:
+    left_pos = _combat_position_payload(left)
+    right_pos = _combat_position_payload(right)
+    left_node = str(left_pos.get("node_id") or "").strip().lower()
+    right_node = str(right_pos.get("node_id") or "").strip().lower()
+    return bool(left_node and right_node and left_node == right_node)
+
+
+def _has_adjacent_ally_for_sneak_attack(state: Any, attacker: Any, target: Any) -> bool:
+    attacker_key = str(getattr(attacker, "key", "") or "")
+    attacker_side = str(getattr(attacker, "side", "") or "").strip().lower()
+    target_xy = _combat_position_xy(target)
+
+    for combatant in (getattr(state, "combatants", {}) or {}).values():
+        if combatant is None:
+            continue
+        if str(getattr(combatant, "key", "") or "") == attacker_key:
+            continue
+        if str(getattr(combatant, "side", "") or "").strip().lower() != attacker_side:
+            continue
+        if int(getattr(combatant, "hp_current", 0) or 0) <= 0 or bool(getattr(combatant, "is_dead", False)):
+            continue
+        if _is_incapacitated(combatant):
+            continue
+        ally_xy = _combat_position_xy(combatant)
+        if target_xy is None or ally_xy is None:
+            continue
+        if not _same_position_node(combatant, target):
+            continue
+        dx = ally_xy[0] - target_xy[0]
+        dy = ally_xy[1] - target_xy[1]
+        if (dx * dx + dy * dy) ** 0.5 <= 5.0:
+            return True
+    return False
+
+
+def _apply_sneak_attack_bonus(
+    *,
+    state: Any,
+    attacker: Any,
+    target: Any,
+    profile: Any,
+    total_damage: int,
+    is_hit: bool,
+    is_crit: bool,
+    has_advantage: bool,
+    has_disadvantage: bool,
+    turn_id: str,
+) -> tuple[int, list[dict[str, Any]]]:
+    extra_lines: list[dict[str, Any]] = []
+    if not is_hit or str(getattr(attacker, "side", "")).strip().lower() != "pc":
+        return total_damage, extra_lines
+    mechanics, err = can_use_sneak_attack_this_turn(attacker, turn_id=turn_id)
+    if err is not None:
+        return total_damage, extra_lines
+    if bool(mechanics.get("requires_weapon")) and not bool(getattr(profile, "is_weapon_attack", False)):
+        return total_damage, extra_lines
+    if bool(mechanics.get("requires_finesse_or_ranged")) and not (
+        bool(getattr(profile, "is_finesse_weapon", False)) or bool(getattr(profile, "is_ranged_weapon", False))
+    ):
+        return total_damage, extra_lines
+    if has_disadvantage:
+        return total_damage, extra_lines
+    has_adjacent_ally = _has_adjacent_ally_for_sneak_attack(state, attacker, target)
+    if not has_advantage and not has_adjacent_ally:
+        return total_damage, extra_lines
+
+    dice = sneak_attack_dice_for_level(int(getattr(attacker, "level", 1) or 1), mechanics)
+    parsed = parse_dice(dice)
+    if parsed is None:
+        return total_damage, extra_lines
+    dice_count, sides = parsed
+    if is_crit:
+        dice_count *= 2
+    bonus = sum(random.randint(1, max(1, sides)) for _ in range(max(1, dice_count)))
+    mark_sneak_attack_used(attacker, turn_id=turn_id)
+    extra_lines.append(
+        {
+            "text": (
+                f"Скрытая атака (крит): +{bonus} ({dice_count}d{sides})."
+                if is_crit
+                else f"Скрытая атака: +{bonus} ({dice_count}d{sides})."
+            ),
+            "muted": True,
+        }
     )
     return total_damage + bonus, extra_lines
 
@@ -2222,6 +2346,26 @@ def handle_live_combat_action(
                         total_damage=total_damage,
                     )
                     lines.extend(surprise_lines)
+                    profile = SimpleNamespace(
+                        damage_type=damage_type,
+                        is_weapon_attack=bool(pending.get("is_weapon_attack")),
+                        is_melee_weapon=bool(pending.get("is_melee_weapon")),
+                        is_ranged_weapon=bool(pending.get("is_ranged_weapon")),
+                        is_finesse_weapon=bool(pending.get("is_finesse_weapon")),
+                    )
+                    total_damage, sneak_lines = _apply_sneak_attack_bonus(
+                        state=state,
+                        attacker=actor,
+                        target=target,
+                        profile=profile,
+                        total_damage=total_damage,
+                        is_hit=True,
+                        is_crit=False,
+                        has_advantage=bool(pending.get("sneak_attack_has_advantage")),
+                        has_disadvantage=bool(pending.get("sneak_attack_has_disadvantage")),
+                        turn_id=str(pending.get("sneak_attack_turn_id") or _current_combat_turn_id(state)),
+                    )
+                    lines.extend(sneak_lines)
                     fury_bonus = _maybe_apply_fury_of_small(actor=actor, target=target, lines=lines)
                     if fury_bonus > 0:
                         total_damage += fury_bonus
@@ -2238,10 +2382,6 @@ def handle_live_combat_action(
                     if state is None:
                         return None, "Combat is not active"
                     target = state.combatants.get(target.key, target)
-                    profile = SimpleNamespace(
-                        damage_type=damage_type,
-                        is_melee_weapon=bool(pending.get("is_melee_weapon")),
-                    )
                     state_after_poison, target_after_poison = _consume_grung_weapon_poison_on_hit(
                         session_id=session_id,
                         attacker=actor,
@@ -3724,6 +3864,7 @@ def handle_live_combat_action(
             damage_roll=damage_roll,
             damage_bonus=profile.damage_bonus,
         )
+        turn_id = _current_combat_turn_id(state)
         nimble_hide_broken = _consume_nimble_escape_hide(attacker) if nimble_escape_hide_advantage else False
         hidden_step_broken = _break_hidden_step(attacker)
         attacker.help_attack_advantage = False
@@ -3749,6 +3890,19 @@ def handle_live_combat_action(
                 total_damage=total_damage,
             )
             extra_outcome_lines.extend(savage_lines)
+            total_damage, sneak_lines = _apply_sneak_attack_bonus(
+                state=state,
+                attacker=attacker,
+                target=target,
+                profile=profile,
+                total_damage=total_damage,
+                is_hit=bool(resolution.is_hit),
+                is_crit=bool(resolution.is_crit),
+                has_advantage=bool(has_advantage),
+                has_disadvantage=bool(has_disadvantage),
+                turn_id=turn_id,
+            )
+            extra_outcome_lines.extend(sneak_lines)
             fury_bonus = _maybe_apply_fury_of_small(actor=attacker, target=target, lines=extra_outcome_lines)
             if fury_bonus > 0:
                 total_damage += fury_bonus
@@ -3850,7 +4004,13 @@ def handle_live_combat_action(
                     "damage_roll": int(resolution.damage_roll),
                     "damage_bonus": int(resolution.damage_bonus),
                     "damage_type": str(getattr(profile, "damage_type", "") or "").strip().lower(),
+                    "is_weapon_attack": bool(getattr(profile, "is_weapon_attack", False)),
                     "is_melee_weapon": bool(getattr(profile, "is_melee_weapon", False)),
+                    "is_ranged_weapon": bool(getattr(profile, "is_ranged_weapon", False)),
+                    "is_finesse_weapon": bool(getattr(profile, "is_finesse_weapon", False)),
+                    "sneak_attack_turn_id": turn_id,
+                    "sneak_attack_has_advantage": bool(has_advantage),
+                    "sneak_attack_has_disadvantage": bool(has_disadvantage),
                     "created_at": datetime.now(timezone.utc).isoformat(),
                 }
                 _set_saving_face_pending(attacker, pending)
@@ -5199,6 +5359,7 @@ def handle_live_combat_action(
             damage_roll=damage_roll,
             damage_bonus=profile.damage_bonus,
         )
+        turn_id = _current_combat_turn_id(state)
         hidden_step_broken = _break_hidden_step(attacker)
         attacker.help_attack_advantage = False
         extra_outcome_lines: list[dict[str, Any]] = []
@@ -5221,6 +5382,19 @@ def handle_live_combat_action(
                 total_damage=total_damage,
             )
             extra_outcome_lines.extend(savage_lines)
+            total_damage, sneak_lines = _apply_sneak_attack_bonus(
+                state=state,
+                attacker=attacker,
+                target=target,
+                profile=profile,
+                total_damage=total_damage,
+                is_hit=bool(resolution.is_hit),
+                is_crit=bool(resolution.is_crit),
+                has_advantage=bool(has_advantage),
+                has_disadvantage=bool(has_disadvantage),
+                turn_id=turn_id,
+            )
+            extra_outcome_lines.extend(sneak_lines)
             fury_bonus = _maybe_apply_fury_of_small(actor=attacker, target=target, lines=extra_outcome_lines)
             if fury_bonus > 0:
                 total_damage += fury_bonus

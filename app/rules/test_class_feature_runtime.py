@@ -5,11 +5,15 @@ from types import SimpleNamespace
 from app.rules.character_catalog import CLASS_CATALOG
 from app.rules.class_feature_runtime import (
     apply_action_surge_usage,
-    get_cunning_action_mechanics,
     apply_indomitable_usage,
     apply_second_wind_usage,
+    can_use_sneak_attack_this_turn,
+    get_cunning_action_mechanics,
+    get_sneak_attack_mechanics,
+    mark_sneak_attack_used,
     mark_failed_save_for_indomitable,
     reset_class_rest_uses,
+    sneak_attack_dice_for_level,
 )
 from app.rules.class_progression import sync_class_features_for_level
 
@@ -106,6 +110,16 @@ def _rogue_cunning_action_mechanics() -> dict:
     return mechanics
 
 
+def _rogue_sneak_attack_mechanics() -> dict:
+    rogue = _rogue_catalog_entry()
+    features = (rogue.get("features_by_level") or {}).get(1) or []
+    sneak_attack = next((item for item in features if str((item or {}).get("key") or "") == "sneak_attack"), None)
+    assert isinstance(sneak_attack, dict)
+    mechanics = sneak_attack.get("mechanics") or {}
+    assert isinstance(mechanics, dict)
+    return mechanics
+
+
 def test_fighter_second_wind_catalog_has_runtime_mechanics() -> None:
     mechanics = _fighter_second_wind_mechanics()
     assert mechanics == {
@@ -124,6 +138,45 @@ def test_rogue_cunning_action_catalog_has_runtime_mechanics() -> None:
         "action_cost": "bonus_action",
         "allowed_actions": ["combat_dash", "combat_disengage", "combat_hide"],
     }
+
+
+def test_rogue_sneak_attack_catalog_has_runtime_mechanics() -> None:
+    mechanics = _rogue_sneak_attack_mechanics()
+    assert mechanics == {
+        "type": "sneak_attack",
+        "frequency": "once_per_turn",
+        "requires_weapon": True,
+        "requires_finesse_or_ranged": True,
+        "condition": "advantage_or_adjacent_ally_and_no_disadvantage",
+        "damage_progression": [
+            {"level_from": 1, "dice": "1d6"},
+            {"level_from": 3, "dice": "2d6"},
+            {"level_from": 5, "dice": "3d6"},
+            {"level_from": 7, "dice": "4d6"},
+            {"level_from": 9, "dice": "5d6"},
+            {"level_from": 11, "dice": "6d6"},
+            {"level_from": 13, "dice": "7d6"},
+            {"level_from": 15, "dice": "8d6"},
+            {"level_from": 17, "dice": "9d6"},
+            {"level_from": 19, "dice": "10d6"},
+        ],
+    }
+
+
+def test_sneak_attack_damage_progression_matches_rogue_levels() -> None:
+    mechanics = _rogue_sneak_attack_mechanics()
+    assert [sneak_attack_dice_for_level(level, mechanics) for level in (1, 3, 5, 7, 9, 11, 13, 15, 17, 19)] == [
+        "1d6",
+        "2d6",
+        "3d6",
+        "4d6",
+        "5d6",
+        "6d6",
+        "7d6",
+        "8d6",
+        "9d6",
+        "10d6",
+    ]
 
 
 def test_sync_class_features_for_level_preserves_second_wind_mechanics() -> None:
@@ -498,3 +551,35 @@ def test_get_cunning_action_mechanics_finds_rogue_feature() -> None:
     mechanics, err = get_cunning_action_mechanics(ch)
     assert err is None
     assert mechanics == _rogue_cunning_action_mechanics()
+
+
+def test_get_sneak_attack_mechanics_returns_error_without_feature() -> None:
+    mechanics, err = get_sneak_attack_mechanics(SimpleNamespace(class_features={"features": [], "runtime": {}}))
+    assert mechanics == {}
+    assert err == "Скрытая атака недоступна вашему классу."
+
+
+def test_sneak_attack_once_per_turn_runtime_uses_turn_id() -> None:
+    ch = SimpleNamespace(
+        class_features={
+            "features": [
+                {
+                    "key": "sneak_attack",
+                    "mechanics": _rogue_sneak_attack_mechanics(),
+                }
+            ],
+            "runtime": {},
+        }
+    )
+
+    mechanics_1, err_1 = can_use_sneak_attack_this_turn(ch, turn_id="round:1:turn:0:actor:pc_1")
+    assert err_1 is None
+    assert mechanics_1 == _rogue_sneak_attack_mechanics()
+    assert mark_sneak_attack_used(ch, turn_id="round:1:turn:0:actor:pc_1") is True
+
+    _mechanics_2, err_2 = can_use_sneak_attack_this_turn(ch, turn_id="round:1:turn:0:actor:pc_1")
+    assert err_2 == "Скрытая атака уже использована в этот ход."
+
+    mechanics_3, err_3 = can_use_sneak_attack_this_turn(ch, turn_id="round:1:turn:1:actor:enemy_1")
+    assert err_3 is None
+    assert mechanics_3 == _rogue_sneak_attack_mechanics()

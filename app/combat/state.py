@@ -45,6 +45,7 @@ class Combatant:
     inventory: list[dict[str, Any]] | None = None
     equip: dict[str, str] | None = None
     race_features: dict[str, Any] | None = None
+    class_features: dict[str, Any] | None = None
     level: int = 1
     last_damage_taken: int = 0
     last_damage_taken_round: int = 0
@@ -251,6 +252,12 @@ def _sanitize_race_features_payload(value: Any) -> dict[str, Any] | None:
     return dict(value)
 
 
+def _sanitize_class_features_payload(value: Any) -> dict[str, Any] | None:
+    if not isinstance(value, dict):
+        return None
+    return dict(value)
+
+
 def _sanitize_movement_speeds_payload(value: Any) -> dict[str, int] | None:
     if not isinstance(value, dict):
         return None
@@ -412,6 +419,7 @@ def upsert_pc(
     inventory: list[dict[str, Any]] | None = None,
     equip: dict[str, str] | None = None,
     race_features: dict[str, Any] | None = None,
+    class_features: dict[str, Any] | None = None,
     movement_speeds: dict[str, int] | None = None,
     movement_mode: str | None = None,
 ) -> CombatState | None:
@@ -436,6 +444,7 @@ def upsert_pc(
     inventory_norm = _sanitize_inventory_payload(inventory)
     equip_norm = _sanitize_equip_payload(equip)
     race_features_norm = _sanitize_race_features_payload(race_features)
+    class_features_norm = _sanitize_class_features_payload(class_features)
     movement_speeds_norm = _sanitize_movement_speeds_payload(movement_speeds)
     movement_mode_norm = _sanitize_movement_mode(movement_mode)
     move_speed_ft_norm = _resolve_mode_speed(
@@ -458,6 +467,7 @@ def upsert_pc(
         existing.inventory = inventory_norm
         existing.equip = equip_norm
         existing.race_features = race_features_norm
+        existing.class_features = class_features_norm
         if movement_speeds_norm is not None:
             existing.movement_speeds = movement_speeds_norm
         if movement_mode_norm is not None:
@@ -491,6 +501,7 @@ def upsert_pc(
             inventory=inventory_norm,
             equip=equip_norm,
             race_features=race_features_norm,
+            class_features=class_features_norm,
         )
 
     from app.combat.turns import build_initiative_order
@@ -617,6 +628,9 @@ def combatant_to_dict(c: Combatant) -> dict[str, Any]:
     race_features = _sanitize_race_features_payload(c.race_features)
     if race_features is not None:
         payload["race_features"] = race_features
+    class_features = _sanitize_class_features_payload(c.class_features)
+    if class_features is not None:
+        payload["class_features"] = class_features
     return payload
 
 
@@ -760,6 +774,7 @@ def combatant_from_dict(raw: Any) -> Combatant | None:
         inventory=_sanitize_inventory_payload(raw.get("inventory")),
         equip=_sanitize_equip_payload(raw.get("equip")),
         race_features=_sanitize_race_features_payload(raw.get("race_features")),
+        class_features=_sanitize_class_features_payload(raw.get("class_features")),
         level=level_norm,
         last_damage_taken=max(0, int(last_damage_taken)),
         last_damage_taken_round=max(0, int(last_damage_taken_round)),

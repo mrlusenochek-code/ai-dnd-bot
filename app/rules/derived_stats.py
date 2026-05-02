@@ -14,8 +14,12 @@ class AttackProfile:
     damage_dice: str
     damage_bonus: int
     damage_type: str
+    is_weapon_attack: bool = False
     is_melee_weapon: bool = False
+    is_ranged_weapon: bool = False
+    is_finesse_weapon: bool = False
     properties: tuple[str, ...] = ()
+    weapon_properties: tuple[str, ...] = ()
     mastery: str | None = None
 
 
@@ -222,8 +226,12 @@ def compute_attack_profile(
             damage_dice=weapon.damage_dice,
             damage_bonus=damage_bonus,
             damage_type=weapon.damage_type,
+            is_weapon_attack=True,
             is_melee_weapon=not is_ranged_weapon,
+            is_ranged_weapon=is_ranged_weapon,
+            is_finesse_weapon="finesse" in properties_cf,
             properties=properties,
+            weapon_properties=properties,
             mastery=weapon.mastery,
         )
 
@@ -248,8 +256,12 @@ def compute_attack_profile(
             damage_dice=str(nat_unarmed.get("damage_dice") or "1d4").strip().lower(),
             damage_bonus=damage_bonus,
             damage_type=str(nat_unarmed.get("damage_type") or "bludgeoning").strip().lower(),
+            is_weapon_attack=False,
             is_melee_weapon=False,
+            is_ranged_weapon=False,
+            is_finesse_weapon=False,
             properties=(),
+            weapon_properties=(),
             mastery=None,
         )
     return AttackProfile(
@@ -257,7 +269,10 @@ def compute_attack_profile(
         damage_dice="1d4",
         damage_bonus=damage_bonus,
         damage_type="bludgeoning",
+        is_weapon_attack=False,
         is_melee_weapon=False,
+        is_ranged_weapon=False,
+        is_finesse_weapon=False,
     )
 
 
