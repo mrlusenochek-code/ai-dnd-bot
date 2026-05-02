@@ -38,10 +38,11 @@ from app.gm import (
 from app.rules.derived_stats import compute_ac
 from app.rules.encounters import pick_encounter
 from app.rules.enemy_catalog_data import get_enemy
+from app.rules.class_feature_runtime import has_expertise
 from app.rules.equipment_slots import EquipmentSlot, EQUIPMENT_SLOT_ORDER, slot_label_ru
 from app.rules.item_catalog import ITEMS
 from app.rules.items import ItemDef, is_equipable, can_equip_to_slot
-from app.rules.player_core import total_skill_bonus
+from app.rules.player_core import proficiency_bonus_for_level, total_skill_bonus
 from app.web.dice import parse_dice, roll_dice
 from app.web.machine_extract import _trim_for_log, _extract_inventory_machine_commands, _extract_machine_commands
 from app.web.machine_lines import (
@@ -1429,6 +1430,8 @@ def _compute_check_mod(
         ability_key = SKILL_TO_ABILITY.get(skill_name)
         ability_mod = _ability_mod_from_stats(character.stats, ability_key) if ability_key else 0
         skill_bonus = int(skill_mods.get(skill_name, 0))
+        if skill_bonus > 0 and has_expertise(character, "skill", skill_name):
+            skill_bonus = max(skill_bonus, 2 * proficiency_bonus_for_level(max(1, int(getattr(character, "level", 1) or 1))))
         return total_skill_bonus(
             ability_mod=ability_mod,
             proficient=skill_bonus > 0,

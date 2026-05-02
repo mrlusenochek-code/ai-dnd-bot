@@ -23,6 +23,7 @@ from app.core.log_context import client_id_var, request_id_var, session_id_var, 
 from app.db.connection import AsyncSessionLocal
 from app.db.models import Character, Player, SessionPlayer, Skill
 from app.rules.class_feature_runtime import (
+    has_expertise as _has_expertise,
     mark_failed_save_for_indomitable as _mark_failed_save_for_indomitable,
     reset_class_rest_uses as _reset_class_rest_uses,
 )
@@ -673,6 +674,24 @@ def _toolcheck_access_error(ch: Any, tool_key: str) -> str | None:
     if key not in _character_tool_proficiencies(ch):
         return f"У персонажа нет владения инструментом: {_tool_label_ru(key)}"
     return None
+
+
+def _effective_skill_proficiency_bonus(ch: Any, skill_key: str, skill_bonus: int) -> int:
+    bonus = int(skill_bonus)
+    if bonus <= 0:
+        return bonus
+    if not _has_expertise(ch, "skill", skill_key):
+        return bonus
+    level = max(1, int(getattr(ch, "level", 1) or 1))
+    return max(bonus, 2 * proficiency_bonus_for_level(level))
+
+
+def _effective_toolcheck_mod(ch: Any, tool_key: str) -> int:
+    level = max(1, int(getattr(ch, "level", 1) or 1))
+    prof = proficiency_bonus_for_level(level)
+    if _has_expertise(ch, "tool", tool_key):
+        return 2 * prof
+    return prof
 
 
 def _parse_check_command(
@@ -9111,6 +9130,7 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                         ability_mod = _ability_mod_from_stats(ch.stats, ability_key) if ability_key else 0
                         sk = skills_by_key.get(candidate)
                         skill_bonus = _skill_bonus_from_rank_and_level(sk.rank, ch.level) if sk else 0
+                        skill_bonus = _effective_skill_proficiency_bonus(ch, candidate, skill_bonus)
                         return total_skill_bonus(
                             ability_mod=ability_mod,
                             proficient=skill_bonus > 0,
@@ -9147,6 +9167,7 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                         ability_key = SKILL_TO_ABILITY.get(key)
                         ability_mod = _ability_mod_from_stats(ch.stats, ability_key) if ability_key else 0
                         skill_bonus = _skill_bonus_from_rank_and_level(sk.rank, ch.level) if sk else 0
+                        skill_bonus = _effective_skill_proficiency_bonus(ch, key, skill_bonus)
                         mod = total_skill_bonus(
                             ability_mod=ability_mod,
                             proficient=skill_bonus > 0,
@@ -9324,7 +9345,7 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                         await ws_error(toolcheck_error, request_id=msg_request_id)
                         continue
 
-                    mod = 0
+                    mod = _effective_toolcheck_mod(ch, tool_key)
                     mapped_mode = _mode_with_poisoned_disadvantage(mapped_mode, getattr(ch, "race_features", None))
                     mapped_mode = _mode_with_sunlight_disadvantage(
                         mapped_mode,

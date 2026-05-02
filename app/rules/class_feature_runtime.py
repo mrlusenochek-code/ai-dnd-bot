@@ -17,6 +17,7 @@ _INDOMITABLE_IMPROVEMENT_TYPE = "indomitable_improvement"
 _CUNNING_ACTION_MECHANIC_TYPE = "cunning_action"
 _SNEAK_ATTACK_RUNTIME_KEY = "sneak_attack_last_turn_id"
 _SNEAK_ATTACK_MECHANIC_TYPE = "sneak_attack"
+_EXPERTISE_MECHANIC_TYPE = "expertise"
 
 
 def _as_int(value: Any, default: int = 0) -> int:
@@ -95,6 +96,66 @@ def get_cunning_action_mechanics(ch: Any) -> tuple[dict[str, Any], str | None]:
     if not mechanics:
         return {}, "Хитрое действие недоступно вашему классу."
     return mechanics, None
+
+
+def _normalized_expertise_target(raw: Any) -> tuple[str, str] | None:
+    if isinstance(raw, str):
+        text = raw.strip().lower()
+        if not text:
+            return None
+        if ":" in text:
+            kind, key = text.split(":", 1)
+            kind = kind.strip().lower()
+            key = key.strip().lower()
+            if kind in {"skill", "tool"} and key:
+                return kind, key
+            return None
+        return "skill", text
+    if isinstance(raw, dict):
+        kind = str(raw.get("kind") or "skill").strip().lower()
+        key = str(raw.get("key") or "").strip().lower()
+        if kind in {"skill", "tool"} and key:
+            return kind, key
+    return None
+
+
+def get_expertise_targets(ch: Any) -> dict[str, set[str]]:
+    class_features = _class_features_dict(ch)
+    out: dict[str, set[str]] = {"skill": set(), "tool": set()}
+    choices_raw = class_features.get("choices")
+    choices = dict(choices_raw) if isinstance(choices_raw, dict) else {}
+    explicit_raw = choices.get("expertise")
+    explicit_items = explicit_raw if isinstance(explicit_raw, list) else []
+    explicit_targets = [_normalized_expertise_target(item) for item in explicit_items]
+    explicit_targets = [item for item in explicit_targets if item is not None]
+    if explicit_targets:
+        for kind, key in explicit_targets:
+            out.setdefault(kind, set()).add(key)
+        return out
+
+    for entry in _class_feature_entries(class_features):
+        mechanics_raw = entry.get("mechanics")
+        mechanics = mechanics_raw if isinstance(mechanics_raw, dict) else {}
+        if str(mechanics.get("type") or "").strip().lower() != _EXPERTISE_MECHANIC_TYPE:
+            continue
+        defaults_raw = mechanics.get("default_choices")
+        defaults = defaults_raw if isinstance(defaults_raw, list) else []
+        for item in defaults:
+            target = _normalized_expertise_target(item)
+            if target is None:
+                continue
+            kind, key = target
+            out.setdefault(kind, set()).add(key)
+    return out
+
+
+def has_expertise(ch: Any, kind: str, key: str) -> bool:
+    normalized_kind = str(kind or "skill").strip().lower()
+    normalized_key = str(key or "").strip().lower()
+    if normalized_kind not in {"skill", "tool"} or not normalized_key:
+        return False
+    targets = get_expertise_targets(ch)
+    return normalized_key in targets.get(normalized_kind, set())
 
 
 def get_sneak_attack_mechanics(ch: Any) -> tuple[dict[str, Any], str | None]:

@@ -1646,7 +1646,17 @@ BASE_CLASS_CATALOG: list[dict[str, Any]] = [
         ],
         "features_by_level": {
             1: [
-                {"key": "expertise", "name_ru": "Компетентность", "summary_ru": "Удваивает бонус мастерства для выбранных навыков или инструментов.", "mechanics": {}},
+                {
+                    "key": "expertise",
+                    "name_ru": "Компетентность",
+                    "summary_ru": "Удваивает бонус мастерства для выбранных навыков или инструментов.",
+                    "mechanics": {
+                        "type": "expertise",
+                        "count": 2,
+                        "allowed_kinds": ["skill", "tool"],
+                        "default_choices": ["stealth", "tool:thieves_tools"],
+                    },
+                },
                 {
                     "key": "sneak_attack",
                     "name_ru": "Скрытая атака",
@@ -1677,7 +1687,19 @@ BASE_CLASS_CATALOG: list[dict[str, Any]] = [
             3: [{"key": "roguish_archetype", "name_ru": "Архетип плута", "summary_ru": "Выбор подкласса плута.", "mechanics": {"type": "subclass_choice"}}],
             4: [{"key": "asi", "name_ru": "Увеличение характеристик", "summary_ru": "Улучшение характеристик или выбор таланта.", "mechanics": {}}],
             5: [{"key": "uncanny_dodge", "name_ru": "Невероятное уклонение", "summary_ru": "Может уменьшить урон от одной атаки.", "mechanics": {}}],
-            6: [{"key": "expertise_2", "name_ru": "Компетентность", "summary_ru": "Получает ещё два случая удвоенного мастерства.", "mechanics": {}}],
+            6: [
+                {
+                    "key": "expertise_2",
+                    "name_ru": "Компетентность",
+                    "summary_ru": "Получает ещё два случая удвоенного мастерства.",
+                    "mechanics": {
+                        "type": "expertise",
+                        "count": 2,
+                        "allowed_kinds": ["skill", "tool"],
+                        "default_choices": ["perception", "sleight_of_hand"],
+                    },
+                }
+            ],
             7: [{"key": "evasion", "name_ru": "Уклонение", "summary_ru": "Лучше избегает урона от областных эффектов.", "mechanics": {}}],
             8: [{"key": "asi", "name_ru": "Увеличение характеристик", "summary_ru": "Улучшение характеристик или выбор таланта.", "mechanics": {}}],
             9: [{"key": "archetype_feature_9", "name_ru": "Умение архетипа (9)", "summary_ru": "Особенность выбранного архетипа на 9 уровне.", "mechanics": {}}],

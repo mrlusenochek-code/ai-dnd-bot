@@ -8,8 +8,10 @@ from app.rules.class_feature_runtime import (
     apply_indomitable_usage,
     apply_second_wind_usage,
     can_use_sneak_attack_this_turn,
+    get_expertise_targets,
     get_cunning_action_mechanics,
     get_sneak_attack_mechanics,
+    has_expertise,
     mark_sneak_attack_used,
     mark_failed_save_for_indomitable,
     reset_class_rest_uses,
@@ -120,6 +122,26 @@ def _rogue_sneak_attack_mechanics() -> dict:
     return mechanics
 
 
+def _rogue_expertise_mechanics() -> dict:
+    rogue = _rogue_catalog_entry()
+    features = (rogue.get("features_by_level") or {}).get(1) or []
+    expertise = next((item for item in features if str((item or {}).get("key") or "") == "expertise"), None)
+    assert isinstance(expertise, dict)
+    mechanics = expertise.get("mechanics") or {}
+    assert isinstance(mechanics, dict)
+    return mechanics
+
+
+def _rogue_expertise_2_mechanics() -> dict:
+    rogue = _rogue_catalog_entry()
+    features = (rogue.get("features_by_level") or {}).get(6) or []
+    expertise = next((item for item in features if str((item or {}).get("key") or "") == "expertise_2"), None)
+    assert isinstance(expertise, dict)
+    mechanics = expertise.get("mechanics") or {}
+    assert isinstance(mechanics, dict)
+    return mechanics
+
+
 def test_fighter_second_wind_catalog_has_runtime_mechanics() -> None:
     mechanics = _fighter_second_wind_mechanics()
     assert mechanics == {
@@ -137,6 +159,21 @@ def test_rogue_cunning_action_catalog_has_runtime_mechanics() -> None:
         "type": "cunning_action",
         "action_cost": "bonus_action",
         "allowed_actions": ["combat_dash", "combat_disengage", "combat_hide"],
+    }
+
+
+def test_rogue_expertise_catalog_has_runtime_mechanics() -> None:
+    assert _rogue_expertise_mechanics() == {
+        "type": "expertise",
+        "count": 2,
+        "allowed_kinds": ["skill", "tool"],
+        "default_choices": ["stealth", "tool:thieves_tools"],
+    }
+    assert _rogue_expertise_2_mechanics() == {
+        "type": "expertise",
+        "count": 2,
+        "allowed_kinds": ["skill", "tool"],
+        "default_choices": ["perception", "sleight_of_hand"],
     }
 
 
@@ -583,3 +620,49 @@ def test_sneak_attack_once_per_turn_runtime_uses_turn_id() -> None:
     mechanics_3, err_3 = can_use_sneak_attack_this_turn(ch, turn_id="round:1:turn:1:actor:enemy_1")
     assert err_3 is None
     assert mechanics_3 == _rogue_sneak_attack_mechanics()
+
+
+def test_get_expertise_targets_uses_rogue_default_choices() -> None:
+    ch = SimpleNamespace(
+        class_features={
+            "features": [
+                {"key": "expertise", "mechanics": _rogue_expertise_mechanics()},
+                {"key": "expertise_2", "mechanics": _rogue_expertise_2_mechanics()},
+            ],
+            "runtime": {},
+        }
+    )
+
+    targets = get_expertise_targets(ch)
+    assert targets == {
+        "skill": {"stealth", "perception", "sleight_of_hand"},
+        "tool": {"thieves_tools"},
+    }
+    assert has_expertise(ch, "skill", "stealth") is True
+    assert has_expertise(ch, "tool", "thieves_tools") is True
+
+
+def test_get_expertise_targets_prefers_explicit_choices_over_defaults() -> None:
+    ch = SimpleNamespace(
+        class_features={
+            "features": [
+                {"key": "expertise", "mechanics": _rogue_expertise_mechanics()},
+                {"key": "expertise_2", "mechanics": _rogue_expertise_2_mechanics()},
+            ],
+            "choices": {
+                "expertise": [
+                    "stealth",
+                    "tool:thieves_tools",
+                    {"kind": "skill", "key": "acrobatics"},
+                ]
+            },
+            "runtime": {},
+        }
+    )
+
+    targets = get_expertise_targets(ch)
+    assert targets == {
+        "skill": {"stealth", "acrobatics"},
+        "tool": {"thieves_tools"},
+    }
+    assert has_expertise(ch, "skill", "perception") is False
