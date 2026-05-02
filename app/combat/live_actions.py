@@ -21,8 +21,11 @@ from app.combat.state import (
     get_combat,
 )
 from app.rules.class_feature_runtime import (
+    can_use_uncanny_dodge,
     can_use_sneak_attack_this_turn,
+    mark_uncanny_dodge_used_for_damage,
     mark_sneak_attack_used,
+    get_uncanny_dodge_mechanics,
     sneak_attack_dice_for_level,
 )
 from app.rules.derived_stats import compute_attack_profile, parse_dice
@@ -1401,7 +1404,7 @@ def handle_live_combat_reaction(
     state = get_combat(session_id)
     if state is None or not state.active:
         return None, "Combat is not active"
-    if action != "combat_stone_endurance":
+    if action not in {"combat_stone_endurance", "combat_uncanny_dodge"}:
         return None, "Unknown combat reaction"
 
     actor = state.combatants.get(actor_key)
@@ -1411,6 +1414,45 @@ def handle_live_combat_reaction(
         return None, "Реакция доступна только персонажу игрока."
     if not bool(getattr(actor, "reaction_available", True)):
         return None, "Реакция недоступна: реакция уже потрачена."
+
+    if action == "combat_uncanny_dodge":
+        _mechanics, feature_err = get_uncanny_dodge_mechanics(actor)
+        if feature_err:
+            return None, feature_err
+
+        last_damage = max(0, int(getattr(actor, "last_damage_taken", 0)))
+        if last_damage <= 0:
+            return None, "Нет подходящего полученного урона для Невероятного уклонения."
+
+        last_damage_round = max(0, int(getattr(actor, "last_damage_taken_round", 0)))
+        last_damage_source = str(getattr(actor, "last_damage_taken_source", "") or "").strip() or "unknown"
+        damage_key = f"round:{last_damage_round}|source:{last_damage_source}|damage:{last_damage}"
+        _mechanics, runtime_err = can_use_uncanny_dodge(actor, damage_key=damage_key)
+        if runtime_err:
+            return None, runtime_err
+
+        hp_max = max(0, int(getattr(actor, "hp_max", 0) or 0))
+        hp_current = max(0, int(getattr(actor, "hp_current", 0) or 0))
+        missing_hp = max(0, hp_max - hp_current)
+        reduction = max(1, last_damage // 2)
+        actual_reduction = min(reduction, missing_hp)
+
+        actor.hp_current = min(hp_max, hp_current + actual_reduction)
+        actor.reaction_available = False
+        mark_uncanny_dodge_used_for_damage(actor, damage_key)
+
+        return (
+            {
+                "status": _combat_status(state),
+                "open": True,
+                "lines": [
+                    {"text": f"Невероятное уклонение: урон уменьшен на {actual_reduction}."},
+                    {"text": f"HP восстановлено: +{actual_reduction}."},
+                    {"text": f"{actor.name}: HP {actor.hp_current}/{actor.hp_max}"},
+                ],
+            },
+            None,
+        )
 
     race_features = actor.race_features if isinstance(actor.race_features, dict) else {}
     features = race_features.get("features") if isinstance(race_features.get("features"), dict) else {}

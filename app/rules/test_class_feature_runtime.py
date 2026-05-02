@@ -7,11 +7,14 @@ from app.rules.class_feature_runtime import (
     apply_action_surge_usage,
     apply_indomitable_usage,
     apply_second_wind_usage,
+    can_use_uncanny_dodge,
     can_use_sneak_attack_this_turn,
     get_expertise_targets,
     get_cunning_action_mechanics,
     get_sneak_attack_mechanics,
+    get_uncanny_dodge_mechanics,
     has_expertise,
+    mark_uncanny_dodge_used_for_damage,
     mark_sneak_attack_used,
     mark_failed_save_for_indomitable,
     reset_class_rest_uses,
@@ -142,6 +145,16 @@ def _rogue_expertise_2_mechanics() -> dict:
     return mechanics
 
 
+def _rogue_uncanny_dodge_mechanics() -> dict:
+    rogue = _rogue_catalog_entry()
+    features = (rogue.get("features_by_level") or {}).get(5) or []
+    uncanny_dodge = next((item for item in features if str((item or {}).get("key") or "") == "uncanny_dodge"), None)
+    assert isinstance(uncanny_dodge, dict)
+    mechanics = uncanny_dodge.get("mechanics") or {}
+    assert isinstance(mechanics, dict)
+    return mechanics
+
+
 def test_fighter_second_wind_catalog_has_runtime_mechanics() -> None:
     mechanics = _fighter_second_wind_mechanics()
     assert mechanics == {
@@ -197,6 +210,15 @@ def test_rogue_sneak_attack_catalog_has_runtime_mechanics() -> None:
             {"level_from": 17, "dice": "9d6"},
             {"level_from": 19, "dice": "10d6"},
         ],
+    }
+
+
+def test_rogue_uncanny_dodge_catalog_has_runtime_mechanics() -> None:
+    assert _rogue_uncanny_dodge_mechanics() == {
+        "type": "uncanny_dodge",
+        "trigger": "after_hit_by_attack",
+        "cost": "reaction",
+        "damage_reduction": "half",
     }
 
 
@@ -594,6 +616,38 @@ def test_get_sneak_attack_mechanics_returns_error_without_feature() -> None:
     mechanics, err = get_sneak_attack_mechanics(SimpleNamespace(class_features={"features": [], "runtime": {}}))
     assert mechanics == {}
     assert err == "Скрытая атака недоступна вашему классу."
+
+
+def test_get_uncanny_dodge_mechanics_returns_error_without_feature() -> None:
+    mechanics, err = get_uncanny_dodge_mechanics(SimpleNamespace(class_features={"features": [], "runtime": {}}))
+    assert mechanics == {}
+    assert err == "Невероятное уклонение недоступно вашему классу."
+
+
+def test_uncanny_dodge_runtime_marks_damage_key_once() -> None:
+    ch = SimpleNamespace(
+        class_features={
+            "features": [
+                {
+                    "key": "uncanny_dodge",
+                    "mechanics": _rogue_uncanny_dodge_mechanics(),
+                }
+            ],
+            "runtime": {},
+        }
+    )
+
+    mechanics_1, err_1 = can_use_uncanny_dodge(ch, damage_key="round:1|source:orc|damage:9")
+    assert err_1 is None
+    assert mechanics_1 == _rogue_uncanny_dodge_mechanics()
+    assert mark_uncanny_dodge_used_for_damage(ch, "round:1|source:orc|damage:9") is True
+
+    _mechanics_2, err_2 = can_use_uncanny_dodge(ch, damage_key="round:1|source:orc|damage:9")
+    assert err_2 == "Невероятное уклонение уже применено к этому урону."
+
+    mechanics_3, err_3 = can_use_uncanny_dodge(ch, damage_key="round:1|source:goblin|damage:4")
+    assert err_3 is None
+    assert mechanics_3 == _rogue_uncanny_dodge_mechanics()
 
 
 def test_sneak_attack_once_per_turn_runtime_uses_turn_id() -> None:

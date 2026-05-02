@@ -1686,7 +1686,19 @@ BASE_CLASS_CATALOG: list[dict[str, Any]] = [
             2: [{"key": "cunning_action", "name_ru": "Хитрое действие", "summary_ru": "Бонусным действием может совершить Рывок, Отход или Засаду/Скрытие.", "mechanics": {"type": "cunning_action", "action_cost": "bonus_action", "allowed_actions": ["combat_dash", "combat_disengage", "combat_hide"]}}],
             3: [{"key": "roguish_archetype", "name_ru": "Архетип плута", "summary_ru": "Выбор подкласса плута.", "mechanics": {"type": "subclass_choice"}}],
             4: [{"key": "asi", "name_ru": "Увеличение характеристик", "summary_ru": "Улучшение характеристик или выбор таланта.", "mechanics": {}}],
-            5: [{"key": "uncanny_dodge", "name_ru": "Невероятное уклонение", "summary_ru": "Может уменьшить урон от одной атаки.", "mechanics": {}}],
+            5: [
+                {
+                    "key": "uncanny_dodge",
+                    "name_ru": "Невероятное уклонение",
+                    "summary_ru": "Реакцией может уменьшить урон от одной атаки вдвое.",
+                    "mechanics": {
+                        "type": "uncanny_dodge",
+                        "trigger": "after_hit_by_attack",
+                        "cost": "reaction",
+                        "damage_reduction": "half",
+                    },
+                }
+            ],
             6: [
                 {
                     "key": "expertise_2",

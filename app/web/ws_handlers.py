@@ -8343,21 +8343,25 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                                         "combat_stone_endurance"
                                         if combat_action == "combat_stone_endurance"
                                         else (
-                                            "combat_healing_hands"
-                                            if combat_action == "combat_healing_hands"
+                                            "combat_uncanny_dodge"
+                                            if combat_action == "combat_uncanny_dodge"
                                             else (
-                                                "combat_aasimar_transform"
-                                                if combat_action == "combat_aasimar_transform"
+                                                "combat_healing_hands"
+                                                if combat_action == "combat_healing_hands"
                                                 else (
-                                                    "breathe_underwater"
-                                                    if combat_action == "breathe_underwater"
+                                                    "combat_aasimar_transform"
+                                                    if combat_action == "combat_aasimar_transform"
                                                     else (
-                                                        "combat_breath_weapon"
-                                                        if combat_action == "combat_breath_weapon"
+                                                        "breathe_underwater"
+                                                        if combat_action == "breathe_underwater"
                                                         else (
-                                                            "combat_shapechanger"
-                                                            if combat_action in {"combat_shapechanger_shift", "combat_shapechanger_revert"}
-                                                            else "player_action"
+                                                            "combat_breath_weapon"
+                                                            if combat_action == "combat_breath_weapon"
+                                                            else (
+                                                                "combat_shapechanger"
+                                                                if combat_action in {"combat_shapechanger_shift", "combat_shapechanger_revert"}
+                                                                else "player_action"
+                                                            )
                                                         )
                                                     )
                                                 )
@@ -8374,9 +8378,9 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
 
                         player_uid = _player_uid(player)
                         player_key = f"pc_{player_uid}" if player_uid is not None else ""
-                        if combat_action == "combat_stone_endurance":
+                        if combat_action in {"combat_stone_endurance", "combat_uncanny_dodge"}:
                             combat_patch, combat_err = handle_live_combat_reaction(
-                                "combat_stone_endurance",
+                                combat_action,
                                 session_id,
                                 player_key,
                             )
@@ -8411,7 +8415,7 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                         turn_key: Optional[str] = None
                         if combat_state and combat_state.order and 0 <= combat_state.turn_index < len(combat_state.order):
                             turn_key = combat_state.order[combat_state.turn_index]
-                        reaction_actions = {"combat_saving_face", "combat_lucky_footwork", "combat_fearless", "combat_indomitable", "arm_past_life_knowledge", "combat_swiftstride_step"}
+                        reaction_actions = {"combat_saving_face", "combat_lucky_footwork", "combat_fearless", "combat_indomitable", "arm_past_life_knowledge", "combat_swiftstride_step", "combat_uncanny_dodge"}
                         if combat_action not in reaction_actions:
                             if not turn_key or turn_key != player_key:
                                 current_name = current_turn_label(combat_state) if combat_state else "другой участник"
@@ -10319,21 +10323,25 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                                 "combat_stone_endurance"
                                 if combat_action == "combat_stone_endurance"
                                 else (
-                                    "combat_healing_hands"
-                                    if combat_action == "combat_healing_hands"
+                                    "combat_uncanny_dodge"
+                                    if combat_action == "combat_uncanny_dodge"
                                     else (
-                                        "combat_aasimar_transform"
-                                        if combat_action == "combat_aasimar_transform"
+                                        "combat_healing_hands"
+                                        if combat_action == "combat_healing_hands"
                                         else (
-                                            "breathe_underwater"
-                                            if combat_action == "breathe_underwater"
+                                            "combat_aasimar_transform"
+                                            if combat_action == "combat_aasimar_transform"
                                             else (
-                                                "combat_breath_weapon"
-                                                if combat_action == "combat_breath_weapon"
+                                                "breathe_underwater"
+                                                if combat_action == "breathe_underwater"
                                                 else (
-                                                    "combat_shapechanger"
-                                                    if combat_action in {"combat_shapechanger_shift", "combat_shapechanger_revert"}
-                                                    else "player_action"
+                                                    "combat_breath_weapon"
+                                                    if combat_action == "combat_breath_weapon"
+                                                    else (
+                                                        "combat_shapechanger"
+                                                        if combat_action in {"combat_shapechanger_shift", "combat_shapechanger_revert"}
+                                                        else "player_action"
+                                                    )
                                                 )
                                             )
                                         )
@@ -10369,9 +10377,9 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                     if combat_action:
                         player_uid = _player_uid(player)
                         player_key = f"pc_{player_uid}" if player_uid is not None else ""
-                        if combat_action == "combat_stone_endurance":
+                        if combat_action in {"combat_stone_endurance", "combat_uncanny_dodge"}:
                             combat_patch, combat_err = handle_live_combat_reaction(
-                                "combat_stone_endurance",
+                                combat_action,
                                 session_id,
                                 player_key,
                             )
@@ -10406,7 +10414,7 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                         turn_key: Optional[str] = None
                         if combat_state and combat_state.order and 0 <= combat_state.turn_index < len(combat_state.order):
                             turn_key = combat_state.order[combat_state.turn_index]
-                        reaction_actions = {"combat_saving_face", "combat_lucky_footwork", "combat_fearless", "combat_indomitable", "arm_past_life_knowledge", "combat_swiftstride_step"}
+                        reaction_actions = {"combat_saving_face", "combat_lucky_footwork", "combat_fearless", "combat_indomitable", "arm_past_life_knowledge", "combat_swiftstride_step", "combat_uncanny_dodge"}
                         if combat_action not in reaction_actions:
                             if not turn_key or turn_key != player_key:
                                 current_name = current_turn_label(combat_state) if combat_state else "другой участник"

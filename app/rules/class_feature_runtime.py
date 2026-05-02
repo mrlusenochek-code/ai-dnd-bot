@@ -18,6 +18,8 @@ _CUNNING_ACTION_MECHANIC_TYPE = "cunning_action"
 _SNEAK_ATTACK_RUNTIME_KEY = "sneak_attack_last_turn_id"
 _SNEAK_ATTACK_MECHANIC_TYPE = "sneak_attack"
 _EXPERTISE_MECHANIC_TYPE = "expertise"
+_UNCANNY_DODGE_MECHANIC_TYPE = "uncanny_dodge"
+_UNCANNY_DODGE_USED_DAMAGE_KEYS = "uncanny_dodge_used_damage_keys"
 
 
 def _as_int(value: Any, default: int = 0) -> int:
@@ -167,6 +169,53 @@ def get_sneak_attack_mechanics(ch: Any) -> tuple[dict[str, Any], str | None]:
     if not mechanics:
         return {}, "Скрытая атака недоступна вашему классу."
     return mechanics, None
+
+
+def get_uncanny_dodge_mechanics(ch: Any) -> tuple[dict[str, Any], str | None]:
+    _class_features, mechanics = get_class_feature_mechanics(
+        ch,
+        feature_key="uncanny_dodge",
+        mechanic_type=_UNCANNY_DODGE_MECHANIC_TYPE,
+    )
+    if not mechanics:
+        return {}, "Невероятное уклонение недоступно вашему классу."
+    return mechanics, None
+
+
+def _normalized_damage_key(raw: Any) -> str:
+    return str(raw or "").strip()
+
+
+def can_use_uncanny_dodge(ch: Any, *, damage_key: str) -> tuple[dict[str, Any], str | None]:
+    mechanics, err = get_uncanny_dodge_mechanics(ch)
+    if err:
+        return {}, err
+    normalized_damage_key = _normalized_damage_key(damage_key)
+    if not normalized_damage_key:
+        return mechanics, "Нет подходящего полученного урона для Невероятного уклонения."
+    _class_features, runtime = get_class_feature_runtime(ch)
+    used_raw = runtime.get(_UNCANNY_DODGE_USED_DAMAGE_KEYS)
+    used_items = used_raw if isinstance(used_raw, list) else []
+    used = {_normalized_damage_key(item) for item in used_items if _normalized_damage_key(item)}
+    if normalized_damage_key in used:
+        return mechanics, "Невероятное уклонение уже применено к этому урону."
+    return mechanics, None
+
+
+def mark_uncanny_dodge_used_for_damage(ch: Any, damage_key: str) -> bool:
+    normalized_damage_key = _normalized_damage_key(damage_key)
+    if not normalized_damage_key:
+        return False
+    class_features, runtime = get_class_feature_runtime(ch)
+    used_raw = runtime.get(_UNCANNY_DODGE_USED_DAMAGE_KEYS)
+    used_items = used_raw if isinstance(used_raw, list) else []
+    used = [_normalized_damage_key(item) for item in used_items if _normalized_damage_key(item)]
+    if normalized_damage_key in used:
+        return False
+    used.append(normalized_damage_key)
+    runtime[_UNCANNY_DODGE_USED_DAMAGE_KEYS] = used
+    _store_class_feature_runtime(ch, class_features, runtime)
+    return True
 
 
 def sneak_attack_dice_for_level(level: int, mechanics: dict[str, Any]) -> str:
@@ -454,6 +503,9 @@ def reset_class_rest_uses(ch: Any, *, long_rest: bool = True) -> bool:
         changed = True
     if _SNEAK_ATTACK_RUNTIME_KEY in runtime:
         runtime.pop(_SNEAK_ATTACK_RUNTIME_KEY, None)
+        changed = True
+    if _UNCANNY_DODGE_USED_DAMAGE_KEYS in runtime:
+        runtime.pop(_UNCANNY_DODGE_USED_DAMAGE_KEYS, None)
         changed = True
 
     if not changed:
