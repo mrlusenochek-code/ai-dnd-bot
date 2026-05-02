@@ -1743,7 +1743,19 @@ BASE_CLASS_CATALOG: list[dict[str, Any]] = [
             ],
             12: [{"key": "asi", "name_ru": "Увеличение характеристик", "summary_ru": "Улучшение характеристик или выбор таланта.", "mechanics": {}}],
             13: [{"key": "archetype_feature_13", "name_ru": "Умение архетипа (13)", "summary_ru": "Особенность выбранного архетипа на 13 уровне.", "mechanics": {}}],
-            14: [{"key": "blindsense", "name_ru": "Слепое чутьё", "summary_ru": "Чувствует скрытых врагов рядом.", "mechanics": {}}],
+            14: [
+                {
+                    "key": "blindsense",
+                    "name_ru": "Слепое чутьё",
+                    "summary_ru": "Чувствует скрытых или невидимых врагов рядом, полагаясь на слух и ощущения.",
+                    "mechanics": {
+                        "type": "blindsense",
+                        "range_ft": 10,
+                        "detects": ["hidden", "invisible"],
+                        "requires_hearing": True,
+                    },
+                }
+            ],
             15: [{"key": "slippery_mind", "name_ru": "Скользкий ум", "summary_ru": "Получает мастерство в спасбросках Мудрости.", "mechanics": {}}],
             16: [{"key": "asi", "name_ru": "Увеличение характеристик", "summary_ru": "Улучшение характеристик или выбор таланта.", "mechanics": {}}],
             17: [{"key": "archetype_feature_17", "name_ru": "Умение архетипа (17)", "summary_ru": "Высшая особенность выбранного архетипа.", "mechanics": {}}],

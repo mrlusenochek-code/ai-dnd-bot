@@ -8,14 +8,17 @@ from app.rules.class_feature_runtime import (
     apply_action_surge_usage,
     apply_indomitable_usage,
     apply_second_wind_usage,
+    blindsense_range_ft,
     can_use_uncanny_dodge,
     can_use_sneak_attack_this_turn,
     get_expertise_targets,
+    get_blindsense_mechanics,
     get_cunning_action_mechanics,
     get_evasion_mechanics,
     get_reliable_talent_mechanics,
     get_sneak_attack_mechanics,
     get_uncanny_dodge_mechanics,
+    has_blindsense,
     has_evasion,
     has_reliable_talent,
     has_expertise,
@@ -180,6 +183,16 @@ def _rogue_reliable_talent_mechanics() -> dict:
     return mechanics
 
 
+def _rogue_blindsense_mechanics() -> dict:
+    rogue = _rogue_catalog_entry()
+    features = (rogue.get("features_by_level") or {}).get(14) or []
+    blindsense = next((item for item in features if str((item or {}).get("key") or "") == "blindsense"), None)
+    assert isinstance(blindsense, dict)
+    mechanics = blindsense.get("mechanics") or {}
+    assert isinstance(mechanics, dict)
+    return mechanics
+
+
 def test_fighter_second_wind_catalog_has_runtime_mechanics() -> None:
     mechanics = _fighter_second_wind_mechanics()
     assert mechanics == {
@@ -262,6 +275,15 @@ def test_rogue_reliable_talent_catalog_has_runtime_mechanics() -> None:
         "min_d20": 10,
         "requires_proficiency": True,
         "applies_to": ["ability_check"],
+    }
+
+
+def test_rogue_blindsense_catalog_has_runtime_mechanics() -> None:
+    assert _rogue_blindsense_mechanics() == {
+        "type": "blindsense",
+        "range_ft": 10,
+        "detects": ["hidden", "invisible"],
+        "requires_hearing": True,
     }
 
 
@@ -679,6 +701,12 @@ def test_get_reliable_talent_mechanics_returns_error_without_feature() -> None:
     assert err == "Надёжный талант недоступен вашему классу."
 
 
+def test_get_blindsense_mechanics_returns_error_without_feature() -> None:
+    mechanics, err = get_blindsense_mechanics(SimpleNamespace(class_features={"features": [], "runtime": {}}))
+    assert mechanics == {}
+    assert err == "Слепое чутьё недоступно вашему классу."
+
+
 def test_has_evasion_detects_rogue_feature() -> None:
     ch = SimpleNamespace(
         class_features={
@@ -715,6 +743,25 @@ def test_reliable_talent_applies_only_to_proficient_checks() -> None:
     assert apply_reliable_talent_to_d20(ch, kind="skill", roll=3, proficient=False) == (3, False)
     assert apply_reliable_talent_to_d20(ch, kind="save", roll=3, proficient=True) == (3, False)
     assert apply_reliable_talent_to_d20(ch, kind="attack", roll=3, proficient=True) == (3, False)
+
+
+def test_blindsense_helpers_detect_feature_and_range() -> None:
+    ch = SimpleNamespace(
+        class_features={
+            "features": [
+                {
+                    "key": "blindsense",
+                    "mechanics": _rogue_blindsense_mechanics(),
+                }
+            ],
+            "runtime": {},
+        }
+    )
+    mechanics, err = get_blindsense_mechanics(ch)
+    assert err is None
+    assert mechanics == _rogue_blindsense_mechanics()
+    assert has_blindsense(ch) is True
+    assert blindsense_range_ft(ch) == 10
 
 
 def test_uncanny_dodge_runtime_marks_damage_key_once() -> None:

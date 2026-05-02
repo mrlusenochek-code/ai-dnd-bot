@@ -22,6 +22,7 @@ _UNCANNY_DODGE_MECHANIC_TYPE = "uncanny_dodge"
 _UNCANNY_DODGE_USED_DAMAGE_KEYS = "uncanny_dodge_used_damage_keys"
 _EVASION_MECHANIC_TYPE = "evasion"
 _RELIABLE_TALENT_MECHANIC_TYPE = "reliable_talent"
+_BLINDSENSE_MECHANIC_TYPE = "blindsense"
 
 
 def _as_int(value: Any, default: int = 0) -> int:
@@ -236,6 +237,29 @@ def apply_reliable_talent_to_d20(
     if normalized_roll < min_d20:
         return min_d20, True
     return normalized_roll, False
+
+
+def get_blindsense_mechanics(ch: Any) -> tuple[dict[str, Any], str | None]:
+    _class_features, mechanics = get_class_feature_mechanics(
+        ch,
+        feature_key="blindsense",
+        mechanic_type=_BLINDSENSE_MECHANIC_TYPE,
+    )
+    if not mechanics:
+        return {}, "Слепое чутьё недоступно вашему классу."
+    return mechanics, None
+
+
+def has_blindsense(ch: Any) -> bool:
+    mechanics, err = get_blindsense_mechanics(ch)
+    return bool(mechanics) and err is None
+
+
+def blindsense_range_ft(ch: Any) -> int:
+    mechanics, err = get_blindsense_mechanics(ch)
+    if err or not mechanics:
+        return 0
+    return max(0, _as_int(mechanics.get("range_ft"), 0))
 
 
 def _normalized_damage_key(raw: Any) -> str:

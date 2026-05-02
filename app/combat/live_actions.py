@@ -21,8 +21,10 @@ from app.combat.state import (
     get_combat,
 )
 from app.rules.class_feature_runtime import (
+    blindsense_range_ft,
     can_use_uncanny_dodge,
     can_use_sneak_attack_this_turn,
+    has_blindsense,
     has_evasion,
     mark_uncanny_dodge_used_for_damage,
     mark_sneak_attack_used,
@@ -359,6 +361,101 @@ def _same_position_node(left: Any, right: Any) -> bool:
     left_node = str(left_pos.get("node_id") or "").strip().lower()
     right_node = str(right_pos.get("node_id") or "").strip().lower()
     return bool(left_node and right_node and left_node == right_node)
+
+
+def _is_runtime_condition_active(actor: Any, condition_key: str) -> bool:
+    _rf, _runtime, conditions = _conditions_runtime(actor)
+    raw = conditions.get(str(condition_key or "").strip().lower())
+    payload = dict(raw) if isinstance(raw, dict) else {}
+    if bool(payload.get("active")):
+        return True
+    return max(0, int(payload.get("remaining_rounds") or 0)) > 0
+
+
+def _is_hidden_or_invisible_for_blindsense(actor: Any) -> bool:
+    if _is_hidden_step_active(actor):
+        return True
+    if _is_nimble_escape_hide_active(actor):
+        return True
+    return _is_runtime_condition_active(actor, "hidden") or _is_runtime_condition_active(actor, "invisible")
+
+
+def _blindsense_distance_ft(left: Any, right: Any) -> float | None:
+    left_xy = _combat_position_xy(left)
+    right_xy = _combat_position_xy(right)
+    if left_xy is None or right_xy is None:
+        return None
+    left_node = str(_combat_position_payload(left).get("node_id") or "").strip().lower()
+    right_node = str(_combat_position_payload(right).get("node_id") or "").strip().lower()
+    if left_node and right_node and left_node != right_node:
+        return None
+    dx = left_xy[0] - right_xy[0]
+    dy = left_xy[1] - right_xy[1]
+    return (dx * dx + dy * dy) ** 0.5
+
+
+def _is_deafened_for_blindsense(actor: Any) -> bool:
+    return _is_runtime_condition_active(actor, "deafened")
+
+
+def _blindsense_detected_opponents(state: Any, actor: Any) -> list[Any]:
+    if state is None or actor is None:
+        return []
+    if str(getattr(actor, "side", "") or "").strip().lower() != "pc":
+        return []
+    if not has_blindsense(actor):
+        return []
+    if _is_deafened_for_blindsense(actor):
+        return []
+    actor_key = str(getattr(actor, "key", "") or "").strip()
+    actor_side = str(getattr(actor, "side", "") or "").strip().lower()
+    max_distance = max(0, int(blindsense_range_ft(actor)))
+    if max_distance <= 0:
+        return []
+    out: list[Any] = []
+    for combatant in (getattr(state, "combatants", {}) or {}).values():
+        if combatant is None:
+            continue
+        if str(getattr(combatant, "key", "") or "").strip() == actor_key:
+            continue
+        if str(getattr(combatant, "side", "") or "").strip().lower() == actor_side:
+            continue
+        if int(getattr(combatant, "hp_current", 0) or 0) <= 0 or bool(getattr(combatant, "is_dead", False)):
+            continue
+        if not _is_hidden_or_invisible_for_blindsense(combatant):
+            continue
+        distance = _blindsense_distance_ft(actor, combatant)
+        if distance is None or distance > float(max_distance):
+            continue
+        out.append(combatant)
+    return out
+
+
+def _blindsense_notice_lines(state: Any, actor: Any) -> list[dict[str, Any]]:
+    if actor is None or not has_blindsense(actor):
+        return []
+    detected = _blindsense_detected_opponents(state, actor)
+    if not detected:
+        return []
+    turn_id = _current_combat_turn_id(state)
+    if not turn_id:
+        return []
+    class_features = getattr(actor, "class_features", None)
+    payload = dict(class_features) if isinstance(class_features, dict) else {}
+    runtime_raw = payload.get("runtime")
+    runtime = dict(runtime_raw) if isinstance(runtime_raw, dict) else {}
+    if str(runtime.get("blindsense_notice_turn_id") or "").strip() == turn_id:
+        return []
+    runtime["blindsense_notice_turn_id"] = turn_id
+    payload["runtime"] = runtime
+    actor.class_features = payload
+    range_ft = max(0, int(blindsense_range_ft(actor)))
+    return [
+        {
+            "text": f"Слепое чутьё: вы слышите или чувствуете скрытое существо в пределах {range_ft} фт.",
+            "muted": True,
+        }
+    ]
 
 
 def _has_adjacent_ally_for_sneak_attack(state: Any, attacker: Any, target: Any) -> bool:
@@ -1879,6 +1976,7 @@ def handle_live_combat_action(
 
         attacker.dodge_active = True
         lines: list[dict[str, Any]] = [{"text": f"Уклонение: {attacker.name} (до следующего хода)", "muted": True}]
+        lines.extend(_blindsense_notice_lines(state, attacker))
 
         state = advance_turn(session_id)
         if state is None:
@@ -1925,6 +2023,7 @@ def handle_live_combat_action(
             {"text": f"Рывок: {attacker.name} (до следующего хода)", "muted": True},
             {"text": f"Движение: +{base_move_speed} (итого {attacker.move_remaining_ft})", "muted": True},
         ]
+        lines.extend(_blindsense_notice_lines(state, attacker))
         if use_bonus_action:
             lines.append({"text": "Хитрое действие: потрачено бонусное действие.", "muted": True})
         return (
@@ -1984,6 +2083,7 @@ def handle_live_combat_action(
         mover.move_remaining = mover.move_remaining_ft
         mover.moved_this_turn_ft = max(0, int(getattr(mover, "moved_this_turn_ft", 0))) + dist
         lines = [{"text": f"{mover.name} перемещается на {dist} фт (осталось {mover.move_remaining_ft} фт)."}]
+        lines.extend(_blindsense_notice_lines(state, mover))
         if (
             bool(getattr(mover, "dash_active", False))
             and max(0, int(getattr(mover, "moved_this_turn_ft", 0))) >= 20
@@ -2046,6 +2146,7 @@ def handle_live_combat_action(
 
         attacker.disengage_active = True
         lines: list[dict[str, Any]] = [{"text": f"Отход: {attacker.name} (до следующего хода)", "muted": True}]
+        lines.extend(_blindsense_notice_lines(state, attacker))
         if used_bonus_action:
             lines.append({"text": "Хитрое действие: потрачено бонусное действие.", "muted": True} if use_bonus_action else {"text": "Ловкое бегство: потрачено бонусное действие.", "muted": True})
 
@@ -2098,6 +2199,7 @@ def handle_live_combat_action(
             {"text": f"{attacker.name} прячется.", "muted": True},
             {"text": "Скрытность: преимущество на следующую атаку.", "muted": True},
         ]
+        lines.extend(_blindsense_notice_lines(state, attacker))
         if used_bonus_action:
             lines.append({"text": "Хитрое действие: потрачено бонусное действие.", "muted": True} if use_bonus_action else {"text": "Шустрый побег: потрачено бонусное действие.", "muted": True})
         return (
@@ -4105,6 +4207,7 @@ def handle_live_combat_action(
             {"text": damage_line},
             {"text": f"{target.name}: HP {target.hp_current}/{target.hp_max}"},
         ]
+        lines.extend(_blindsense_notice_lines(state, attacker))
         if hidden_step_broken:
             lines.append({"text": "Незримая поступь прерывается: невидимость спадает.", "muted": True})
         lines.extend(extra_outcome_lines)
@@ -5129,6 +5232,7 @@ def handle_live_combat_action(
             {"text": f"Фактически получено урона: {actual_damage}"},
             {"text": f"HP врага: {target.hp_current}/{target.hp_max}"},
         ]
+        lines.extend(_blindsense_notice_lines(state, attacker))
         lines.extend(evasion_lines)
         lines.extend(extra_outcome_lines)
         if hidden_step_broken:
