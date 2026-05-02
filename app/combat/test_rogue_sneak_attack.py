@@ -66,6 +66,112 @@ def _build_rogue_state(session_id: str, *, enemy_dodge: bool = False, with_featu
     state.turn_index = 0
 
 
+def _set_positions(*, state, ally_position: dict | None, target_position: dict | None) -> None:
+    if ally_position is not None:
+        ally = Combatant(
+            key="pc_2",
+            name="Ally",
+            side="pc",
+            hp_current=20,
+            hp_max=20,
+            ac=12,
+            initiative=15,
+        )
+        ally.position = ally_position
+        state.combatants["pc_2"] = ally
+    state.combatants["enemy_1"].position = target_position
+
+
+def test_sneak_attack_triggers_with_adjacent_ally_same_node_and_coordinates(monkeypatch) -> None:
+    session_id = "test_sneak_attack_triggers_with_adjacent_ally_same_node_and_coordinates"
+    _build_rogue_state(session_id)
+    state = get_combat(session_id)
+    assert state is not None
+    state.combatants["pc_1"].help_attack_advantage = False
+    _set_positions(
+        state=state,
+        ally_position={"node_id": "room_a", "x_ft": 5, "y_ft": 0},
+        target_position={"node_id": "room_a", "x_ft": 0, "y_ft": 0},
+    )
+    monkeypatch.setattr("app.combat.live_actions.random.randint", lambda _a, _b: 15 if _b == 20 else (3 if _b == 4 else 2))
+
+    try:
+        patch, err = handle_live_combat_action("combat_attack", session_id)
+        assert err is None
+        assert patch is not None
+        texts = _line_texts(patch)
+        assert any("Скрытая атака: +6 (3d6)." in text for text in texts)
+    finally:
+        end_combat(session_id)
+
+
+def test_sneak_attack_triggers_with_adjacent_ally_without_node_id_when_coordinates_exist(monkeypatch) -> None:
+    session_id = "test_sneak_attack_triggers_with_adjacent_ally_without_node_id_when_coordinates_exist"
+    _build_rogue_state(session_id)
+    state = get_combat(session_id)
+    assert state is not None
+    state.combatants["pc_1"].help_attack_advantage = False
+    _set_positions(
+        state=state,
+        ally_position={"x_ft": 4, "y_ft": 0},
+        target_position={"x_ft": 0, "y_ft": 0},
+    )
+    monkeypatch.setattr("app.combat.live_actions.random.randint", lambda _a, _b: 15 if _b == 20 else (3 if _b == 4 else 2))
+
+    try:
+        patch, err = handle_live_combat_action("combat_attack", session_id)
+        assert err is None
+        assert patch is not None
+        texts = _line_texts(patch)
+        assert any("Скрытая атака: +6 (3d6)." in text for text in texts)
+    finally:
+        end_combat(session_id)
+
+
+def test_sneak_attack_does_not_trigger_when_adjacent_coordinates_but_different_nodes() -> None:
+    session_id = "test_sneak_attack_does_not_trigger_when_adjacent_coordinates_but_different_nodes"
+    _build_rogue_state(session_id)
+    state = get_combat(session_id)
+    assert state is not None
+    state.combatants["pc_1"].help_attack_advantage = False
+    _set_positions(
+        state=state,
+        ally_position={"node_id": "room_a", "x_ft": 4, "y_ft": 0},
+        target_position={"node_id": "room_b", "x_ft": 0, "y_ft": 0},
+    )
+
+    try:
+        patch, err = handle_live_combat_action("combat_attack", session_id)
+        assert err is None
+        assert patch is not None
+        texts = _line_texts(patch)
+        assert all("Скрытая атака:" not in text for text in texts)
+    finally:
+        end_combat(session_id)
+
+
+def test_sneak_attack_does_not_trigger_when_same_node_but_no_coordinates() -> None:
+    session_id = "test_sneak_attack_does_not_trigger_when_same_node_but_no_coordinates"
+    _build_rogue_state(session_id)
+    state = get_combat(session_id)
+    assert state is not None
+    state.combatants["pc_1"].help_attack_advantage = False
+    _set_positions(
+        state=state,
+        ally_position={"node_id": "room_a"},
+        target_position={"node_id": "room_a"},
+    )
+
+    try:
+        patch, err = handle_live_combat_action("combat_attack", session_id)
+        assert err is None
+        assert patch is not None
+        texts = _line_texts(patch)
+        assert all("Скрытая атака:" not in text for text in texts)
+    finally:
+        end_combat(session_id)
+
+
 def test_rogue_sneak_attack_adds_damage_with_advantage(monkeypatch) -> None:
     session_id = "test_rogue_sneak_attack_adds_damage_with_advantage"
     _build_rogue_state(session_id)
@@ -101,7 +207,7 @@ def test_sneak_attack_does_not_trigger_twice_in_same_turn() -> None:
         end_combat(session_id)
 
 
-def test_sneak_attack_can_trigger_again_on_later_turn() -> None:
+def test_sneak_attack_can_trigger_again_on_later_turn(monkeypatch) -> None:
     session_id = "test_sneak_attack_can_trigger_again_on_later_turn"
     _build_rogue_state(session_id)
     state = get_combat(session_id)
@@ -111,6 +217,7 @@ def test_sneak_attack_can_trigger_again_on_later_turn() -> None:
     advance_turn_in_state(state)
     advance_turn_in_state(state)
     actor.help_attack_advantage = True
+    monkeypatch.setattr("app.combat.live_actions.random.randint", lambda _a, _b: 15 if _b == 20 else (3 if _b == 4 else 2))
 
     try:
         patch, err = handle_live_combat_action("combat_attack", session_id)

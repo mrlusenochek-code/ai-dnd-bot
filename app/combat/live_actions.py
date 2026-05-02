@@ -361,6 +361,7 @@ def _has_adjacent_ally_for_sneak_attack(state: Any, attacker: Any, target: Any) 
     attacker_key = str(getattr(attacker, "key", "") or "")
     attacker_side = str(getattr(attacker, "side", "") or "").strip().lower()
     target_xy = _combat_position_xy(target)
+    target_node = str(_combat_position_payload(target).get("node_id") or "").strip().lower()
 
     for combatant in (getattr(state, "combatants", {}) or {}).values():
         if combatant is None:
@@ -376,7 +377,8 @@ def _has_adjacent_ally_for_sneak_attack(state: Any, attacker: Any, target: Any) 
         ally_xy = _combat_position_xy(combatant)
         if target_xy is None or ally_xy is None:
             continue
-        if not _same_position_node(combatant, target):
+        ally_node = str(_combat_position_payload(combatant).get("node_id") or "").strip().lower()
+        if ally_node and target_node and ally_node != target_node:
             continue
         dx = ally_xy[0] - target_xy[0]
         dy = ally_xy[1] - target_xy[1]
