@@ -11,16 +11,19 @@ from app.rules.class_feature_runtime import (
     blindsense_range_ft,
     can_use_uncanny_dodge,
     can_use_sneak_attack_this_turn,
+    class_feature_saving_throw_proficient,
     get_expertise_targets,
     get_blindsense_mechanics,
     get_cunning_action_mechanics,
     get_evasion_mechanics,
     get_reliable_talent_mechanics,
+    get_slippery_mind_mechanics,
     get_sneak_attack_mechanics,
     get_uncanny_dodge_mechanics,
     has_blindsense,
     has_evasion,
     has_reliable_talent,
+    has_slippery_mind,
     has_expertise,
     mark_uncanny_dodge_used_for_damage,
     mark_sneak_attack_used,
@@ -193,6 +196,16 @@ def _rogue_blindsense_mechanics() -> dict:
     return mechanics
 
 
+def _rogue_slippery_mind_mechanics() -> dict:
+    rogue = _rogue_catalog_entry()
+    features = (rogue.get("features_by_level") or {}).get(15) or []
+    slippery_mind = next((item for item in features if str((item or {}).get("key") or "") == "slippery_mind"), None)
+    assert isinstance(slippery_mind, dict)
+    mechanics = slippery_mind.get("mechanics") or {}
+    assert isinstance(mechanics, dict)
+    return mechanics
+
+
 def test_fighter_second_wind_catalog_has_runtime_mechanics() -> None:
     mechanics = _fighter_second_wind_mechanics()
     assert mechanics == {
@@ -287,6 +300,14 @@ def test_rogue_blindsense_catalog_has_runtime_mechanics() -> None:
     }
 
 
+def test_rogue_slippery_mind_catalog_has_runtime_mechanics() -> None:
+    assert _rogue_slippery_mind_mechanics() == {
+        "type": "saving_throw_proficiency",
+        "ability": "wis",
+        "source": "slippery_mind",
+    }
+
+
 def test_sneak_attack_damage_progression_matches_rogue_levels() -> None:
     mechanics = _rogue_sneak_attack_mechanics()
     assert [sneak_attack_dice_for_level(level, mechanics) for level in (1, 3, 5, 7, 9, 11, 13, 15, 17, 19)] == [
@@ -301,6 +322,29 @@ def test_sneak_attack_damage_progression_matches_rogue_levels() -> None:
         "9d6",
         "10d6",
     ]
+
+
+def test_slippery_mind_runtime_reports_wis_save_proficiency_only() -> None:
+    ch = SimpleNamespace(
+        class_features={
+            "features": [
+                {
+                    "key": "slippery_mind",
+                    "mechanics": _rogue_slippery_mind_mechanics(),
+                }
+            ],
+            "runtime": {},
+        }
+    )
+
+    mechanics, err = get_slippery_mind_mechanics(ch)
+    assert err is None
+    assert mechanics == _rogue_slippery_mind_mechanics()
+    assert has_slippery_mind(ch) is True
+    assert class_feature_saving_throw_proficient(ch, "wis") is True
+    assert class_feature_saving_throw_proficient(ch, "dex") is False
+    assert class_feature_saving_throw_proficient(ch, "int") is False
+    assert class_feature_saving_throw_proficient(ch, "cha") is False
 
 
 def test_sync_class_features_for_level_preserves_second_wind_mechanics() -> None:

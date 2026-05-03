@@ -24,6 +24,7 @@ from app.rules.class_feature_runtime import (
     blindsense_range_ft,
     can_use_uncanny_dodge,
     can_use_sneak_attack_this_turn,
+    class_feature_saving_throw_proficient,
     has_blindsense,
     has_evasion,
     mark_uncanny_dodge_used_for_damage,
@@ -1006,7 +1007,7 @@ def _consume_grung_weapon_poison_on_hit(
     dc = max(1, int(weapon_poison.get("save_dc") or 12))
     target_stats = target.stats if isinstance(getattr(target, "stats", None), dict) else {}
     con_stat = int(target_stats.get("con", 50)) if isinstance(target_stats.get("con"), int) else 50
-    con_mod = _actor_ability_mod(target, "con")
+    con_mod = _actor_saving_throw_mod(target, "con")
     save_roll = random.randint(1, 20)
     save_total = save_roll + con_mod
     save_success = save_total >= dc
@@ -1068,7 +1069,7 @@ def _maybe_apply_grung_contact_poison_on_melee_hit(
         return
     attacker_stats = attacker.stats if isinstance(getattr(attacker, "stats", None), dict) else {}
     con_stat = int(attacker_stats.get("con", 50)) if isinstance(attacker_stats.get("con"), int) else 50
-    con_mod = _actor_ability_mod(attacker, "con")
+    con_mod = _actor_saving_throw_mod(attacker, "con")
     save_roll = random.randint(1, 20)
     save_total = save_roll + con_mod
     save_success = save_total >= dc
@@ -1295,6 +1296,14 @@ def _actor_ability_mod(actor: Any, ability_key: str) -> int:
     stats_dict = stats if isinstance(stats, dict) else {}
     score = int(stats_dict.get(key, 50)) if isinstance(stats_dict.get(key), int) else 50
     return ability_modifier_from_stat100(score)
+
+
+def _actor_saving_throw_mod(actor: Any, ability_key: str) -> int:
+    key = str(ability_key or "").strip().lower()
+    ability_mod = _actor_ability_mod(actor, key)
+    if not class_feature_saving_throw_proficient(actor, key):
+        return ability_mod
+    return ability_mod + _proficiency_bonus_for_actor(actor)
 
 
 def _can_offer_saving_face(actor: Any) -> bool:
@@ -2642,7 +2651,7 @@ def handle_live_combat_action(
         if chosen_ability not in {"int", "wis", "cha"}:
             chosen_ability = "cha"
         dc = 8 + _proficiency_bonus_for_actor(actor) + _actor_ability_mod(actor, chosen_ability)
-        wis_mod = _actor_ability_mod(target, "wis")
+        wis_mod = _actor_saving_throw_mod(target, "wis")
         save_roll = random.randint(1, 20)
         save_total = save_roll + wis_mod
         save_success = save_total >= dc
@@ -2928,7 +2937,7 @@ def handle_live_combat_action(
             {"text": f"Устрашающий рёв: Сл {dc} (Мудрость).", "muted": True},
         ]
         for target in targets:
-            wis_mod = _actor_ability_mod(target, "wis")
+            wis_mod = _actor_saving_throw_mod(target, "wis")
             save_roll = random.randint(1, 20)
             save_total = save_roll + wis_mod
             save_success = save_total >= dc
@@ -5015,7 +5024,7 @@ def handle_live_combat_action(
         dice_count = 4 if level >= 17 else (3 if level >= 11 else 2)
         dc = 8 + _proficiency_bonus_for_actor(actor) + con_mod
         save_roll = random.randint(1, 20)
-        dex_mod = _actor_ability_mod(target, "dex")
+        dex_mod = _actor_saving_throw_mod(target, "dex")
         save_total = save_roll + dex_mod
         success = save_total >= dc
         damage_rolls = [random.randint(1, 10) for _ in range(dice_count)]
@@ -5077,7 +5086,7 @@ def handle_live_combat_action(
             return blocked, None
 
         dc = 8 + _proficiency_bonus_for_actor(actor) + _actor_ability_mod(actor, "str")
-        str_mod = _actor_ability_mod(target, "str")
+        str_mod = _actor_saving_throw_mod(target, "str")
         save_roll = random.randint(1, 20)
         save_total = save_roll + str_mod
         save_success = save_total >= dc
@@ -5179,7 +5188,7 @@ def handle_live_combat_action(
         dc = 8 + con_mod + prof
 
         save_ability = str(breath_weapon.get("save_ability") or "").strip().lower()
-        save_mod = _actor_ability_mod(target, save_ability) if save_ability else 0
+        save_mod = _actor_saving_throw_mod(target, save_ability) if save_ability else 0
         save_roll = random.randint(1, 20)
         save_total = save_roll + save_mod
         save_success = save_total >= dc

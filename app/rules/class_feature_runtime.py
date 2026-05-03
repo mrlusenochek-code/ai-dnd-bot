@@ -23,6 +23,7 @@ _UNCANNY_DODGE_USED_DAMAGE_KEYS = "uncanny_dodge_used_damage_keys"
 _EVASION_MECHANIC_TYPE = "evasion"
 _RELIABLE_TALENT_MECHANIC_TYPE = "reliable_talent"
 _BLINDSENSE_MECHANIC_TYPE = "blindsense"
+_SAVING_THROW_PROFICIENCY_MECHANIC_TYPE = "saving_throw_proficiency"
 
 
 def _as_int(value: Any, default: int = 0) -> int:
@@ -260,6 +261,38 @@ def blindsense_range_ft(ch: Any) -> int:
     if err or not mechanics:
         return 0
     return max(0, _as_int(mechanics.get("range_ft"), 0))
+
+
+def get_slippery_mind_mechanics(ch: Any) -> tuple[dict[str, Any], str | None]:
+    _class_features, mechanics = get_class_feature_mechanics(
+        ch,
+        feature_key="slippery_mind",
+        mechanic_type=_SAVING_THROW_PROFICIENCY_MECHANIC_TYPE,
+    )
+    if not mechanics:
+        return {}, "Скользкий ум недоступен вашему классу."
+    return mechanics, None
+
+
+def has_slippery_mind(ch: Any) -> bool:
+    mechanics, err = get_slippery_mind_mechanics(ch)
+    return bool(mechanics) and err is None
+
+
+def class_feature_saving_throw_proficient(ch: Any, ability: str) -> bool:
+    normalized_ability = str(ability or "").strip().lower()
+    if normalized_ability not in {"str", "dex", "con", "int", "wis", "cha"}:
+        return False
+    mechanics, err = get_slippery_mind_mechanics(ch)
+    if err or not mechanics:
+        return False
+    mechanic_type = str(mechanics.get("type") or "").strip().lower()
+    mechanic_ability = str(mechanics.get("ability") or "").strip().lower()
+    return (
+        mechanic_type == _SAVING_THROW_PROFICIENCY_MECHANIC_TYPE
+        and mechanic_ability == "wis"
+        and normalized_ability == "wis"
+    )
 
 
 def _normalized_damage_key(raw: Any) -> str:

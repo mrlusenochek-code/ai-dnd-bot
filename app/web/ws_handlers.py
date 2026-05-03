@@ -24,6 +24,7 @@ from app.db.connection import AsyncSessionLocal
 from app.db.models import Character, Player, SessionPlayer, Skill
 from app.rules.class_feature_runtime import (
     apply_reliable_talent_to_d20 as _apply_reliable_talent_to_d20,
+    class_feature_saving_throw_proficient as _class_feature_saving_throw_proficient,
     has_expertise as _has_expertise,
     has_reliable_talent as _has_reliable_talent,
     mark_failed_save_for_indomitable as _mark_failed_save_for_indomitable,
@@ -694,6 +695,18 @@ def _effective_toolcheck_mod(ch: Any, tool_key: str) -> int:
     if _has_expertise(ch, "tool", tool_key):
         return 2 * prof
     return prof
+
+
+def _effective_saving_throw_mod(ch: Any, ability: str) -> int:
+    level = max(1, int(getattr(ch, "level", 1) or 1))
+    ability_mod = _ability_mod_from_stats(getattr(ch, "stats", None), ability)
+    proficient = _class_feature_saving_throw_proficient(ch, ability)
+    proficiency = proficiency_bonus_for_level(level) if proficient else 0
+    return total_saving_throw_bonus(
+        ability_mod=ability_mod,
+        proficient=proficient,
+        proficiency=proficiency,
+    )
 
 
 def _reliable_talent_adjusted_roll(
@@ -9521,12 +9534,7 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                         if requested_mode == "normal" and mapped_mode == "advantage"
                         else ""
                     )
-                    ability_mod = _ability_mod_from_stats(ch.stats, ability)
-                    mod = total_saving_throw_bonus(
-                        ability_mod=ability_mod,
-                        proficient=False,
-                        proficiency=0,
-                    )
+                    mod = _effective_saving_throw_mod(ch, ability)
 
                     ra, rb, roll = roll_check(
                         mapped_mode,

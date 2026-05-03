@@ -1756,7 +1756,18 @@ BASE_CLASS_CATALOG: list[dict[str, Any]] = [
                     },
                 }
             ],
-            15: [{"key": "slippery_mind", "name_ru": "Скользкий ум", "summary_ru": "Получает мастерство в спасбросках Мудрости.", "mechanics": {}}],
+            15: [
+                {
+                    "key": "slippery_mind",
+                    "name_ru": "Скользкий ум",
+                    "summary_ru": "Получает мастерство в спасбросках Мудрости.",
+                    "mechanics": {
+                        "type": "saving_throw_proficiency",
+                        "ability": "wis",
+                        "source": "slippery_mind",
+                    },
+                }
+            ],
             16: [{"key": "asi", "name_ru": "Увеличение характеристик", "summary_ru": "Улучшение характеристик или выбор таланта.", "mechanics": {}}],
             17: [{"key": "archetype_feature_17", "name_ru": "Умение архетипа (17)", "summary_ru": "Высшая особенность выбранного архетипа.", "mechanics": {}}],
             18: [{"key": "elusive", "name_ru": "Неуловимый", "summary_ru": "Противнику труднее поймать плута врасплох.", "mechanics": {}}],
