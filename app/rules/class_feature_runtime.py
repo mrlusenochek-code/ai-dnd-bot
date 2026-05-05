@@ -24,6 +24,7 @@ _EVASION_MECHANIC_TYPE = "evasion"
 _RELIABLE_TALENT_MECHANIC_TYPE = "reliable_talent"
 _BLINDSENSE_MECHANIC_TYPE = "blindsense"
 _SAVING_THROW_PROFICIENCY_MECHANIC_TYPE = "saving_throw_proficiency"
+_ELUSIVE_MECHANIC_TYPE = "elusive"
 
 
 def _as_int(value: Any, default: int = 0) -> int:
@@ -293,6 +294,29 @@ def class_feature_saving_throw_proficient(ch: Any, ability: str) -> bool:
         and mechanic_ability == "wis"
         and normalized_ability == "wis"
     )
+
+
+def get_elusive_mechanics(ch: Any) -> tuple[dict[str, Any], str | None]:
+    _class_features, mechanics = get_class_feature_mechanics(
+        ch,
+        feature_key="elusive",
+        mechanic_type=_ELUSIVE_MECHANIC_TYPE,
+    )
+    if not mechanics:
+        return {}, "Ускользание недоступно вашему классу."
+    return mechanics, None
+
+
+def has_elusive(ch: Any) -> bool:
+    mechanics, err = get_elusive_mechanics(ch)
+    return bool(mechanics) and err is None
+
+
+def elusive_denies_attack_advantage(ch: Any) -> bool:
+    mechanics, err = get_elusive_mechanics(ch)
+    if err or not mechanics:
+        return False
+    return bool(mechanics.get("denies_attack_advantage"))
 
 
 def _normalized_damage_key(raw: Any) -> str:

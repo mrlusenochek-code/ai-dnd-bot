@@ -1770,7 +1770,18 @@ BASE_CLASS_CATALOG: list[dict[str, Any]] = [
             ],
             16: [{"key": "asi", "name_ru": "Увеличение характеристик", "summary_ru": "Улучшение характеристик или выбор таланта.", "mechanics": {}}],
             17: [{"key": "archetype_feature_17", "name_ru": "Умение архетипа (17)", "summary_ru": "Высшая особенность выбранного архетипа.", "mechanics": {}}],
-            18: [{"key": "elusive", "name_ru": "Неуловимый", "summary_ru": "Противнику труднее поймать плута врасплох.", "mechanics": {}}],
+            18: [
+                {
+                    "key": "elusive",
+                    "name_ru": "Ускользание",
+                    "summary_ru": "Пока плут не недееспособен, броски атаки против него не получают преимущество.",
+                    "mechanics": {
+                        "type": "elusive",
+                        "denies_attack_advantage": True,
+                        "unless_condition": "incapacitated",
+                    },
+                }
+            ],
             19: [{"key": "asi", "name_ru": "Увеличение характеристик", "summary_ru": "Улучшение характеристик или выбор таланта.", "mechanics": {}}],
             20: [{"key": "stroke_of_luck", "name_ru": "Удача героя", "summary_ru": "Может обратить провал в успех в критический момент.", "mechanics": {}}],
         },

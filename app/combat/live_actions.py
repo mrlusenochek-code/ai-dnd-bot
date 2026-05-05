@@ -25,6 +25,7 @@ from app.rules.class_feature_runtime import (
     can_use_uncanny_dodge,
     can_use_sneak_attack_this_turn,
     class_feature_saving_throw_proficient,
+    elusive_denies_attack_advantage,
     has_blindsense,
     has_evasion,
     mark_uncanny_dodge_used_for_damage,
@@ -218,6 +219,18 @@ def _shifter_denies_enemy_advantage(target: Any) -> bool:
     if not bool(defense_cfg.get("while_conscious", True)):
         return False
     return max(0, int(defense_cfg.get("deny_enemy_advantage_range_ft") or 0)) > 0
+
+
+def _is_incapacitated_condition_active(actor: Any) -> bool:
+    return _is_incapacitated(actor)
+
+
+def _target_denies_attack_advantage(target: Any) -> bool:
+    if _shifter_denies_enemy_advantage(target):
+        return True
+    if not elusive_denies_attack_advantage(target):
+        return False
+    return not _is_incapacitated_condition_active(target)
 
 
 def _has_reroll_ones_scope(actor: Any, scope_key: str) -> bool:
@@ -2758,7 +2771,7 @@ def handle_live_combat_action(
             or _has_pack_tactics_advantage(state, attacker, target)
             or _has_active_grovel_advantage_for_attack(state, attacker, target)
         )
-        if has_advantage and _shifter_denies_enemy_advantage(target):
+        if has_advantage and _target_denies_attack_advantage(target):
             has_advantage = False
         roll_mode = "normal"
         if has_advantage and not has_disadvantage:
@@ -3783,7 +3796,7 @@ def handle_live_combat_action(
             or _has_pack_tactics_advantage(state, attacker, target)
             or _has_active_grovel_advantage_for_attack(state, attacker, target)
         )
-        if has_advantage and _shifter_denies_enemy_advantage(target):
+        if has_advantage and _target_denies_attack_advantage(target):
             has_advantage = False
         roll_mode = "normal"
         if has_advantage and not has_disadvantage:
@@ -4005,7 +4018,7 @@ def handle_live_combat_action(
             or _has_pack_tactics_advantage(state, attacker, target)
             or _has_active_grovel_advantage_for_attack(state, attacker, target)
         )
-        if has_advantage and _shifter_denies_enemy_advantage(target):
+        if has_advantage and _target_denies_attack_advantage(target):
             has_advantage = False
         roll_mode = "normal"
         if has_advantage and not has_disadvantage:
@@ -4327,7 +4340,7 @@ def handle_live_combat_action(
             or _has_pack_tactics_advantage(state, attacker, target)
             or _has_active_grovel_advantage_for_attack(state, attacker, target)
         )
-        if has_advantage and _shifter_denies_enemy_advantage(target):
+        if has_advantage and _target_denies_attack_advantage(target):
             has_advantage = False
         roll_mode = "normal"
         if has_advantage and not has_disadvantage:
@@ -4645,7 +4658,7 @@ def handle_live_combat_action(
             return None, "Целей не осталось."
         has_disadvantage = target.dodge_active or _is_poisoned_condition_active(attacker) or _is_taunted_attack_disadvantage(attacker, target) or _has_sunlight_sensitivity_disadvantage(attacker)
         has_advantage = attacker.help_attack_advantage or _is_hidden_step_active(attacker) or _has_pack_tactics_advantage(state, attacker, target) or _has_active_grovel_advantage_for_attack(state, attacker, target)
-        if has_advantage and _shifter_denies_enemy_advantage(target):
+        if has_advantage and _target_denies_attack_advantage(target):
             has_advantage = False
         roll_mode = "advantage" if has_advantage and not has_disadvantage else ("disadvantage" if has_disadvantage and not has_advantage else "normal")
         roll_a, roll_b, d20_roll = _roll_check_compat(roll_mode, rng=random, reroll_ones=_has_reroll_ones_scope(attacker, "attack"))
@@ -4817,7 +4830,7 @@ def handle_live_combat_action(
             return None, "Нет подходящей цели."
         has_disadvantage = target.dodge_active or _is_poisoned_condition_active(attacker) or _is_taunted_attack_disadvantage(attacker, target) or _has_sunlight_sensitivity_disadvantage(attacker)
         has_advantage = attacker.help_attack_advantage or _is_hidden_step_active(attacker) or _has_pack_tactics_advantage(state, attacker, target) or _has_active_grovel_advantage_for_attack(state, attacker, target)
-        if has_advantage and _shifter_denies_enemy_advantage(target):
+        if has_advantage and _target_denies_attack_advantage(target):
             has_advantage = False
         roll_mode = "advantage" if has_advantage and not has_disadvantage else ("disadvantage" if has_disadvantage and not has_advantage else "normal")
         roll_a, roll_b, d20_roll = _roll_check_compat(roll_mode, rng=random, reroll_ones=_has_reroll_ones_scope(attacker, "attack"))
@@ -4924,7 +4937,7 @@ def handle_live_combat_action(
             return None, "Нет подходящей цели."
         has_disadvantage = target.dodge_active or _is_poisoned_condition_active(attacker) or _is_taunted_attack_disadvantage(attacker, target) or _has_sunlight_sensitivity_disadvantage(attacker)
         has_advantage = attacker.help_attack_advantage or _is_hidden_step_active(attacker) or _has_pack_tactics_advantage(state, attacker, target) or _has_active_grovel_advantage_for_attack(state, attacker, target)
-        if has_advantage and _shifter_denies_enemy_advantage(target):
+        if has_advantage and _target_denies_attack_advantage(target):
             has_advantage = False
         roll_mode = "advantage" if has_advantage and not has_disadvantage else ("disadvantage" if has_disadvantage and not has_advantage else "normal")
         roll_a, roll_b, d20_roll = _roll_check_compat(roll_mode, rng=random, reroll_ones=_has_reroll_ones_scope(attacker, "attack"))
@@ -5329,7 +5342,7 @@ def handle_live_combat_action(
             or _has_pack_tactics_advantage(state, attacker, target)
             or _has_active_grovel_advantage_for_attack(state, attacker, target)
         )
-        if has_advantage and _shifter_denies_enemy_advantage(target):
+        if has_advantage and _target_denies_attack_advantage(target):
             has_advantage = False
         roll_mode = "normal"
         if has_advantage and not has_disadvantage:
@@ -5513,7 +5526,7 @@ def handle_live_combat_action(
             or _has_pack_tactics_advantage(state, attacker, target)
             or _has_active_grovel_advantage_for_attack(state, attacker, target)
         )
-        if has_advantage and _shifter_denies_enemy_advantage(target):
+        if has_advantage and _target_denies_attack_advantage(target):
             has_advantage = False
         roll_mode = "normal"
         if has_advantage and not has_disadvantage:

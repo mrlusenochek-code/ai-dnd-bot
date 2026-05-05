@@ -12,15 +12,18 @@ from app.rules.class_feature_runtime import (
     can_use_uncanny_dodge,
     can_use_sneak_attack_this_turn,
     class_feature_saving_throw_proficient,
+    elusive_denies_attack_advantage,
     get_expertise_targets,
     get_blindsense_mechanics,
     get_cunning_action_mechanics,
+    get_elusive_mechanics,
     get_evasion_mechanics,
     get_reliable_talent_mechanics,
     get_slippery_mind_mechanics,
     get_sneak_attack_mechanics,
     get_uncanny_dodge_mechanics,
     has_blindsense,
+    has_elusive,
     has_evasion,
     has_reliable_talent,
     has_slippery_mind,
@@ -206,6 +209,16 @@ def _rogue_slippery_mind_mechanics() -> dict:
     return mechanics
 
 
+def _rogue_elusive_mechanics() -> dict:
+    rogue = _rogue_catalog_entry()
+    features = (rogue.get("features_by_level") or {}).get(18) or []
+    elusive = next((item for item in features if str((item or {}).get("key") or "") == "elusive"), None)
+    assert isinstance(elusive, dict)
+    mechanics = elusive.get("mechanics") or {}
+    assert isinstance(mechanics, dict)
+    return mechanics
+
+
 def test_fighter_second_wind_catalog_has_runtime_mechanics() -> None:
     mechanics = _fighter_second_wind_mechanics()
     assert mechanics == {
@@ -308,6 +321,14 @@ def test_rogue_slippery_mind_catalog_has_runtime_mechanics() -> None:
     }
 
 
+def test_rogue_elusive_catalog_has_runtime_mechanics() -> None:
+    assert _rogue_elusive_mechanics() == {
+        "type": "elusive",
+        "denies_attack_advantage": True,
+        "unless_condition": "incapacitated",
+    }
+
+
 def test_sneak_attack_damage_progression_matches_rogue_levels() -> None:
     mechanics = _rogue_sneak_attack_mechanics()
     assert [sneak_attack_dice_for_level(level, mechanics) for level in (1, 3, 5, 7, 9, 11, 13, 15, 17, 19)] == [
@@ -345,6 +366,28 @@ def test_slippery_mind_runtime_reports_wis_save_proficiency_only() -> None:
     assert class_feature_saving_throw_proficient(ch, "dex") is False
     assert class_feature_saving_throw_proficient(ch, "int") is False
     assert class_feature_saving_throw_proficient(ch, "cha") is False
+
+
+def test_elusive_runtime_reports_advantage_denial_only_when_feature_present() -> None:
+    ch = SimpleNamespace(
+        class_features={
+            "features": [
+                {
+                    "key": "elusive",
+                    "mechanics": _rogue_elusive_mechanics(),
+                }
+            ],
+            "runtime": {},
+        }
+    )
+
+    mechanics, err = get_elusive_mechanics(ch)
+    assert err is None
+    assert mechanics == _rogue_elusive_mechanics()
+    assert has_elusive(ch) is True
+    assert elusive_denies_attack_advantage(ch) is True
+    assert has_elusive(SimpleNamespace(class_features={"features": [], "runtime": {}})) is False
+    assert elusive_denies_attack_advantage(SimpleNamespace(class_features={"features": [], "runtime": {}})) is False
 
 
 def test_sync_class_features_for_level_preserves_second_wind_mechanics() -> None:
