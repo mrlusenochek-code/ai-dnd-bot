@@ -62,6 +62,7 @@ def sync_pcs_from_chars(session_id: str, chars_by_uid: dict[int, Any]) -> None:
                 inventory=inventory,
                 equip_map=equip_map,
                 race_features=getattr(ch, "race_features", None),
+                class_features=getattr(ch, "class_features", None),
             )
         else:
             dex = dex_default

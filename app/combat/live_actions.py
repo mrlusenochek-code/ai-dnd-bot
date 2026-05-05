@@ -3522,6 +3522,7 @@ def handle_live_combat_action(
             equip_map=equip_map,
             level=attacker.level,
             race_features=getattr(attacker, "race_features", None),
+            class_features=getattr(attacker, "class_features", None),
         )
         if str(getattr(profile, "damage_type", "") or "").strip().lower() != "piercing":
             return None, "Нужно колющее оружие в экипировке."
@@ -4264,6 +4265,7 @@ def handle_live_combat_action(
             equip_map=equip_map,
             level=attacker.level,
             race_features=getattr(attacker, "race_features", None),
+            class_features=getattr(attacker, "class_features", None),
         )
         parsed = parse_dice(profile.damage_dice)
         if parsed is None:
@@ -5621,6 +5623,7 @@ def handle_live_combat_action(
             equip_map={},
             level=attacker.level,
             race_features=getattr(attacker, "race_features", None),
+            class_features=getattr(attacker, "class_features", None),
         )
         parsed = parse_dice(profile.damage_dice)
         if parsed is None:
@@ -5806,6 +5809,7 @@ def handle_live_combat_action(
             equip_map=equip_map,
             level=attacker.level,
             race_features=getattr(attacker, "race_features", None),
+            class_features=getattr(attacker, "class_features", None),
         )
         parsed = parse_dice(profile.damage_dice)
         if parsed is None:

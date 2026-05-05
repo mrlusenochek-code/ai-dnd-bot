@@ -7,6 +7,7 @@ from typing import Any
 
 _SECOND_WIND_RUNTIME_KEY = "second_wind_used"
 _SECOND_WIND_MECHANIC_TYPE = "second_wind"
+_FIGHTING_STYLE_MECHANIC_TYPE = "fighting_style"
 _ACTION_SURGE_RUNTIME_KEY = "action_surge_used"
 _ACTION_SURGE_MECHANIC_TYPE = "action_surge"
 _ACTION_SURGE_IMPROVEMENT_TYPE = "action_surge_improvement"
@@ -108,6 +109,42 @@ def get_cunning_action_mechanics(ch: Any) -> tuple[dict[str, Any], str | None]:
     if not mechanics:
         return {}, "Хитрое действие недоступно вашему классу."
     return mechanics, None
+
+
+def get_fighting_style_mechanics(ch: Any) -> tuple[dict[str, Any], str | None]:
+    _class_features, mechanics = get_class_feature_mechanics(
+        ch,
+        feature_key="fighting_style",
+        mechanic_type=_FIGHTING_STYLE_MECHANIC_TYPE,
+    )
+    if not mechanics:
+        return {}, "Стиль боя недоступен вашему классу."
+    return mechanics, None
+
+
+def get_fighting_style_choice(ch: Any) -> str:
+    mechanics, err = get_fighting_style_mechanics(ch)
+    if err or not mechanics:
+        return ""
+    allowed_raw = mechanics.get("allowed_styles")
+    allowed = {
+        str(item or "").strip().lower()
+        for item in allowed_raw
+        if str(item or "").strip()
+    } if isinstance(allowed_raw, list) else set()
+    if not allowed:
+        return ""
+    class_features = _class_features_dict(ch)
+    choices_raw = class_features.get("choices")
+    choices = dict(choices_raw) if isinstance(choices_raw, dict) else {}
+    selected = choices.get(str(mechanics.get("choice_key") or "fighting_style").strip() or "fighting_style")
+    if isinstance(selected, str):
+        key = selected.strip().lower()
+        return key if key in allowed else ""
+    if isinstance(selected, dict):
+        key = str(selected.get("key") or "").strip().lower()
+        return key if key in allowed else ""
+    return ""
 
 
 def _normalized_expertise_target(raw: Any) -> tuple[str, str] | None:

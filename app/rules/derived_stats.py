@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import Any
+from app.rules.class_feature_runtime import get_fighting_style_choice
 from app.rules.player_core import ability_modifier_from_stat100, proficiency_bonus_for_level
 from app.rules.equipment_slots import EquipmentSlot
 from app.rules.item_catalog import ITEMS
@@ -45,6 +46,20 @@ def _item_def_for_inventory_entry(entry: dict[str, Any]) -> ItemDef | None:
         if cand.name_ru.casefold() == entry_name_cf:
             return cand
     return None
+
+
+def _equipped_item_by_slot(*, inventory: list[dict], equip_map: dict[str, str], slot_key: str) -> dict[str, Any] | None:
+    by_id: dict[str, dict[str, Any]] = {}
+    for entry in inventory if isinstance(inventory, list) else []:
+        if not isinstance(entry, dict):
+            continue
+        entry_id = str(entry.get("id") or "").strip().lower()
+        if entry_id:
+            by_id[entry_id] = entry
+    item_id = str((equip_map or {}).get(slot_key) or "").strip().lower() if isinstance(equip_map, dict) else ""
+    if not item_id:
+        return None
+    return by_id.get(item_id)
 
 
 def equipped_armor_category(*, inventory: list[dict], equip_map: dict[str, str]) -> str | None:
@@ -167,6 +182,7 @@ def compute_attack_profile(
     equip_map: dict[str, str],
     level: int | None = None,
     race_features: dict | None = None,
+    class_features: dict | None = None,
 ) -> AttackProfile:
     str_stat = _safe_int(stats.get("str", 50), 50) if isinstance(stats, dict) else 50
     dex_stat = _safe_int(stats.get("dex", 50), 50) if isinstance(stats, dict) else 50
@@ -204,6 +220,7 @@ def compute_attack_profile(
 
     item_def = _item_def_for_inventory_entry(chosen_entry) if chosen_entry else None
     weapon = item_def.equip.weapon if item_def and item_def.equip and item_def.equip.weapon else None
+    fighting_style = get_fighting_style_choice(type("_StyleCarrier", (), {"class_features": class_features})())
 
     if weapon:
         properties = tuple(weapon.properties or ())
@@ -221,6 +238,19 @@ def compute_attack_profile(
             is_ranged_weapon = True
         attack_bonus = stat_mod + prof
         damage_bonus = stat_mod
+        if fighting_style == "archery" and is_ranged_weapon:
+            attack_bonus += 2
+        off_hand_entry = _equipped_item_by_slot(inventory=inventory, equip_map=equip_map, slot_key=EquipmentSlot.off_hand.value)
+        off_hand_def = _item_def_for_inventory_entry(off_hand_entry) if off_hand_entry else None
+        off_hand_is_weapon = bool(off_hand_def and off_hand_def.equip and off_hand_def.equip.weapon)
+        if (
+            fighting_style == "dueling"
+            and not is_ranged_weapon
+            and not bool(item_def.equip.two_handed if item_def and item_def.equip else False)
+            and "two-handed" not in properties_cf
+            and not off_hand_is_weapon
+        ):
+            damage_bonus += 2
         return AttackProfile(
             attack_bonus=attack_bonus,
             damage_dice=weapon.damage_dice,
@@ -276,7 +306,7 @@ def compute_attack_profile(
     )
 
 
-def compute_ac(*, stats: dict, inventory: list[dict], equip_map: dict[str, str], race_features: dict | None = None) -> int:
+def compute_ac(*, stats: dict, inventory: list[dict], equip_map: dict[str, str], race_features: dict | None = None, class_features: dict | None = None) -> int:
     dex = _safe_int(stats.get("dex", 50), 50) if isinstance(stats, dict) else 50
     dex_mod = ability_modifier_from_stat100(dex)
     ac = 10 + dex_mod
@@ -294,7 +324,6 @@ def compute_ac(*, stats: dict, inventory: list[dict], equip_map: dict[str, str],
         if nat.get("ac") is not None:
             nat_ac_base = _safe_int(nat.get("ac"), None)  # type: ignore[arg-type]
         elif nat.get("ac_formula"):
-            # Supported formulas: "13 + dex_mod", "12 + con_mod"
             formula = str(nat.get("ac_formula") or "").strip().lower().replace(" ", "")
             if formula in ("13+dex_mod", "13+dexmod"):
                 nat_ac_base = 13 + dex_mod
@@ -327,7 +356,6 @@ def compute_ac(*, stats: dict, inventory: list[dict], equip_map: dict[str, str],
     if armor_is_worn and nat_requires_unarmored and not nat_allow_when_armored_if_better:
         nat_ac_base = None
     if armor_equip and armor_equip.base_ac is not None:
-        # If race natural armor does not stack with worn armor, ignore it.
         if nat_no_armor_stack:
             nat_ac_base = None
         armor_base_ac = int(armor_equip.base_ac)
@@ -351,7 +379,6 @@ def compute_ac(*, stats: dict, inventory: list[dict], equip_map: dict[str, str],
     if shield_equip and shield_equip.grants_ac_bonus:
         ac += int(shield_equip.grants_ac_bonus)
 
-    # Runtime AC bonus from race features (e.g., Tortle Shell Defense +4 AC)
     runtime = (race_features or {}).get("runtime") if isinstance(race_features, dict) else None
     ac_bonus = _safe_int(runtime.get("ac_bonus"), 0) if isinstance(runtime, dict) else 0
     if ac_bonus:
@@ -366,5 +393,9 @@ def compute_ac(*, stats: dict, inventory: list[dict], equip_map: dict[str, str],
     integrated_protection_cfg = rf_features.get("integrated_protection") if isinstance(rf_features, dict) else None
     if isinstance(integrated_protection_cfg, dict):
         ac += _safe_int(integrated_protection_cfg.get("ac_bonus"), 0)
+
+    fighting_style = get_fighting_style_choice(type("_StyleCarrier", (), {"class_features": class_features})())
+    if fighting_style == "defense" and armor_is_worn:
+        ac += 1
 
     return _clamp(ac, 1, 50)

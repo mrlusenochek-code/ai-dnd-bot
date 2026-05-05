@@ -901,7 +901,24 @@ BASE_CLASS_CATALOG: list[dict[str, Any]] = [
         ],
         "features_by_level": {
             1: [
-                {"key": "fighting_style", "name_ru": "Стиль боя", "summary_ru": "Выбор боевого стиля, определяющего сильную сторону воина.", "mechanics": {}},
+                {
+                    "key": "fighting_style",
+                    "name_ru": "Стиль боя",
+                    "summary_ru": "Выбор боевого стиля, определяющего сильную сторону воина.",
+                    "mechanics": {
+                        "type": "fighting_style",
+                        "allowed_styles": [
+                            "archery",
+                            "defense",
+                            "dueling",
+                            "great_weapon_fighting",
+                            "protection",
+                            "two_weapon_fighting",
+                        ],
+                        "implemented_styles": ["archery", "defense", "dueling"],
+                        "choice_key": "fighting_style",
+                    },
+                },
                 {"key": "second_wind", "name_ru": "Второе дыхание", "summary_ru": "Бонусным действием восстанавливает 1d10 + уровень воина хитов один раз до короткого или долгого отдыха.", "mechanics": {"type": "second_wind", "uses": "per_short_or_long_rest", "heal_dice": "1d10", "heal_bonus": "level", "action_cost": "bonus_action"}},
             ],
             2: [{"key": "action_surge", "name_ru": "Всплеск действий", "summary_ru": "Иногда получает дополнительное действие в ход.", "mechanics": {"type": "action_surge", "uses": "per_short_or_long_rest", "uses_max": 1, "action_cost": "none"}}],

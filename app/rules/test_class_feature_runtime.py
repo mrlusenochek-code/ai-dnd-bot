@@ -16,6 +16,8 @@ from app.rules.class_feature_runtime import (
     class_feature_saving_throw_proficient,
     clear_stroke_of_luck_check_pending,
     elusive_denies_attack_advantage,
+    get_fighting_style_choice,
+    get_fighting_style_mechanics,
     get_extra_attack_count,
     get_stroke_of_luck_check_pending,
     get_expertise_targets,
@@ -74,6 +76,16 @@ def _fighter_second_wind_mechanics() -> dict:
     second_wind = next((item for item in features if str((item or {}).get("key") or "") == "second_wind"), None)
     assert isinstance(second_wind, dict)
     mechanics = second_wind.get("mechanics") or {}
+    assert isinstance(mechanics, dict)
+    return mechanics
+
+
+def _fighter_fighting_style_mechanics() -> dict:
+    fighter = _fighter_catalog_entry()
+    features = (fighter.get("features_by_level") or {}).get(1) or []
+    fighting_style = next((item for item in features if str((item or {}).get("key") or "") == "fighting_style"), None)
+    assert isinstance(fighting_style, dict)
+    mechanics = fighting_style.get("mechanics") or {}
     assert isinstance(mechanics, dict)
     return mechanics
 
@@ -276,6 +288,22 @@ def test_fighter_second_wind_catalog_has_runtime_mechanics() -> None:
         "heal_dice": "1d10",
         "heal_bonus": "level",
         "action_cost": "bonus_action",
+    }
+
+
+def test_fighter_fighting_style_catalog_has_runtime_mechanics() -> None:
+    assert _fighter_fighting_style_mechanics() == {
+        "type": "fighting_style",
+        "allowed_styles": [
+            "archery",
+            "defense",
+            "dueling",
+            "great_weapon_fighting",
+            "protection",
+            "two_weapon_fighting",
+        ],
+        "implemented_styles": ["archery", "defense", "dueling"],
+        "choice_key": "fighting_style",
     }
 
 
@@ -612,6 +640,36 @@ def test_get_extra_attack_count_uses_mechanics_and_feature_key_fallbacks() -> No
     assert get_extra_attack_count(
         SimpleNamespace(class_features={"features": [{"key": "extra_attack_2", "mechanics": {}}], "runtime": {}})
     ) == 3
+
+
+def test_get_fighting_style_choice_reads_string_and_dict_and_rejects_unknown() -> None:
+    ch_string = SimpleNamespace(
+        class_features={
+            "features": [{"key": "fighting_style", "mechanics": _fighter_fighting_style_mechanics()}],
+            "choices": {"fighting_style": "defense"},
+            "runtime": {},
+        }
+    )
+    ch_dict = SimpleNamespace(
+        class_features={
+            "features": [{"key": "fighting_style", "mechanics": _fighter_fighting_style_mechanics()}],
+            "choices": {"fighting_style": {"key": "archery"}},
+            "runtime": {},
+        }
+    )
+    ch_unknown = SimpleNamespace(
+        class_features={
+            "features": [{"key": "fighting_style", "mechanics": _fighter_fighting_style_mechanics()}],
+            "choices": {"fighting_style": "unknown_style"},
+            "runtime": {},
+        }
+    )
+    mechanics, err = get_fighting_style_mechanics(ch_string)
+    assert err is None
+    assert mechanics == _fighter_fighting_style_mechanics()
+    assert get_fighting_style_choice(ch_string) == "defense"
+    assert get_fighting_style_choice(ch_dict) == "archery"
+    assert get_fighting_style_choice(ch_unknown) == ""
 
 
 def test_apply_second_wind_usage_heals_and_blocks_repeat_until_rest() -> None:
