@@ -27,6 +27,7 @@ _SAVING_THROW_PROFICIENCY_MECHANIC_TYPE = "saving_throw_proficiency"
 _ELUSIVE_MECHANIC_TYPE = "elusive"
 _STROKE_OF_LUCK_RUNTIME_KEY = "stroke_of_luck_used"
 _STROKE_OF_LUCK_PENDING_KEY = "stroke_of_luck_pending_miss"
+_STROKE_OF_LUCK_CHECK_PENDING_KEY = "stroke_of_luck_pending_failed_check"
 _STROKE_OF_LUCK_MECHANIC_TYPE = "stroke_of_luck"
 
 
@@ -348,12 +349,54 @@ def can_use_stroke_of_luck(ch: Any) -> tuple[dict[str, Any], str | None]:
     return mechanics, None
 
 
+def can_use_stroke_of_luck_for_failed_check(ch: Any, *, check_key: str = "", kind: str = "") -> tuple[dict[str, Any], str | None]:
+    mechanics, err = can_use_stroke_of_luck(ch)
+    if err:
+        return mechanics, err
+    if not bool(mechanics.get("failed_check_d20_to_20")):
+        return mechanics, "Удачный удар не может быть применён к этой проверке."
+    normalized_kind = str(kind or "").strip().lower()
+    if normalized_kind in {"stat"}:
+        normalized_kind = "ability"
+    if normalized_kind not in {"ability", "skill", "tool", "check"}:
+        return mechanics, "Удачный удар можно применить только к проваленной проверке характеристики, навыка или инструмента."
+    return mechanics, None
+
+
+def mark_stroke_of_luck_check_pending(ch: Any, payload: dict[str, Any]) -> bool:
+    if not isinstance(payload, dict) or not payload:
+        return False
+    class_features, runtime = get_class_feature_runtime(ch)
+    pending = dict(payload)
+    if runtime.get(_STROKE_OF_LUCK_CHECK_PENDING_KEY) == pending:
+        return False
+    runtime[_STROKE_OF_LUCK_CHECK_PENDING_KEY] = pending
+    _store_class_feature_runtime(ch, class_features, runtime)
+    return True
+
+
+def get_stroke_of_luck_check_pending(ch: Any) -> dict[str, Any]:
+    _class_features, runtime = get_class_feature_runtime(ch)
+    pending_raw = runtime.get(_STROKE_OF_LUCK_CHECK_PENDING_KEY)
+    return dict(pending_raw) if isinstance(pending_raw, dict) else {}
+
+
+def clear_stroke_of_luck_check_pending(ch: Any) -> bool:
+    class_features, runtime = get_class_feature_runtime(ch)
+    if _STROKE_OF_LUCK_CHECK_PENDING_KEY not in runtime:
+        return False
+    runtime.pop(_STROKE_OF_LUCK_CHECK_PENDING_KEY, None)
+    _store_class_feature_runtime(ch, class_features, runtime)
+    return True
+
+
 def mark_stroke_of_luck_used(ch: Any) -> bool:
     class_features, runtime = get_class_feature_runtime(ch)
     if bool(runtime.get(_STROKE_OF_LUCK_RUNTIME_KEY)):
         return False
     runtime[_STROKE_OF_LUCK_RUNTIME_KEY] = True
     runtime.pop(_STROKE_OF_LUCK_PENDING_KEY, None)
+    runtime.pop(_STROKE_OF_LUCK_CHECK_PENDING_KEY, None)
     _store_class_feature_runtime(ch, class_features, runtime)
     return True
 
@@ -688,6 +731,9 @@ def reset_class_rest_uses(ch: Any, *, long_rest: bool = True) -> bool:
         changed = True
     if _STROKE_OF_LUCK_PENDING_KEY in runtime:
         runtime.pop(_STROKE_OF_LUCK_PENDING_KEY, None)
+        changed = True
+    if _STROKE_OF_LUCK_CHECK_PENDING_KEY in runtime:
+        runtime.pop(_STROKE_OF_LUCK_CHECK_PENDING_KEY, None)
         changed = True
 
     if not changed:

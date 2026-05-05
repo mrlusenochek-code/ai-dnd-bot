@@ -150,7 +150,7 @@ CHAT_COMBAT_ACTION_PATTERNS: list[tuple[str, re.Pattern[str]]] = [
     (
         "combat_stroke_of_luck",
         re.compile(
-            r"(удачн\w+\s+удар\w*|использую\s+удачн\w+\s+удар\w*|превращаю\s+промах\s+в\s+попадан\w*|делаю\s+промах\s+попадан\w*|stroke\s+of\s+luck)",
+            r"(удачн\w+\s+удар\w*|использую\s+удачн\w+\s+удар\w*|превращаю\s+промах\s+в\s+попадан\w*|делаю\s+промах\s+попадан\w*|считаю\s+(?:бросок|d20)\s+как\s+20|превращаю\s+провал\s+проверки\s+в\s+20|stroke\s+of\s+luck)",
             re.IGNORECASE,
         ),
     ),

@@ -6,6 +6,7 @@ from typing import Any, Optional
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm.attributes import flag_modified
 
 from app.ai.gm import generate_from_prompt, generate_lore
 from app.combat.apply_machine import apply_combat_machine_commands
@@ -38,6 +39,59 @@ GM_CONTEXT_EVENTS = max(1, int(os.getenv("GM_CONTEXT_EVENTS", "20")))
 
 def _new_request_id() -> str:
     return uuid.uuid4().hex
+
+
+async def _mark_stroke_of_luck_pending_from_check_results(
+    db: AsyncSession,
+    sess: Session,
+    chars_by_uid: dict[int, Character],
+    check_results: list[dict[str, Any]],
+) -> bool:
+    from app.rules.class_feature_runtime import can_use_stroke_of_luck_for_failed_check, mark_stroke_of_luck_check_pending
+
+    changed = False
+    for result in check_results:
+        if not isinstance(result, dict):
+            continue
+        actor_uid = as_int(result.get("actor_uid"), 0)
+        if actor_uid <= 0:
+            continue
+        ch = chars_by_uid.get(actor_uid)
+        if ch is None:
+            continue
+        kind = str(result.get("kind") or "").strip().lower()
+        if kind == "stat":
+            kind = "ability"
+        name = str(result.get("name") or "").strip().lower()
+        dc = max(0, as_int(result.get("dc"), 0))
+        total = int(result.get("total") or 0)
+        roll = int(result.get("roll") or 0)
+        if dc <= 0 or total >= dc:
+            continue
+        mechanics, err = can_use_stroke_of_luck_for_failed_check(ch, check_key=name, kind=kind)
+        if err or not mechanics:
+            continue
+        payload = {
+            "kind": kind,
+            "name": name,
+            "dc": dc,
+            "old_roll": roll,
+            "old_total": total,
+            "mod": total - roll,
+            "mode": str(result.get("mode") or "normal").strip().lower() or "normal",
+            "actor_uid": actor_uid,
+            "source": "gm_check",
+        }
+        if mark_stroke_of_luck_check_pending(ch, payload):
+            flag_modified(ch, "class_features")
+            actor_name = str(getattr(ch, "name", "") or f"#{actor_uid}").strip()
+            await add_system_event(
+                db,
+                sess,
+                f"[CHECK] {actor_name}: можно применить «Удачный удар» — считать d20 как 20.",
+            )
+            changed = True
+    return changed
 
 
 async def run_two_pass(
@@ -250,6 +304,7 @@ async def run_turn_gm(session_id: str, expected_action_id: str) -> None:
                 elif not inv_commands and not zone_set_commands:
                     await add_system_event(db, sess, "🧙 GM: (модель отказала. Переформулируй действие проще, без жести и откровенных деталей.)")
                 await _emit_check_results_if_enabled(db, sess, _check_results)
+                await _mark_stroke_of_luck_pending_from_check_results(db, sess, chars_by_uid, _check_results)
 
                 nxt = await advance_turn(db, sess)
                 if nxt:
@@ -557,6 +612,7 @@ async def run_round_gm(session_id: str, expected_action_id: str) -> None:
                         },
                     )
                 await _emit_check_results_if_enabled(db, sess, _check_results)
+                await _mark_stroke_of_luck_pending_from_check_results(db, sess, chars_by_uid, _check_results)
 
                 sps_active = await list_session_players(db, sess, active_only=True)
                 if _should_use_round_mode(sess, sps_active):

@@ -24,9 +24,15 @@ from app.db.connection import AsyncSessionLocal
 from app.db.models import Character, Player, SessionPlayer, Skill
 from app.rules.class_feature_runtime import (
     apply_reliable_talent_to_d20 as _apply_reliable_talent_to_d20,
+    can_use_stroke_of_luck_for_failed_check as _can_use_stroke_of_luck_for_failed_check,
+    clear_stroke_of_luck_check_pending as _clear_stroke_of_luck_check_pending,
     class_feature_saving_throw_proficient as _class_feature_saving_throw_proficient,
+    get_stroke_of_luck_check_pending as _get_stroke_of_luck_check_pending,
     has_expertise as _has_expertise,
     has_reliable_talent as _has_reliable_talent,
+    has_stroke_of_luck as _has_stroke_of_luck,
+    mark_stroke_of_luck_check_pending as _mark_stroke_of_luck_check_pending,
+    mark_stroke_of_luck_used as _mark_stroke_of_luck_used,
     mark_failed_save_for_indomitable as _mark_failed_save_for_indomitable,
     reset_class_rest_uses as _reset_class_rest_uses,
 )
@@ -719,6 +725,86 @@ def _reliable_talent_adjusted_roll(
     if not _has_reliable_talent(ch):
         return int(roll), False
     return _apply_reliable_talent_to_d20(ch, kind=kind, roll=int(roll), proficient=proficient)
+
+
+def _maybe_mark_stroke_of_luck_failed_check_pending(
+    ch: Any,
+    *,
+    kind: str,
+    name: str,
+    dc: int | None,
+    old_roll: int,
+    old_total: int,
+    mod: int,
+    mode: str,
+    actor_uid: int | None = None,
+    source: str = "manual_check",
+    request_id: str = "",
+) -> bool:
+    dc_value = int(dc) if dc is not None else 0
+    total_value = int(old_total)
+    if dc is None or total_value >= dc_value:
+        return False
+    mechanics, err = _can_use_stroke_of_luck_for_failed_check(
+        ch,
+        check_key=str(name or ""),
+        kind=str(kind or ""),
+    )
+    if err or not mechanics:
+        return False
+    payload = {
+        "kind": str(kind or "").strip().lower(),
+        "name": str(name or "").strip().lower(),
+        "dc": dc_value,
+        "old_roll": int(old_roll),
+        "old_total": total_value,
+        "mod": int(mod),
+        "mode": str(mode or "normal").strip().lower() or "normal",
+        "source": str(source or "manual_check").strip().lower() or "manual_check",
+    }
+    if actor_uid is not None:
+        payload["actor_uid"] = int(actor_uid)
+    if request_id:
+        payload["request_id"] = str(request_id)
+    return _mark_stroke_of_luck_check_pending(ch, payload)
+
+
+def _apply_stroke_of_luck_failed_check(ch: Any) -> tuple[dict[str, Any] | None, str | None, bool]:
+    pending = _get_stroke_of_luck_check_pending(ch)
+    if not pending:
+        return None, "Нет проваленной проверки, к которой можно применить «Удачный удар».", False
+    kind = str(pending.get("kind") or "").strip().lower()
+    name = str(pending.get("name") or "").strip().lower()
+    mechanics, err = _can_use_stroke_of_luck_for_failed_check(ch, check_key=name, kind=kind)
+    if err:
+        return None, err, False
+    old_roll = int(pending.get("old_roll") or 0)
+    old_total = int(pending.get("old_total") or 0)
+    mod = int(pending.get("mod") or 0)
+    dc = max(0, int(pending.get("dc") or 0))
+    new_roll = 20
+    new_total = new_roll + mod
+    success = new_total >= dc
+    changed = False
+    if _mark_stroke_of_luck_used(ch):
+        changed = True
+    if _clear_stroke_of_luck_check_pending(ch):
+        changed = True
+    return {
+        "kind": kind,
+        "name": name,
+        "old_roll": old_roll,
+        "old_total": old_total,
+        "new_roll": new_roll,
+        "mod": mod,
+        "new_total": new_total,
+        "dc": dc,
+        "success": success,
+        "mode": str(pending.get("mode") or "normal"),
+        "source": str(pending.get("source") or "manual_check"),
+        "actor_uid": pending.get("actor_uid"),
+        "request_id": str(pending.get("request_id") or ""),
+    }, None, changed
 
 
 def _parse_check_command(
@@ -8248,6 +8334,58 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                 if combat_action in {"combat_fury_of_small", "combat_fury_of_the_small"} and not combat_active:
                     await ws_error("Разъярённая мелкота доступна только в бою.", request_id=msg_request_id)
                     continue
+                if combat_action == "combat_stroke_of_luck" and not combat_active:
+                    ch = await get_character(db, sess.id, player.id)
+                    if not ch:
+                        await ws_error("Персонаж не найден.", request_id=msg_request_id)
+                        continue
+                    stroke_payload, stroke_err, changed = _apply_stroke_of_luck_failed_check(ch)
+                    if stroke_err:
+                        await ws_error(stroke_err, request_id=msg_request_id)
+                        continue
+                    if changed:
+                        flag_modified(ch, "class_features")
+                        await db.commit()
+                    if stroke_payload:
+                        mod = int(stroke_payload.get("mod") or 0)
+                        total = int(stroke_payload.get("new_total") or 0)
+                        dc = int(stroke_payload.get("dc") or 0)
+                        success = bool(stroke_payload.get("success"))
+                        actor_name = str(getattr(ch, "name", "") or player.display_name).strip() or player.display_name
+                        check_name = str(stroke_payload.get("name") or "").strip().lower()
+                        await add_system_event(
+                            db,
+                            sess,
+                            f"[CHECK] {actor_name}: Удачный удар — d20 считается как 20: 20 {mod:+d} = {total} vs DC {dc} => {'успех' if success else 'провал'} ({check_name}).",
+                        )
+                    await broadcast_state(session_id)
+                    continue
+                if combat_action == "combat_stroke_of_luck" and not combat_active:
+                    ch = await get_character(db, sess.id, player.id)
+                    if not ch:
+                        await ws_error("Персонаж не найден.", request_id=msg_request_id)
+                        continue
+                    stroke_payload, stroke_err, changed = _apply_stroke_of_luck_failed_check(ch)
+                    if stroke_err:
+                        await ws_error(stroke_err, request_id=msg_request_id)
+                        continue
+                    if changed:
+                        flag_modified(ch, "class_features")
+                        await db.commit()
+                    if stroke_payload:
+                        mod = int(stroke_payload.get("mod") or 0)
+                        total = int(stroke_payload.get("new_total") or 0)
+                        dc = int(stroke_payload.get("dc") or 0)
+                        success = bool(stroke_payload.get("success"))
+                        actor_name = str(getattr(ch, "name", "") or player.display_name).strip() or player.display_name
+                        check_name = str(stroke_payload.get("name") or "").strip().lower()
+                        await add_system_event(
+                            db,
+                            sess,
+                            f"[CHECK] {actor_name}: Удачный удар — d20 считается как 20: 20 {mod:+d} = {total} vs DC {dc} => {'успех' if success else 'провал'} ({check_name}).",
+                        )
+                    await broadcast_state(session_id)
+                    continue
                 if combat_action in {"combat_hungry_jaws", "combat_rabbit_hop", "combat_lucky_footwork", "combat_saving_face", "combat_stroke_of_luck", "combat_indomitable", "combat_taunt", "combat_fearless", "combat_daunting_roar", "combat_grovel_cower_beg", "combat_goring_rush", "combat_hammering_horns", "combat_adrenaline_rush", "combat_second_wind", "combat_action_surge", "combat_cunning_dash", "combat_cunning_disengage", "combat_cunning_hide", "combat_aggressive", "combat_shift", "combat_shift_end", "combat_longtooth_bite", "combat_swiftstride_step", "combat_mark_target", "combat_feline_agility", "combat_cat_claws", "combat_shell_defense", "combat_shell_defense_exit", "combat_tortle_claws", "combat_acid_spit", "combat_grapple_appendages", "combat_appendages_grapple_bonus"} and not combat_active:
                     await ws_error("Эта особенность доступна только в бою.", request_id=msg_request_id)
                     continue
@@ -8417,6 +8555,44 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                                 continue
                             if combat_patch:
                                 await _broadcast_state_unlocked(session_id, combat_log_ui_patch=combat_patch)
+                            continue
+                        if combat_action == "combat_stroke_of_luck":
+                            ch = await get_character(db, sess.id, player.id)
+                            if not ch:
+                                await ws_error("Персонаж не найден.", request_id=msg_request_id)
+                                continue
+                            combat_patch, combat_err = handle_live_combat_action(
+                                combat_action,
+                                session_id,
+                                raw_text=text,
+                            )
+                            if combat_patch:
+                                await _broadcast_state_unlocked(session_id, combat_log_ui_patch=combat_patch)
+                                continue
+                            pending_check = _get_stroke_of_luck_check_pending(ch)
+                            if not pending_check:
+                                await ws_error(combat_err or "Нет подходящего промаха или проваленной проверки для «Удачного удара».", request_id=msg_request_id)
+                                continue
+                            stroke_payload, stroke_err, changed = _apply_stroke_of_luck_failed_check(ch)
+                            if stroke_err:
+                                await ws_error(stroke_err, request_id=msg_request_id)
+                                continue
+                            if changed:
+                                flag_modified(ch, "class_features")
+                                await db.commit()
+                            if stroke_payload:
+                                mod = int(stroke_payload.get("mod") or 0)
+                                total = int(stroke_payload.get("new_total") or 0)
+                                dc = int(stroke_payload.get("dc") or 0)
+                                success = bool(stroke_payload.get("success"))
+                                actor_name = str(getattr(ch, "name", "") or player.display_name).strip() or player.display_name
+                                check_name = str(stroke_payload.get("name") or "").strip().lower()
+                                await add_system_event(
+                                    db,
+                                    sess,
+                                    f"[CHECK] {actor_name}: Удачный удар — d20 считается как 20: 20 {mod:+d} = {total} vs DC {dc} => {'успех' if success else 'провал'} ({check_name}).",
+                                )
+                            await broadcast_state(session_id)
                             continue
                         if combat_action == "breathe_underwater":
                             ch = await get_character(db, sess.id, player.id)
@@ -9379,6 +9555,22 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                                 flag_modified(ch, "race_features")
                                 await db.commit()
                                 msg += " | Можно применить «Знания из прошлой жизни» и добавить 1к6 после броска."
+                            if _maybe_mark_stroke_of_luck_failed_check_pending(
+                                ch,
+                                kind=str(check_payload["kind"]),
+                                name=key,
+                                dc=dc,
+                                old_roll=adjusted_roll,
+                                old_total=total,
+                                mod=total - adjusted_roll,
+                                mode=mapped_mode,
+                                actor_uid=_player_uid(player),
+                                source="manual_check",
+                                request_id=msg_request_id or "",
+                            ):
+                                flag_modified(ch, "class_features")
+                                await db.commit()
+                                msg += " | Можно применить «Удачный удар»: считать d20 как 20."
                     await add_system_event(db, sess, msg)
                     await broadcast_state(session_id)
                     continue
@@ -9498,6 +9690,22 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                                 flag_modified(ch, "race_features")
                                 await db.commit()
                                 msg += f" | Можно реакцией «Сохранить лицо» добавить +{sf_bonus}."
+                            if _maybe_mark_stroke_of_luck_failed_check_pending(
+                                ch,
+                                kind="tool",
+                                name=tool_key,
+                                dc=dc,
+                                old_roll=adjusted_roll,
+                                old_total=total,
+                                mod=total - adjusted_roll,
+                                mode=mapped_mode,
+                                actor_uid=_player_uid(player),
+                                source="manual_check",
+                                request_id=msg_request_id or "",
+                            ):
+                                flag_modified(ch, "class_features")
+                                await db.commit()
+                                msg += " | Можно применить «Удачный удар»: считать d20 как 20."
                     await add_system_event(db, sess, msg)
                     await broadcast_state(session_id)
                     continue
@@ -10443,6 +10651,44 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                                 continue
                             if combat_patch:
                                 await broadcast_state(session_id, combat_log_ui_patch=combat_patch)
+                            continue
+                        if combat_action == "combat_stroke_of_luck":
+                            ch = await get_character(db, sess.id, player.id)
+                            if not ch:
+                                await ws_error("Персонаж не найден.")
+                                continue
+                            combat_patch, combat_err = handle_live_combat_action(
+                                combat_action,
+                                session_id,
+                                raw_text=text,
+                            )
+                            if combat_patch:
+                                await broadcast_state(session_id, combat_log_ui_patch=combat_patch)
+                                continue
+                            pending_check = _get_stroke_of_luck_check_pending(ch)
+                            if not pending_check:
+                                await ws_error(combat_err or "Нет подходящего промаха или проваленной проверки для «Удачного удара».")
+                                continue
+                            stroke_payload, stroke_err, changed = _apply_stroke_of_luck_failed_check(ch)
+                            if stroke_err:
+                                await ws_error(stroke_err)
+                                continue
+                            if changed:
+                                flag_modified(ch, "class_features")
+                                await db.commit()
+                            if stroke_payload:
+                                mod = int(stroke_payload.get("mod") or 0)
+                                total = int(stroke_payload.get("new_total") or 0)
+                                dc = int(stroke_payload.get("dc") or 0)
+                                success = bool(stroke_payload.get("success"))
+                                actor_name = str(getattr(ch, "name", "") or player.display_name).strip() or player.display_name
+                                check_name = str(stroke_payload.get("name") or "").strip().lower()
+                                await add_system_event(
+                                    db,
+                                    sess,
+                                    f"[CHECK] {actor_name}: Удачный удар — d20 считается как 20: 20 {mod:+d} = {total} vs DC {dc} => {'успех' if success else 'провал'} ({check_name}).",
+                                )
+                            await broadcast_state(session_id)
                             continue
                         if combat_action == "breathe_underwater":
                             ch = await get_character(db, sess.id, player.id)

@@ -12,8 +12,11 @@ from app.rules.class_feature_runtime import (
     can_use_uncanny_dodge,
     can_use_sneak_attack_this_turn,
     can_use_stroke_of_luck,
+    can_use_stroke_of_luck_for_failed_check,
     class_feature_saving_throw_proficient,
+    clear_stroke_of_luck_check_pending,
     elusive_denies_attack_advantage,
+    get_stroke_of_luck_check_pending,
     get_expertise_targets,
     get_blindsense_mechanics,
     get_cunning_action_mechanics,
@@ -31,6 +34,7 @@ from app.rules.class_feature_runtime import (
     has_slippery_mind,
     has_stroke_of_luck,
     has_expertise,
+    mark_stroke_of_luck_check_pending,
     mark_uncanny_dodge_used_for_damage,
     mark_sneak_attack_used,
     mark_stroke_of_luck_used,
@@ -447,6 +451,71 @@ def test_stroke_of_luck_runtime_tracks_use_and_resets_on_rest() -> None:
     assert short_changed is True
     runtime_after_short = (ch.class_features or {}).get("runtime") or {}
     assert "stroke_of_luck_used" not in runtime_after_short
+
+
+def test_stroke_of_luck_failed_check_pending_roundtrip_and_kind_validation() -> None:
+    ch = SimpleNamespace(
+        class_features={
+            "features": [
+                {
+                    "key": "stroke_of_luck",
+                    "mechanics": _rogue_stroke_of_luck_mechanics(),
+                }
+            ],
+            "runtime": {},
+        }
+    )
+
+    for kind in ("skill", "tool", "ability", "stat", "check"):
+        mechanics, err = can_use_stroke_of_luck_for_failed_check(ch, check_key="stealth", kind=kind)
+        assert err is None
+        assert mechanics == _rogue_stroke_of_luck_mechanics()
+
+    for bad_kind in ("save", "death_save", "attack"):
+        _mechanics, err = can_use_stroke_of_luck_for_failed_check(ch, check_key="wis", kind=bad_kind)
+        assert err is not None
+
+    payload = {
+        "kind": "skill",
+        "name": "stealth",
+        "dc": 18,
+        "old_roll": 10,
+        "old_total": 14,
+        "mod": 4,
+        "mode": "normal",
+        "source": "manual_check",
+    }
+    assert mark_stroke_of_luck_check_pending(ch, payload) is True
+    assert get_stroke_of_luck_check_pending(ch) == payload
+    assert clear_stroke_of_luck_check_pending(ch) is True
+    assert get_stroke_of_luck_check_pending(ch) == {}
+
+
+def test_stroke_of_luck_rest_reset_clears_failed_check_pending_and_used_key() -> None:
+    ch = SimpleNamespace(
+        class_features={
+            "features": [
+                {
+                    "key": "stroke_of_luck",
+                    "mechanics": _rogue_stroke_of_luck_mechanics(),
+                }
+            ],
+            "runtime": {
+                "stroke_of_luck_used": True,
+                "stroke_of_luck_pending_failed_check": {
+                    "kind": "tool",
+                    "name": "thieves_tools",
+                    "dc": 20,
+                },
+            },
+        }
+    )
+
+    changed = reset_class_rest_uses(ch, long_rest=False)
+    assert changed is True
+    runtime_after = (ch.class_features or {}).get("runtime") or {}
+    assert "stroke_of_luck_used" not in runtime_after
+    assert "stroke_of_luck_pending_failed_check" not in runtime_after
 
 
 def test_sync_class_features_for_level_preserves_second_wind_mechanics() -> None:
