@@ -10,6 +10,7 @@ _SECOND_WIND_MECHANIC_TYPE = "second_wind"
 _ACTION_SURGE_RUNTIME_KEY = "action_surge_used"
 _ACTION_SURGE_MECHANIC_TYPE = "action_surge"
 _ACTION_SURGE_IMPROVEMENT_TYPE = "action_surge_improvement"
+_EXTRA_ATTACK_MECHANIC_TYPE = "extra_attack"
 _INDOMITABLE_RUNTIME_KEY = "indomitable_used"
 _INDOMITABLE_PENDING_KEY = "indomitable_pending_failed_save"
 _INDOMITABLE_MECHANIC_TYPE = "indomitable"
@@ -576,6 +577,27 @@ def apply_action_surge_usage(ch: Any) -> tuple[bool | None, str | None, bool]:
     runtime[_ACTION_SURGE_RUNTIME_KEY] = used + 1
     _store_class_feature_runtime(ch, class_features, runtime)
     return True, None, True
+
+
+def get_extra_attack_count(ch: Any) -> int:
+    class_features = _class_features_dict(ch)
+    best = 1
+    for entry in _class_feature_entries(class_features):
+        key = str(entry.get("key") or "").strip().lower()
+        mechanics_raw = entry.get("mechanics")
+        mechanics = mechanics_raw if isinstance(mechanics_raw, dict) else {}
+        mechanic_type = str(mechanics.get("type") or "").strip().lower()
+        attacks = max(0, _as_int(mechanics.get("attacks"), 0))
+        if mechanic_type == _EXTRA_ATTACK_MECHANIC_TYPE and attacks > 0:
+            best = max(best, attacks)
+            continue
+        if key == "extra_attack_3":
+            best = max(best, 4)
+        elif key == "extra_attack_2":
+            best = max(best, 3)
+        elif key == "extra_attack":
+            best = max(best, 2)
+    return max(1, best)
 
 
 def _indomitable_uses_max(class_features: dict[str, Any], mechanics: dict[str, Any]) -> int:

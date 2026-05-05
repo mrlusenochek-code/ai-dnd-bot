@@ -22,6 +22,7 @@ from app.combat.state import (
 )
 from app.rules.class_feature_runtime import (
     blindsense_range_ft,
+    get_extra_attack_count,
     can_use_uncanny_dodge,
     can_use_sneak_attack_this_turn,
     can_use_stroke_of_luck,
@@ -1452,6 +1453,76 @@ def _spend_action_or_block(state: Any, actor: Any) -> dict[str, Any] | None:
         "open": True,
         "lines": [{"text": "Действие недоступно: действие уже потрачено.", "muted": True}],
     }
+
+
+def _combatant_class_feature_runtime(actor: Any) -> tuple[dict[str, Any], dict[str, Any]]:
+    class_features = actor.class_features if isinstance(getattr(actor, "class_features", None), dict) else {}
+    runtime_raw = class_features.get("runtime")
+    runtime = dict(runtime_raw) if isinstance(runtime_raw, dict) else {}
+    return class_features, runtime
+
+
+def _commit_combatant_class_feature_runtime(actor: Any, class_features: dict[str, Any], runtime: dict[str, Any]) -> None:
+    if runtime:
+        class_features["runtime"] = runtime
+    else:
+        class_features.pop("runtime", None)
+    actor.class_features = class_features
+
+
+def _spend_attack_action_or_block(state: Any, actor: Any) -> dict[str, Any] | None:
+    turn_id = _current_combat_turn_id(state)
+    attack_count = max(1, int(get_extra_attack_count(actor) or 1))
+    class_features, runtime = _combatant_class_feature_runtime(actor)
+    runtime_turn_id = str(runtime.get("extra_attack_action_turn_id") or "").strip()
+    attacks_used = max(0, int(runtime.get("extra_attack_attacks_used") or 0))
+    action_bank = max(0, int(runtime.get("extra_attack_action_bank") or 0))
+
+    if runtime_turn_id != turn_id:
+        runtime["extra_attack_action_turn_id"] = turn_id
+        runtime["extra_attack_attacks_used"] = 0
+        runtime.pop("extra_attack_action_bank", None)
+        attacks_used = 0
+        action_bank = 0
+
+    if attacks_used >= attack_count:
+        if actor.action_available:
+            attacks_used = 0
+            runtime["extra_attack_attacks_used"] = 0
+        elif action_bank > 0:
+            action_bank -= 1
+            if action_bank > 0:
+                runtime["extra_attack_action_bank"] = action_bank
+            else:
+                runtime.pop("extra_attack_action_bank", None)
+            actor.action_available = True
+            attacks_used = 0
+            runtime["extra_attack_attacks_used"] = 0
+
+    if not actor.action_available:
+        return {
+            "status": _combat_status(state),
+            "open": True,
+            "lines": [{"text": "Действие недоступно: действие уже потрачено.", "muted": True}],
+        }
+
+    attacks_used += 1
+    runtime["extra_attack_action_turn_id"] = turn_id
+    runtime["extra_attack_attacks_used"] = attacks_used
+    actor.action_available = attacks_used < attack_count
+    _commit_combatant_class_feature_runtime(actor, class_features, runtime)
+    return None
+
+
+def _attack_action_followup_available(state: Any, actor: Any) -> bool:
+    turn_id = _current_combat_turn_id(state)
+    attack_count = max(1, int(get_extra_attack_count(actor) or 1))
+    _class_features, runtime = _combatant_class_feature_runtime(actor)
+    if str(runtime.get("extra_attack_action_turn_id") or "").strip() != turn_id:
+        return bool(getattr(actor, "action_available", False))
+    attacks_used = max(0, int(runtime.get("extra_attack_attacks_used") or 0))
+    action_bank = max(0, int(runtime.get("extra_attack_action_bank") or 0))
+    return bool(getattr(actor, "action_available", False)) or attacks_used < attack_count or action_bank > 0
 
 
 def _spend_bonus_action_or_block(state: Any, actor: Any) -> dict[str, Any] | None:
@@ -4136,7 +4207,7 @@ def handle_live_combat_action(
         attacker = state.combatants.get(attacker_key)
         if attacker is None:
             return None, "Combat state is inconsistent"
-        blocked = _spend_action_or_block(state, attacker)
+        blocked = _spend_attack_action_or_block(state, attacker)
         if blocked is not None:
             return blocked, None
 
@@ -4422,6 +4493,16 @@ def handle_live_combat_action(
                 {
                     "status": "Бой завершён",
                     "open": False,
+                    "lines": lines,
+                },
+                None,
+            )
+
+        if _attack_action_followup_available(state, attacker):
+            return (
+                {
+                    "status": _combat_status(state),
+                    "open": True,
                     "lines": lines,
                 },
                 None,

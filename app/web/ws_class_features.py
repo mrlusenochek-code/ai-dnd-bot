@@ -83,6 +83,15 @@ def _apply_action_surge_in_combat(
     if not ok:
         return None, "Всплеск действий не сработал.", False
 
+    actor_class_features = actor.class_features if isinstance(getattr(actor, "class_features", None), dict) else {}
+    actor_runtime_raw = actor_class_features.get("runtime")
+    actor_runtime = dict(actor_runtime_raw) if isinstance(actor_runtime_raw, dict) else {}
+    if bool(getattr(actor, "action_available", False)):
+        actor_runtime["extra_attack_action_bank"] = max(0, int(actor_runtime.get("extra_attack_action_bank") or 0)) + 1
+    if actor_runtime:
+        actor_class_features["runtime"] = actor_runtime
+        actor.class_features = actor_class_features
+
     actor.action_available = True
     actor_name = str(getattr(ch, "name", "") or getattr(actor, "name", "") or "Персонаж").strip() or "Персонаж"
     patch = {

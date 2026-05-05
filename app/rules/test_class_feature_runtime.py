@@ -16,6 +16,7 @@ from app.rules.class_feature_runtime import (
     class_feature_saving_throw_proficient,
     clear_stroke_of_luck_check_pending,
     elusive_denies_attack_advantage,
+    get_extra_attack_count,
     get_stroke_of_luck_check_pending,
     get_expertise_targets,
     get_blindsense_mechanics,
@@ -123,6 +124,36 @@ def _fighter_indomitable_improvement_3_mechanics() -> dict:
     indomitable = next((item for item in features if str((item or {}).get("key") or "") == "indomitable_3"), None)
     assert isinstance(indomitable, dict)
     mechanics = indomitable.get("mechanics") or {}
+    assert isinstance(mechanics, dict)
+    return mechanics
+
+
+def _fighter_extra_attack_mechanics() -> dict:
+    fighter = _fighter_catalog_entry()
+    features = (fighter.get("features_by_level") or {}).get(5) or []
+    extra_attack = next((item for item in features if str((item or {}).get("key") or "") == "extra_attack"), None)
+    assert isinstance(extra_attack, dict)
+    mechanics = extra_attack.get("mechanics") or {}
+    assert isinstance(mechanics, dict)
+    return mechanics
+
+
+def _fighter_extra_attack_2_mechanics() -> dict:
+    fighter = _fighter_catalog_entry()
+    features = (fighter.get("features_by_level") or {}).get(11) or []
+    extra_attack = next((item for item in features if str((item or {}).get("key") or "") == "extra_attack_2"), None)
+    assert isinstance(extra_attack, dict)
+    mechanics = extra_attack.get("mechanics") or {}
+    assert isinstance(mechanics, dict)
+    return mechanics
+
+
+def _fighter_extra_attack_3_mechanics() -> dict:
+    fighter = _fighter_catalog_entry()
+    features = (fighter.get("features_by_level") or {}).get(20) or []
+    extra_attack = next((item for item in features if str((item or {}).get("key") or "") == "extra_attack_3"), None)
+    assert isinstance(extra_attack, dict)
+    mechanics = extra_attack.get("mechanics") or {}
     assert isinstance(mechanics, dict)
     return mechanics
 
@@ -246,6 +277,12 @@ def test_fighter_second_wind_catalog_has_runtime_mechanics() -> None:
         "heal_bonus": "level",
         "action_cost": "bonus_action",
     }
+
+
+def test_fighter_extra_attack_catalog_has_runtime_mechanics() -> None:
+    assert _fighter_extra_attack_mechanics() == {"type": "extra_attack", "attacks": 2}
+    assert _fighter_extra_attack_2_mechanics() == {"type": "extra_attack", "attacks": 3}
+    assert _fighter_extra_attack_3_mechanics() == {"type": "extra_attack", "attacks": 4}
 
 
 def test_rogue_cunning_action_catalog_has_runtime_mechanics() -> None:
@@ -559,6 +596,22 @@ def test_sync_class_features_for_level_preserves_action_surge_mechanics() -> Non
     assert action_surge.get("mechanics") == _fighter_action_surge_mechanics()
     assert isinstance(action_surge_2, dict)
     assert action_surge_2.get("mechanics") == _fighter_action_surge_improvement_mechanics()
+
+
+def test_get_extra_attack_count_uses_mechanics_and_feature_key_fallbacks() -> None:
+    assert get_extra_attack_count(SimpleNamespace(class_features={"features": [], "runtime": {}})) == 1
+    assert get_extra_attack_count(
+        SimpleNamespace(class_features={"features": [{"key": "extra_attack", "mechanics": _fighter_extra_attack_mechanics()}], "runtime": {}})
+    ) == 2
+    assert get_extra_attack_count(
+        SimpleNamespace(class_features={"features": [{"key": "extra_attack_2", "mechanics": _fighter_extra_attack_2_mechanics()}], "runtime": {}})
+    ) == 3
+    assert get_extra_attack_count(
+        SimpleNamespace(class_features={"features": [{"key": "extra_attack_3", "mechanics": _fighter_extra_attack_3_mechanics()}], "runtime": {}})
+    ) == 4
+    assert get_extra_attack_count(
+        SimpleNamespace(class_features={"features": [{"key": "extra_attack_2", "mechanics": {}}], "runtime": {}})
+    ) == 3
 
 
 def test_apply_second_wind_usage_heals_and_blocks_repeat_until_rest() -> None:
