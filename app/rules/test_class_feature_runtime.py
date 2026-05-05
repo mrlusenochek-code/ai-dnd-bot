@@ -357,6 +357,18 @@ def test_rogue_stroke_of_luck_catalog_has_runtime_mechanics() -> None:
     }
 
 
+def test_rogue_stroke_of_luck_summary_mentions_both_attack_and_check_paths() -> None:
+    rogue = _rogue_catalog_entry()
+    features = (rogue.get("features_by_level") or {}).get(20) or []
+    stroke = next((item for item in features if str((item or {}).get("key") or "") == "stroke_of_luck"), None)
+    assert isinstance(stroke, dict)
+    summary = str(stroke.get("summary_ru") or "")
+    assert "промах" in summary
+    assert "провер" in summary
+    assert "d20" in summary
+    assert "позже" not in summary.lower()
+
+
 def test_sneak_attack_damage_progression_matches_rogue_levels() -> None:
     mechanics = _rogue_sneak_attack_mechanics()
     assert [sneak_attack_dice_for_level(level, mechanics) for level in (1, 3, 5, 7, 9, 11, 13, 15, 17, 19)] == [

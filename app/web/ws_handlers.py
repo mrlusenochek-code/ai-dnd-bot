@@ -807,6 +807,45 @@ def _apply_stroke_of_luck_failed_check(ch: Any) -> tuple[dict[str, Any] | None, 
     }, None, changed
 
 
+def _should_handle_noncombat_stroke_of_luck(
+    combat_action: str | None,
+    *,
+    combat_active: bool,
+) -> bool:
+    return str(combat_action or "").strip().lower() == "combat_stroke_of_luck" and not combat_active
+
+
+async def _handle_noncombat_stroke_of_luck(
+    db: Any,
+    sess: Any,
+    player: Any,
+    *,
+    request_id: str | None = None,
+) -> tuple[bool, str | None]:
+    ch = await get_character(db, sess.id, player.id)
+    if not ch:
+        return True, "Персонаж не найден."
+    stroke_payload, stroke_err, changed = _apply_stroke_of_luck_failed_check(ch)
+    if stroke_err:
+        return True, stroke_err
+    if changed:
+        flag_modified(ch, "class_features")
+        await db.commit()
+    if stroke_payload:
+        mod = int(stroke_payload.get("mod") or 0)
+        total = int(stroke_payload.get("new_total") or 0)
+        dc = int(stroke_payload.get("dc") or 0)
+        success = bool(stroke_payload.get("success"))
+        actor_name = str(getattr(ch, "name", "") or player.display_name).strip() or player.display_name
+        check_name = str(stroke_payload.get("name") or "").strip().lower()
+        await add_system_event(
+            db,
+            sess,
+            f"[CHECK] {actor_name}: Удачный удар — d20 считается как 20: 20 {mod:+d} = {total} vs DC {dc} => {'успех' if success else 'провал'} ({check_name}).",
+        )
+    return True, None
+
+
 def _parse_check_command(
     cmdline: str,
 ) -> tuple[str | None, str | None, bool, str | None, int | None, str, str | None]:
@@ -8334,58 +8373,19 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                 if combat_action in {"combat_fury_of_small", "combat_fury_of_the_small"} and not combat_active:
                     await ws_error("Разъярённая мелкота доступна только в бою.", request_id=msg_request_id)
                     continue
-                if combat_action == "combat_stroke_of_luck" and not combat_active:
-                    ch = await get_character(db, sess.id, player.id)
-                    if not ch:
-                        await ws_error("Персонаж не найден.", request_id=msg_request_id)
+                if _should_handle_noncombat_stroke_of_luck(combat_action, combat_active=combat_active):
+                    handled_stroke, stroke_err = await _handle_noncombat_stroke_of_luck(
+                        db,
+                        sess,
+                        player,
+                        request_id=msg_request_id,
+                    )
+                    if handled_stroke:
+                        if stroke_err:
+                            await ws_error(stroke_err, request_id=msg_request_id)
+                            continue
+                        await broadcast_state(session_id)
                         continue
-                    stroke_payload, stroke_err, changed = _apply_stroke_of_luck_failed_check(ch)
-                    if stroke_err:
-                        await ws_error(stroke_err, request_id=msg_request_id)
-                        continue
-                    if changed:
-                        flag_modified(ch, "class_features")
-                        await db.commit()
-                    if stroke_payload:
-                        mod = int(stroke_payload.get("mod") or 0)
-                        total = int(stroke_payload.get("new_total") or 0)
-                        dc = int(stroke_payload.get("dc") or 0)
-                        success = bool(stroke_payload.get("success"))
-                        actor_name = str(getattr(ch, "name", "") or player.display_name).strip() or player.display_name
-                        check_name = str(stroke_payload.get("name") or "").strip().lower()
-                        await add_system_event(
-                            db,
-                            sess,
-                            f"[CHECK] {actor_name}: Удачный удар — d20 считается как 20: 20 {mod:+d} = {total} vs DC {dc} => {'успех' if success else 'провал'} ({check_name}).",
-                        )
-                    await broadcast_state(session_id)
-                    continue
-                if combat_action == "combat_stroke_of_luck" and not combat_active:
-                    ch = await get_character(db, sess.id, player.id)
-                    if not ch:
-                        await ws_error("Персонаж не найден.", request_id=msg_request_id)
-                        continue
-                    stroke_payload, stroke_err, changed = _apply_stroke_of_luck_failed_check(ch)
-                    if stroke_err:
-                        await ws_error(stroke_err, request_id=msg_request_id)
-                        continue
-                    if changed:
-                        flag_modified(ch, "class_features")
-                        await db.commit()
-                    if stroke_payload:
-                        mod = int(stroke_payload.get("mod") or 0)
-                        total = int(stroke_payload.get("new_total") or 0)
-                        dc = int(stroke_payload.get("dc") or 0)
-                        success = bool(stroke_payload.get("success"))
-                        actor_name = str(getattr(ch, "name", "") or player.display_name).strip() or player.display_name
-                        check_name = str(stroke_payload.get("name") or "").strip().lower()
-                        await add_system_event(
-                            db,
-                            sess,
-                            f"[CHECK] {actor_name}: Удачный удар — d20 считается как 20: 20 {mod:+d} = {total} vs DC {dc} => {'успех' if success else 'провал'} ({check_name}).",
-                        )
-                    await broadcast_state(session_id)
-                    continue
                 if combat_action in {"combat_hungry_jaws", "combat_rabbit_hop", "combat_lucky_footwork", "combat_saving_face", "combat_stroke_of_luck", "combat_indomitable", "combat_taunt", "combat_fearless", "combat_daunting_roar", "combat_grovel_cower_beg", "combat_goring_rush", "combat_hammering_horns", "combat_adrenaline_rush", "combat_second_wind", "combat_action_surge", "combat_cunning_dash", "combat_cunning_disengage", "combat_cunning_hide", "combat_aggressive", "combat_shift", "combat_shift_end", "combat_longtooth_bite", "combat_swiftstride_step", "combat_mark_target", "combat_feline_agility", "combat_cat_claws", "combat_shell_defense", "combat_shell_defense_exit", "combat_tortle_claws", "combat_acid_spit", "combat_grapple_appendages", "combat_appendages_grapple_bonus"} and not combat_active:
                     await ws_error("Эта особенность доступна только в бою.", request_id=msg_request_id)
                     continue
@@ -10470,6 +10470,19 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                 if combat_action in {"combat_fury_of_small", "combat_fury_of_the_small"} and not combat_active:
                     await ws_error("Разъярённая мелкота доступна только в бою.", request_id=msg_request_id)
                     continue
+                if _should_handle_noncombat_stroke_of_luck(combat_action, combat_active=combat_active):
+                    handled_stroke, stroke_err = await _handle_noncombat_stroke_of_luck(
+                        db,
+                        sess,
+                        player,
+                        request_id=msg_request_id,
+                    )
+                    if handled_stroke:
+                        if stroke_err:
+                            await ws_error(stroke_err, request_id=msg_request_id)
+                            continue
+                        await broadcast_state(session_id)
+                        continue
                 if combat_action in {"combat_hungry_jaws", "combat_rabbit_hop", "combat_lucky_footwork", "combat_saving_face", "combat_stroke_of_luck", "combat_indomitable", "combat_taunt", "combat_fearless", "combat_daunting_roar", "combat_grovel_cower_beg", "combat_goring_rush", "combat_hammering_horns", "combat_adrenaline_rush", "combat_second_wind", "combat_action_surge", "combat_cunning_dash", "combat_cunning_disengage", "combat_cunning_hide", "combat_aggressive", "combat_shift", "combat_shift_end", "combat_longtooth_bite", "combat_swiftstride_step", "combat_mark_target", "combat_feline_agility", "combat_cat_claws", "combat_shell_defense", "combat_shell_defense_exit", "combat_tortle_claws", "combat_acid_spit", "combat_grapple_appendages", "combat_appendages_grapple_bonus"} and not combat_active:
                     await ws_error("Эта особенность доступна только в бою.", request_id=msg_request_id)
                     continue

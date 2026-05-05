@@ -69,6 +69,12 @@ def test_manual_failed_skillcheck_creates_pending_and_stroke_of_luck_turns_roll_
     assert "stroke_of_luck_pending_failed_check" not in runtime_after
 
 
+def test_noncombat_stroke_of_luck_route_helper_allows_out_of_combat_and_blocks_active_combat() -> None:
+    assert ws_handlers._should_handle_noncombat_stroke_of_luck("combat_stroke_of_luck", combat_active=False) is True
+    assert ws_handlers._should_handle_noncombat_stroke_of_luck("combat_stroke_of_luck", combat_active=True) is False
+    assert ws_handlers._should_handle_noncombat_stroke_of_luck("combat_attack", combat_active=False) is False
+
+
 def test_toolcheck_pending_and_even_d20_20_can_still_fail() -> None:
     ch = _character()
 
