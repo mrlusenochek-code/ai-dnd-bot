@@ -25,6 +25,9 @@ _RELIABLE_TALENT_MECHANIC_TYPE = "reliable_talent"
 _BLINDSENSE_MECHANIC_TYPE = "blindsense"
 _SAVING_THROW_PROFICIENCY_MECHANIC_TYPE = "saving_throw_proficiency"
 _ELUSIVE_MECHANIC_TYPE = "elusive"
+_STROKE_OF_LUCK_RUNTIME_KEY = "stroke_of_luck_used"
+_STROKE_OF_LUCK_PENDING_KEY = "stroke_of_luck_pending_miss"
+_STROKE_OF_LUCK_MECHANIC_TYPE = "stroke_of_luck"
 
 
 def _as_int(value: Any, default: int = 0) -> int:
@@ -317,6 +320,42 @@ def elusive_denies_attack_advantage(ch: Any) -> bool:
     if err or not mechanics:
         return False
     return bool(mechanics.get("denies_attack_advantage"))
+
+
+def get_stroke_of_luck_mechanics(ch: Any) -> tuple[dict[str, Any], str | None]:
+    _class_features, mechanics = get_class_feature_mechanics(
+        ch,
+        feature_key="stroke_of_luck",
+        mechanic_type=_STROKE_OF_LUCK_MECHANIC_TYPE,
+    )
+    if not mechanics:
+        return {}, "Удачный удар недоступен вашему классу."
+    return mechanics, None
+
+
+def has_stroke_of_luck(ch: Any) -> bool:
+    mechanics, err = get_stroke_of_luck_mechanics(ch)
+    return bool(mechanics) and err is None
+
+
+def can_use_stroke_of_luck(ch: Any) -> tuple[dict[str, Any], str | None]:
+    mechanics, err = get_stroke_of_luck_mechanics(ch)
+    if err:
+        return {}, err
+    _class_features, runtime = get_class_feature_runtime(ch)
+    if bool(runtime.get(_STROKE_OF_LUCK_RUNTIME_KEY)):
+        return mechanics, "Удачный удар уже использован до короткого или долгого отдыха."
+    return mechanics, None
+
+
+def mark_stroke_of_luck_used(ch: Any) -> bool:
+    class_features, runtime = get_class_feature_runtime(ch)
+    if bool(runtime.get(_STROKE_OF_LUCK_RUNTIME_KEY)):
+        return False
+    runtime[_STROKE_OF_LUCK_RUNTIME_KEY] = True
+    runtime.pop(_STROKE_OF_LUCK_PENDING_KEY, None)
+    _store_class_feature_runtime(ch, class_features, runtime)
+    return True
 
 
 def _normalized_damage_key(raw: Any) -> str:
@@ -643,6 +682,12 @@ def reset_class_rest_uses(ch: Any, *, long_rest: bool = True) -> bool:
         changed = True
     if _UNCANNY_DODGE_USED_DAMAGE_KEYS in runtime:
         runtime.pop(_UNCANNY_DODGE_USED_DAMAGE_KEYS, None)
+        changed = True
+    if _STROKE_OF_LUCK_RUNTIME_KEY in runtime:
+        runtime.pop(_STROKE_OF_LUCK_RUNTIME_KEY, None)
+        changed = True
+    if _STROKE_OF_LUCK_PENDING_KEY in runtime:
+        runtime.pop(_STROKE_OF_LUCK_PENDING_KEY, None)
         changed = True
 
     if not changed:

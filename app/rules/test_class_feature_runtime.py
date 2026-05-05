@@ -11,6 +11,7 @@ from app.rules.class_feature_runtime import (
     blindsense_range_ft,
     can_use_uncanny_dodge,
     can_use_sneak_attack_this_turn,
+    can_use_stroke_of_luck,
     class_feature_saving_throw_proficient,
     elusive_denies_attack_advantage,
     get_expertise_targets,
@@ -19,6 +20,7 @@ from app.rules.class_feature_runtime import (
     get_elusive_mechanics,
     get_evasion_mechanics,
     get_reliable_talent_mechanics,
+    get_stroke_of_luck_mechanics,
     get_slippery_mind_mechanics,
     get_sneak_attack_mechanics,
     get_uncanny_dodge_mechanics,
@@ -27,9 +29,11 @@ from app.rules.class_feature_runtime import (
     has_evasion,
     has_reliable_talent,
     has_slippery_mind,
+    has_stroke_of_luck,
     has_expertise,
     mark_uncanny_dodge_used_for_damage,
     mark_sneak_attack_used,
+    mark_stroke_of_luck_used,
     mark_failed_save_for_indomitable,
     reset_class_rest_uses,
     sneak_attack_dice_for_level,
@@ -219,6 +223,16 @@ def _rogue_elusive_mechanics() -> dict:
     return mechanics
 
 
+def _rogue_stroke_of_luck_mechanics() -> dict:
+    rogue = _rogue_catalog_entry()
+    features = (rogue.get("features_by_level") or {}).get(20) or []
+    stroke = next((item for item in features if str((item or {}).get("key") or "") == "stroke_of_luck"), None)
+    assert isinstance(stroke, dict)
+    mechanics = stroke.get("mechanics") or {}
+    assert isinstance(mechanics, dict)
+    return mechanics
+
+
 def test_fighter_second_wind_catalog_has_runtime_mechanics() -> None:
     mechanics = _fighter_second_wind_mechanics()
     assert mechanics == {
@@ -329,6 +343,16 @@ def test_rogue_elusive_catalog_has_runtime_mechanics() -> None:
     }
 
 
+def test_rogue_stroke_of_luck_catalog_has_runtime_mechanics() -> None:
+    assert _rogue_stroke_of_luck_mechanics() == {
+        "type": "stroke_of_luck",
+        "uses": "per_short_or_long_rest",
+        "uses_max": 1,
+        "attack_miss_to_hit": True,
+        "failed_check_d20_to_20": True,
+    }
+
+
 def test_sneak_attack_damage_progression_matches_rogue_levels() -> None:
     mechanics = _rogue_sneak_attack_mechanics()
     assert [sneak_attack_dice_for_level(level, mechanics) for level in (1, 3, 5, 7, 9, 11, 13, 15, 17, 19)] == [
@@ -388,6 +412,41 @@ def test_elusive_runtime_reports_advantage_denial_only_when_feature_present() ->
     assert elusive_denies_attack_advantage(ch) is True
     assert has_elusive(SimpleNamespace(class_features={"features": [], "runtime": {}})) is False
     assert elusive_denies_attack_advantage(SimpleNamespace(class_features={"features": [], "runtime": {}})) is False
+
+
+def test_stroke_of_luck_runtime_tracks_use_and_resets_on_rest() -> None:
+    ch = SimpleNamespace(
+        class_features={
+            "features": [
+                {
+                    "key": "stroke_of_luck",
+                    "mechanics": _rogue_stroke_of_luck_mechanics(),
+                }
+            ],
+            "runtime": {},
+        }
+    )
+
+    mechanics, err = get_stroke_of_luck_mechanics(ch)
+    assert err is None
+    assert mechanics == _rogue_stroke_of_luck_mechanics()
+    assert has_stroke_of_luck(ch) is True
+
+    ready_mechanics, ready_err = can_use_stroke_of_luck(ch)
+    assert ready_err is None
+    assert ready_mechanics == _rogue_stroke_of_luck_mechanics()
+
+    assert mark_stroke_of_luck_used(ch) is True
+    runtime_after_use = (ch.class_features or {}).get("runtime") or {}
+    assert runtime_after_use.get("stroke_of_luck_used") is True
+
+    _used_mechanics, used_err = can_use_stroke_of_luck(ch)
+    assert used_err == "Удачный удар уже использован до короткого или долгого отдыха."
+
+    short_changed = reset_class_rest_uses(ch, long_rest=False)
+    assert short_changed is True
+    runtime_after_short = (ch.class_features or {}).get("runtime") or {}
+    assert "stroke_of_luck_used" not in runtime_after_short
 
 
 def test_sync_class_features_for_level_preserves_second_wind_mechanics() -> None:

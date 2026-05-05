@@ -148,6 +148,13 @@ CHAT_COMBAT_ACTION_PATTERNS: list[tuple[str, re.Pattern[str]]] = [
         re.compile(r"(невероятн\w+\s+уклонен\w*|uncanny\s+dodge)", re.IGNORECASE),
     ),
     (
+        "combat_stroke_of_luck",
+        re.compile(
+            r"(удачн\w+\s+удар\w*|использую\s+удачн\w+\s+удар\w*|превращаю\s+промах\s+в\s+попадан\w*|делаю\s+промах\s+попадан\w*|stroke\s+of\s+luck)",
+            re.IGNORECASE,
+        ),
+    ),
+    (
         "combat_cunning_dash",
         re.compile(r"(хитр\w*\s+действ\w*\s+рыв\w*|хитр\w*\s+действ\w*\s+спринт\w*|бонусн\w*\s+действ\w*\s+(?:делаю\s+)?рыв\w*|cunning\s+action\s+dash)", re.IGNORECASE),
     ),

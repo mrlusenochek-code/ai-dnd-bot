@@ -24,12 +24,15 @@ from app.rules.class_feature_runtime import (
     blindsense_range_ft,
     can_use_uncanny_dodge,
     can_use_sneak_attack_this_turn,
+    can_use_stroke_of_luck,
     class_feature_saving_throw_proficient,
     elusive_denies_attack_advantage,
     has_blindsense,
     has_evasion,
+    has_stroke_of_luck,
     mark_uncanny_dodge_used_for_damage,
     mark_sneak_attack_used,
+    mark_stroke_of_luck_used,
     get_uncanny_dodge_mechanics,
     sneak_attack_dice_for_level,
 )
@@ -1340,6 +1343,35 @@ def _set_saving_face_pending(actor: Any, pending: dict[str, Any]) -> None:
     actor.race_features = race_features
 
 
+def _stroke_of_luck_state(actor: Any) -> tuple[dict[str, Any], dict[str, Any], dict[str, Any]]:
+    class_features = actor.class_features if isinstance(getattr(actor, "class_features", None), dict) else {}
+    runtime_raw = class_features.get("runtime")
+    runtime = dict(runtime_raw) if isinstance(runtime_raw, dict) else {}
+    pending_raw = runtime.get("stroke_of_luck_pending_miss")
+    pending = dict(pending_raw) if isinstance(pending_raw, dict) else {}
+    return class_features, runtime, pending
+
+
+def _set_stroke_of_luck_pending(actor: Any, pending: dict[str, Any]) -> None:
+    class_features, runtime, _ = _stroke_of_luck_state(actor)
+    runtime["stroke_of_luck_pending_miss"] = pending
+    class_features["runtime"] = runtime
+    actor.class_features = class_features
+
+
+def _clear_stroke_of_luck_pending(actor: Any) -> bool:
+    class_features, runtime, pending = _stroke_of_luck_state(actor)
+    if not pending and "stroke_of_luck_pending_miss" not in runtime:
+        return False
+    runtime.pop("stroke_of_luck_pending_miss", None)
+    if runtime:
+        class_features["runtime"] = runtime
+    else:
+        class_features.pop("runtime", None)
+    actor.class_features = class_features
+    return True
+
+
 def _extract_eerie_message_text(raw_text: str) -> str:
     txt = str(raw_text or "").strip()
     if not txt:
@@ -1471,6 +1503,102 @@ def _break_hidden_step(actor: Any) -> bool:
     hidden_step["active"] = False
     _commit_hidden_step_state(actor, race_features, runtime, hidden_step)
     return True
+
+
+def _apply_pending_attack_hit(
+    *,
+    session_id: str,
+    state: Any,
+    attacker: Any,
+    pending: dict[str, Any],
+    label: str,
+) -> tuple[Any | None, list[dict[str, Any]], str | None]:
+    lines: list[dict[str, Any]] = []
+    target_key = str(pending.get("target_key") or "").strip()
+    target = state.combatants.get(target_key) if target_key else None
+    if target is None or int(getattr(target, "hp_current", 0) or 0) <= 0:
+        return None, lines, f"Цель для «{label}» недоступна."
+
+    damage_roll = max(0, int(pending.get("damage_roll") or 0))
+    damage_bonus = int(pending.get("damage_bonus") or 0)
+    damage_type = str(pending.get("damage_type") or "").strip().lower() or "physical"
+    total_damage = max(0, damage_roll + damage_bonus)
+    total_damage, surprise_lines = _apply_surprise_attack_bonus(
+        state=state,
+        attacker=attacker,
+        target=target,
+        is_hit=True,
+        is_crit=False,
+        total_damage=total_damage,
+    )
+    lines.extend(surprise_lines)
+    profile = SimpleNamespace(
+        damage_type=damage_type,
+        is_weapon_attack=bool(pending.get("is_weapon_attack")),
+        is_melee_weapon=bool(pending.get("is_melee_weapon")),
+        is_ranged_weapon=bool(pending.get("is_ranged_weapon")),
+        is_finesse_weapon=bool(pending.get("is_finesse_weapon")),
+    )
+    total_damage, sneak_lines = _apply_sneak_attack_bonus(
+        state=state,
+        attacker=attacker,
+        target=target,
+        profile=profile,
+        total_damage=total_damage,
+        is_hit=True,
+        is_crit=False,
+        has_advantage=bool(pending.get("sneak_attack_has_advantage")),
+        has_disadvantage=bool(pending.get("sneak_attack_has_disadvantage")),
+        turn_id=str(pending.get("sneak_attack_turn_id") or _current_combat_turn_id(state)),
+    )
+    lines.extend(sneak_lines)
+    fury_bonus = _maybe_apply_fury_of_small(actor=attacker, target=target, lines=lines)
+    if fury_bonus > 0:
+        total_damage += fury_bonus
+    bonus_damage, bonus_damage_type = _aasimar_bonus_damage_for_hit(attacker)
+    if bonus_damage > 0:
+        total_damage += bonus_damage
+        lines.append(
+            {"text": f"Доп. урон трансформации: +{bonus_damage} {bonus_damage_type} (1/ход).", "muted": True}
+        )
+    pre_hp = target.hp_current
+    damage_to_apply, relentless_lines = _apply_relentless_endurance_if_needed(target=target, incoming_damage=total_damage)
+    lines.extend(relentless_lines)
+    state = apply_damage(session_id, target.key, damage_to_apply, source=attacker.key)
+    if state is None:
+        return None, lines, "Combat is not active"
+    target = state.combatants.get(target.key, target)
+    state_after_poison, target_after_poison = _consume_grung_weapon_poison_on_hit(
+        session_id=session_id,
+        attacker=attacker,
+        target=target,
+        profile=profile,
+        lines=lines,
+    )
+    if state_after_poison is None:
+        return None, lines, "Combat is not active"
+    state = state_after_poison
+    target = target_after_poison
+    _maybe_apply_grung_contact_poison_on_melee_hit(
+        attacker=attacker,
+        target=target,
+        is_melee_hit=bool(pending.get("is_melee_weapon")),
+        lines=lines,
+    )
+    lines.append(
+        {
+            "text": f"Урон ({label}): {max(0, int(damage_to_apply))} {damage_type}. {target.name}: HP {target.hp_current}/{target.hp_max}",
+            "muted": True,
+        }
+    )
+    if target.side == "pc" and pre_hp > 0 and target.hp_current == 0:
+        leftover = total_damage - pre_hp
+        if leftover >= target.hp_max:
+            target.is_dead = True
+            target.is_stable = False
+            lines.append({"text": f"Мгновенная смерть: {target.name} погибает.", "muted": True})
+            _revert_shapechanger_on_death(target, lines)
+    return state, lines, None
 
 
 def _clamp_death_counter(value: int) -> int:
@@ -1855,7 +1983,7 @@ def handle_live_combat_action(
     use_bonus_action: bool = False,
 ) -> tuple[Optional[dict[str, Any]], Optional[str]]:
     state = get_combat(session_id)
-    if state is not None and state.active:
+    if state is not None and state.active and action != "combat_stroke_of_luck":
         auto_skip_patch = _auto_resolve_zero_hp_turns(session_id, state)
         if auto_skip_patch is not None:
             return auto_skip_patch, None
@@ -1992,6 +2120,8 @@ def handle_live_combat_action(
         attacker = state.combatants.get(attacker_key)
         if attacker is None:
             return None, "Combat state is inconsistent"
+        if has_stroke_of_luck(attacker):
+            _clear_stroke_of_luck_pending(attacker)
         blocked = _spend_action_or_block(state, attacker)
         if blocked is not None:
             return blocked, None
@@ -2513,100 +2643,31 @@ def handle_live_combat_action(
         runtime.pop("saving_face_pending", None)
 
         if kind == "attack":
-            target_key = str(pending.get("target_key") or "").strip()
-            target = state.combatants.get(target_key) if target_key else None
-            if target is None or int(getattr(target, "hp_current", 0) or 0) <= 0:
-                lines.append({"text": "Сохранить лицо: цель атаки недоступна.", "muted": True})
-            else:
-                became_hit = total_after >= ac
-                lines.append(
-                    {
-                        "text": (
-                            f"Сохранить лицо: +{bonus} к броску атаки ({total_before} -> {total_after}) "
-                            f"vs AC {ac} ({'попадание' if became_hit else 'промах'})."
-                        )
-                    }
+            became_hit = total_after >= ac
+            lines.append(
+                {
+                    "text": (
+                        f"Сохранить лицо: +{bonus} к броску атаки ({total_before} -> {total_after}) "
+                        f"vs AC {ac} ({'попадание' if became_hit else 'промах'})."
+                    )
+                }
+            )
+            if became_hit:
+                state_after_hit, hit_lines, hit_err = _apply_pending_attack_hit(
+                    session_id=session_id,
+                    state=state,
+                    attacker=actor,
+                    pending=pending,
+                    label="Сохранить лицо",
                 )
-                if became_hit:
-                    damage_roll = max(0, int(pending.get("damage_roll") or 0))
-                    damage_bonus = int(pending.get("damage_bonus") or 0)
-                    damage_type = str(pending.get("damage_type") or "").strip().lower() or "physical"
-                    total_damage = max(0, damage_roll + damage_bonus)
-                    total_damage, surprise_lines = _apply_surprise_attack_bonus(
-                        state=state,
-                        attacker=actor,
-                        target=target,
-                        is_hit=True,
-                        is_crit=False,
-                        total_damage=total_damage,
-                    )
-                    lines.extend(surprise_lines)
-                    profile = SimpleNamespace(
-                        damage_type=damage_type,
-                        is_weapon_attack=bool(pending.get("is_weapon_attack")),
-                        is_melee_weapon=bool(pending.get("is_melee_weapon")),
-                        is_ranged_weapon=bool(pending.get("is_ranged_weapon")),
-                        is_finesse_weapon=bool(pending.get("is_finesse_weapon")),
-                    )
-                    total_damage, sneak_lines = _apply_sneak_attack_bonus(
-                        state=state,
-                        attacker=actor,
-                        target=target,
-                        profile=profile,
-                        total_damage=total_damage,
-                        is_hit=True,
-                        is_crit=False,
-                        has_advantage=bool(pending.get("sneak_attack_has_advantage")),
-                        has_disadvantage=bool(pending.get("sneak_attack_has_disadvantage")),
-                        turn_id=str(pending.get("sneak_attack_turn_id") or _current_combat_turn_id(state)),
-                    )
-                    lines.extend(sneak_lines)
-                    fury_bonus = _maybe_apply_fury_of_small(actor=actor, target=target, lines=lines)
-                    if fury_bonus > 0:
-                        total_damage += fury_bonus
-                    bonus_damage, bonus_damage_type = _aasimar_bonus_damage_for_hit(actor)
-                    if bonus_damage > 0:
-                        total_damage += bonus_damage
-                        lines.append(
-                            {"text": f"Доп. урон трансформации: +{bonus_damage} {bonus_damage_type} (1/ход).", "muted": True}
-                        )
-                    pre_hp = target.hp_current
-                    damage_to_apply, relentless_lines = _apply_relentless_endurance_if_needed(target=target, incoming_damage=total_damage)
-                    lines.extend(relentless_lines)
-                    state = apply_damage(session_id, target.key, damage_to_apply, source=actor.key)
-                    if state is None:
-                        return None, "Combat is not active"
-                    target = state.combatants.get(target.key, target)
-                    state_after_poison, target_after_poison = _consume_grung_weapon_poison_on_hit(
-                        session_id=session_id,
-                        attacker=actor,
-                        target=target,
-                        profile=profile,
-                        lines=lines,
-                    )
-                    if state_after_poison is None:
-                        return None, "Combat is not active"
-                    state = state_after_poison
-                    target = target_after_poison
-                    _maybe_apply_grung_contact_poison_on_melee_hit(
-                        attacker=actor,
-                        target=target,
-                        is_melee_hit=bool(pending.get("is_melee_weapon")),
-                        lines=lines,
-                    )
-                    lines.append(
-                        {
-                            "text": f"Урон (Сохранить лицо): {max(0, int(damage_to_apply))} {damage_type}. {target.name}: HP {target.hp_current}/{target.hp_max}",
-                            "muted": True,
-                        }
-                    )
-                    if target.side == "pc" and pre_hp > 0 and target.hp_current == 0:
-                        leftover = total_damage - pre_hp
-                        if leftover >= target.hp_max:
-                            target.is_dead = True
-                            target.is_stable = False
-                            lines.append({"text": f"Мгновенная смерть: {target.name} погибает.", "muted": True})
-                            _revert_shapechanger_on_death(target, lines)
+                if hit_err:
+                    if "Цель для" in hit_err:
+                        lines.append({"text": "Сохранить лицо: цель атаки недоступна.", "muted": True})
+                    else:
+                        return None, hit_err
+                else:
+                    state = state_after_hit
+                    lines.extend(hit_lines)
         elif kind in {"check", "save"}:
             success = total_after >= dc
             lines.append(
@@ -2627,6 +2688,94 @@ def handle_live_combat_action(
                 "status": _combat_status(state),
                 "open": True,
                 "lines": lines,
+            },
+            None,
+        )
+
+    if action == "combat_stroke_of_luck":
+        state = get_combat(session_id)
+        if state is None or not state.active:
+            return None, "Combat is not active"
+        if not state.order:
+            end_combat(session_id)
+            return (
+                {
+                    "status": "Бой завершён",
+                    "open": False,
+                    "lines": [{"text": "Бой завершён: целей не осталось.", "muted": True}],
+                },
+                None,
+            )
+        actor_key = state.order[state.turn_index]
+        actor = state.combatants.get(actor_key)
+        if actor is None:
+            return None, "Combat state is inconsistent"
+        selected_actor = actor
+        selected_mechanics, selected_err = can_use_stroke_of_luck(selected_actor)
+        _selected_cf, _selected_runtime, selected_pending = _stroke_of_luck_state(selected_actor)
+        if (
+            str(getattr(selected_actor, "side", "")).lower() != "pc"
+            or selected_err is not None
+            or not selected_mechanics
+            or not selected_pending
+        ):
+            fallback_candidates: list[Any] = []
+            for candidate in state.combatants.values():
+                if str(getattr(candidate, "side", "")).lower() != "pc":
+                    continue
+                candidate_mechanics, candidate_err = can_use_stroke_of_luck(candidate)
+                _candidate_cf, _candidate_runtime, candidate_pending = _stroke_of_luck_state(candidate)
+                if candidate_err is not None or not candidate_mechanics or not candidate_pending:
+                    continue
+                fallback_candidates.append(candidate)
+            if len(fallback_candidates) == 1:
+                selected_actor = fallback_candidates[0]
+                selected_mechanics, selected_err = can_use_stroke_of_luck(selected_actor)
+            elif len(fallback_candidates) > 1:
+                return None, "У нескольких союзников есть подходящий промах: используйте «Удачный удар» сразу после своей атаки."
+            else:
+                if str(getattr(actor, "side", "")).lower() != "pc":
+                    return None, "Удачный удар доступен только персонажу игрока."
+                return None, selected_err or "Нет промаха атакой, к которому можно применить «Удачный удар»."
+
+        actor = selected_actor
+        mechanics = selected_mechanics
+        if not mechanics or not bool(mechanics.get("attack_miss_to_hit")):
+            return None, "Удачный удар недоступен вашему классу."
+        class_features, runtime, pending = _stroke_of_luck_state(actor)
+        if not pending:
+            return None, "Нет промаха атакой, к которому можно применить «Удачный удар»."
+        turn_id = str(pending.get("turn_id") or "").strip()
+        pending_actor_key = str(pending.get("attacker_key") or "").strip()
+        if not turn_id or pending_actor_key != str(getattr(actor, "key", "") or ""):
+            runtime.pop("stroke_of_luck_pending_miss", None)
+            if runtime:
+                class_features["runtime"] = runtime
+            else:
+                class_features.pop("runtime", None)
+            actor.class_features = class_features
+            return None, "Нет промаха атакой, к которому можно применить «Удачный удар»."
+        state_after_hit, hit_lines, hit_err = _apply_pending_attack_hit(
+            session_id=session_id,
+            state=state,
+            attacker=actor,
+            pending=pending,
+            label="Удачный удар",
+        )
+        if hit_err:
+            if "Цель для" in hit_err:
+                _clear_stroke_of_luck_pending(actor)
+                return None, "Цель для «Удачного удара» недоступна."
+            return None, hit_err
+        marked = mark_stroke_of_luck_used(actor)
+        if not marked:
+            return None, "Удачный удар уже использован до короткого или долгого отдыха."
+        state = state_after_hit
+        return (
+            {
+                "status": _combat_status(state),
+                "open": True,
+                "lines": [{"text": "Удачный удар: промах превращён в попадание."}] + hit_lines,
             },
             None,
         )
@@ -4190,6 +4339,31 @@ def handle_live_combat_action(
             damage_line = f"Урон: {roll_damage} + {resolution.damage_bonus} = {total_damage}"
         else:
             damage_line = "Урон: 0 (промах)"
+            stroke_ready_mechanics, stroke_ready_err = can_use_stroke_of_luck(attacker) if has_stroke_of_luck(attacker) else ({}, "missing")
+            if stroke_ready_mechanics and stroke_ready_err is None:
+                stroke_pending = {
+                    "turn_id": turn_id,
+                    "attacker_key": str(getattr(attacker, "key", "") or ""),
+                    "target_key": str(getattr(target, "key", "") or ""),
+                    "target_name": str(getattr(target, "name", "") or ""),
+                    "attack_total": int(resolution.total_to_hit),
+                    "target_ac": int(resolution.target_ac),
+                    "action": "combat_attack",
+                    "damage_roll": int(resolution.damage_roll),
+                    "damage_bonus": int(resolution.damage_bonus),
+                    "damage_type": str(getattr(profile, "damage_type", "") or "").strip().lower(),
+                    "is_weapon_attack": bool(getattr(profile, "is_weapon_attack", False)),
+                    "is_melee_weapon": bool(getattr(profile, "is_melee_weapon", False)),
+                    "is_ranged_weapon": bool(getattr(profile, "is_ranged_weapon", False)),
+                    "is_finesse_weapon": bool(getattr(profile, "is_finesse_weapon", False)),
+                    "sneak_attack_turn_id": turn_id,
+                    "sneak_attack_has_advantage": bool(has_advantage),
+                    "sneak_attack_has_disadvantage": bool(has_disadvantage),
+                }
+                _set_stroke_of_luck_pending(attacker, stroke_pending)
+                extra_outcome_lines.append(
+                    {"text": "Можно применить «Удачный удар», чтобы превратить этот промах в попадание.", "muted": True}
+                )
             if _can_offer_saving_face(attacker):
                 pending = {
                     "kind": "attack",

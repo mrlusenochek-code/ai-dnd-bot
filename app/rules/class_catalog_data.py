@@ -1783,7 +1783,20 @@ BASE_CLASS_CATALOG: list[dict[str, Any]] = [
                 }
             ],
             19: [{"key": "asi", "name_ru": "Увеличение характеристик", "summary_ru": "Улучшение характеристик или выбор таланта.", "mechanics": {}}],
-            20: [{"key": "stroke_of_luck", "name_ru": "Удача героя", "summary_ru": "Может обратить провал в успех в критический момент.", "mechanics": {}}],
+            20: [
+                {
+                    "key": "stroke_of_luck",
+                    "name_ru": "Удачный удар",
+                    "summary_ru": "Раз за короткий или долгий отдых может превратить промах атакой в попадание; позже это же умение улучшит и проверки.",
+                    "mechanics": {
+                        "type": "stroke_of_luck",
+                        "uses": "per_short_or_long_rest",
+                        "uses_max": 1,
+                        "attack_miss_to_hit": True,
+                        "failed_check_d20_to_20": True,
+                    },
+                }
+            ],
         },
         "subclasses": [
             {
