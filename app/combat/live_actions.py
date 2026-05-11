@@ -32,6 +32,7 @@ from app.rules.class_feature_runtime import (
     has_evasion,
     has_stroke_of_luck,
     fighter_has_great_weapon_fighting,
+    fighter_has_protection_style,
     mark_uncanny_dodge_used_for_damage,
     mark_sneak_attack_used,
     mark_stroke_of_luck_used,
@@ -39,6 +40,7 @@ from app.rules.class_feature_runtime import (
     sneak_attack_dice_for_level,
 )
 from app.rules.derived_stats import compute_attack_profile, parse_dice
+from app.rules.items import ItemKind
 from app.rules.player_core import ability_modifier_from_stat100, proficiency_bonus_for_level
 from app.rules.item_catalog import ITEMS
 from app.web.check_engine import roll_check
@@ -475,6 +477,97 @@ def _blindsense_notice_lines(state: Any, actor: Any) -> list[dict[str, Any]]:
             "muted": True,
         }
     ]
+
+
+def _has_equipped_shield(actor: Any) -> bool:
+    equip_map = getattr(actor, "equip", None)
+    if not isinstance(equip_map, dict):
+        return False
+    off_hand_item_id = str(equip_map.get("off_hand") or "").strip().lower()
+    if not off_hand_item_id:
+        return False
+    inventory = getattr(actor, "inventory", None)
+    if not isinstance(inventory, list):
+        return False
+    for entry in inventory:
+        if not isinstance(entry, dict):
+            continue
+        entry_id = str(entry.get("id") or "").strip().lower()
+        if entry_id != off_hand_item_id:
+            continue
+        def_key = str(entry.get("def") or "").strip().lower()
+        item_def = ITEMS.get(def_key)
+        if item_def is None:
+            return False
+        if item_def.kind == ItemKind.shield:
+            return True
+        equip = item_def.equip
+        return bool(equip and str(equip.wear_group or "").strip().lower() == "shield")
+    return False
+
+
+def _is_valid_protection_guardian(state: Any, guardian: Any, target: Any) -> bool:
+    if state is None or guardian is None or target is None:
+        return False
+    if str(getattr(guardian, "side", "") or "").strip().lower() != str(getattr(target, "side", "") or "").strip().lower():
+        return False
+    guardian_key = str(getattr(guardian, "key", "") or "").strip()
+    target_key = str(getattr(target, "key", "") or "").strip()
+    if not guardian_key or guardian_key == target_key:
+        return False
+    if int(getattr(guardian, "hp_current", 0) or 0) <= 0 or bool(getattr(guardian, "is_dead", False)):
+        return False
+    if not bool(getattr(guardian, "reaction_available", False)):
+        return False
+    if _is_incapacitated_condition_active(guardian):
+        return False
+    if not fighter_has_protection_style(guardian):
+        return False
+    if not _has_equipped_shield(guardian):
+        return False
+    target_xy = _combat_position_xy(target)
+    guardian_xy = _combat_position_xy(guardian)
+    guardian_node = str(_combat_position_payload(guardian).get("node_id") or "").strip().lower()
+    target_node = str(_combat_position_payload(target).get("node_id") or "").strip().lower()
+    if guardian_node and target_node and guardian_node != target_node:
+        return False
+    if guardian_xy is not None and target_xy is not None:
+        dx = guardian_xy[0] - target_xy[0]
+        dy = guardian_xy[1] - target_xy[1]
+        return (dx * dx + dy * dy) ** 0.5 <= 5.0
+    return _same_position_node(guardian, target)
+
+
+def _find_protection_guardian_for_attack(state: Any, attacker: Any, target: Any) -> Any | None:
+    if state is None or attacker is None or target is None:
+        return None
+    attacker_key = str(getattr(attacker, "key", "") or "").strip()
+    target_key = str(getattr(target, "key", "") or "").strip()
+    seen: set[str] = set()
+    ordered_keys = list(getattr(state, "order", []) or []) + list((getattr(state, "combatants", {}) or {}).keys())
+    for raw_key in ordered_keys:
+        key = str(raw_key or "").strip()
+        if not key or key in seen or key in {attacker_key, target_key}:
+            continue
+        seen.add(key)
+        guardian = (getattr(state, "combatants", {}) or {}).get(key)
+        if _is_valid_protection_guardian(state, guardian, target):
+            return guardian
+    return None
+
+
+def _maybe_apply_protection_disadvantage(state: Any, attacker: Any, target: Any, lines: list[dict[str, Any]]) -> bool:
+    guardian = _find_protection_guardian_for_attack(state, attacker, target)
+    if guardian is None:
+        return False
+    guardian.reaction_available = False
+    lines.append(
+        {
+            "text": f"Защита: {guardian.name} прикрывает {target.name} щитом. Атака получает помеху.",
+            "muted": True,
+        }
+    )
+    return True
 
 
 def _has_adjacent_ally_for_sneak_attack(state: Any, attacker: Any, target: Any) -> bool:
@@ -3012,6 +3105,9 @@ def handle_live_combat_action(
             or _is_taunted_attack_disadvantage(attacker, target)
             or _has_sunlight_sensitivity_disadvantage(attacker)
         )
+        early_outcome_lines: list[dict[str, Any]] = []
+        protection_disadvantage = _maybe_apply_protection_disadvantage(state, attacker, target, early_outcome_lines)
+        has_disadvantage = has_disadvantage or protection_disadvantage
         hidden_step_advantage = _is_hidden_step_active(attacker)
         has_advantage = (
             attacker.help_attack_advantage
@@ -4258,6 +4354,9 @@ def handle_live_combat_action(
             or _is_taunted_attack_disadvantage(attacker, target)
             or _has_sunlight_sensitivity_disadvantage(attacker)
         )
+        early_outcome_lines: list[dict[str, Any]] = []
+        protection_disadvantage = _maybe_apply_protection_disadvantage(state, attacker, target, early_outcome_lines)
+        has_disadvantage = has_disadvantage or protection_disadvantage
         nimble_escape_hide_advantage = _is_nimble_escape_hide_active(attacker)
         hidden_step_advantage = _is_hidden_step_active(attacker)
         has_advantage = (
@@ -4318,6 +4417,7 @@ def handle_live_combat_action(
         hidden_step_broken = _break_hidden_step(attacker)
         attacker.help_attack_advantage = False
         extra_outcome_lines: list[dict[str, Any]] = []
+        extra_outcome_lines.extend(early_outcome_lines)
         extra_outcome_lines.extend(bfs_lines)
         extra_outcome_lines.extend(gwf_lines)
         if nimble_hide_broken:

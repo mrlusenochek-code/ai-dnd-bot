@@ -158,6 +158,10 @@ def fighter_has_great_weapon_fighting(ch_or_class_features: Any) -> bool:
     return has_fighting_style(ch_or_class_features, "great_weapon_fighting")
 
 
+def fighter_has_protection_style(ch_or_class_features: Any) -> bool:
+    return has_fighting_style(ch_or_class_features, "protection")
+
+
 def _normalized_expertise_target(raw: Any) -> tuple[str, str] | None:
     if isinstance(raw, str):
         text = raw.strip().lower()

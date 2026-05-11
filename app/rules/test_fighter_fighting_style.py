@@ -1,3 +1,6 @@
+from types import SimpleNamespace
+
+from app.rules.class_feature_runtime import fighter_has_protection_style, has_fighting_style
 from app.rules.derived_stats import compute_ac, compute_attack_profile
 
 
@@ -16,7 +19,7 @@ def _fighter_class_features(choice) -> dict:
                         "protection",
                         "two_weapon_fighting",
                     ],
-                    "implemented_styles": ["archery", "defense", "dueling", "great_weapon_fighting"],
+                    "implemented_styles": ["archery", "defense", "dueling", "great_weapon_fighting", "protection"],
                     "choice_key": "fighting_style",
                 },
             }
@@ -128,3 +131,15 @@ def test_great_weapon_fighting_profile_requires_explicit_two_handed_versatile_us
         class_features=_fighter_class_features("great_weapon_fighting"),
     )
     assert profile_two_handed.is_wielded_two_handed is True
+
+
+def test_protection_style_helpers_detect_choice() -> None:
+    ch = SimpleNamespace(class_features=_fighter_class_features("protection"))
+    assert has_fighting_style(ch, "protection") is True
+    assert fighter_has_protection_style(ch) is True
+
+
+def test_protection_style_helper_false_without_style() -> None:
+    ch = SimpleNamespace(class_features=_fighter_class_features("defense"))
+    assert has_fighting_style(ch, "protection") is False
+    assert fighter_has_protection_style(ch) is False

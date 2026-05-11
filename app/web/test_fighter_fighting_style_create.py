@@ -125,7 +125,7 @@ def test_fighter_create_rejects_invalid_fighting_style(monkeypatch) -> None:
 def test_non_fighter_ignores_fighting_style_choice(monkeypatch) -> None:
     _setup_create_mocks(monkeypatch)
     payload = _base_payload(class_id="rogue")
-    payload["class_choices"] = {"fighting_style": "defense"}
+    payload["class_choices"] = {"fighting_style": "protection"}
 
     response = asyncio.run(http_routes.api_character_create(payload))
     assert response.status_code == 200
@@ -152,6 +152,21 @@ def test_fighter_create_persists_great_weapon_fighting(monkeypatch) -> None:
     assert choices.get("fighting_style") == "great_weapon_fighting"
 
 
+def test_fighter_create_persists_protection(monkeypatch) -> None:
+    _setup_create_mocks(monkeypatch)
+    payload = _base_payload(class_id="fighter")
+    payload["class_choices"] = {"fighting_style": "protection"}
+
+    response = asyncio.run(http_routes.api_character_create(payload))
+    assert response.status_code == 200
+
+    character = json.loads(response.body).get("character") or {}
+    class_features = character.get("class_features") or {}
+    choices = class_features.get("choices") or {}
+
+    assert choices.get("fighting_style") == "protection"
+
+
 def test_fighting_style_ui_texts_present_in_templates() -> None:
     templates_dir = Path(__file__).resolve().parents[0] / "templates"
     create_template = (templates_dir / "character_create.html").read_text(encoding="utf-8")
@@ -162,8 +177,10 @@ def test_fighting_style_ui_texts_present_in_templates() -> None:
     assert "Стрельба: +2 к атаке дальнобойным оружием" in create_template
     assert "Дуэлянт: +2 к урону одноручным ближним оружием, если нет второго оружия" in create_template
     assert "Сражение большим оружием: переброс 1–2 на костях урона melee weapon, когда оружие используется двумя руками" in create_template
+    assert "Защита: реакцией со щитом даёт помеху атаке по союзнику рядом" in create_template
     assert "Боевой стиль:" in session_template
     assert "Сражение большим оружием" in session_template
+    assert "Защита" in session_template
     assert 'card.addEventListener("click", openCharacterModal);' not in session_template
     assert 'card.addEventListener("click", () => openCharacterModal());' in session_template
     assert '&& !("type" in targetPlayer)' in session_template
