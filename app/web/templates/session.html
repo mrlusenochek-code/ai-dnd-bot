@@ -998,6 +998,36 @@ function openCharacterModal(targetPlayer = null){
     : "";
   const raceFeaturesMeta = (rf.features && typeof rf.features === "object") ? rf.features : {};
   const raceKey = String(rf.race_key || "").trim().toLowerCase();
+  const statsObj = (ch && typeof ch.stats === "object" && ch.stats) ? ch.stats : {};
+  const invList = Array.isArray(ch && ch.inventory) ? ch.inventory : (Array.isArray(statsObj._inv) ? statsObj._inv : []);
+  const equipMap = (ch && typeof ch.equip === "object" && ch.equip) ? ch.equip : ((statsObj._equip && typeof statsObj._equip === "object") ? statsObj._equip : {});
+  const bodyItemId = String((equipMap && equipMap.body) || "").trim().toLowerCase();
+  const bodyEntry = Array.isArray(invList)
+    ? (invList.find((it) => it && typeof it === "object" && String(it.id || "").trim().toLowerCase() === bodyItemId) || null)
+    : null;
+  const armorCategoryByDef = {
+    "leather_armor": "light",
+    "chain_mail": "heavy",
+    "hide_armor": "medium",
+    "chain_shirt": "medium",
+    "scale_mail": "medium",
+    "breastplate": "medium",
+    "half_plate": "medium",
+    "ring_mail": "heavy",
+    "splint_armor": "heavy",
+    "plate_armor": "heavy",
+  };
+  const equippedArmorCategory = bodyEntry
+    ? String(armorCategoryByDef[String(bodyEntry.def || "").trim().toLowerCase()] || "").trim().toLowerCase()
+    : "";
+  const flyRestriction = (speeds && typeof speeds.fly_restriction === "object" && speeds.fly_restriction)
+    ? speeds.fly_restriction
+    : {};
+  const flySpeedEqualsWalk = speeds && speeds.fly_speed_equals_walk === true;
+  const restrictedArmorCats = Array.isArray(flyRestriction.no_armor_categories)
+    ? flyRestriction.no_armor_categories.map((x) => String(x || "").trim().toLowerCase()).filter(Boolean)
+    : [];
+  const flyBlockedByArmor = !!(equippedArmorCategory && restrictedArmorCats.includes(equippedArmorCategory));
   const creatureType = String(rf.creature_type || "").trim().toLowerCase();
   const creatureTypeRu = {
     "construct": "Конструкт",
@@ -2652,36 +2682,6 @@ function openCharacterModal(targetPlayer = null){
   const combatSpeedsText = combatSpeedParts.join(", ");
 
   const speedParts = [];
-  const statsObj = (ch && typeof ch.stats === "object" && ch.stats) ? ch.stats : {};
-  const invList = Array.isArray(ch && ch.inventory) ? ch.inventory : (Array.isArray(statsObj._inv) ? statsObj._inv : []);
-  const equipMap = (ch && typeof ch.equip === "object" && ch.equip) ? ch.equip : ((statsObj._equip && typeof statsObj._equip === "object") ? statsObj._equip : {});
-  const bodyItemId = String((equipMap && equipMap.body) || "").trim().toLowerCase();
-  const bodyEntry = Array.isArray(invList)
-    ? (invList.find((it) => it && typeof it === "object" && String(it.id || "").trim().toLowerCase() === bodyItemId) || null)
-    : null;
-  const armorCategoryByDef = {
-    "leather_armor": "light",
-    "chain_mail": "heavy",
-    "hide_armor": "medium",
-    "chain_shirt": "medium",
-    "scale_mail": "medium",
-    "breastplate": "medium",
-    "half_plate": "medium",
-    "ring_mail": "heavy",
-    "splint_armor": "heavy",
-    "plate_armor": "heavy",
-  };
-  const equippedArmorCategory = bodyEntry
-    ? String(armorCategoryByDef[String(bodyEntry.def || "").trim().toLowerCase()] || "").trim().toLowerCase()
-    : "";
-  const flyRestriction = (speeds && typeof speeds.fly_restriction === "object" && speeds.fly_restriction)
-    ? speeds.fly_restriction
-    : {};
-  const flySpeedEqualsWalk = speeds && speeds.fly_speed_equals_walk === true;
-  const restrictedArmorCats = Array.isArray(flyRestriction.no_armor_categories)
-    ? flyRestriction.no_armor_categories.map((x) => String(x || "").trim().toLowerCase()).filter(Boolean)
-    : [];
-  const flyBlockedByArmor = !!(equippedArmorCategory && restrictedArmorCats.includes(equippedArmorCategory));
   if(Number.isFinite(Number(speeds.walk_ft))) speedParts.push(`ходьба ${Number(speeds.walk_ft)} фт`);
   if(Number.isFinite(Number(speeds.swim_ft))) speedParts.push(`плавание ${Number(speeds.swim_ft)} фт`);
   if(Number.isFinite(Number(speeds.climb_ft))) speedParts.push(`лазание ${Number(speeds.climb_ft)} фт`);

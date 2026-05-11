@@ -151,3 +151,9 @@ def test_fighting_style_ui_texts_present_in_templates() -> None:
     assert 'card.addEventListener("click", () => openCharacterModal());' in session_template
     assert '&& !("type" in targetPlayer)' in session_template
     assert '&& ("uid" in targetPlayer || "char" in targetPlayer)' in session_template
+    fly_block_decl = session_template.index("const flyBlockedByArmor")
+    fly_block_use = session_template.index("flyBlockedByArmor ?")
+    assert fly_block_decl < fly_block_use
+    fly_speed_decl = session_template.index("const flySpeedEqualsWalk")
+    fly_speed_use = session_template.index("flySpeedEqualsWalk ?")
+    assert fly_speed_decl < fly_speed_use
