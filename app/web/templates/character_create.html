@@ -235,6 +235,16 @@
       <label>Класс (preset)</label>
       <select id="classId"></select>
 
+      <div id="classChoices" style="display:none;">
+        <label>Боевой стиль</label>
+        <select id="choiceFightingStyle">
+          <option value="">(выберите стиль)</option>
+          <option value="defense">Оборона: +1 AC, если надет доспех</option>
+          <option value="archery">Стрельба: +2 к атаке дальнобойным оружием</option>
+          <option value="dueling">Дуэлянт: +2 к урону одноручным ближним оружием, если нет второго оружия</option>
+        </select>
+      </div>
+
       <label>Или свой класс (опционально)</label>
       <input id="customClass" placeholder="Shadowblade"/>
 
@@ -511,6 +521,8 @@ const MARTIAL_WEAPON_KEYS = Object.keys(MARTIAL_WEAPON_LABELS_RU);
 let featsCatalog = [];
 let classes = [];
 let races = [];
+const FIGHTING_STYLE_CLASS_KEY = "fighter";
+const FIGHTING_STYLE_UI_CHOICES = ["defense", "archery", "dueling"];
 let raceChoiceState = {
   sizeRequired: false,
   languageRequired: false,
@@ -2598,6 +2610,20 @@ function renderClassDetails(classId){
       : "Архетипы сейчас показаны справочно. Реальный выбор делается позже, а не при создании персонажа 1-го уровня.";
   }
 }
+
+function syncClassChoiceUI(classId){
+  const box = document.getElementById("classChoices");
+  const select = document.getElementById("choiceFightingStyle");
+  const selectedClassKey = String(classId || "").trim().toLowerCase();
+  const showFightingStyle = selectedClassKey === FIGHTING_STYLE_CLASS_KEY;
+  if(box){
+    box.style.display = showFightingStyle ? "" : "none";
+  }
+  if(select && !showFightingStyle){
+    select.value = "";
+  }
+}
+
 async function ensureJoined(){
   const r = await fetch("/api/join", {
     method:"POST",
@@ -2630,11 +2656,13 @@ async function loadClasses(){
     currentPreset = classes.find(x => x.id === sel.value) || null;
     resetStats();
     renderClassDetails(sel.value);
+    syncClassChoiceUI(sel.value);
   };
 
   currentPreset = classes[0] || null;
   resetStats();
   renderClassDetails(sel.value || (classes[0] && classes[0].id) || "");
+  syncClassChoiceUI(sel.value || (classes[0] && classes[0].id) || "");
 }
 async function loadRaces(){
   const r = await fetch("/api/races");
@@ -2907,6 +2935,12 @@ async function createHero(){
     setMessage("Выбери «Драконье наследие» в блоке «Стартовые выборы».", false);
     return;
   }
+  const choiceFightingStyleEl = document.getElementById("choiceFightingStyle");
+  const choiceFightingStyle = String(choiceFightingStyleEl ? choiceFightingStyleEl.value : "").trim().toLowerCase();
+  if(String(classId || "").trim().toLowerCase() === FIGHTING_STYLE_CLASS_KEY && !FIGHTING_STYLE_UI_CHOICES.includes(choiceFightingStyle)){
+    setMessage("Выбери «Боевой стиль» для воина.", false);
+    return;
+  }
   const payload = {
     session_id: SESSION_ID,
     uid: getUID(),
@@ -3005,6 +3039,11 @@ async function createHero(){
       raceChoices.extra_language = choiceLang;
     }
     payload.race_choices = raceChoices;
+  }
+  if(String(classId || "").trim().toLowerCase() === FIGHTING_STYLE_CLASS_KEY && choiceFightingStyle){
+    payload.class_choices = {
+      fighting_style: choiceFightingStyle,
+    };
   }
   const r = await fetch("/api/character/create", {
     method:"POST",

@@ -2694,6 +2694,7 @@ function openCharacterModal(targetPlayer = null){
   };
   const sizeRu = baseSize ? (SIZE_RU[baseSize] || baseSize) : "";
   const classFeatures = (ch && typeof ch.class_features === "object" && ch.class_features) ? ch.class_features : {};
+  const classChoices = (classFeatures.choices && typeof classFeatures.choices === "object" && classFeatures.choices) ? classFeatures.choices : {};
   const subclassInfo = (classFeatures.subclass && typeof classFeatures.subclass === "object") ? classFeatures.subclass : null;
   const classFeatureEntriesRaw = Array.isArray(classFeatures.features)
     ? classFeatures.features.filter((x) => x && typeof x === "object")
@@ -2722,6 +2723,19 @@ function openCharacterModal(targetPlayer = null){
     ? subclassInfo.features_by_level
     : {};
   const subclassCurrentLevel = Number.isFinite(Number(ch && ch.level)) ? Number(ch.level) : 1;
+  const fightingStyleRaw = classChoices.fighting_style;
+  let fightingStyleKey = "";
+  if(typeof fightingStyleRaw === "string"){
+    fightingStyleKey = String(fightingStyleRaw).trim().toLowerCase();
+  }else if(fightingStyleRaw && typeof fightingStyleRaw === "object"){
+    fightingStyleKey = String(fightingStyleRaw.key || "").trim().toLowerCase();
+  }
+  const fightingStyleNameMap = {
+    "defense": "Оборона",
+    "archery": "Стрельба",
+    "dueling": "Дуэлянт",
+  };
+  const fightingStyleName = String(fightingStyleNameMap[fightingStyleKey] || "").trim();
   const subclassFeatureItems = Object.keys(subclassFeaturesByLevel)
     .map((levelKey) => {
       const levelNum = Number(levelKey);
@@ -2746,6 +2760,9 @@ function openCharacterModal(targetPlayer = null){
   const details = [];
   details.push(`<div class="char-line"><strong>Имя:</strong> ${escapeHtml(ch.name || "—")}</div>`);
   details.push(`<div class="char-line"><strong>Класс:</strong> ${escapeHtml(klass)}</div>`);
+  if(fightingStyleName){
+    details.push(`<div class="char-line"><strong>Боевой стиль:</strong> ${escapeHtml(fightingStyleName)}</div>`);
+  }
 
   if(classFeatureEntries.length){
     const classFeaturesHtml = classFeatureEntries.map((entry) => {

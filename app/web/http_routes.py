@@ -113,6 +113,7 @@ MARTIAL_WEAPON_WHITELIST = {
     "longbow",
     "net",
 }
+FIGHTING_STYLE_CREATE_WHITELIST = {"defense", "archery", "dueling"}
 LANGUAGE_WHITELIST = {
     "common",
     "dwarvish",
@@ -1875,6 +1876,7 @@ async def api_character_create(payload: dict):
     subrace_id = str(payload.get("subrace_id") or "").strip().lower()
     custom_race = str(payload.get("custom_race") or "").strip()
     race_choices_payload = payload.get("race_choices")
+    class_choices_payload = payload.get("class_choices")
     stats_in = payload.get("stats")
     meta_gender = str(payload.get("gender") or "").strip()[:40]
     meta_race = str(payload.get("race") or "").strip()[:60]
@@ -1898,6 +1900,7 @@ async def api_character_create(payload: dict):
     race_choice_decadent_skill = ""
     race_choice_decadent_tool = ""
     race_choice_innate_ability = str(payload.get("race_choice_innate_ability") or "").strip().lower()
+    class_choice_fighting_style = ""
     if isinstance(race_choices_payload, dict):
         raw_langs = race_choices_payload.get("languages")
         raw_langs_list = raw_langs if isinstance(raw_langs, list) else []
@@ -2067,6 +2070,8 @@ async def api_character_create(payload: dict):
             race_choice_decadent_language = str(raw_decadent_mastery.get("language") or "").strip().lower()
             race_choice_decadent_skill = str(raw_decadent_mastery.get("skill") or "").strip().lower()
             race_choice_decadent_tool = str(raw_decadent_mastery.get("tool") or "").strip().lower()
+    if isinstance(class_choices_payload, dict):
+        class_choice_fighting_style = str(class_choices_payload.get("fighting_style") or "").strip().lower()
 
     if uid <= 0:
         raise HTTPException(status_code=400, detail="Bad uid")
@@ -2097,6 +2102,11 @@ async def api_character_create(payload: dict):
 
         selected_class = resolve_class(class_id) if class_id else None
         selected_class_key = str((selected_class or {}).get("key") or "").strip().lower()
+        if selected_class_key == "fighter":
+            if class_choice_fighting_style and class_choice_fighting_style not in FIGHTING_STYLE_CREATE_WHITELIST:
+                raise HTTPException(status_code=400, detail="Invalid fighting style choice")
+        else:
+            class_choice_fighting_style = ""
         selected_preset = (
             CLASS_PRESETS.get(class_id)
             or CLASS_PRESETS.get(selected_class_key)
@@ -3328,6 +3338,11 @@ async def api_character_create(payload: dict):
                 },
                 1,
             )
+            if selected_class_key == "fighter" and class_choice_fighting_style:
+                choices_raw = class_features.get("choices")
+                choices = dict(choices_raw) if isinstance(choices_raw, dict) else {}
+                choices["fighting_style"] = class_choice_fighting_style
+                class_features["choices"] = choices
 
         ch = await create_character(
             db,
