@@ -147,4 +147,7 @@ def test_fighting_style_ui_texts_present_in_templates() -> None:
     assert "Стрельба: +2 к атаке дальнобойным оружием" in create_template
     assert "Дуэлянт: +2 к урону одноручным ближним оружием, если нет второго оружия" in create_template
     assert "Боевой стиль:" in session_template
-
+    assert 'card.addEventListener("click", openCharacterModal);' not in session_template
+    assert 'card.addEventListener("click", () => openCharacterModal());' in session_template
+    assert '&& !("type" in targetPlayer)' in session_template
+    assert '&& ("uid" in targetPlayer || "char" in targetPlayer)' in session_template

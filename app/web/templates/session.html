@@ -866,7 +866,13 @@ function openCharacterModal(targetPlayer = null){
   const me = lastState && Array.isArray(lastState.players)
     ? (lastState.players.find(p => p.uid === getUID()) || null)
     : null;
-  const playerForModal = targetPlayer && typeof targetPlayer === "object" ? targetPlayer : me;
+  const isPlayerLike = !!(
+    targetPlayer
+    && typeof targetPlayer === "object"
+    && !("type" in targetPlayer)
+    && ("uid" in targetPlayer || "char" in targetPlayer)
+  );
+  const playerForModal = isPlayerLike ? targetPlayer : me;
   const ch = playerForModal && playerForModal.char ? playerForModal.char : null;
   if(!ch){
     if(playerForModal && playerForModal !== me){
@@ -4110,7 +4116,7 @@ function toggleReady(){
   };
 
   if(card){
-    card.addEventListener("click", openCharacterModal);
+    card.addEventListener("click", () => openCharacterModal());
     card.addEventListener("keydown", (e) => {
       if(e.key === "Enter" || e.key === " "){
         e.preventDefault();
