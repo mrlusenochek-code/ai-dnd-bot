@@ -21,6 +21,7 @@ def resolve_attack_roll(
     target_ac: int,
     damage_roll: int,
     damage_bonus: int = 0,
+    damage_already_crit_scaled: bool = False,
 ) -> AttackResolution:
     if not 1 <= d20_roll <= 20:
         raise ValueError("d20_roll must be in range [1, 20]")
@@ -36,7 +37,7 @@ def resolve_attack_roll(
     if not is_hit:
         total_damage = 0
     else:
-        roll_damage = damage_roll * 2 if is_crit else damage_roll
+        roll_damage = damage_roll if damage_already_crit_scaled else (damage_roll * 2 if is_crit else damage_roll)
         total_damage = max(0, roll_damage + damage_bonus)
 
     return AttackResolution(

@@ -16,7 +16,7 @@ def _fighter_class_features(choice) -> dict:
                         "protection",
                         "two_weapon_fighting",
                     ],
-                    "implemented_styles": ["archery", "defense", "dueling"],
+                    "implemented_styles": ["archery", "defense", "dueling", "great_weapon_fighting"],
                     "choice_key": "fighting_style",
                 },
             }
@@ -76,3 +76,55 @@ def test_dueling_does_not_work_with_second_weapon_in_off_hand() -> None:
     equip_map = {"main_hand": "w1", "off_hand": "w2"}
     profile = compute_attack_profile(stats=stats, inventory=inv, equip_map=equip_map, level=1, class_features=_fighter_class_features("dueling"))
     assert profile.damage_bonus == 4
+
+
+def test_great_weapon_fighting_does_not_change_damage_bonus() -> None:
+    stats = {"str": 90, "dex": 50}
+    inv = [{"id": "w1", "def": "longsword"}]
+    equip_map = {"main_hand": "w1"}
+    profile = compute_attack_profile(
+        stats=stats,
+        inventory=inv,
+        equip_map=equip_map,
+        level=1,
+        class_features=_fighter_class_features("great_weapon_fighting"),
+    )
+    assert profile.damage_bonus == 4
+
+
+def test_great_weapon_fighting_profile_marks_true_two_handed_weapon() -> None:
+    stats = {"str": 90, "dex": 50}
+    inv = [{"id": "w1", "def": "shortbow"}]
+    equip_map = {"ranged": "w1"}
+    profile = compute_attack_profile(
+        stats=stats,
+        inventory=inv,
+        equip_map=equip_map,
+        level=1,
+        class_features=_fighter_class_features("great_weapon_fighting"),
+    )
+    assert profile.is_wielded_two_handed is True
+
+
+def test_great_weapon_fighting_profile_requires_explicit_two_handed_versatile_use() -> None:
+    stats = {"str": 90, "dex": 50}
+    inv = [{"id": "w1", "def": "longsword"}]
+    equip_map = {"main_hand": "w1"}
+    profile_one_handed = compute_attack_profile(
+        stats=stats,
+        inventory=inv,
+        equip_map=equip_map,
+        level=1,
+        class_features=_fighter_class_features("great_weapon_fighting"),
+    )
+    assert profile_one_handed.is_wielded_two_handed is False
+
+    inv_two_handed = [{"id": "w1", "def": "longsword", "wielded_two_handed": True}]
+    profile_two_handed = compute_attack_profile(
+        stats=stats,
+        inventory=inv_two_handed,
+        equip_map=equip_map,
+        level=1,
+        class_features=_fighter_class_features("great_weapon_fighting"),
+    )
+    assert profile_two_handed.is_wielded_two_handed is True

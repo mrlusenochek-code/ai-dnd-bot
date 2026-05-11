@@ -82,7 +82,7 @@ def get_class_feature_mechanics(
     feature_key: str = "",
     mechanic_type: str = "",
 ) -> tuple[dict[str, Any], dict[str, Any]]:
-    class_features = _class_features_dict(ch)
+    class_features = ch if isinstance(ch, dict) else _class_features_dict(ch)
     entry = find_class_feature_entry(
         class_features,
         feature_key=feature_key,
@@ -134,7 +134,7 @@ def get_fighting_style_choice(ch: Any) -> str:
     } if isinstance(allowed_raw, list) else set()
     if not allowed:
         return ""
-    class_features = _class_features_dict(ch)
+    class_features = ch if isinstance(ch, dict) else _class_features_dict(ch)
     choices_raw = class_features.get("choices")
     choices = dict(choices_raw) if isinstance(choices_raw, dict) else {}
     selected = choices.get(str(mechanics.get("choice_key") or "fighting_style").strip() or "fighting_style")
@@ -145,6 +145,17 @@ def get_fighting_style_choice(ch: Any) -> str:
         key = str(selected.get("key") or "").strip().lower()
         return key if key in allowed else ""
     return ""
+
+
+def has_fighting_style(ch_or_class_features: Any, style_key: str) -> bool:
+    expected = str(style_key or "").strip().lower()
+    if not expected:
+        return False
+    return get_fighting_style_choice(ch_or_class_features) == expected
+
+
+def fighter_has_great_weapon_fighting(ch_or_class_features: Any) -> bool:
+    return has_fighting_style(ch_or_class_features, "great_weapon_fighting")
 
 
 def _normalized_expertise_target(raw: Any) -> tuple[str, str] | None:

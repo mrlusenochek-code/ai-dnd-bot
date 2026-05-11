@@ -113,7 +113,7 @@ MARTIAL_WEAPON_WHITELIST = {
     "longbow",
     "net",
 }
-FIGHTING_STYLE_CREATE_WHITELIST = {"defense", "archery", "dueling"}
+FIGHTING_STYLE_CREATE_WHITELIST = {"defense", "archery", "dueling", "great_weapon_fighting"}
 LANGUAGE_WHITELIST = {
     "common",
     "dwarvish",

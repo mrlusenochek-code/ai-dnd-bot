@@ -302,7 +302,7 @@ def test_fighter_fighting_style_catalog_has_runtime_mechanics() -> None:
             "protection",
             "two_weapon_fighting",
         ],
-        "implemented_styles": ["archery", "defense", "dueling"],
+        "implemented_styles": ["archery", "defense", "dueling", "great_weapon_fighting"],
         "choice_key": "fighting_style",
     }
 
@@ -664,12 +664,18 @@ def test_get_fighting_style_choice_reads_string_and_dict_and_rejects_unknown() -
             "runtime": {},
         }
     )
+    raw_class_features = {
+        "features": [{"key": "fighting_style", "mechanics": _fighter_fighting_style_mechanics()}],
+        "choices": {"fighting_style": "great_weapon_fighting"},
+        "runtime": {},
+    }
     mechanics, err = get_fighting_style_mechanics(ch_string)
     assert err is None
     assert mechanics == _fighter_fighting_style_mechanics()
     assert get_fighting_style_choice(ch_string) == "defense"
     assert get_fighting_style_choice(ch_dict) == "archery"
     assert get_fighting_style_choice(ch_unknown) == ""
+    assert get_fighting_style_choice(raw_class_features) == "great_weapon_fighting"
 
 
 def test_apply_second_wind_usage_heals_and_blocks_repeat_until_rest() -> None:

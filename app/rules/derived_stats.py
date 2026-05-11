@@ -22,6 +22,7 @@ class AttackProfile:
     properties: tuple[str, ...] = ()
     weapon_properties: tuple[str, ...] = ()
     mastery: str | None = None
+    is_wielded_two_handed: bool = False
 
 
 def _safe_int(value: Any, default: int) -> int:
@@ -225,6 +226,17 @@ def compute_attack_profile(
     if weapon:
         properties = tuple(weapon.properties or ())
         properties_cf = {p.casefold() for p in properties}
+        versatile_two_handed = bool(
+            chosen_entry
+            and (
+                chosen_entry.get("wielded_two_handed") is True
+                or chosen_entry.get("use_versatile") is True
+                or chosen_entry.get("two_handed") is True
+            )
+        )
+        is_wielded_two_handed = bool(item_def.equip.two_handed if item_def and item_def.equip else False) or (
+            "versatile" in properties_cf and versatile_two_handed
+        )
         if "ammunition" in properties_cf or chosen_slot == EquipmentSlot.ranged:
             stat_mod = dex_mod
         elif "finesse" in properties_cf:
@@ -263,6 +275,7 @@ def compute_attack_profile(
             properties=properties,
             weapon_properties=properties,
             mastery=weapon.mastery,
+            is_wielded_two_handed=is_wielded_two_handed,
         )
 
     attack_bonus = str_mod + prof

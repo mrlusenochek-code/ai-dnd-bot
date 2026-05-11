@@ -31,6 +31,7 @@ from app.rules.class_feature_runtime import (
     has_blindsense,
     has_evasion,
     has_stroke_of_luck,
+    fighter_has_great_weapon_fighting,
     mark_uncanny_dodge_used_for_damage,
     mark_sneak_attack_used,
     mark_stroke_of_luck_used,
@@ -1670,6 +1671,33 @@ def _apply_pending_attack_hit(
             lines.append({"text": f"Мгновенная смерть: {target.name} погибает.", "muted": True})
             _revert_shapechanger_on_death(target, lines)
     return state, lines, None
+
+
+def _roll_weapon_damage_with_gwf(profile: Any, attacker: Any, dice_count: int, sides: int) -> tuple[int, list[dict[str, Any]]]:
+    total = 0
+    lines: list[dict[str, Any]] = []
+    count = max(0, int(dice_count or 0))
+    die_sides = max(1, int(sides or 1))
+    gwf_applies = _gwf_applies_to_weapon_damage(profile, attacker)
+    for _ in range(count):
+        rolled = random.randint(1, die_sides)
+        final = rolled
+        if gwf_applies and rolled in {1, 2}:
+            rerolled = random.randint(1, die_sides)
+            final = rerolled
+            lines.append({"text": f"Сражение большим оружием: переброс кости урона {rolled}→{rerolled}.", "muted": True})
+        total += final
+    return total, lines
+
+
+def _gwf_applies_to_weapon_damage(profile: Any, attacker: Any) -> bool:
+    return bool(
+        getattr(profile, "is_weapon_attack", False)
+        and getattr(profile, "is_melee_weapon", False)
+        and not getattr(profile, "is_ranged_weapon", False)
+        and getattr(profile, "is_wielded_two_handed", False)
+        and fighter_has_great_weapon_fighting(attacker)
+    )
 
 
 def _clamp_death_counter(value: int) -> int:
@@ -4272,7 +4300,10 @@ def handle_live_combat_action(
             n, sides = 1, 6
         else:
             n, sides = parsed
-        damage_roll = sum(random.randint(1, sides) for _ in range(n))
+        weapon_dice_count = n * (2 if bool(getattr(profile, "is_weapon_attack", False)) and d20_roll == 20 else 1)
+        gwf_damage_roll = _gwf_applies_to_weapon_damage(profile, attacker)
+        rolled_dice_count = weapon_dice_count if gwf_damage_roll else n
+        damage_roll, gwf_lines = _roll_weapon_damage_with_gwf(profile, attacker, rolled_dice_count, sides)
 
         resolution = resolve_attack_roll(
             target_ac=target.ac,
@@ -4280,6 +4311,7 @@ def handle_live_combat_action(
             attack_bonus=profile.attack_bonus,
             damage_roll=damage_roll,
             damage_bonus=profile.damage_bonus,
+            damage_already_crit_scaled=gwf_damage_roll,
         )
         turn_id = _current_combat_turn_id(state)
         nimble_hide_broken = _consume_nimble_escape_hide(attacker) if nimble_escape_hide_advantage else False
@@ -4287,6 +4319,7 @@ def handle_live_combat_action(
         attacker.help_attack_advantage = False
         extra_outcome_lines: list[dict[str, Any]] = []
         extra_outcome_lines.extend(bfs_lines)
+        extra_outcome_lines.extend(gwf_lines)
         if nimble_hide_broken:
             extra_outcome_lines.append({"text": "Скрытность: преимущество на эту атаку из «Шустрого побега».", "muted": True})
         total_damage = int(resolution.total_damage)
@@ -4408,7 +4441,7 @@ def handle_live_combat_action(
         else:
             result_line = "Результат: промах"
         if resolution.is_hit:
-            roll_damage = resolution.damage_roll * 2 if resolution.is_crit else resolution.damage_roll
+            roll_damage = resolution.damage_roll if gwf_damage_roll else (resolution.damage_roll * 2 if resolution.is_crit else resolution.damage_roll)
             damage_line = f"Урон: {roll_damage} + {resolution.damage_bonus} = {total_damage}"
         else:
             damage_line = "Урон: 0 (промах)"
@@ -5630,7 +5663,10 @@ def handle_live_combat_action(
             n, sides = 1, 4
         else:
             n, sides = parsed
-        damage_roll = sum(random.randint(1, sides) for _ in range(n))
+        weapon_dice_count = n * (2 if bool(getattr(profile, "is_weapon_attack", False)) and d20_roll == 20 else 1)
+        gwf_damage_roll = _gwf_applies_to_weapon_damage(profile, attacker)
+        rolled_dice_count = weapon_dice_count if gwf_damage_roll else n
+        damage_roll, gwf_lines = _roll_weapon_damage_with_gwf(profile, attacker, rolled_dice_count, sides)
 
         resolution = resolve_attack_roll(
             target_ac=target.ac,
@@ -5638,6 +5674,7 @@ def handle_live_combat_action(
             attack_bonus=profile.attack_bonus,
             damage_roll=damage_roll,
             damage_bonus=profile.damage_bonus,
+            damage_already_crit_scaled=gwf_damage_roll,
         )
         hidden_step_broken = _break_hidden_step(attacker)
         attacker.help_attack_advantage = False
@@ -5646,6 +5683,7 @@ def handle_live_combat_action(
         total_damage = int(resolution.total_damage)
         extra_outcome_lines: list[dict[str, Any]] = []
         extra_outcome_lines.extend(bfs_lines)
+        extra_outcome_lines.extend(gwf_lines)
         if resolution.is_hit:
             fury_bonus = _maybe_apply_fury_of_small(actor=attacker, target=target, lines=extra_outcome_lines)
             if fury_bonus > 0:
@@ -5703,7 +5741,13 @@ def handle_live_combat_action(
         if resolution.is_hit:
             lines.extend(
                 [
-                    {"text": f"Урон: {profile.damage_dice} + {resolution.damage_bonus:+d} = {total_damage} {profile.damage_type}"},
+                    {
+                        "text": (
+                            f"Урон: "
+                            f"{(resolution.damage_roll if gwf_damage_roll else (resolution.damage_roll * 2 if resolution.is_crit else resolution.damage_roll))} "
+                            f"+ {resolution.damage_bonus:+d} = {total_damage} {profile.damage_type}"
+                        )
+                    },
                     {"text": f"HP врага: {target.hp_current}/{target.hp_max}"},
                 ]
             )
@@ -5816,7 +5860,10 @@ def handle_live_combat_action(
             n, sides = 1, 6
         else:
             n, sides = parsed
-        damage_roll = sum(random.randint(1, sides) for _ in range(n))
+        weapon_dice_count = n * (2 if bool(getattr(profile, "is_weapon_attack", False)) and d20_roll == 20 else 1)
+        gwf_damage_roll = _gwf_applies_to_weapon_damage(profile, attacker)
+        rolled_dice_count = weapon_dice_count if gwf_damage_roll else n
+        damage_roll, gwf_lines = _roll_weapon_damage_with_gwf(profile, attacker, rolled_dice_count, sides)
 
         resolution = resolve_attack_roll(
             target_ac=target.ac,
@@ -5824,12 +5871,14 @@ def handle_live_combat_action(
             attack_bonus=profile.attack_bonus,
             damage_roll=damage_roll,
             damage_bonus=profile.damage_bonus,
+            damage_already_crit_scaled=gwf_damage_roll,
         )
         turn_id = _current_combat_turn_id(state)
         hidden_step_broken = _break_hidden_step(attacker)
         attacker.help_attack_advantage = False
         extra_outcome_lines: list[dict[str, Any]] = []
         extra_outcome_lines.extend(bfs_lines)
+        extra_outcome_lines.extend(gwf_lines)
         total_damage = int(resolution.total_damage)
         if resolution.is_hit:
             total_damage, surprise_lines = _apply_surprise_attack_bonus(
@@ -5925,7 +5974,7 @@ def handle_live_combat_action(
         else:
             result_line = "Результат: промах"
         if resolution.is_hit:
-            roll_damage = resolution.damage_roll * 2 if resolution.is_crit else resolution.damage_roll
+            roll_damage = resolution.damage_roll if gwf_damage_roll else (resolution.damage_roll * 2 if resolution.is_crit else resolution.damage_roll)
             damage_line = f"Урон: {roll_damage} + {resolution.damage_bonus} = {total_damage}"
         else:
             damage_line = "Урон: 0 (промах)"

@@ -242,6 +242,7 @@
           <option value="defense">Оборона: +1 AC, если надет доспех</option>
           <option value="archery">Стрельба: +2 к атаке дальнобойным оружием</option>
           <option value="dueling">Дуэлянт: +2 к урону одноручным ближним оружием, если нет второго оружия</option>
+          <option value="great_weapon_fighting">Сражение большим оружием: переброс 1–2 на костях урона melee weapon, когда оружие используется двумя руками</option>
         </select>
       </div>
 
@@ -522,7 +523,7 @@ let featsCatalog = [];
 let classes = [];
 let races = [];
 const FIGHTING_STYLE_CLASS_KEY = "fighter";
-const FIGHTING_STYLE_UI_CHOICES = ["defense", "archery", "dueling"];
+const FIGHTING_STYLE_UI_CHOICES = ["defense", "archery", "dueling", "great_weapon_fighting"];
 let raceChoiceState = {
   sizeRequired: false,
   languageRequired: false,
