@@ -33,6 +33,7 @@ from app.rules.class_feature_runtime import (
     has_stroke_of_luck,
     fighter_has_great_weapon_fighting,
     fighter_has_protection_style,
+    fighter_has_two_weapon_fighting_style,
     mark_uncanny_dodge_used_for_damage,
     mark_sneak_attack_used,
     mark_stroke_of_luck_used,
@@ -1791,6 +1792,71 @@ def _gwf_applies_to_weapon_damage(profile: Any, attacker: Any) -> bool:
         and getattr(profile, "is_wielded_two_handed", False)
         and fighter_has_great_weapon_fighting(attacker)
     )
+
+
+def _two_weapon_marker_key() -> str:
+    return "two_weapon_bonus_attack"
+
+
+def _off_hand_weapon_profile(actor: Any) -> Any:
+    stats = actor.stats if isinstance(getattr(actor, "stats", None), dict) else {}
+    inventory = actor.inventory if isinstance(getattr(actor, "inventory", None), list) else []
+    equip_map = actor.equip if isinstance(getattr(actor, "equip", None), dict) else {}
+    return compute_attack_profile(
+        stats=stats,
+        inventory=inventory,
+        equip_map=equip_map,
+        weapon_slot="off_hand",
+        level=actor.level,
+        race_features=getattr(actor, "race_features", None),
+        class_features=getattr(actor, "class_features", None),
+    )
+
+
+def _main_hand_weapon_profile(actor: Any) -> Any:
+    stats = actor.stats if isinstance(getattr(actor, "stats", None), dict) else {}
+    inventory = actor.inventory if isinstance(getattr(actor, "inventory", None), list) else []
+    equip_map = actor.equip if isinstance(getattr(actor, "equip", None), dict) else {}
+    return compute_attack_profile(
+        stats=stats,
+        inventory=inventory,
+        equip_map=equip_map,
+        weapon_slot="main_hand",
+        level=actor.level,
+        race_features=getattr(actor, "race_features", None),
+        class_features=getattr(actor, "class_features", None),
+    )
+
+
+def _is_valid_two_weapon_melee_profile(profile: Any) -> bool:
+    return bool(
+        getattr(profile, "is_weapon_attack", False)
+        and getattr(profile, "is_melee_weapon", False)
+        and not getattr(profile, "is_ranged_weapon", False)
+        and getattr(profile, "is_light_weapon", False)
+    )
+
+
+def _two_weapon_bonus_attack_available(actor: Any, *, turn_id: str) -> bool:
+    _class_features, runtime = _combatant_class_feature_runtime(actor)
+    marker = runtime.get(_two_weapon_marker_key())
+    payload = dict(marker) if isinstance(marker, dict) else {}
+    if str(payload.get("turn_id") or "").strip() != turn_id:
+        return False
+    return bool(payload.get("available"))
+
+
+def _set_two_weapon_bonus_attack_marker(actor: Any, *, turn_id: str, available: bool) -> None:
+    class_features, runtime = _combatant_class_feature_runtime(actor)
+    runtime[_two_weapon_marker_key()] = {"turn_id": turn_id, "available": bool(available)}
+    _commit_combatant_class_feature_runtime(actor, class_features, runtime)
+
+
+def _can_offer_two_weapon_bonus_attack(actor: Any, *, main_profile: Any) -> bool:
+    if not _is_valid_two_weapon_melee_profile(main_profile):
+        return False
+    off_hand_profile = _off_hand_weapon_profile(actor)
+    return _is_valid_two_weapon_melee_profile(off_hand_profile)
 
 
 def _clamp_death_counter(value: int) -> int:
@@ -4413,6 +4479,8 @@ def handle_live_combat_action(
             damage_already_crit_scaled=gwf_damage_roll,
         )
         turn_id = _current_combat_turn_id(state)
+        two_weapon_available = _can_offer_two_weapon_bonus_attack(attacker, main_profile=profile)
+        _set_two_weapon_bonus_attack_marker(attacker, turn_id=turn_id, available=two_weapon_available)
         nimble_hide_broken = _consume_nimble_escape_hide(attacker) if nimble_escape_hide_advantage else False
         hidden_step_broken = _break_hidden_step(attacker)
         attacker.help_attack_advantage = False
@@ -4420,6 +4488,13 @@ def handle_live_combat_action(
         extra_outcome_lines.extend(early_outcome_lines)
         extra_outcome_lines.extend(bfs_lines)
         extra_outcome_lines.extend(gwf_lines)
+        if two_weapon_available:
+            extra_outcome_lines.append(
+                {
+                    "text": "Бой двумя оружиями: можно бонусным действием атаковать второй рукой.",
+                    "muted": True,
+                }
+            )
         if nimble_hide_broken:
             extra_outcome_lines.append({"text": "Скрытность: преимущество на эту атаку из «Шустрого побега».", "muted": True})
         total_damage = int(resolution.total_damage)
@@ -4634,6 +4709,15 @@ def handle_live_combat_action(
             )
 
         if _attack_action_followup_available(state, attacker):
+            return (
+                {
+                    "status": _combat_status(state),
+                    "open": True,
+                    "lines": lines,
+                },
+                None,
+            )
+        if _two_weapon_bonus_attack_available(attacker, turn_id=turn_id):
             return (
                 {
                     "status": _combat_status(state),
@@ -5871,6 +5955,250 @@ def handle_live_combat_action(
                 None,
             )
 
+        return (
+            {
+                "status": _combat_status(state),
+                "open": True,
+                "lines": lines,
+            },
+            None,
+        )
+
+    if action == "combat_two_weapon_attack":
+        state = get_combat(session_id)
+        if state is None or not state.active:
+            return None, "Combat is not active"
+        if not state.order:
+            end_combat(session_id)
+            return (
+                {
+                    "status": "Бой завершён",
+                    "open": False,
+                    "lines": [{"text": "Бой завершён: целей не осталось.", "muted": True}],
+                },
+                None,
+            )
+
+        attacker_key = state.order[state.turn_index]
+        attacker = state.combatants.get(attacker_key)
+        if attacker is None:
+            return None, "Combat state is inconsistent"
+
+        turn_id = _current_combat_turn_id(state)
+        if not _two_weapon_bonus_attack_available(attacker, turn_id=turn_id):
+            return None, "Бонусная атака второй рукой недоступна: сначала нужна подходящая атака действием."
+
+        main_profile = _main_hand_weapon_profile(attacker)
+        off_hand_profile = _off_hand_weapon_profile(attacker)
+        if not _is_valid_two_weapon_melee_profile(main_profile):
+            return None, "Бонусная атака второй рукой недоступна: основное оружие должно быть лёгким ближним."
+        if not _is_valid_two_weapon_melee_profile(off_hand_profile):
+            return None, "Бонусная атака второй рукой недоступна: второе оружие должно быть лёгким ближним."
+
+        blocked = _spend_bonus_action_or_block(state, attacker)
+        if blocked is not None:
+            return blocked, None
+
+        target = _first_living_opponent(state, attacker.side)
+        if target is None:
+            end_combat(session_id)
+            return (
+                {
+                    "status": "Бой завершён",
+                    "open": False,
+                    "lines": [{"text": "Бой завершён: целей не осталось.", "muted": True}],
+                },
+                None,
+            )
+
+        has_disadvantage = (
+            target.dodge_active
+            or _is_poisoned_condition_active(attacker)
+            or _is_taunted_attack_disadvantage(attacker, target)
+            or _has_sunlight_sensitivity_disadvantage(attacker)
+        )
+        early_outcome_lines: list[dict[str, Any]] = []
+        protection_disadvantage = _maybe_apply_protection_disadvantage(state, attacker, target, early_outcome_lines)
+        has_disadvantage = has_disadvantage or protection_disadvantage
+        hidden_step_advantage = _is_hidden_step_active(attacker)
+        has_advantage = (
+            hidden_step_advantage
+            or _has_pack_tactics_advantage(state, attacker, target)
+            or _has_active_grovel_advantage_for_attack(state, attacker, target)
+        )
+        if has_advantage and _target_denies_attack_advantage(target):
+            has_advantage = False
+        roll_mode = "normal"
+        if has_advantage and not has_disadvantage:
+            roll_mode = "advantage"
+        elif has_disadvantage and not has_advantage:
+            roll_mode = "disadvantage"
+        roll_a, roll_b, d20_roll = _roll_check_compat(
+            roll_mode,
+            rng=random,
+            reroll_ones=_has_reroll_ones_scope(attacker, "attack"),
+        )
+        bfs_lines: list[dict[str, Any]] = []
+        d20_roll = _maybe_apply_built_for_success(attacker, d20_roll, bfs_lines)
+        d20_roll = _maybe_apply_vampiric_bite_bonus(attacker, d20_roll, bfs_lines)
+        attack_roll_repr = f"d20({roll_a})" if roll_b is None else f"d20({roll_a},{roll_b}) -> {d20_roll}"
+
+        parsed = parse_dice(off_hand_profile.damage_dice)
+        if parsed is None:
+            n, sides = 1, 4
+        else:
+            n, sides = parsed
+        damage_roll = sum(random.randint(1, sides) for _ in range(max(1, n)))
+        stat_mod = int(off_hand_profile.damage_bonus or 0)
+        damage_bonus = stat_mod if fighter_has_two_weapon_fighting_style(attacker) else min(stat_mod, 0)
+        resolution = resolve_attack_roll(
+            target_ac=target.ac,
+            d20_roll=d20_roll,
+            attack_bonus=off_hand_profile.attack_bonus,
+            damage_roll=damage_roll,
+            damage_bonus=damage_bonus,
+        )
+        hidden_step_broken = _break_hidden_step(attacker)
+        total_damage = int(resolution.total_damage)
+        extra_outcome_lines: list[dict[str, Any]] = []
+        extra_outcome_lines.extend(early_outcome_lines)
+        extra_outcome_lines.extend(bfs_lines)
+        if fighter_has_two_weapon_fighting_style(attacker):
+            extra_outcome_lines.append(
+                {
+                    "text": "Сражение двумя оружиями: модификатор характеристики добавлен к урону второй руки.",
+                    "muted": True,
+                }
+            )
+        else:
+            extra_outcome_lines.append(
+                {
+                    "text": "Бой двумя оружиями: урон второй руки без положительного модификатора характеристики.",
+                    "muted": True,
+                }
+            )
+        if resolution.is_hit:
+            total_damage, surprise_lines = _apply_surprise_attack_bonus(
+                state=state,
+                attacker=attacker,
+                target=target,
+                is_hit=bool(resolution.is_hit),
+                is_crit=bool(resolution.is_crit),
+                total_damage=total_damage,
+            )
+            extra_outcome_lines.extend(surprise_lines)
+            total_damage, savage_lines = _apply_savage_attacks_bonus(
+                attacker=attacker,
+                profile=off_hand_profile,
+                is_crit=bool(resolution.is_crit),
+                total_damage=total_damage,
+            )
+            extra_outcome_lines.extend(savage_lines)
+            total_damage, sneak_lines = _apply_sneak_attack_bonus(
+                state=state,
+                attacker=attacker,
+                target=target,
+                profile=off_hand_profile,
+                total_damage=total_damage,
+                is_hit=bool(resolution.is_hit),
+                is_crit=bool(resolution.is_crit),
+                has_advantage=bool(has_advantage),
+                has_disadvantage=bool(has_disadvantage),
+                turn_id=turn_id,
+            )
+            extra_outcome_lines.extend(sneak_lines)
+            fury_bonus = _maybe_apply_fury_of_small(actor=attacker, target=target, lines=extra_outcome_lines)
+            if fury_bonus > 0:
+                total_damage += fury_bonus
+            pre_hp = target.hp_current
+            damage_to_apply, relentless_lines = _apply_relentless_endurance_if_needed(target=target, incoming_damage=total_damage)
+            extra_outcome_lines.extend(relentless_lines)
+            state = apply_damage(session_id, target.key, damage_to_apply, source=attacker.key)
+            if state is None:
+                return None, "Combat is not active"
+            target = state.combatants.get(target.key, target)
+            state_after_poison, target_after_poison = _consume_grung_weapon_poison_on_hit(
+                session_id=session_id,
+                attacker=attacker,
+                target=target,
+                profile=off_hand_profile,
+                lines=extra_outcome_lines,
+            )
+            if state_after_poison is None:
+                return None, "Combat is not active"
+            state = state_after_poison
+            target = target_after_poison
+            _maybe_apply_grung_contact_poison_on_melee_hit(
+                attacker=attacker,
+                target=target,
+                is_melee_hit=bool(getattr(off_hand_profile, "is_melee_weapon", False)),
+                lines=extra_outcome_lines,
+            )
+            if target.side == "pc":
+                if pre_hp > 0 and target.hp_current == 0:
+                    leftover = total_damage - pre_hp
+                    if leftover >= target.hp_max:
+                        target.is_dead = True
+                        target.is_stable = False
+                        extra_outcome_lines.append({"text": f"Мгновенная смерть: {target.name} погибает."})
+                        _revert_shapechanger_on_death(target, extra_outcome_lines)
+                elif pre_hp == 0 and not target.is_dead:
+                    fail_step = 2 if resolution.is_crit else 1
+                    target.death_failures = _clamp_death_counter(target.death_failures + fail_step)
+                    if target.death_failures >= 3:
+                        target.is_dead = True
+                        target.is_stable = False
+                        extra_outcome_lines.append({"text": f"Смерть: {target.name} погибает."})
+                        _revert_shapechanger_on_death(target, extra_outcome_lines)
+                    else:
+                        extra_outcome_lines.append({"text": "Смертельный урон при 0 HP: провал спасброска смерти."})
+
+        _set_two_weapon_bonus_attack_marker(attacker, turn_id=turn_id, available=False)
+        attack_line = (
+            f"Бросок атаки второй рукой: {attack_roll_repr} + {resolution.attack_bonus} = "
+            f"{resolution.total_to_hit} vs AC {resolution.target_ac}"
+        )
+        if resolution.is_crit:
+            result_line = "Результат: критическое попадание"
+        elif resolution.is_hit:
+            result_line = "Результат: попадание"
+        else:
+            result_line = "Результат: промах"
+        damage_line = (
+            f"Урон: {(resolution.damage_roll * 2 if resolution.is_crit else resolution.damage_roll)} + {resolution.damage_bonus} = {total_damage}"
+            if resolution.is_hit
+            else "Урон: 0 (промах)"
+        )
+        lines: list[dict[str, Any]] = [
+            {"text": f"Бонусная атака второй рукой: {attacker.name} → {target.name}"},
+            {"text": attack_line},
+            {"text": result_line},
+            {"text": damage_line},
+        ]
+        if resolution.is_hit:
+            lines.append({"text": f"{target.name}: HP {target.hp_current}/{target.hp_max}"})
+            if target.hp_current <= 0:
+                lines.append({"text": f"{target.name} повержен."})
+        if hidden_step_broken:
+            lines.append({"text": "Незримая поступь прерывается: невидимость спадает.", "muted": True})
+        lines.extend(extra_outcome_lines)
+
+        side_pc_alive = _is_side_alive(state, "pc")
+        side_enemy_alive = _is_side_alive(state, "enemy")
+        if not side_pc_alive or not side_enemy_alive:
+            if not side_enemy_alive:
+                lines.append({"text": "Победа: противники повержены.", "muted": True})
+            if not side_pc_alive:
+                lines.append({"text": "Поражение: все герои выбыли.", "muted": True})
+            end_combat(session_id)
+            return (
+                {
+                    "status": "Бой завершён",
+                    "open": False,
+                    "lines": lines,
+                },
+                None,
+            )
         return (
             {
                 "status": _combat_status(state),

@@ -19,10 +19,13 @@ class AttackProfile:
     is_melee_weapon: bool = False
     is_ranged_weapon: bool = False
     is_finesse_weapon: bool = False
+    is_light_weapon: bool = False
+    is_thrown_weapon: bool = False
     properties: tuple[str, ...] = ()
     weapon_properties: tuple[str, ...] = ()
     mastery: str | None = None
     is_wielded_two_handed: bool = False
+    weapon_slot: str | None = None
 
 
 def _safe_int(value: Any, default: int) -> int:
@@ -181,6 +184,7 @@ def compute_attack_profile(
     stats: dict,
     inventory: list[dict],
     equip_map: dict[str, str],
+    weapon_slot: str | None = None,
     level: int | None = None,
     race_features: dict | None = None,
     class_features: dict | None = None,
@@ -209,7 +213,12 @@ def compute_attack_profile(
 
     chosen_slot: EquipmentSlot | None = None
     chosen_entry: dict[str, Any] | None = None
-    for slot in (EquipmentSlot.main_hand, EquipmentSlot.ranged, EquipmentSlot.off_hand):
+    requested_slot = str(weapon_slot or "").strip().lower()
+    if requested_slot in {EquipmentSlot.main_hand.value, EquipmentSlot.ranged.value, EquipmentSlot.off_hand.value}:
+        slot_order = (EquipmentSlot(requested_slot),)
+    else:
+        slot_order = (EquipmentSlot.main_hand, EquipmentSlot.ranged, EquipmentSlot.off_hand)
+    for slot in slot_order:
         item_id = str(equip_map.get(slot.value) or "").strip().lower() if isinstance(equip_map, dict) else ""
         if not item_id:
             continue
@@ -272,10 +281,13 @@ def compute_attack_profile(
             is_melee_weapon=not is_ranged_weapon,
             is_ranged_weapon=is_ranged_weapon,
             is_finesse_weapon="finesse" in properties_cf,
+            is_light_weapon="light" in properties_cf,
+            is_thrown_weapon="thrown" in properties_cf,
             properties=properties,
             weapon_properties=properties,
             mastery=weapon.mastery,
             is_wielded_two_handed=is_wielded_two_handed,
+            weapon_slot=chosen_slot.value if chosen_slot is not None else None,
         )
 
     attack_bonus = str_mod + prof
@@ -303,9 +315,12 @@ def compute_attack_profile(
             is_melee_weapon=False,
             is_ranged_weapon=False,
             is_finesse_weapon=False,
+            is_light_weapon=False,
+            is_thrown_weapon=False,
             properties=(),
             weapon_properties=(),
             mastery=None,
+            weapon_slot=None,
         )
     return AttackProfile(
         attack_bonus=attack_bonus,
@@ -316,6 +331,9 @@ def compute_attack_profile(
         is_melee_weapon=False,
         is_ranged_weapon=False,
         is_finesse_weapon=False,
+        is_light_weapon=False,
+        is_thrown_weapon=False,
+        weapon_slot=None,
     )
 
 

@@ -915,7 +915,7 @@ BASE_CLASS_CATALOG: list[dict[str, Any]] = [
                             "protection",
                             "two_weapon_fighting",
                         ],
-                        "implemented_styles": ["archery", "defense", "dueling", "great_weapon_fighting", "protection"],
+                        "implemented_styles": ["archery", "defense", "dueling", "great_weapon_fighting", "protection", "two_weapon_fighting"],
                         "choice_key": "fighting_style",
                     },
                 },

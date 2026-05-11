@@ -155,6 +155,13 @@ CHAT_COMBAT_ACTION_PATTERNS: list[tuple[str, re.Pattern[str]]] = [
         ),
     ),
     (
+        "combat_two_weapon_attack",
+        re.compile(
+            r"(втор\w+\s+рук\w*|удар\w*\s+втор\w+\s+рук\w*|атак\w*\s+втор\w+\s+рук\w*|бой\s+двумя\s+оруж\w*|two\s+weapon|off-?hand)",
+            re.IGNORECASE,
+        ),
+    ),
+    (
         "combat_cunning_dash",
         re.compile(r"(хитр\w*\s+действ\w*\s+рыв\w*|хитр\w*\s+действ\w*\s+спринт\w*|бонусн\w*\s+действ\w*\s+(?:делаю\s+)?рыв\w*|cunning\s+action\s+dash)", re.IGNORECASE),
     ),

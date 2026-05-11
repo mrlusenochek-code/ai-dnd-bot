@@ -302,7 +302,7 @@ def test_fighter_fighting_style_catalog_has_runtime_mechanics() -> None:
             "protection",
             "two_weapon_fighting",
         ],
-        "implemented_styles": ["archery", "defense", "dueling", "great_weapon_fighting", "protection"],
+        "implemented_styles": ["archery", "defense", "dueling", "great_weapon_fighting", "protection", "two_weapon_fighting"],
         "choice_key": "fighting_style",
     }
 

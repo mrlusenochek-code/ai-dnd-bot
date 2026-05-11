@@ -1,6 +1,10 @@
 from types import SimpleNamespace
 
-from app.rules.class_feature_runtime import fighter_has_protection_style, has_fighting_style
+from app.rules.class_feature_runtime import (
+    fighter_has_protection_style,
+    fighter_has_two_weapon_fighting_style,
+    has_fighting_style,
+)
 from app.rules.derived_stats import compute_ac, compute_attack_profile
 
 
@@ -19,7 +23,7 @@ def _fighter_class_features(choice) -> dict:
                         "protection",
                         "two_weapon_fighting",
                     ],
-                    "implemented_styles": ["archery", "defense", "dueling", "great_weapon_fighting", "protection"],
+                    "implemented_styles": ["archery", "defense", "dueling", "great_weapon_fighting", "protection", "two_weapon_fighting"],
                     "choice_key": "fighting_style",
                 },
             }
@@ -143,3 +147,56 @@ def test_protection_style_helper_false_without_style() -> None:
     ch = SimpleNamespace(class_features=_fighter_class_features("defense"))
     assert has_fighting_style(ch, "protection") is False
     assert fighter_has_protection_style(ch) is False
+
+
+def test_two_weapon_fighting_style_helpers_detect_choice() -> None:
+    ch = SimpleNamespace(class_features=_fighter_class_features("two_weapon_fighting"))
+    assert has_fighting_style(ch, "two_weapon_fighting") is True
+    assert fighter_has_two_weapon_fighting_style(ch) is True
+
+
+def test_compute_attack_profile_weapon_slot_prefers_requested_offhand() -> None:
+    stats = {"str": 90, "dex": 50}
+    inv = [{"id": "w1", "def": "longsword"}, {"id": "w2", "def": "dagger"}]
+    equip_map = {"main_hand": "w1", "off_hand": "w2"}
+    profile = compute_attack_profile(
+        stats=stats,
+        inventory=inv,
+        equip_map=equip_map,
+        weapon_slot="off_hand",
+        level=1,
+        class_features=_fighter_class_features("two_weapon_fighting"),
+    )
+    assert profile.damage_dice == "1d4"
+    assert profile.weapon_slot == "off_hand"
+    assert profile.is_light_weapon is True
+
+
+def test_compute_attack_profile_default_still_prefers_main_hand() -> None:
+    stats = {"str": 90, "dex": 50}
+    inv = [{"id": "w1", "def": "longsword"}, {"id": "w2", "def": "dagger"}]
+    equip_map = {"main_hand": "w1", "off_hand": "w2"}
+    profile = compute_attack_profile(
+        stats=stats,
+        inventory=inv,
+        equip_map=equip_map,
+        level=1,
+        class_features=_fighter_class_features("two_weapon_fighting"),
+    )
+    assert profile.damage_dice == "1d8"
+    assert profile.weapon_slot == "main_hand"
+    assert profile.is_light_weapon is False
+
+
+def test_longsword_is_not_light_weapon() -> None:
+    stats = {"str": 90, "dex": 50}
+    inv = [{"id": "w1", "def": "longsword"}]
+    equip_map = {"main_hand": "w1"}
+    profile = compute_attack_profile(
+        stats=stats,
+        inventory=inv,
+        equip_map=equip_map,
+        level=1,
+        class_features=_fighter_class_features("two_weapon_fighting"),
+    )
+    assert profile.is_light_weapon is False
