@@ -4717,7 +4717,13 @@ def handle_live_combat_action(
                 },
                 None,
             )
-        if _two_weapon_bonus_attack_available(attacker, turn_id=turn_id):
+        if _two_weapon_bonus_attack_available(attacker, turn_id=turn_id) and bool(getattr(attacker, "bonus_action_available", False)):
+            lines.append(
+                {
+                    "text": "Ход остаётся за вами: можно атаковать второй рукой бонусным действием или закончить ход.",
+                    "muted": True,
+                }
+            )
             return (
                 {
                     "status": _combat_status(state),

@@ -149,7 +149,10 @@ def test_two_weapon_attack_main_attack_sets_marker_and_bonus_attack_uses_bonus_a
     try:
         patch_main, err_main = handle_live_combat_action("combat_attack", session_id)
         assert err_main is None
-        assert any("Бой двумя оружиями: можно бонусным действием атаковать второй рукой." in t for t in _line_texts(patch_main))
+        main_texts = _line_texts(patch_main)
+        assert any("Бой двумя оружиями: можно бонусным действием атаковать второй рукой." in t for t in main_texts)
+        assert any("Ход остаётся за вами" in t for t in main_texts)
+        assert all("Ход автоматически передан:" not in t for t in main_texts)
         state = get_combat(session_id)
         assert state is not None
         fighter = state.combatants["pc_1"]
@@ -171,6 +174,7 @@ def test_two_weapon_attack_main_attack_sets_marker_and_bonus_attack_uses_bonus_a
         assert state.turn_index == 0
         marker = ((fighter.class_features or {}).get("runtime") or {}).get("two_weapon_bonus_attack") or {}
         assert marker.get("available") is False
+        assert all("Ход автоматически передан:" not in t for t in texts)
     finally:
         end_combat(session_id)
 
@@ -243,6 +247,43 @@ def test_two_weapon_attack_requires_offhand_and_light_weapons(monkeypatch) -> No
             assert "сначала нужна подходящая атака действием" in str(err or "").lower()
         finally:
             end_combat(session_id)
+
+
+def test_two_weapon_attack_without_available_offhand_auto_advances_turn(monkeypatch) -> None:
+    session_id = "test_twf_without_available_offhand_auto_advances_turn"
+    _build_state(session_id, main_def="dagger", off_def=None, class_features=_fighter_style_features("two_weapon_fighting"))
+    _capture_rolls(monkeypatch, [(15, None, 15)], damage_rolls=[3])
+    try:
+        patch_main, err_main = handle_live_combat_action("combat_attack", session_id)
+        assert err_main is None
+        texts = _line_texts(patch_main)
+        assert any("Ход автоматически передан:" in t for t in texts)
+        assert all("Ход остаётся за вами" not in t for t in texts)
+        state = get_combat(session_id)
+        assert state is not None
+        assert state.turn_index == 1
+    finally:
+        end_combat(session_id)
+
+
+def test_two_weapon_attack_with_bonus_action_already_spent_auto_advances_turn(monkeypatch) -> None:
+    session_id = "test_twf_with_bonus_action_already_spent_auto_advances_turn"
+    _build_state(session_id, class_features=_fighter_style_features("two_weapon_fighting"))
+    state = get_combat(session_id)
+    assert state is not None
+    state.combatants["pc_1"].bonus_action_available = False
+    _capture_rolls(monkeypatch, [(15, None, 15)], damage_rolls=[3])
+    try:
+        patch_main, err_main = handle_live_combat_action("combat_attack", session_id)
+        assert err_main is None
+        texts = _line_texts(patch_main)
+        assert any("Ход автоматически передан:" in t for t in texts)
+        assert all("Ход остаётся за вами" not in t for t in texts)
+        state = get_combat(session_id)
+        assert state is not None
+        assert state.turn_index == 1
+    finally:
+        end_combat(session_id)
 
 
 def test_two_weapon_attack_requires_bonus_action_and_prior_main_attack(monkeypatch) -> None:
