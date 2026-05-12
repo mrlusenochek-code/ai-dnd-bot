@@ -8,6 +8,7 @@ from types import SimpleNamespace
 from typing import Any
 
 from app.web import http_routes
+from app.web.gameplay_helpers import _char_to_payload
 
 
 class _FakeScalarResult:
@@ -182,6 +183,43 @@ def test_fighter_create_persists_two_weapon_fighting(monkeypatch) -> None:
     assert choices.get("fighting_style") == "two_weapon_fighting"
 
 
+def test_char_payload_exposes_inventory_and_equip_from_stats() -> None:
+    character = SimpleNamespace(
+        name="Inventory Hero",
+        class_kit="fighter",
+        class_skin="Fighter",
+        race_kit="aarakocra",
+        race_skin="Aarakocra",
+        level=5,
+        xp_total=0,
+        hp=20,
+        hp_max=20,
+        sta=10,
+        sta_max=10,
+        stats={
+            "str": 50,
+            "dex": 70,
+            "con": 50,
+            "int": 50,
+            "wis": 50,
+            "cha": 50,
+            "_inv": [
+                {"id": "dagger_main", "name": "Кинжал", "qty": 1, "def": "dagger"},
+                {"id": "dagger_off", "name": "Кинжал", "qty": 1, "def": "dagger"},
+            ],
+            "_equip": {"main_hand": "dagger_main", "off_hand": "dagger_off"},
+        },
+        race_features={},
+        class_features={},
+    )
+
+    payload = _char_to_payload(character)
+
+    assert payload is not None
+    assert payload.get("inventory") == character.stats["_inv"]
+    assert payload.get("equip") == character.stats["_equip"]
+
+
 def test_fighting_style_ui_texts_present_in_templates() -> None:
     templates_dir = Path(__file__).resolve().parents[0] / "templates"
     create_template = (templates_dir / "character_create.html").read_text(encoding="utf-8")
@@ -198,6 +236,8 @@ def test_fighting_style_ui_texts_present_in_templates() -> None:
     assert "Сражение большим оружием" in session_template
     assert "Защита" in session_template
     assert "Сражение двумя оружиями" in session_template
+    assert "renderInventoryHtml(invList)" in session_template
+    assert "getInventoryText(invList)" in session_template
     assert 'card.addEventListener("click", openCharacterModal);' not in session_template
     assert 'card.addEventListener("click", () => openCharacterModal());' in session_template
     assert '&& !("type" in targetPlayer)' in session_template

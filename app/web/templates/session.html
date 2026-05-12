@@ -3366,7 +3366,7 @@ function openCharacterModal(targetPlayer = null){
     details.push(`<div class="char-line"><strong>Описание:</strong> ${escapeHtml(ch.description)}</div>`);
   }
   details.push(`<div class="char-line"><strong>HP / STA:</strong> ${escapeHtml(String(ch.hp ?? "—"))}/${escapeHtml(String(ch.hp_max ?? "—"))} | ${escapeHtml(String(ch.sta ?? "—"))}/${escapeHtml(String(ch.sta_max ?? "—"))}</div>`);
-  details.push(renderInventoryHtml(ch.inventory));
+  details.push(renderInventoryHtml(invList));
   details.push(
     "<div class='char-line'><strong>Атрибуты:</strong><ul class='char-list'>" +
     `<li>Сила: ${escapeHtml(String(prettyStatValue(ch, ["str"])))}</li>` +
@@ -3571,7 +3571,7 @@ function openCharacterModal(targetPlayer = null){
   if(featChoiceRu) copyLines.push(`Черта: ${featChoiceRu}`);
   copyLines.push(`HP/STA: ${String(ch.hp ?? "—")}/${String(ch.hp_max ?? "—")} | ${String(ch.sta ?? "—")}/${String(ch.sta_max ?? "—")}`);
   copyLines.push(`Прогресс уровня: XP ${xpTotal}/${nextLevelTotal}, до след. ${toNextLevel}`);
-  copyLines.push(`Инвентарь: ${getInventoryText(ch.inventory)}`);
+  copyLines.push(`Инвентарь: ${getInventoryText(invList)}`);
   copyLines.push(`Атрибуты: ${statsText.join(", ")}`);
   if(skillsLines.length === 0){
     copyLines.push("Навыки: —");

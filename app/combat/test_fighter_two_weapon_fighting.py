@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+from types import SimpleNamespace
+
 from app.combat.live_actions import handle_live_combat_action
 from app.combat.state import Combatant, end_combat, get_combat, start_combat
+from app.combat.sync_pcs import sync_pcs_from_chars
 
 
 def _line_texts(patch) -> list[str]:
@@ -343,5 +346,65 @@ def test_two_weapon_attack_crit_doubles_offhand_weapon_dice(monkeypatch) -> None
         texts = _line_texts(patch)
         assert any("Результат: критическое попадание" in t for t in texts)
         assert any("Урон: 6 + 0 = 6" in t for t in texts)
+    finally:
+        end_combat(session_id)
+
+
+def test_sync_pcs_from_chars_equipped_daggers_drive_weapon_attack_and_keep_turn_open(monkeypatch) -> None:
+    session_id = "test_sync_pcs_equipped_daggers_drive_weapon_attack"
+    state = start_combat(session_id)
+    state.combatants["enemy_1"] = Combatant(
+        key="enemy_1",
+        name="Target Dummy",
+        side="enemy",
+        hp_current=30,
+        hp_max=30,
+        ac=10,
+        initiative=10,
+        stats={"con": 40},
+    )
+    state.round_no = 1
+
+    fighter = SimpleNamespace(
+        name="фы",
+        hp=30,
+        hp_max=30,
+        level=5,
+        speed_ft=30,
+        stats={
+            "str": 90,
+            "dex": 70,
+            "con": 50,
+            "int": 50,
+            "wis": 50,
+            "cha": 50,
+            "_inv": [
+                {"id": "dagger_main", "name": "Кинжал", "qty": 1, "def": "dagger"},
+                {"id": "dagger_off", "name": "Кинжал", "qty": 1, "def": "dagger"},
+            ],
+            "_equip": {"main_hand": "dagger_main", "off_hand": "dagger_off"},
+        },
+        race_features={},
+        class_features=_fighter_style_features("two_weapon_fighting"),
+    )
+
+    sync_pcs_from_chars(session_id, {1: fighter})
+    state = get_combat(session_id)
+    assert state is not None
+    state.order = ["pc_1", "enemy_1"]
+    state.turn_index = 0
+    _capture_rolls(monkeypatch, [(15, None, 15)], damage_rolls=[3])
+
+    try:
+        patch, err = handle_live_combat_action("combat_attack", session_id)
+        assert err is None
+        texts = _line_texts(patch)
+        assert any(text.startswith("Оружие: 1d4 piercing") for text in texts)
+        assert any("Бой двумя оружиями: можно бонусным действием атаковать второй рукой." in text for text in texts)
+        assert any("Ход остаётся за вами" in text for text in texts)
+        assert all("Ход автоматически передан:" not in text for text in texts)
+        state = get_combat(session_id)
+        assert state is not None
+        assert state.turn_index == 0
     finally:
         end_combat(session_id)
