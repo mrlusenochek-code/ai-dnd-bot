@@ -239,6 +239,67 @@ def _should_skip_gm_narration_for_resolved_combat_action(
     return bool(str(combat_action or "").strip()) and isinstance(combat_patch, dict)
 
 
+def _extract_actor_target_from_combat_patch(combat_patch: dict[str, Any] | None) -> tuple[str, str]:
+    lines = combat_patch.get("lines") if isinstance(combat_patch, dict) else []
+    if not isinstance(lines, list):
+        return "", ""
+    for item in lines:
+        if not isinstance(item, dict):
+            continue
+        text = str(item.get("text") or "").strip()
+        if not text:
+            continue
+        match = re.match(r"^(?:Атака|Бонусная атака второй рукой):\s*(.+?)\s*[→-]\s*(.+)$", text)
+        if match:
+            return match.group(1).strip(), match.group(2).strip()
+    return "", ""
+
+
+def _quick_combat_narration_text(
+    combat_action: str | None,
+    combat_patch: dict[str, Any] | None,
+    *,
+    fallback_actor: str = "",
+) -> str:
+    action = str(combat_action or "").strip().lower()
+    actor, target = _extract_actor_target_from_combat_patch(combat_patch)
+    actor_name = actor or str(fallback_actor or "").strip()
+    lines = combat_patch.get("lines") if isinstance(combat_patch, dict) else []
+    texts = [str(item.get("text") or "").strip() for item in lines if isinstance(item, dict) and str(item.get("text") or "").strip()]
+
+    if action == "combat_attack":
+        if any("бонусная атака второй рукой выполнена автоматически" in text.lower() for text in texts):
+            return f"⚔ {actor_name} атакует двумя оружиями: основной удар и удар второй рукой." if actor_name else ""
+        if actor_name and target:
+            return f"⚔ {actor_name} атакует {target}."
+        return ""
+    if action == "combat_two_weapon_attack":
+        if actor_name and target:
+            return f"⚔ {actor_name} атакует второй рукой {target}."
+        return f"⚔ {actor_name} атакует второй рукой." if actor_name else ""
+    if action in {"combat_dodge"}:
+        return f"🛡 {actor_name} уходит в защиту." if actor_name else ""
+    if action in {"combat_dash", "combat_cunning_dash"}:
+        return f"🏃 {actor_name} делает рывок." if actor_name else ""
+    if action in {"combat_disengage", "combat_cunning_disengage"}:
+        return f"↩ {actor_name} выходит из опасной позиции." if actor_name else ""
+    if action in {"combat_help"}:
+        return f"🤝 {actor_name} помогает союзнику." if actor_name else ""
+    if action in {"combat_use_object", "combat_use_object_on_ally"}:
+        return f"🎒 {actor_name} использует предмет." if actor_name else ""
+    if action in {"combat_end_turn"}:
+        return f"⏭ {actor_name} завершает ход." if actor_name else ""
+    if action in {"combat_second_wind"}:
+        return f"💨 {actor_name} использует Второе дыхание." if actor_name else ""
+    if action in {"combat_action_surge"}:
+        return f"⚡ {actor_name} использует Всплеск действий." if actor_name else ""
+    if action in {"combat_uncanny_dodge"}:
+        return f"🛡 {actor_name} использует Невероятное уклонение." if actor_name else ""
+    if action in {"combat_indomitable"}:
+        return f"🛡 {actor_name} использует Несгибаемый." if actor_name else ""
+    return ""
+
+
 TOOL_LABELS_RU: dict[str, str] = {
     "thieves_tools": "Воровские инструменты",
     "smith_tools": "Инструменты кузнеца",
@@ -8564,6 +8625,16 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                                 continue
                             if combat_patch:
                                 await _broadcast_state_unlocked(session_id, combat_log_ui_patch=combat_patch)
+                                quick_text = _quick_combat_narration_text(combat_action, combat_patch, fallback_actor=actor_label)
+                                if quick_text:
+                                    await add_system_event(
+                                        db,
+                                        sess,
+                                        quick_text,
+                                        result_json={"type": "combat_quick_narration", "combat_action": combat_action},
+                                    )
+                                    await db.commit()
+                                    await broadcast_state(session_id)
                             continue
                         if combat_action == "combat_stroke_of_luck":
                             ch = await get_character(db, sess.id, player.id)
@@ -8690,6 +8761,16 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                             await db.commit()
                             if combat_patch:
                                 await _broadcast_state_unlocked(session_id, combat_log_ui_patch=combat_patch)
+                                quick_text = _quick_combat_narration_text(combat_action, combat_patch, fallback_actor=actor_label)
+                                if quick_text:
+                                    await add_system_event(
+                                        db,
+                                        sess,
+                                        quick_text,
+                                        result_json={"type": "combat_quick_narration", "combat_action": combat_action},
+                                    )
+                                    await db.commit()
+                                    await broadcast_state(session_id)
                             continue
 
                         if combat_action == "combat_healing_hands":
@@ -8776,6 +8857,16 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                                 sync_pcs_from_chars(session_id, chars_by_uid)
                             await _broadcast_state_unlocked(session_id, combat_log_ui_patch=merged_patch)
                         if _should_skip_gm_narration_for_resolved_combat_action(combat_action, merged_patch):
+                            quick_text = _quick_combat_narration_text(combat_action, merged_patch, fallback_actor=actor_label)
+                            if quick_text:
+                                await add_system_event(
+                                    db,
+                                    sess,
+                                    quick_text,
+                                    result_json={"type": "combat_quick_narration", "combat_action": combat_action},
+                                )
+                                await db.commit()
+                                await broadcast_state(session_id)
                             continue
                         facts = extract_combat_narration_facts(merged_patch)
                         if facts:
@@ -10895,6 +10986,16 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                             sync_pcs_from_chars(session_id, chars_by_uid)
                         await broadcast_state(session_id, combat_log_ui_patch=merged_patch)
                         if _should_skip_gm_narration_for_resolved_combat_action(combat_action, merged_patch):
+                            quick_text = _quick_combat_narration_text(combat_action, merged_patch, fallback_actor=actor_label)
+                            if quick_text:
+                                await add_system_event(
+                                    db,
+                                    sess,
+                                    quick_text,
+                                    result_json={"type": "combat_quick_narration", "combat_action": combat_action},
+                                )
+                                await db.commit()
+                                await broadcast_state(session_id)
                             continue
                         state_for_prompt = state_after_actions
                         ch = await get_character(db, sess.id, player.id)
