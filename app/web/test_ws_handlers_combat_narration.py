@@ -46,6 +46,19 @@ def test_quick_combat_narration_suppressed_after_victory() -> None:
     }
     assert ws_handlers._combat_patch_ends_battle(victory_patch) is True
     assert ws_handlers._quick_combat_narration_text("combat_attack", victory_patch, fallback_actor="фы") == ""
+    assert ws_handlers._should_generate_post_victory_gm_narration("combat_attack", victory_patch) is True
+
+
+def test_resolved_combat_attack_without_victory_does_not_request_post_victory_gm() -> None:
+    attack_patch = {
+        "status": "ok",
+        "open": True,
+        "lines": [
+            {"text": "Атака: фы → Разбойник"},
+        ],
+    }
+    assert ws_handlers._should_generate_post_victory_gm_narration("combat_attack", attack_patch) is False
+    assert ws_handlers._quick_combat_narration_text("combat_attack", attack_patch, fallback_actor="фы") == "⚔ фы атакует Разбойник."
 
 
 def test_quick_combat_narration_for_dodge_dash_and_end_turn() -> None:
@@ -90,4 +103,5 @@ def test_out_of_combat_or_missing_patch_does_not_force_skip() -> None:
     assert ws_handlers._should_skip_gm_narration_for_resolved_combat_action("combat_attack", None) is False
     assert ws_handlers._should_skip_gm_narration_for_resolved_combat_action(None, None) is False
     assert ws_handlers._combat_patch_ends_battle(None) is False
+    assert ws_handlers._should_generate_post_victory_gm_narration("combat_attack", None) is False
     assert ws_handlers._quick_combat_narration_text(None, None, fallback_actor="фы") == ""

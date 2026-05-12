@@ -275,6 +275,31 @@ def _combat_patch_ends_battle(combat_patch: dict[str, Any] | None) -> bool:
     return False
 
 
+def _combat_patch_has_victory(combat_patch: dict[str, Any] | None) -> bool:
+    if not isinstance(combat_patch, dict):
+        return False
+    status = str(combat_patch.get("status") or "").strip().lower()
+    if "победа" in status:
+        return True
+    lines = combat_patch.get("lines")
+    if not isinstance(lines, list):
+        return False
+    for item in lines:
+        if not isinstance(item, dict):
+            continue
+        text = str(item.get("text") or "").strip().lower()
+        if text.startswith("победа:"):
+            return True
+    return False
+
+
+def _should_generate_post_victory_gm_narration(
+    combat_action: str | None,
+    combat_patch: dict[str, Any] | None,
+) -> bool:
+    return _should_skip_gm_narration_for_resolved_combat_action(combat_action, combat_patch) and _combat_patch_has_victory(combat_patch)
+
+
 def _quick_combat_narration_text(
     combat_action: str | None,
     combat_patch: dict[str, Any] | None,
@@ -320,6 +345,53 @@ def _quick_combat_narration_text(
     if action in {"combat_indomitable"}:
         return f"🛡 {actor_name} использует Несгибаемый." if actor_name else ""
     return ""
+
+
+async def _emit_post_victory_gm_narration(
+    *,
+    db: Any,
+    sess: Any,
+    player: Any,
+    session_id: str,
+    combat_action: str,
+    combat_patch: dict[str, Any] | None,
+    actor_label: str,
+    state_for_prompt: Any = None,
+) -> None:
+    ch = await get_character(db, sess.id, player.id)
+    narration_inputs = _build_combat_narration_inputs(
+        sess=sess,
+        combat_state=state_for_prompt if state_for_prompt is not None else get_combat(session_id),
+        combat_patch=combat_patch,
+        combat_action=combat_action,
+        character=ch,
+        actor_label=actor_label,
+    )
+    outcome_summary = list(narration_inputs["outcome_summary"] or [])
+    outcome_summary.append("Бой завершён победой героев. Опиши последствия сцены, обстановку вокруг и что можно делать дальше, без повторения механических чисел, урона, XP или наград.")
+    gm_text = await _generate_combat_narration(
+        campaign_title=narration_inputs["campaign_title"],
+        outcome_summary=outcome_summary,
+        player_action=narration_inputs["player_action"],
+        current_turn=narration_inputs["current_turn"],
+        participants_block=narration_inputs["participants_block"],
+        actor_name=narration_inputs["actor_name"],
+        actor_gender=narration_inputs["actor_gender"],
+        actor_pronouns=narration_inputs["actor_pronouns"],
+    )
+    await add_system_event(
+        db,
+        sess,
+        f"🧙 GM: {gm_text}",
+        result_json={
+            "type": "combat_chat_gm_reply",
+            "combat_action": combat_action,
+            "combat_summary": outcome_summary,
+            "post_victory": True,
+        },
+    )
+    await db.commit()
+    await broadcast_state(session_id)
 
 
 TOOL_LABELS_RU: dict[str, str] = {
@@ -8889,6 +8961,16 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                                 )
                                 await db.commit()
                                 await broadcast_state(session_id)
+                            elif _should_generate_post_victory_gm_narration(combat_action, merged_patch):
+                                await _emit_post_victory_gm_narration(
+                                    db=db,
+                                    sess=sess,
+                                    player=player,
+                                    session_id=session_id,
+                                    combat_action=combat_action,
+                                    combat_patch=merged_patch,
+                                    actor_label=actor_label,
+                                )
                             continue
                         facts = extract_combat_narration_facts(merged_patch)
                         if facts:
@@ -11018,6 +11100,17 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                                 )
                                 await db.commit()
                                 await broadcast_state(session_id)
+                            elif _should_generate_post_victory_gm_narration(combat_action, merged_patch):
+                                await _emit_post_victory_gm_narration(
+                                    db=db,
+                                    sess=sess,
+                                    player=player,
+                                    session_id=session_id,
+                                    combat_action=combat_action,
+                                    combat_patch=merged_patch,
+                                    actor_label=actor_label,
+                                    state_for_prompt=state_after_actions,
+                                )
                             continue
                         state_for_prompt = state_after_actions
                         ch = await get_character(db, sess.id, player.id)
