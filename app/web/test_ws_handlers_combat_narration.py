@@ -91,6 +91,26 @@ def test_quick_combat_narration_for_dodge_dash_and_end_turn() -> None:
     )
 
 
+def test_sanitize_gm_response_text_strips_machine_lines_for_player_text() -> None:
+    raw = (
+        "Ты добиваешься ответа от собеседника.\n"
+        "@@INV_ADD(uid=1, name=\"Coin\")\n"
+        "@@ZONE_SET(uid=1, zone=\"street\")\n"
+        "@@CHECK {\"actor_uid\":1,\"kind\":\"skill\",\"name\":\"persuasion\",\"dc\":12}\n"
+        "@@CHECK_RESULT {\"success\":true}\n"
+        "Что делаете дальше?"
+    )
+
+    cleaned = ws_handlers._sanitize_gm_response_text(raw)
+
+    assert "@@INV_ADD" not in cleaned
+    assert "@@ZONE_SET" not in cleaned
+    assert "@@CHECK" not in cleaned
+    assert "@@CHECK_RESULT" not in cleaned
+    assert "Ты добиваешься ответа от собеседника." in cleaned
+    assert "Что делаете дальше?" in cleaned
+
+
 def test_unrecognized_text_in_combat_does_not_force_skip() -> None:
     assert ws_handlers._should_skip_gm_narration_for_resolved_combat_action(
         "",

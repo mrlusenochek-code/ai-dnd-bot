@@ -198,6 +198,7 @@ from app.web.ws_combat_prompting import (
 from app.web.ws_class_features import (
     apply_combat_class_feature_action as _apply_combat_class_feature_action,
 )
+from app.web.machine_lines import _strip_machine_lines
 from app.web.ws_gameplay import STATE_COMMAND_ALIASES, _detect_chat_combat_action, _format_state_text_for_player, infer_zone_from_action
 from app.web.regexes import (
     COMBAT_MOVE_DISTANCE_RE,
@@ -345,6 +346,10 @@ def _quick_combat_narration_text(
     if action in {"combat_indomitable"}:
         return f"🛡 {actor_name} использует Несгибаемый." if actor_name else ""
     return ""
+
+
+def _sanitize_gm_response_text(text: str) -> str:
+    return _sanitize_gm_output(_strip_machine_lines(str(text or "").strip()))
 
 
 async def _emit_post_victory_gm_narration(
@@ -8148,7 +8153,7 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                         timeout_seconds=GM_OLLAMA_TIMEOUT_SECONDS,
                         num_predict=GM_FINAL_NUM_PREDICT,
                     )
-                    gm_text = _sanitize_gm_output(_strip_machine_lines(str(resp.get("text") or "").strip()))
+                    gm_text = _sanitize_gm_response_text(str(resp.get("text") or ""))
                     gm_text = re.sub(r"(?im)^\s*@@COMBAT_[A-Z_]+.*$", "", gm_text).strip()
 
                     has_mechanics = bool(
@@ -8175,7 +8180,7 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                             timeout_seconds=GM_OLLAMA_TIMEOUT_SECONDS,
                             num_predict=GM_FINAL_NUM_PREDICT,
                         )
-                        gm_text = _sanitize_gm_output(_strip_machine_lines(str(repair_resp.get("text") or "").strip()))
+                        gm_text = _sanitize_gm_response_text(str(repair_resp.get("text") or ""))
                         gm_text = re.sub(r"(?im)^\s*@@COMBAT_[A-Z_]+.*$", "", gm_text).strip()
                         has_mechanics = bool(
                             re.search(r"(?:\d|\bd20\b|\bhp\b|\bac\b|урон|бросок|раунд|ход)", gm_text, flags=re.IGNORECASE)
