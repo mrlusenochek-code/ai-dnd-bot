@@ -35,6 +35,19 @@ def test_quick_combat_narration_for_attack_and_auto_two_weapon() -> None:
     )
 
 
+def test_quick_combat_narration_suppressed_after_victory() -> None:
+    victory_patch = {
+        "status": "Бой завершён",
+        "open": False,
+        "lines": [
+            {"text": "Атака: фы → Разбойник"},
+            {"text": "Победа: противники повержены.", "muted": True},
+        ],
+    }
+    assert ws_handlers._combat_patch_ends_battle(victory_patch) is True
+    assert ws_handlers._quick_combat_narration_text("combat_attack", victory_patch, fallback_actor="фы") == ""
+
+
 def test_quick_combat_narration_for_dodge_dash_and_end_turn() -> None:
     assert (
         ws_handlers._quick_combat_narration_text(
@@ -76,4 +89,5 @@ def test_unrecognized_text_in_combat_does_not_force_skip() -> None:
 def test_out_of_combat_or_missing_patch_does_not_force_skip() -> None:
     assert ws_handlers._should_skip_gm_narration_for_resolved_combat_action("combat_attack", None) is False
     assert ws_handlers._should_skip_gm_narration_for_resolved_combat_action(None, None) is False
+    assert ws_handlers._combat_patch_ends_battle(None) is False
     assert ws_handlers._quick_combat_narration_text(None, None, fallback_actor="фы") == ""

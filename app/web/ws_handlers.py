@@ -255,12 +255,34 @@ def _extract_actor_target_from_combat_patch(combat_patch: dict[str, Any] | None)
     return "", ""
 
 
+def _combat_patch_ends_battle(combat_patch: dict[str, Any] | None) -> bool:
+    if not isinstance(combat_patch, dict):
+        return False
+    if combat_patch.get("open") is False:
+        return True
+    status = str(combat_patch.get("status") or "").strip().lower()
+    if "бой заверш" in status:
+        return True
+    lines = combat_patch.get("lines")
+    if not isinstance(lines, list):
+        return False
+    for item in lines:
+        if not isinstance(item, dict):
+            continue
+        text = str(item.get("text") or "").strip().lower()
+        if text.startswith("победа:") or text.startswith("поражение:") or text.startswith("бой завершён"):
+            return True
+    return False
+
+
 def _quick_combat_narration_text(
     combat_action: str | None,
     combat_patch: dict[str, Any] | None,
     *,
     fallback_actor: str = "",
 ) -> str:
+    if _combat_patch_ends_battle(combat_patch):
+        return ""
     action = str(combat_action or "").strip().lower()
     actor, target = _extract_actor_target_from_combat_patch(combat_patch)
     actor_name = actor or str(fallback_actor or "").strip()
