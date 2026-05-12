@@ -51,6 +51,9 @@ def _fighter_character(*, hp: int = 6, hp_max: int = 20, level: int = 3) -> Simp
 def test_detect_second_wind_phrases_as_combat_action() -> None:
     assert _detect_chat_combat_action("использую второе дыхание") == "combat_second_wind"
     assert _detect_chat_combat_action("второе дыхание") == "combat_second_wind"
+    assert _detect_chat_combat_action("перевожу дух") == "combat_second_wind"
+    assert _detect_chat_combat_action("собираюсь с силами") == "combat_second_wind"
+    assert _detect_chat_combat_action("отдышусь") == "combat_second_wind"
     assert _detect_chat_combat_action("second wind") == "combat_second_wind"
 
 
@@ -128,5 +131,83 @@ def test_second_wind_in_combat_requires_turn_spends_bonus_action_and_syncs_hp() 
         assert err_repeat is not None
         assert "короткого или долгого отдыха" in err_repeat
         assert changed_repeat is False
+    finally:
+        end_combat(session_id)
+
+
+def test_second_wind_blocks_when_actor_cannot_act_at_zero_hp() -> None:
+    session_id = "test_second_wind_blocks_when_actor_cannot_act_at_zero_hp"
+    ch = _fighter_character(hp=0, hp_max=20, level=3)
+    state = start_combat(session_id)
+    state.combatants["pc_1"] = Combatant(
+        key="pc_1",
+        name="Fighter",
+        side="pc",
+        hp_current=0,
+        hp_max=20,
+        ac=16,
+        initiative=15,
+        bonus_action_available=True,
+        level=3,
+        is_dead=False,
+    )
+    state.order = ["pc_1"]
+    state.turn_index = 0
+
+    try:
+        patch, err, changed = apply_combat_class_feature_action(
+            "combat_second_wind",
+            session_id,
+            "pc_1",
+            ch,
+            rng=_FixedRng(5),
+        )
+        assert patch is None
+        assert err == "Второе дыхание недоступно: персонаж не может действовать."
+        assert changed is False
+        actor = get_combat(session_id).combatants["pc_1"]  # type: ignore[union-attr]
+        assert actor.bonus_action_available is True
+        assert ((ch.class_features or {}).get("runtime") or {}).get("second_wind_used") is not True
+    finally:
+        end_combat(session_id)
+
+
+def test_second_wind_at_full_hp_spends_resource_and_clamps_heal() -> None:
+    session_id = "test_second_wind_at_full_hp_spends_resource_and_clamps_heal"
+    ch = _fighter_character(hp=20, hp_max=20, level=3)
+    state = start_combat(session_id)
+    state.combatants["pc_1"] = Combatant(
+        key="pc_1",
+        name="Fighter",
+        side="pc",
+        hp_current=20,
+        hp_max=20,
+        ac=16,
+        initiative=15,
+        bonus_action_available=True,
+        level=3,
+    )
+    state.order = ["pc_1"]
+    state.turn_index = 0
+
+    try:
+        patch, err, changed = apply_combat_class_feature_action(
+            "combat_second_wind",
+            session_id,
+            "pc_1",
+            ch,
+            rng=_FixedRng(10),
+        )
+        assert err is None
+        assert patch is not None
+        assert changed is True
+        assert ch.hp == 20
+        actor = get_combat(session_id).combatants["pc_1"]  # type: ignore[union-attr]
+        assert actor.hp_current == 20
+        assert actor.bonus_action_available is False
+        assert ((ch.class_features or {}).get("runtime") or {}).get("second_wind_used") is True
+        lines = patch.get("lines") or []
+        assert isinstance(lines, list)
+        assert any("+0 HP" in str((item or {}).get("text") or "") for item in lines if isinstance(item, dict))
     finally:
         end_combat(session_id)

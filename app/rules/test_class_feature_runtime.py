@@ -712,6 +712,55 @@ def test_apply_second_wind_usage_heals_and_blocks_repeat_until_rest() -> None:
     assert ch.hp == 15
 
 
+def test_apply_second_wind_usage_clamps_to_hp_max_and_can_spend_at_full_hp() -> None:
+    full_hp = SimpleNamespace(
+        name="Fighter",
+        level=4,
+        hp=20,
+        hp_max=20,
+        class_features={
+            "features": [
+                {
+                    "key": "second_wind",
+                    "name_ru": "Второе дыхание",
+                    "mechanics": _fighter_second_wind_mechanics(),
+                }
+            ],
+            "runtime": {},
+        },
+    )
+
+    healed_full, err_full, changed_full = apply_second_wind_usage(full_hp, rng=_FixedRng(9))
+    assert err_full is None
+    assert healed_full == 0
+    assert changed_full is True
+    assert full_hp.hp == 20
+    assert ((full_hp.class_features or {}).get("runtime") or {}).get("second_wind_used") is True
+
+    clamped = SimpleNamespace(
+        name="Fighter",
+        level=4,
+        hp=19,
+        hp_max=20,
+        class_features={
+            "features": [
+                {
+                    "key": "second_wind",
+                    "name_ru": "Второе дыхание",
+                    "mechanics": _fighter_second_wind_mechanics(),
+                }
+            ],
+            "runtime": {},
+        },
+    )
+
+    healed_clamped, err_clamped, changed_clamped = apply_second_wind_usage(clamped, rng=_FixedRng(10))
+    assert err_clamped is None
+    assert healed_clamped == 1
+    assert changed_clamped is True
+    assert clamped.hp == 20
+
+
 def test_reset_class_rest_uses_supports_short_and_long_rest_and_empty_runtime() -> None:
     ch = SimpleNamespace(
         class_features={

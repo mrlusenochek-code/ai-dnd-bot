@@ -38,6 +38,8 @@ def _apply_second_wind_in_combat(
     actor = state.combatants.get(actor_key)
     if actor is None:
         return None, "Боец не найден.", False
+    if int(getattr(actor, "hp_current", 0) or 0) <= 0 or bool(getattr(actor, "is_dead", False)) or bool(getattr(actor, "defeated", False)) or bool(getattr(actor, "is_defeated", False)):
+        return None, "Второе дыхание недоступно: персонаж не может действовать.", False
     if not bool(getattr(actor, "bonus_action_available", True)):
         return None, "Бонусное действие недоступно: бонусное действие уже потрачено.", False
 
