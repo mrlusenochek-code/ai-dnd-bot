@@ -252,3 +252,6 @@ def test_fighting_style_ui_texts_present_in_templates() -> None:
     assert 'uiCtx.gmPendingContext === "post_victory"' in session_template
     assert "🧙 Мастер описывает последствия победы..." in session_template
     assert "Подождите, Мастер описывает сцену..." in session_template
+    assert 'uiCtx.gmPendingContext === "combat_start"' in session_template
+    assert "⚔ Мастер подготавливает бой..." in session_template
+    assert "Подождите, бой загружается..." in session_template

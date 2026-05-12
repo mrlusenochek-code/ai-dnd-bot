@@ -8060,6 +8060,11 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                         },
                     )
                     await db.commit()
+                    previous_phase = _get_phase(sess)
+                    settings_set(sess, "gm_pending_context", "combat_start")
+                    _set_phase(sess, "gm_pending")
+                    await db.commit()
+                    await broadcast_state(session_id)
 
                     enemy_name = "Разбойник" if "разбойник" in lower else ""
                     if not enemy_name:
@@ -8203,6 +8208,8 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                         gm_text = START_INTENT_FALLBACK_TEXT
 
                     await add_system_event(db, sess, f"🧙 GM: {gm_text}")
+                    settings_set(sess, "gm_pending_context", None)
+                    _set_phase(sess, previous_phase or "turns")
                     await db.commit()
                     await broadcast_state(session_id)
                     continue

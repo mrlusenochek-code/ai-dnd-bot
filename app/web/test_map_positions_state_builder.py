@@ -33,6 +33,48 @@ class _FakeDb:
         return _FakeExecuteResult(self._responses.pop(0))
 
 
+def test_build_state_includes_gm_pending_context(monkeypatch) -> None:
+    session_id = uuid.uuid4()
+    sess = SimpleNamespace(
+        id=session_id,
+        title="Campaign",
+        is_active=True,
+        is_paused=False,
+        turn_index=0,
+        current_player_id=None,
+        turn_started_at=None,
+        settings={"phase": "gm_pending", "gm_pending_context": "combat_start"},
+    )
+
+    async def fake_list_session_players(_db, _sess, active_only=False):
+        assert active_only is False
+        return []
+
+    monkeypatch.setattr(state_builder, "list_session_players", fake_list_session_players)
+    monkeypatch.setattr(state_builder, "_get_kicked", lambda _sess: set())
+    monkeypatch.setattr(state_builder, "_get_ready_map", lambda _sess: {})
+    monkeypatch.setattr(state_builder, "_get_init_map", lambda _sess: {})
+    monkeypatch.setattr(state_builder, "_get_last_seen_map", lambda _sess: {})
+    monkeypatch.setattr(state_builder, "_initiative_fixed", lambda _sess: False)
+    monkeypatch.setattr(state_builder, "_is_free_turns", lambda _sess: False)
+    monkeypatch.setattr(state_builder, "_get_phase", lambda _sess: "gm_pending")
+    monkeypatch.setattr(state_builder, "_get_round_actions", lambda _sess: {})
+    monkeypatch.setattr(state_builder, "_ready_active_players", lambda _sess, active_sps: active_sps)
+    monkeypatch.setattr(state_builder, "_get_group_states", lambda _sess, _player_ids=None: {})
+    monkeypatch.setattr(state_builder, "_get_pc_positions", lambda _sess: {})
+    monkeypatch.setattr(state_builder, "_get_map_positions", lambda _sess: {})
+    monkeypatch.setattr(state_builder, "snapshot_combat_state", lambda _session_id: None)
+
+    async def _run():
+        db = _FakeDb([[]])
+        return await state_builder.build_state(db, sess)
+
+    payload = asyncio.run(_run())
+
+    assert payload["game"]["phase"] == "gm_pending"
+    assert payload["game"]["gm_pending_context"] == "combat_start"
+
+
 def test_build_state_includes_legacy_and_structured_positions(monkeypatch) -> None:
     player_id = uuid.uuid4()
     session_id = uuid.uuid4()

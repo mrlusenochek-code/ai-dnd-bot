@@ -333,6 +333,9 @@ function updateSendAvailability(){
     if(uiCtx.gmPendingContext === "post_victory"){
       inp.placeholder = 'Подождите, Мастер описывает сцену...';
       hint.textContent = '🧙 Мастер описывает последствия победы...';
+    }else if(uiCtx.gmPendingContext === "combat_start"){
+      inp.placeholder = 'Подождите, бой загружается...';
+      hint.textContent = '⚔ Мастер подготавливает бой...';
     }else{
       inp.placeholder = 'Подождите, Мастер обрабатывает действие...';
       hint.textContent = '🧙 Мастер обрабатывает действие...';

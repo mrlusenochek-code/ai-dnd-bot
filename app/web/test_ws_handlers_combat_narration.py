@@ -183,3 +183,17 @@ def test_post_victory_gm_generation_sets_and_clears_processing_flag(monkeypatch)
     assert sess.settings.get("phase") == "turns"
     assert sess.settings.get("gm_pending_context") is None
     assert broadcasts[-1] == ("combat-victory", "turns")
+
+
+def test_combat_start_pending_context_is_exposed_and_can_be_cleared() -> None:
+    sess = SimpleNamespace(settings={"phase": "turns"})
+
+    ws_handlers.settings_set(sess, "gm_pending_context", "combat_start")
+    ws_handlers._set_phase(sess, "gm_pending")
+    assert ws_handlers._get_phase(sess) == "gm_pending"
+    assert sess.settings.get("gm_pending_context") == "combat_start"
+
+    ws_handlers.settings_set(sess, "gm_pending_context", None)
+    ws_handlers._set_phase(sess, "turns")
+    assert ws_handlers._get_phase(sess) == "turns"
+    assert sess.settings.get("gm_pending_context") is None
