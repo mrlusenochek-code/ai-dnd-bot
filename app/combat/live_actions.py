@@ -1859,6 +1859,17 @@ def _can_offer_two_weapon_bonus_attack(actor: Any, *, main_profile: Any) -> bool
     return _is_valid_two_weapon_melee_profile(off_hand_profile)
 
 
+def _two_weapon_main_hand_only_requested(raw_text: Any) -> bool:
+    text = str(raw_text or "").strip().lower()
+    if not text:
+        return False
+    return (
+        "одной рукой" in text
+        or "только основной" in text
+        or "только основным оружием" in text
+    )
+
+
 def _clamp_death_counter(value: int) -> int:
     return max(0, min(int(value), 3))
 
@@ -4481,6 +4492,13 @@ def handle_live_combat_action(
         turn_id = _current_combat_turn_id(state)
         two_weapon_available = _can_offer_two_weapon_bonus_attack(attacker, main_profile=profile)
         _set_two_weapon_bonus_attack_marker(attacker, turn_id=turn_id, available=two_weapon_available)
+        attack_followup_available = _attack_action_followup_available(state, attacker)
+        auto_two_weapon_requested = (
+            two_weapon_available
+            and not attack_followup_available
+            and bool(getattr(attacker, "bonus_action_available", False))
+            and not _two_weapon_main_hand_only_requested(raw_text)
+        )
         nimble_hide_broken = _consume_nimble_escape_hide(attacker) if nimble_escape_hide_advantage else False
         hidden_step_broken = _break_hidden_step(attacker)
         attacker.help_attack_advantage = False
@@ -4488,7 +4506,7 @@ def handle_live_combat_action(
         extra_outcome_lines.extend(early_outcome_lines)
         extra_outcome_lines.extend(bfs_lines)
         extra_outcome_lines.extend(gwf_lines)
-        if two_weapon_available:
+        if two_weapon_available and not auto_two_weapon_requested:
             extra_outcome_lines.append(
                 {
                     "text": "Бой двумя оружиями: можно бонусным действием атаковать второй рукой.",
@@ -4708,7 +4726,7 @@ def handle_live_combat_action(
                 None,
             )
 
-        if _attack_action_followup_available(state, attacker):
+        if attack_followup_available:
             return (
                 {
                     "status": _combat_status(state),
@@ -4717,6 +4735,27 @@ def handle_live_combat_action(
                 },
                 None,
             )
+        if auto_two_weapon_requested:
+            offhand_patch, offhand_err = handle_live_combat_action("combat_two_weapon_attack", session_id)
+            if offhand_err is None and isinstance(offhand_patch, dict):
+                merged_lines = list(lines)
+                merged_lines.append(
+                    {
+                        "text": "Бой двумя оружиями: бонусная атака второй рукой выполнена автоматически.",
+                        "muted": True,
+                    }
+                )
+                offhand_lines = offhand_patch.get("lines")
+                if isinstance(offhand_lines, list):
+                    merged_lines.extend([line for line in offhand_lines if isinstance(line, dict)])
+                return (
+                    {
+                        "status": offhand_patch.get("status", _combat_status(get_combat(session_id) or state)),
+                        "open": bool(offhand_patch.get("open", True)),
+                        "lines": merged_lines,
+                    },
+                    None,
+                )
         if _two_weapon_bonus_attack_available(attacker, turn_id=turn_id) and bool(getattr(attacker, "bonus_action_available", False)):
             lines.append(
                 {
@@ -6205,6 +6244,10 @@ def handle_live_combat_action(
                 },
                 None,
             )
+        state = advance_turn(session_id)
+        if state is None:
+            return None, "Combat is not active"
+        lines.append({"text": f"Ход автоматически передан: {current_turn_label(state)}", "muted": True})
         return (
             {
                 "status": _combat_status(state),

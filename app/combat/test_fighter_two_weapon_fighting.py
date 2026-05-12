@@ -144,40 +144,58 @@ def _capture_rolls(monkeypatch, sequence: list[tuple[int, int | None, int]], *, 
     monkeypatch.setattr("app.combat.live_actions.random.randint", lambda _a, _b: next(damage_iter))
 
 
-def test_two_weapon_attack_main_attack_sets_marker_and_bonus_attack_uses_bonus_action(monkeypatch) -> None:
-    session_id = "test_two_weapon_attack_main_attack_sets_marker_and_bonus_attack_uses_bonus_action"
+def test_two_weapon_attack_auto_resolves_combo_and_advances_turn(monkeypatch) -> None:
+    session_id = "test_two_weapon_attack_auto_resolves_combo_and_advances_turn"
     _build_state(session_id, class_features=_fighter_style_features("two_weapon_fighting"))
     _capture_rolls(monkeypatch, [(15, None, 15), (14, None, 14)], damage_rolls=[3, 4])
 
     try:
-        patch_main, err_main = handle_live_combat_action("combat_attack", session_id)
+        patch_main, err_main = handle_live_combat_action("combat_attack", session_id, raw_text="атакую")
         assert err_main is None
         main_texts = _line_texts(patch_main)
-        assert any("Бой двумя оружиями: можно бонусным действием атаковать второй рукой." in t for t in main_texts)
-        assert any("Ход остаётся за вами" in t for t in main_texts)
-        assert all("Ход автоматически передан:" not in t for t in main_texts)
+        assert any("Бой двумя оружиями: бонусная атака второй рукой выполнена автоматически." in t for t in main_texts)
+        assert any("Бонусная атака второй рукой:" in t for t in main_texts)
+        assert any("Ход автоматически передан:" in t for t in main_texts)
+        assert all("Ход остаётся за вами" not in t for t in main_texts)
+        assert all("Действие недоступно" not in t for t in main_texts)
         state = get_combat(session_id)
         assert state is not None
         fighter = state.combatants["pc_1"]
         marker = ((fighter.class_features or {}).get("runtime") or {}).get("two_weapon_bonus_attack") or {}
-        assert marker.get("available") is True
+        assert marker.get("available") is False
         assert fighter.action_available is False
-        assert fighter.bonus_action_available is True
+        assert fighter.bonus_action_available is False
+        assert state.turn_index == 1
+    finally:
+        end_combat(session_id)
+
+
+def test_manual_offhand_after_main_only_attack_auto_advances(monkeypatch) -> None:
+    session_id = "test_manual_offhand_after_main_only_attack_auto_advances"
+    _build_state(session_id, class_features=_fighter_style_features("two_weapon_fighting"))
+    _capture_rolls(monkeypatch, [(15, None, 15), (14, None, 14)], damage_rolls=[3, 4])
+
+    try:
+        patch_main, err_main = handle_live_combat_action("combat_attack", session_id, raw_text="атакую только основной рукой")
+        assert err_main is None
+        main_texts = _line_texts(patch_main)
+        assert any("можно бонусным действием атаковать второй рукой" in t for t in main_texts)
+        assert any("Ход остаётся за вами" in t for t in main_texts)
+        assert all("Бонусная атака второй рукой:" not in t for t in main_texts)
+        state = get_combat(session_id)
+        assert state is not None
         assert state.turn_index == 0
 
         patch_off, err_off = handle_live_combat_action("combat_two_weapon_attack", session_id)
         assert err_off is None
         texts = _line_texts(patch_off)
         assert any("Бонусная атака второй рукой:" in t for t in texts)
+        assert any("Ход автоматически передан:" in t for t in texts)
         state = get_combat(session_id)
         assert state is not None
         fighter = state.combatants["pc_1"]
-        assert fighter.action_available is False
         assert fighter.bonus_action_available is False
-        assert state.turn_index == 0
-        marker = ((fighter.class_features or {}).get("runtime") or {}).get("two_weapon_bonus_attack") or {}
-        assert marker.get("available") is False
-        assert all("Ход автоматически передан:" not in t for t in texts)
+        assert state.turn_index == 1
     finally:
         end_combat(session_id)
 
@@ -188,7 +206,7 @@ def test_two_weapon_attack_without_style_omits_positive_damage_mod(monkeypatch) 
     _capture_rolls(monkeypatch, [(15, None, 15), (14, None, 14)], damage_rolls=[3, 3])
 
     try:
-        handle_live_combat_action("combat_attack", session_id)
+        handle_live_combat_action("combat_attack", session_id, raw_text="атакую только основной рукой")
         patch, err = handle_live_combat_action("combat_two_weapon_attack", session_id)
         assert err is None
         texts = _line_texts(patch)
@@ -204,7 +222,7 @@ def test_two_weapon_attack_with_style_adds_positive_damage_mod(monkeypatch) -> N
     _capture_rolls(monkeypatch, [(15, None, 15), (14, None, 14)], damage_rolls=[3, 3])
 
     try:
-        handle_live_combat_action("combat_attack", session_id)
+        handle_live_combat_action("combat_attack", session_id, raw_text="атакую только основной рукой")
         patch, err = handle_live_combat_action("combat_two_weapon_attack", session_id)
         assert err is None
         texts = _line_texts(patch)
@@ -224,7 +242,7 @@ def test_two_weapon_attack_negative_mod_applies_without_style(monkeypatch) -> No
     _capture_rolls(monkeypatch, [(20, None, 20), (15, None, 15)], damage_rolls=[2, 3])
 
     try:
-        handle_live_combat_action("combat_attack", session_id)
+        handle_live_combat_action("combat_attack", session_id, raw_text="атакую только основной рукой")
         patch, err = handle_live_combat_action("combat_two_weapon_attack", session_id)
         assert err is None
         assert any("Урон: 3 + -2 = 1" in t for t in _line_texts(patch))
@@ -255,7 +273,7 @@ def test_two_weapon_attack_requires_offhand_and_light_weapons(monkeypatch) -> No
 def test_two_weapon_attack_without_available_offhand_auto_advances_turn(monkeypatch) -> None:
     session_id = "test_twf_without_available_offhand_auto_advances_turn"
     _build_state(session_id, main_def="dagger", off_def=None, class_features=_fighter_style_features("two_weapon_fighting"))
-    _capture_rolls(monkeypatch, [(15, None, 15)], damage_rolls=[3])
+    _capture_rolls(monkeypatch, [(15, None, 15), (14, None, 14)], damage_rolls=[3, 4])
     try:
         patch_main, err_main = handle_live_combat_action("combat_attack", session_id)
         assert err_main is None
@@ -275,7 +293,7 @@ def test_two_weapon_attack_with_bonus_action_already_spent_auto_advances_turn(mo
     state = get_combat(session_id)
     assert state is not None
     state.combatants["pc_1"].bonus_action_available = False
-    _capture_rolls(monkeypatch, [(15, None, 15)], damage_rolls=[3])
+    _capture_rolls(monkeypatch, [(15, None, 15), (14, None, 14)], damage_rolls=[3, 4])
     try:
         patch_main, err_main = handle_live_combat_action("combat_attack", session_id)
         assert err_main is None
@@ -292,7 +310,7 @@ def test_two_weapon_attack_with_bonus_action_already_spent_auto_advances_turn(mo
 def test_two_weapon_attack_requires_bonus_action_and_prior_main_attack(monkeypatch) -> None:
     session_id = "test_twf_requires_prior_main_attack"
     _build_state(session_id, class_features=_fighter_style_features("two_weapon_fighting"))
-    _capture_rolls(monkeypatch, [(15, None, 15)], damage_rolls=[3])
+    _capture_rolls(monkeypatch, [(15, None, 15), (14, None, 14)], damage_rolls=[3, 4])
     try:
         patch, err = handle_live_combat_action("combat_two_weapon_attack", session_id)
         assert patch is None
@@ -304,7 +322,7 @@ def test_two_weapon_attack_requires_bonus_action_and_prior_main_attack(monkeypat
     _build_state(session_id, class_features=_fighter_style_features("two_weapon_fighting"))
     _capture_rolls(monkeypatch, [(15, None, 15), (14, None, 14)], damage_rolls=[3, 3])
     try:
-        handle_live_combat_action("combat_attack", session_id)
+        handle_live_combat_action("combat_attack", session_id, raw_text="атакую только основной рукой")
         state = get_combat(session_id)
         assert state is not None
         state.combatants["pc_1"].bonus_action_available = False
@@ -324,7 +342,7 @@ def test_two_weapon_attack_does_not_duplicate_sneak_attack_same_turn(monkeypatch
     )
     _capture_rolls(monkeypatch, [(15, None, 15), (14, None, 14)], damage_rolls=[3, 6, 4])
     try:
-        patch_main, err_main = handle_live_combat_action("combat_attack", session_id)
+        patch_main, err_main = handle_live_combat_action("combat_attack", session_id, raw_text="атакую только основной рукой")
         assert err_main is None
         assert any("Скрытая атака: +6 (1d6)." in t for t in _line_texts(patch_main))
         patch_off, err_off = handle_live_combat_action("combat_two_weapon_attack", session_id)
@@ -340,7 +358,7 @@ def test_two_weapon_attack_crit_doubles_offhand_weapon_dice(monkeypatch) -> None
     _build_state(session_id, class_features=_fighter_style_features("defense"))
     _capture_rolls(monkeypatch, [(15, None, 15), (20, None, 20)], damage_rolls=[3, 3])
     try:
-        handle_live_combat_action("combat_attack", session_id)
+        handle_live_combat_action("combat_attack", session_id, raw_text="атакую только основной рукой")
         patch, err = handle_live_combat_action("combat_two_weapon_attack", session_id)
         assert err is None
         texts = _line_texts(patch)
@@ -350,8 +368,8 @@ def test_two_weapon_attack_crit_doubles_offhand_weapon_dice(monkeypatch) -> None
         end_combat(session_id)
 
 
-def test_sync_pcs_from_chars_equipped_daggers_drive_weapon_attack_and_keep_turn_open(monkeypatch) -> None:
-    session_id = "test_sync_pcs_equipped_daggers_drive_weapon_attack"
+def test_sync_pcs_from_chars_equipped_daggers_drive_auto_two_weapon_attack(monkeypatch) -> None:
+    session_id = "test_sync_pcs_equipped_daggers_drive_auto_two_weapon_attack"
     state = start_combat(session_id)
     state.combatants["enemy_1"] = Combatant(
         key="enemy_1",
@@ -393,18 +411,65 @@ def test_sync_pcs_from_chars_equipped_daggers_drive_weapon_attack_and_keep_turn_
     assert state is not None
     state.order = ["pc_1", "enemy_1"]
     state.turn_index = 0
-    _capture_rolls(monkeypatch, [(15, None, 15)], damage_rolls=[3])
+    _capture_rolls(monkeypatch, [(15, None, 15), (14, None, 14)], damage_rolls=[3, 4])
 
     try:
-        patch, err = handle_live_combat_action("combat_attack", session_id)
+        patch, err = handle_live_combat_action("combat_attack", session_id, raw_text="атакую")
         assert err is None
         texts = _line_texts(patch)
         assert any(text.startswith("Оружие: 1d4 piercing") for text in texts)
-        assert any("Бой двумя оружиями: можно бонусным действием атаковать второй рукой." in text for text in texts)
-        assert any("Ход остаётся за вами" in text for text in texts)
-        assert all("Ход автоматически передан:" not in text for text in texts)
+        assert any("Бой двумя оружиями: бонусная атака второй рукой выполнена автоматически." in text for text in texts)
+        assert any("Бонусная атака второй рукой:" in text for text in texts)
+        assert any("Ход автоматически передан:" in text for text in texts)
         state = get_combat(session_id)
         assert state is not None
-        assert state.turn_index == 0
+        assert state.turn_index == 1
+    finally:
+        end_combat(session_id)
+
+
+def test_combat_attack_without_equipped_weapons_keeps_natural_weapon_fallback(monkeypatch) -> None:
+    session_id = "test_combat_attack_without_equipped_weapons_keeps_natural_weapon_fallback"
+    state = start_combat(session_id)
+    state.combatants["pc_1"] = Combatant(
+        key="pc_1",
+        name="Leonin",
+        side="pc",
+        hp_current=20,
+        hp_max=20,
+        ac=13,
+        initiative=20,
+        level=3,
+        stats={"str": 60, "dex": 50},
+        class_features=_fighter_style_features("two_weapon_fighting"),
+        race_features={
+            "race_key": "leonin",
+            "features": {
+                "claws_leonin": {
+                    "type": "natural_weapon",
+                    "name": "claws_leonin",
+                    "name_ru": "Когти",
+                    "damage_dice": "1d4",
+                    "damage_type": "slashing",
+                    "ability": "str",
+                    "kind": "unarmed",
+                }
+            },
+            "natural_weapons": [
+                {"key": "claws_leonin", "kind": "unarmed", "damage_dice": "1d4", "damage_type": "slashing", "ability": "str"}
+            ],
+        },
+    )
+    state.combatants["enemy_1"] = Combatant(key="enemy_1", name="Bandit", side="enemy", hp_current=15, hp_max=15, ac=10, initiative=5)
+    state.order = ["pc_1", "enemy_1"]
+    state.turn_index = 0
+
+    _capture_rolls(monkeypatch, [(18, None, 18)], damage_rolls=[4])
+    try:
+        patch, err = handle_live_combat_action("combat_attack", session_id, raw_text="атакую")
+        assert err is None and patch is not None
+        texts = _line_texts(patch)
+        assert any(text == "Оружие: 1d4 slashing" for text in texts)
+        assert all("Бонусная атака второй рукой:" not in text for text in texts)
     finally:
         end_combat(session_id)
