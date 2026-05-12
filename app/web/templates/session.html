@@ -204,7 +204,11 @@ let uiCtx = {
   myTurn: false,
   iAmAdmin: false,
   me: null,
+  phase: "",
+  gmPendingContext: "",
 };
+
+const DEFAULT_INPUT_PLACEHOLDER = "Действие / команда (roll, adv, dis, ooc, gm, name, pass...)";
 
 function normText(s){ return (s||"").trim(); }
 function startsWithRe(text, re){ return re.test(normText(text)); }
@@ -246,6 +250,7 @@ function canSendText(text){
   const t = normText(text);
   if(!t) return false;
   if(!uiCtx.connected) return false;
+  if(uiCtx.phase === "gm_pending") return false;
 
   // always allowed
   if(isLeave(t)) return true;
@@ -269,6 +274,7 @@ function updateSendAvailability(){
   const hint = document.getElementById('turnHint');
   if(!inp || !btn || !hint) return;
 
+  inp.placeholder = DEFAULT_INPUT_PLACEHOLDER;
   inp.disabled = !uiCtx.connected;
   const btnStatus = document.getElementById("btnStatus");
   if(btnStatus){
@@ -317,6 +323,20 @@ function updateSendAvailability(){
     inp.classList.add('input-wait');
     hint.className = 'hintline hint-wait';
     hint.textContent = 'Ты offline в этой сессии. Доступно только: /leave.';
+    return;
+  }
+  if(uiCtx.phase === "gm_pending"){
+    inp.disabled = true;
+    btn.disabled = true;
+    inp.classList.add('input-wait');
+    hint.className = 'hintline hint-wait';
+    if(uiCtx.gmPendingContext === "post_victory"){
+      inp.placeholder = 'Подождите, Мастер описывает сцену...';
+      hint.textContent = '🧙 Мастер описывает последствия победы...';
+    }else{
+      inp.placeholder = 'Подождите, Мастер обрабатывает действие...';
+      hint.textContent = '🧙 Мастер обрабатывает действие...';
+    }
     return;
   }
   if(!uiCtx.started){
@@ -3744,6 +3764,8 @@ function renderState(st){
   uiCtx.started = !!st.session.is_active;
   uiCtx.paused = !!st.session.is_paused;
   uiCtx.myTurn = !!(me && me.is_current && me.is_active) && !uiCtx.paused;
+  uiCtx.phase = String((st.game && st.game.phase) || "");
+  uiCtx.gmPendingContext = String((st.game && st.game.gm_pending_context) || "");
 
 
   // buttons

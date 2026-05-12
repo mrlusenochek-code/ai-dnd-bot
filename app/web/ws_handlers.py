@@ -358,6 +358,12 @@ async def _emit_post_victory_gm_narration(
     actor_label: str,
     state_for_prompt: Any = None,
 ) -> None:
+    previous_phase = _get_phase(sess)
+    settings_set(sess, "gm_pending_context", "post_victory")
+    _set_phase(sess, "gm_pending")
+    await db.commit()
+    await broadcast_state(session_id)
+
     ch = await get_character(db, sess.id, player.id)
     narration_inputs = _build_combat_narration_inputs(
         sess=sess,
@@ -390,6 +396,8 @@ async def _emit_post_victory_gm_narration(
             "post_victory": True,
         },
     )
+    settings_set(sess, "gm_pending_context", None)
+    _set_phase(sess, previous_phase or "turns")
     await db.commit()
     await broadcast_state(session_id)
 

@@ -248,3 +248,7 @@ def test_fighting_style_ui_texts_present_in_templates() -> None:
     fly_speed_decl = session_template.index("const flySpeedEqualsWalk")
     fly_speed_use = session_template.index("flySpeedEqualsWalk ?")
     assert fly_speed_decl < fly_speed_use
+    assert 'uiCtx.phase === "gm_pending"' in session_template
+    assert 'uiCtx.gmPendingContext === "post_victory"' in session_template
+    assert "🧙 Мастер описывает последствия победы..." in session_template
+    assert "Подождите, Мастер описывает сцену..." in session_template

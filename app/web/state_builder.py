@@ -795,6 +795,7 @@ async def build_state(db: AsyncSession, sess: Session) -> dict:
         "game": {
             "free_turns": free_turns,
             "phase": phase,
+            "gm_pending_context": settings_get(sess, "gm_pending_context", None),
             "free_round": _get_free_round(sess) if free_turns else None,
             "actions_done": actions_done,
             "actions_total": actions_total,
