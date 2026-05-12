@@ -231,6 +231,14 @@ from app.web.ws_turns import (
 
 logger = logging.getLogger("app.web" ".server")
 
+
+def _should_skip_gm_narration_for_resolved_combat_action(
+    combat_action: str | None,
+    combat_patch: dict[str, Any] | None,
+) -> bool:
+    return bool(str(combat_action or "").strip()) and isinstance(combat_patch, dict)
+
+
 TOOL_LABELS_RU: dict[str, str] = {
     "thieves_tools": "Воровские инструменты",
     "smith_tools": "Инструменты кузнеца",
@@ -8767,6 +8775,8 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                                 _uid_map, chars_by_uid, _ = await _load_actor_context(db, sess)
                                 sync_pcs_from_chars(session_id, chars_by_uid)
                             await _broadcast_state_unlocked(session_id, combat_log_ui_patch=merged_patch)
+                        if _should_skip_gm_narration_for_resolved_combat_action(combat_action, merged_patch):
+                            continue
                         facts = extract_combat_narration_facts(merged_patch)
                         if facts:
                             required_fact_count = 3 if len(facts) >= 3 else len(facts)
@@ -10884,6 +10894,8 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                             _uid_map, chars_by_uid, _ = await _load_actor_context(db, sess)
                             sync_pcs_from_chars(session_id, chars_by_uid)
                         await broadcast_state(session_id, combat_log_ui_patch=merged_patch)
+                        if _should_skip_gm_narration_for_resolved_combat_action(combat_action, merged_patch):
+                            continue
                         state_for_prompt = state_after_actions
                         ch = await get_character(db, sess.id, player.id)
                         narration_inputs = _build_combat_narration_inputs(
