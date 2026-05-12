@@ -57,16 +57,16 @@ def test_detect_second_wind_phrases_as_combat_action() -> None:
     assert _detect_chat_combat_action("second wind") == "combat_second_wind"
 
 
-def test_second_wind_in_combat_requires_turn_spends_bonus_action_and_syncs_hp() -> None:
-    session_id = "test_second_wind_in_combat_requires_turn_spends_bonus_action_and_syncs_hp"
-    ch = _fighter_character(hp=6, hp_max=20, level=3)
+def test_second_wind_in_combat_uses_combat_hp_spends_bonus_action_and_syncs_hp() -> None:
+    session_id = "test_second_wind_in_combat_uses_combat_hp_spends_bonus_action_and_syncs_hp"
+    ch = _fighter_character(hp=24, hp_max=24, level=3)
     state = start_combat(session_id)
     state.combatants["pc_1"] = Combatant(
         key="pc_1",
         name="Fighter",
         side="pc",
-        hp_current=6,
-        hp_max=20,
+        hp_current=22,
+        hp_max=24,
         ac=16,
         initiative=15,
         bonus_action_available=True,
@@ -109,15 +109,18 @@ def test_second_wind_in_combat_requires_turn_spends_bonus_action_and_syncs_hp() 
         assert err_ok is None
         assert patch_ok is not None
         assert changed_ok is True
-        assert ch.hp == 14
+        assert ch.hp == 24
 
         state_now = get_combat(session_id)
         assert state_now is not None
         actor = state_now.combatants["pc_1"]
-        assert actor.hp_current == 14
+        assert actor.hp_current == 24
         assert actor.bonus_action_available is False
         runtime = (ch.class_features or {}).get("runtime") or {}
         assert runtime.get("second_wind_used") is True
+        lines = patch_ok.get("lines") or []
+        assert isinstance(lines, list)
+        assert any("+2 HP" in str((item or {}).get("text") or "") for item in lines if isinstance(item, dict))
 
         actor.bonus_action_available = True
         patch_repeat, err_repeat, changed_repeat = apply_combat_class_feature_action(

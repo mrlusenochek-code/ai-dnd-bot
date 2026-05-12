@@ -43,13 +43,22 @@ def _apply_second_wind_in_combat(
     if not bool(getattr(actor, "bonus_action_available", True)):
         return None, "Бонусное действие недоступно: бонусное действие уже потрачено.", False
 
+    actor_hp_before = max(0, int(getattr(actor, "hp_current", 0) or 0))
+    actor_hp_max = max(0, int(getattr(actor, "hp_max", 0) or 0))
+    character_hp_before = getattr(ch, "hp", actor_hp_before)
+    character_hp_max_before = getattr(ch, "hp_max", actor_hp_max)
+    ch.hp = actor_hp_before
+    ch.hp_max = actor_hp_max
     healed_hp, heal_err, changed = apply_second_wind_usage(ch, rng=rng)
     if heal_err:
+        ch.hp = character_hp_before
+        ch.hp_max = character_hp_max_before
         return None, heal_err, False
 
     actor.bonus_action_available = False
-    actor_hp_max = max(0, int(getattr(actor, "hp_max", 0) or 0))
     actor.hp_current = min(actor_hp_max, max(0, int(getattr(ch, "hp", actor.hp_current) or actor.hp_current)))
+    ch.hp = actor.hp_current
+    ch.hp_max = character_hp_max_before
 
     actor_name = str(getattr(ch, "name", "") or getattr(actor, "name", "") or "Персонаж").strip() or "Персонаж"
     patch = {
