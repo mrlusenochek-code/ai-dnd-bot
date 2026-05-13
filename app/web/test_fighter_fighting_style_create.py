@@ -236,6 +236,21 @@ def test_fighting_style_ui_texts_present_in_templates() -> None:
     assert "Сражение большим оружием" in session_template
     assert "Защита" in session_template
     assert "Сражение двумя оружиями" in session_template
+    assert "Доступно улучшение характеристик" in session_template
+    assert "Выберите вариант для уровня" in session_template
+    assert "+2 к одной характеристике" in session_template
+    assert "+1 к двум характеристикам" in session_template
+    assert "Применить улучшение" in session_template
+    assert "Сила" in session_template
+    assert "Ловкость" in session_template
+    assert "Телосложение" in session_template
+    assert "Интеллект" in session_template
+    assert "Мудрость" in session_template
+    assert "Харизма" in session_template
+    assert "/api/character/asi" in session_template
+    assert "pending_asi_levels" in session_template
+    assert "if(!pendingLevels.length){" in session_template
+    assert 'if(box) box.style.display = "none";' in session_template
     assert "renderInventoryHtml(invList)" in session_template
     assert "getInventoryText(invList)" in session_template
     assert 'card.addEventListener("click", openCharacterModal);' not in session_template

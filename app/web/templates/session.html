@@ -182,6 +182,23 @@
       </div>
       <div id="charSubclassMsg" class="muted" style="margin-top:8px;"></div>
     </div>
+    <div id="charAsiBox" class="char-line" style="display:none;">
+      <div style="font-weight:700; margin-bottom:8px;">Доступно улучшение характеристик</div>
+      <div id="charAsiHint" class="muted" style="margin-bottom:8px;"></div>
+      <div class="row" style="margin-top:0;">
+        <select id="charAsiMode">
+          <option value="single">+2 к одной характеристике</option>
+          <option value="split">+1 к двум характеристикам</option>
+        </select>
+      </div>
+      <div class="row" style="margin-top:8px;">
+        <select id="charAsiSingleStat"></select>
+        <select id="charAsiSplitStatA" style="display:none;"></select>
+        <select id="charAsiSplitStatB" style="display:none;"></select>
+        <button id="charAsiApply" type="button">Применить улучшение</button>
+      </div>
+      <div id="charAsiMsg" class="muted" style="margin-top:8px;"></div>
+    </div>
     <div id="charModalBody" class="char-grid"></div>
   </div>
 </div>
@@ -194,6 +211,7 @@ let heartbeatInt = null;
 let manualLeave = false;
 let charModalCopyText = "";
 let charModalToastTimer = null;
+let charAsiFlashMessage = "";
 let featsNameRuByKey = {};
 
 let lastState = null;
@@ -686,6 +704,185 @@ function _resetCharSubclassBox(){
   }
 }
 
+function _resetCharAsiBox(){
+  const box = document.getElementById("charAsiBox");
+  const hint = document.getElementById("charAsiHint");
+  const mode = document.getElementById("charAsiMode");
+  const single = document.getElementById("charAsiSingleStat");
+  const splitA = document.getElementById("charAsiSplitStatA");
+  const splitB = document.getElementById("charAsiSplitStatB");
+  const applyBtn = document.getElementById("charAsiApply");
+  const msg = document.getElementById("charAsiMsg");
+
+  if(box) box.style.display = "none";
+  if(hint) hint.textContent = "";
+  if(msg) msg.textContent = "";
+  if(mode){
+    mode.value = "single";
+    mode.disabled = true;
+    mode.onchange = null;
+  }
+  for(const select of [single, splitA, splitB]){
+    if(!select) continue;
+    select.innerHTML = "";
+    select.disabled = true;
+    select.onchange = null;
+    select.style.display = select === single ? "" : "none";
+  }
+  if(applyBtn){
+    applyBtn.disabled = true;
+    applyBtn.title = "";
+    applyBtn.onclick = null;
+  }
+}
+
+function _getAsiStatMeta(ch){
+  const stats = (ch && typeof ch.stats === "object" && ch.stats) ? ch.stats : {};
+  return {
+    "str": { name: "Сила", value: Number.isFinite(Number(stats.str)) ? Number(stats.str) : 50 },
+    "dex": { name: "Ловкость", value: Number.isFinite(Number(stats.dex)) ? Number(stats.dex) : 50 },
+    "con": { name: "Телосложение", value: Number.isFinite(Number(stats.con)) ? Number(stats.con) : 50 },
+    "int": { name: "Интеллект", value: Number.isFinite(Number(stats.int)) ? Number(stats.int) : 50 },
+    "wis": { name: "Мудрость", value: Number.isFinite(Number(stats.wis)) ? Number(stats.wis) : 50 },
+    "cha": { name: "Харизма", value: Number.isFinite(Number(stats.cha)) ? Number(stats.cha) : 50 },
+  };
+}
+
+function _fillAsiStatSelect(select, statKeys, statMeta){
+  if(!select) return;
+  select.innerHTML = "";
+  for(const statKey of statKeys){
+    const meta = statMeta[statKey];
+    if(!meta) continue;
+    const opt = document.createElement("option");
+    opt.value = statKey;
+    opt.textContent = `${meta.name} ${meta.value}`;
+    select.appendChild(opt);
+  }
+  select.disabled = select.options.length === 0;
+}
+
+async function renderCharacterAsiBox(ch){
+  const box = document.getElementById("charAsiBox");
+  const hint = document.getElementById("charAsiHint");
+  const mode = document.getElementById("charAsiMode");
+  const single = document.getElementById("charAsiSingleStat");
+  const splitA = document.getElementById("charAsiSplitStatA");
+  const splitB = document.getElementById("charAsiSplitStatB");
+  const applyBtn = document.getElementById("charAsiApply");
+  const msg = document.getElementById("charAsiMsg");
+
+  _resetCharAsiBox();
+
+  if(!box || !hint || !mode || !single || !splitA || !splitB || !applyBtn || !msg || !ch){
+    return;
+  }
+
+  const pendingLevels = Array.isArray(ch.pending_asi_levels)
+    ? ch.pending_asi_levels.map((x) => Number(x)).filter((x) => Number.isFinite(x) && x > 0)
+    : [];
+  if(!pendingLevels.length){
+    return;
+  }
+
+  const asiOptions = (ch.asi_options && typeof ch.asi_options === "object") ? ch.asi_options : {};
+  const statKeys = Array.isArray(asiOptions.stat_keys)
+    ? asiOptions.stat_keys.map((x) => String(x || "").trim().toLowerCase()).filter(Boolean)
+    : ["str", "dex", "con", "int", "wis", "cha"];
+  const statMeta = _getAsiStatMeta(ch);
+  const featureLevel = pendingLevels[0];
+
+  box.style.display = "";
+  hint.textContent = `Выберите вариант для уровня ${featureLevel}.`;
+  mode.disabled = false;
+  _fillAsiStatSelect(single, statKeys, statMeta);
+  _fillAsiStatSelect(splitA, statKeys, statMeta);
+  _fillAsiStatSelect(splitB, statKeys, statMeta);
+
+  const syncAsiMode = () => {
+    const currentMode = String(mode.value || "single").trim().toLowerCase();
+    const isSplit = currentMode === "split";
+    single.style.display = isSplit ? "none" : "";
+    splitA.style.display = isSplit ? "" : "none";
+    splitB.style.display = isSplit ? "" : "none";
+    single.disabled = isSplit;
+    splitA.disabled = !isSplit;
+    splitB.disabled = !isSplit;
+  };
+
+  const getChoice = () => {
+    const currentMode = String(mode.value || "single").trim().toLowerCase();
+    if(currentMode === "split"){
+      return {
+        mode: "split",
+        stats: [
+          String(splitA.value || "").trim().toLowerCase(),
+          String(splitB.value || "").trim().toLowerCase(),
+        ],
+      };
+    }
+    return {
+      mode: "single",
+      stat: String(single.value || "").trim().toLowerCase(),
+    };
+  };
+
+  mode.onchange = syncAsiMode;
+  applyBtn.disabled = false;
+  applyBtn.onclick = async () => {
+    const choice = getChoice();
+    if(choice.mode === "split" && choice.stats[0] && choice.stats[0] === choice.stats[1]){
+      msg.textContent = "Выберите две разные характеристики.";
+      return;
+    }
+
+    mode.disabled = true;
+    single.disabled = true;
+    splitA.disabled = true;
+    splitB.disabled = true;
+    applyBtn.disabled = true;
+    msg.textContent = "Применяем улучшение...";
+
+    try{
+      const r = await fetch("/api/character/asi", {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({
+          session_id: SESSION_ID,
+          uid: getUID(),
+          level: featureLevel,
+          choice,
+        }),
+      });
+
+      const resp = await r.json();
+      if(!r.ok){
+        throw new Error(resp.detail || "Не удалось применить улучшение характеристик");
+      }
+
+      const updatedCharacter = resp && resp.character ? resp.character : null;
+      if(updatedCharacter && lastState && Array.isArray(lastState.players)){
+        const mePlayer = lastState.players.find((p) => p && p.uid === getUID()) || null;
+        if(mePlayer){
+          mePlayer.char = updatedCharacter;
+        }
+      }
+
+      charAsiFlashMessage = "Улучшение характеристик применено.";
+      openCharacterModal();
+    }catch(err){
+      mode.disabled = false;
+      syncAsiMode();
+      applyBtn.disabled = false;
+      msg.textContent = `Ошибка: ${err && err.message ? err.message : "неизвестная ошибка"}`;
+    }
+  };
+
+  syncAsiMode();
+  msg.textContent = charAsiFlashMessage || "";
+  charAsiFlashMessage = "";
+}
+
 function _classEntryMatchesCharacter(cls, ch){
   const classKeys = new Set([
     _normalizeSubclassClassKey(cls && cls.id),
@@ -908,8 +1105,10 @@ function openCharacterModal(targetPlayer = null){
 
   if(playerForModal === me){
     void renderCharacterSubclassBox(ch);
+    void renderCharacterAsiBox(ch);
   }else{
     _resetCharSubclassBox();
+    _resetCharAsiBox();
   }
 
   const stats = (ch && typeof ch.stats === "object" && ch.stats) ? ch.stats : {};
