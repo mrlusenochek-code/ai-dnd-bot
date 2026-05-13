@@ -5,6 +5,8 @@ from types import SimpleNamespace
 from app.combat.live_actions import handle_live_combat_action
 from app.combat.state import Combatant, end_combat, get_combat, start_combat
 from app.combat.sync_pcs import sync_pcs_from_chars
+from app.rules.character_catalog import CLASS_CATALOG
+from app.web.ws_class_features import apply_combat_class_feature_action
 
 
 def _line_texts(patch) -> list[str]:
@@ -64,9 +66,27 @@ def _fighter_style_and_sneak_features(style_key: str) -> dict:
     return out
 
 
+def _fighter_style_and_action_surge_features(style_key: str) -> dict:
+    out = _fighter_style_features(style_key)
+    fighter = next((item for item in CLASS_CATALOG if str(item.get("key") or "") == "fighter"), None)
+    assert fighter is not None
+    action_surge = next(
+        (
+            item
+            for item in ((fighter.get("features_by_level") or {}).get(2) or [])
+            if str((item or {}).get("key") or "") == "action_surge"
+        ),
+        None,
+    )
+    assert isinstance(action_surge, dict)
+    out["features"].append({"key": "action_surge", "mechanics": dict(action_surge.get("mechanics") or {})})
+    return out
+
+
 def _build_state(
     session_id: str,
     *,
+    level: int = 5,
     stats: dict | None = None,
     main_def: str = "dagger",
     off_def: str | None = "dagger",
@@ -87,7 +107,7 @@ def _build_state(
         hp_max=30,
         ac=15,
         initiative=20,
-        level=5,
+        level=level,
         action_available=True,
         bonus_action_available=True,
         reaction_available=True,
@@ -166,6 +186,54 @@ def test_two_weapon_attack_auto_resolves_combo_and_advances_turn(monkeypatch) ->
         assert fighter.action_available is False
         assert fighter.bonus_action_available is False
         assert state.turn_index == 1
+    finally:
+        end_combat(session_id)
+
+
+def test_two_weapon_with_action_surge_keeps_turn_before_last_attack_and_spends_bonus_only_once(monkeypatch) -> None:
+    session_id = "test_two_weapon_with_action_surge_keeps_turn_before_last_attack_and_spends_bonus_only_once"
+    _build_state(
+        session_id,
+        level=4,
+        class_features=_fighter_style_and_action_surge_features("two_weapon_fighting"),
+    )
+    _capture_rolls(monkeypatch, [(15, None, 15), (14, None, 14), (13, None, 13)], damage_rolls=[3, 4, 2])
+    ch = SimpleNamespace(name="Fighter", class_features=_fighter_style_and_action_surge_features("two_weapon_fighting"))
+
+    try:
+        surge_patch, surge_err, surge_changed = apply_combat_class_feature_action(
+            "combat_action_surge",
+            session_id,
+            "pc_1",
+            ch,
+        )
+        assert surge_err is None
+        assert surge_patch is not None
+        assert surge_changed is True
+
+        patch_main, err_main = handle_live_combat_action("combat_attack", session_id, raw_text="атакую")
+        assert err_main is None
+        main_texts = _line_texts(patch_main)
+        assert any("Ход остаётся за вами: доступно дополнительное действие." in t for t in main_texts)
+        assert all("Ход автоматически передан:" not in t for t in main_texts)
+        assert all("Бой двумя оружиями: бонусная атака второй рукой выполнена автоматически." not in t for t in main_texts)
+        state_mid = get_combat(session_id)
+        assert state_mid is not None
+        fighter_mid = state_mid.combatants["pc_1"]
+        assert fighter_mid.bonus_action_available is True
+        assert state_mid.turn_index == 0
+
+        patch_next, err_next = handle_live_combat_action("combat_attack", session_id)
+        assert err_next is None
+        next_texts = _line_texts(patch_next)
+        assert any("Бой двумя оружиями: бонусная атака второй рукой выполнена автоматически." in t for t in next_texts)
+        assert any("Бонусная атака второй рукой:" in t for t in next_texts)
+        assert any("Ход автоматически передан:" in t for t in next_texts)
+        state_after = get_combat(session_id)
+        assert state_after is not None
+        fighter_after = state_after.combatants["pc_1"]
+        assert fighter_after.bonus_action_available is False
+        assert state_after.turn_index == 1
     finally:
         end_combat(session_id)
 

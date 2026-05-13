@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from app.combat.live_actions import handle_live_combat_action
+from app.combat.live_actions import _current_combat_turn_id, handle_live_combat_action
 from app.combat.state import current_turn_label, get_combat
 from app.rules.class_feature_runtime import (
     apply_action_surge_usage,
@@ -105,6 +105,7 @@ def _apply_action_surge_in_combat(
     actor_runtime_raw = actor_class_features.get("runtime")
     actor_runtime = dict(actor_runtime_raw) if isinstance(actor_runtime_raw, dict) else {}
     if bool(getattr(actor, "action_available", False)):
+        actor_runtime["extra_attack_action_turn_id"] = _current_combat_turn_id(state)
         actor_runtime["extra_attack_action_bank"] = max(0, int(actor_runtime.get("extra_attack_action_bank") or 0)) + 1
     if actor_runtime:
         actor_class_features["runtime"] = actor_runtime

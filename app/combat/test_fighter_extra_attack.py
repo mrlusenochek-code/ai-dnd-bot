@@ -181,6 +181,79 @@ def test_action_surge_grants_new_attack_set_after_attacks_are_spent(monkeypatch)
         end_combat(session_id)
 
 
+def test_fighter_level_4_action_surge_before_attack_keeps_turn_until_second_attack(monkeypatch) -> None:
+    session_id = "test_fighter_level_4_action_surge_before_attack_keeps_turn_until_second_attack"
+    _build_state(session_id, level=4, with_action_surge=True)
+    monkeypatch.setattr("app.combat.live_actions.random.randint", lambda _a, _b: 15 if _b == 20 else 4)
+    ch = SimpleNamespace(name="Fighter", class_features=_fighter_features_for_level(4, with_action_surge=True))
+
+    try:
+        surge_patch, surge_err, surge_changed = apply_combat_class_feature_action(
+            "combat_action_surge",
+            session_id,
+            "pc_1",
+            ch,
+        )
+        assert surge_err is None
+        assert surge_patch is not None
+        assert surge_changed is True
+
+        patch_1, err_1 = handle_live_combat_action("combat_attack", session_id)
+        assert err_1 is None
+        assert patch_1 is not None
+        texts_1 = _line_texts(patch_1)
+        assert any("Ход остаётся за вами: доступно дополнительное действие." in text for text in texts_1)
+        assert all("Ход автоматически передан" not in text for text in texts_1)
+        state_mid = get_combat(session_id)
+        assert state_mid is not None
+        assert state_mid.turn_index == 0
+
+        patch_2, err_2 = handle_live_combat_action("combat_attack", session_id)
+        assert err_2 is None
+        assert patch_2 is not None
+        texts_2 = _line_texts(patch_2)
+        assert any("Ход автоматически передан" in text for text in texts_2)
+        state_after = get_combat(session_id)
+        assert state_after is not None
+        assert state_after.turn_index == 1
+    finally:
+        end_combat(session_id)
+
+
+def test_fighter_level_4_action_surge_after_first_attack_grants_second_attack_same_round(monkeypatch) -> None:
+    session_id = "test_fighter_level_4_action_surge_after_first_attack_grants_second_attack_same_round"
+    _build_state(session_id, level=4, with_action_surge=True)
+    monkeypatch.setattr("app.combat.live_actions.random.randint", lambda _a, _b: 15 if _b == 20 else 4)
+    ch = SimpleNamespace(name="Fighter", class_features=_fighter_features_for_level(4, with_action_surge=True))
+
+    try:
+        state = get_combat(session_id)
+        assert state is not None
+        fighter = state.combatants["pc_1"]
+        fighter.action_available = False
+
+        surge_patch, surge_err, surge_changed = apply_combat_class_feature_action(
+            "combat_action_surge",
+            session_id,
+            "pc_1",
+            ch,
+        )
+        assert surge_err is None
+        assert surge_patch is not None
+        assert surge_changed is True
+        assert fighter.bonus_action_available is True
+
+        patch, err = handle_live_combat_action("combat_attack", session_id)
+        assert err is None
+        assert patch is not None
+        assert any("Ход автоматически передан" in text for text in _line_texts(patch))
+        state_after = get_combat(session_id)
+        assert state_after is not None
+        assert state_after.turn_index == 1
+    finally:
+        end_combat(session_id)
+
+
 def test_character_without_extra_attack_gets_no_additional_attacks(monkeypatch) -> None:
     session_id = "test_character_without_extra_attack_gets_no_additional_attacks"
     _build_state(session_id, level=5, with_extra_attack=False)

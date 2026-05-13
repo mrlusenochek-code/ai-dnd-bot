@@ -4727,6 +4727,8 @@ def handle_live_combat_action(
             )
 
         if attack_followup_available:
+            if not bool(getattr(attacker, "action_available", False)):
+                lines.append({"text": "Ход остаётся за вами: доступно дополнительное действие.", "muted": True})
             return (
                 {
                     "status": _combat_status(state),
@@ -4748,6 +4750,36 @@ def handle_live_combat_action(
                 offhand_lines = offhand_patch.get("lines")
                 if isinstance(offhand_lines, list):
                     merged_lines.extend([line for line in offhand_lines if isinstance(line, dict)])
+                state_after_offhand = get_combat(session_id)
+                attacker_after_offhand = (
+                    state_after_offhand.combatants.get(attacker.key)
+                    if state_after_offhand is not None and isinstance(getattr(state_after_offhand, "combatants", None), dict)
+                    else None
+                )
+                if (
+                    state_after_offhand is not None
+                    and attacker_after_offhand is not None
+                    and _attack_action_followup_available(state_after_offhand, attacker_after_offhand)
+                ):
+                    merged_lines = [
+                        line
+                        for line in merged_lines
+                        if "Ход автоматически передан:" not in str(line.get("text") or "")
+                    ]
+                    merged_lines.append(
+                        {
+                            "text": "Ход остаётся за вами: доступно дополнительное действие.",
+                            "muted": True,
+                        }
+                    )
+                    return (
+                        {
+                            "status": _combat_status(state_after_offhand),
+                            "open": True,
+                            "lines": merged_lines,
+                        },
+                        None,
+                    )
                 return (
                     {
                         "status": offhand_patch.get("status", _combat_status(get_combat(session_id) or state)),
@@ -6240,6 +6272,16 @@ def handle_live_combat_action(
                 {
                     "status": "Бой завершён",
                     "open": False,
+                    "lines": lines,
+                },
+                None,
+            )
+        if _attack_action_followup_available(state, attacker):
+            lines.append({"text": "Ход остаётся за вами: доступно дополнительное действие.", "muted": True})
+            return (
+                {
+                    "status": _combat_status(state),
+                    "open": True,
                     "lines": lines,
                 },
                 None,
