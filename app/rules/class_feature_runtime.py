@@ -34,6 +34,7 @@ _STROKE_OF_LUCK_MECHANIC_TYPE = "stroke_of_luck"
 _ABILITY_SCORE_IMPROVEMENT_MECHANIC_TYPE = "ability_score_improvement"
 _CLASS_ASI_CHOICE_KEY = "asi"
 _ABILITY_SCORE_KEYS = ("str", "dex", "con", "int", "wis", "cha")
+_IMPROVED_CRITICAL_MECHANIC_TYPE = "improved_critical"
 
 
 def _default_class_asi_mechanics() -> dict[str, Any]:
@@ -67,6 +68,49 @@ def _class_feature_entries(class_features: dict[str, Any]) -> list[dict[str, Any
     if not isinstance(features_raw, list):
         return []
     return [entry for entry in features_raw if isinstance(entry, dict)]
+
+
+def _subclass_feature_entries(class_features: dict[str, Any], *, level: int | None = None) -> list[dict[str, Any]]:
+    subclass_raw = class_features.get("subclass")
+    subclass = subclass_raw if isinstance(subclass_raw, dict) else {}
+    features_by_level_raw = subclass.get("features_by_level")
+    if not isinstance(features_by_level_raw, dict):
+        return []
+    max_level = _as_int(level, 0) if level is not None else 0
+    entries: list[dict[str, Any]] = []
+    for level_key, level_entries_raw in features_by_level_raw.items():
+        feature_level = _as_int(level_key, 0)
+        if feature_level <= 0:
+            continue
+        if max_level > 0 and feature_level > max_level:
+            continue
+        level_entries = level_entries_raw if isinstance(level_entries_raw, list) else []
+        for entry in level_entries:
+            if not isinstance(entry, dict):
+                continue
+            normalized = dict(entry)
+            normalized["level"] = feature_level
+            entries.append(normalized)
+    return entries
+
+
+def _improved_critical_min_roll_for_entry(entry: dict[str, Any]) -> int | None:
+    key = str(entry.get("key") or "").strip().lower()
+    name = str(entry.get("name") or entry.get("name_ru") or "").strip().lower()
+    mechanics_raw = entry.get("mechanics")
+    mechanics = mechanics_raw if isinstance(mechanics_raw, dict) else {}
+    mechanic_type = str(mechanics.get("type") or "").strip().lower()
+    applies_to = str(mechanics.get("applies_to") or "").strip().lower()
+    if mechanic_type == _IMPROVED_CRITICAL_MECHANIC_TYPE:
+        if applies_to and applies_to != "weapon_attacks":
+            return None
+        crit_min_roll = _as_int(mechanics.get("crit_min_roll"), 20)
+        return max(1, min(20, crit_min_roll))
+    if key == "improved_critical" or name == "improved critical" or name == "улучшенный критический удар":
+        return 19
+    if key == "superior_critical" or name == "superior critical" or name == "превосходный критический удар":
+        return 18
+    return None
 
 
 def find_class_feature_entry(
@@ -325,6 +369,23 @@ def get_class_asi_options(ch: Any) -> dict[str, Any]:
             }
         return _default_class_asi_mechanics()
     return _default_class_asi_mechanics()
+
+
+def get_weapon_attack_crit_min_roll(ch: Any, level: int | None = None) -> int:
+    class_features = _class_features_dict(ch)
+    current_level = _as_int(level, _as_int(getattr(ch, "level", 0), 0))
+    crit_min_roll = 20
+    for entry in _class_feature_entries(class_features):
+        improved_critical_min_roll = _improved_critical_min_roll_for_entry(entry)
+        if improved_critical_min_roll is None:
+            continue
+        crit_min_roll = min(crit_min_roll, improved_critical_min_roll)
+    for entry in _subclass_feature_entries(class_features, level=current_level if current_level > 0 else None):
+        improved_critical_min_roll = _improved_critical_min_roll_for_entry(entry)
+        if improved_critical_min_roll is None:
+            continue
+        crit_min_roll = min(crit_min_roll, improved_critical_min_roll)
+    return crit_min_roll
 
 
 def get_cunning_action_mechanics(ch: Any) -> tuple[dict[str, Any], str | None]:

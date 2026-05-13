@@ -20,6 +20,7 @@ from app.rules.class_feature_runtime import (
     get_fighting_style_choice,
     get_fighting_style_mechanics,
     get_extra_attack_count,
+    get_weapon_attack_crit_min_roll,
     get_stroke_of_luck_check_pending,
     get_expertise_targets,
     get_blindsense_mechanics,
@@ -169,6 +170,34 @@ def _fighter_extra_attack_3_mechanics() -> dict:
     extra_attack = next((item for item in features if str((item or {}).get("key") or "") == "extra_attack_3"), None)
     assert isinstance(extra_attack, dict)
     mechanics = extra_attack.get("mechanics") or {}
+    assert isinstance(mechanics, dict)
+    return mechanics
+
+
+def _fighter_champion_subclass() -> dict:
+    fighter = _fighter_catalog_entry()
+    subclasses = fighter.get("subclasses") or []
+    champion = next((item for item in subclasses if str((item or {}).get("key") or "") == "champion"), None)
+    assert isinstance(champion, dict)
+    return champion
+
+
+def _fighter_champion_improved_critical_mechanics() -> dict:
+    champion = _fighter_champion_subclass()
+    features = (champion.get("features_by_level") or {}).get(3) or []
+    improved_critical = next((item for item in features if str((item or {}).get("key") or "") == "improved_critical"), None)
+    assert isinstance(improved_critical, dict)
+    mechanics = improved_critical.get("mechanics") or {}
+    assert isinstance(mechanics, dict)
+    return mechanics
+
+
+def _fighter_champion_superior_critical_mechanics() -> dict:
+    champion = _fighter_champion_subclass()
+    features = (champion.get("features_by_level") or {}).get(15) or []
+    superior_critical = next((item for item in features if str((item or {}).get("key") or "") == "superior_critical"), None)
+    assert isinstance(superior_critical, dict)
+    mechanics = superior_critical.get("mechanics") or {}
     assert isinstance(mechanics, dict)
     return mechanics
 
@@ -1075,6 +1104,79 @@ def test_legacy_class_asi_already_chosen_is_not_pending() -> None:
     pending = get_pending_class_asi_levels(ch)
 
     assert pending == []
+
+
+def test_get_weapon_attack_crit_min_roll_defaults_to_20() -> None:
+    ch = SimpleNamespace(level=4, class_features={"features": [], "runtime": {}})
+    assert get_weapon_attack_crit_min_roll(ch) == 20
+
+
+def test_get_weapon_attack_crit_min_roll_uses_champion_subclass_features() -> None:
+    ch = SimpleNamespace(
+        level=3,
+        class_features={
+            "features": [],
+            "subclass": {
+                "key": "champion",
+                "features_by_level": {
+                    3: [
+                        {
+                            "key": "improved_critical",
+                            "mechanics": _fighter_champion_improved_critical_mechanics(),
+                        }
+                    ]
+                },
+            },
+            "runtime": {},
+        },
+    )
+    assert get_weapon_attack_crit_min_roll(ch) == 19
+
+
+def test_get_weapon_attack_crit_min_roll_prefers_superior_critical() -> None:
+    ch = SimpleNamespace(
+        level=15,
+        class_features={
+            "features": [],
+            "subclass": {
+                "key": "champion",
+                "features_by_level": {
+                    3: [
+                        {
+                            "key": "improved_critical",
+                            "mechanics": _fighter_champion_improved_critical_mechanics(),
+                        }
+                    ],
+                    15: [
+                        {
+                            "key": "superior_critical",
+                            "mechanics": _fighter_champion_superior_critical_mechanics(),
+                        }
+                    ],
+                },
+            },
+            "runtime": {},
+        },
+    )
+    assert get_weapon_attack_crit_min_roll(ch) == 18
+
+
+def test_get_weapon_attack_crit_min_roll_supports_legacy_feature_entries() -> None:
+    ch = SimpleNamespace(
+        level=15,
+        class_features={
+            "features": [],
+            "subclass": {
+                "key": "champion",
+                "features_by_level": {
+                    3: [{"key": "improved_critical", "mechanics": {}}],
+                    15: [{"key": "superior_critical", "mechanics": {}}],
+                },
+            },
+            "runtime": {},
+        },
+    )
+    assert get_weapon_attack_crit_min_roll(ch) == 18
 
 
 def test_indomitable_unavailable_without_feature() -> None:

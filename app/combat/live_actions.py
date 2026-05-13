@@ -22,12 +22,13 @@ from app.combat.state import (
 )
 from app.rules.class_feature_runtime import (
     blindsense_range_ft,
-    get_extra_attack_count,
     can_use_uncanny_dodge,
     can_use_sneak_attack_this_turn,
     can_use_stroke_of_luck,
     class_feature_saving_throw_proficient,
     elusive_denies_attack_advantage,
+    get_extra_attack_count,
+    get_weapon_attack_crit_min_roll,
     has_blindsense,
     has_evasion,
     has_stroke_of_luck,
@@ -4455,6 +4456,7 @@ def handle_live_combat_action(
             rng=random,
             reroll_ones=_has_reroll_ones_scope(attacker, "attack"),
         )
+        natural_d20_roll = d20_roll
         bfs_lines: list[dict[str, Any]] = []
         d20_roll = _maybe_apply_built_for_success(attacker, d20_roll, bfs_lines)
         d20_roll = _maybe_apply_vampiric_bite_bonus(attacker, d20_roll, bfs_lines)
@@ -4476,7 +4478,9 @@ def handle_live_combat_action(
             n, sides = 1, 6
         else:
             n, sides = parsed
-        weapon_dice_count = n * (2 if bool(getattr(profile, "is_weapon_attack", False)) and d20_roll == 20 else 1)
+        crit_min_roll = get_weapon_attack_crit_min_roll(attacker) if bool(getattr(profile, "is_weapon_attack", False)) else 20
+        is_crit_roll = bool(getattr(profile, "is_weapon_attack", False)) and natural_d20_roll >= crit_min_roll
+        weapon_dice_count = n * (2 if is_crit_roll else 1)
         gwf_damage_roll = _gwf_applies_to_weapon_damage(profile, attacker)
         rolled_dice_count = weapon_dice_count if gwf_damage_roll else n
         damage_roll, gwf_lines = _roll_weapon_damage_with_gwf(profile, attacker, rolled_dice_count, sides)
@@ -4488,6 +4492,8 @@ def handle_live_combat_action(
             damage_roll=damage_roll,
             damage_bonus=profile.damage_bonus,
             damage_already_crit_scaled=gwf_damage_roll,
+            crit_min_roll=crit_min_roll,
+            natural_d20_roll=natural_d20_roll,
         )
         turn_id = _current_combat_turn_id(state)
         two_weapon_available = _can_offer_two_weapon_bonus_attack(attacker, main_profile=profile)
@@ -4903,6 +4909,7 @@ def handle_live_combat_action(
             rng=random,
             reroll_ones=_has_reroll_ones_scope(attacker, "attack"),
         )
+        natural_d20_roll = d20_roll
         bfs_lines: list[dict[str, Any]] = []
         d20_roll = _maybe_apply_built_for_success(attacker, d20_roll, bfs_lines)
         d20_roll = _maybe_apply_vampiric_bite_bonus(attacker, d20_roll, bfs_lines)
@@ -5905,6 +5912,7 @@ def handle_live_combat_action(
             rng=random,
             reroll_ones=_has_reroll_ones_scope(attacker, "attack"),
         )
+        natural_d20_roll = d20_roll
         bfs_lines: list[dict[str, Any]] = []
         d20_roll = _maybe_apply_built_for_success(attacker, d20_roll, bfs_lines)
         d20_roll = _maybe_apply_vampiric_bite_bonus(attacker, d20_roll, bfs_lines)
@@ -5924,7 +5932,9 @@ def handle_live_combat_action(
             n, sides = 1, 4
         else:
             n, sides = parsed
-        weapon_dice_count = n * (2 if bool(getattr(profile, "is_weapon_attack", False)) and d20_roll == 20 else 1)
+        crit_min_roll = get_weapon_attack_crit_min_roll(attacker) if bool(getattr(profile, "is_weapon_attack", False)) else 20
+        is_crit_roll = bool(getattr(profile, "is_weapon_attack", False)) and natural_d20_roll >= crit_min_roll
+        weapon_dice_count = n * (2 if is_crit_roll else 1)
         gwf_damage_roll = _gwf_applies_to_weapon_damage(profile, attacker)
         rolled_dice_count = weapon_dice_count if gwf_damage_roll else n
         damage_roll, gwf_lines = _roll_weapon_damage_with_gwf(profile, attacker, rolled_dice_count, sides)
@@ -5936,6 +5946,8 @@ def handle_live_combat_action(
             damage_roll=damage_roll,
             damage_bonus=profile.damage_bonus,
             damage_already_crit_scaled=gwf_damage_roll,
+            crit_min_roll=crit_min_roll,
+            natural_d20_roll=natural_d20_roll,
         )
         hidden_step_broken = _break_hidden_step(attacker)
         attacker.help_attack_advantage = False
@@ -6115,6 +6127,7 @@ def handle_live_combat_action(
             rng=random,
             reroll_ones=_has_reroll_ones_scope(attacker, "attack"),
         )
+        natural_d20_roll = d20_roll
         bfs_lines: list[dict[str, Any]] = []
         d20_roll = _maybe_apply_built_for_success(attacker, d20_roll, bfs_lines)
         d20_roll = _maybe_apply_vampiric_bite_bonus(attacker, d20_roll, bfs_lines)
@@ -6128,12 +6141,15 @@ def handle_live_combat_action(
         damage_roll = sum(random.randint(1, sides) for _ in range(max(1, n)))
         stat_mod = int(off_hand_profile.damage_bonus or 0)
         damage_bonus = stat_mod if fighter_has_two_weapon_fighting_style(attacker) else min(stat_mod, 0)
+        crit_min_roll = get_weapon_attack_crit_min_roll(attacker) if bool(getattr(off_hand_profile, "is_weapon_attack", False)) else 20
         resolution = resolve_attack_roll(
             target_ac=target.ac,
             d20_roll=d20_roll,
             attack_bonus=off_hand_profile.attack_bonus,
             damage_roll=damage_roll,
             damage_bonus=damage_bonus,
+            crit_min_roll=crit_min_roll,
+            natural_d20_roll=natural_d20_roll,
         )
         hidden_step_broken = _break_hidden_step(attacker)
         total_damage = int(resolution.total_damage)
@@ -6359,6 +6375,7 @@ def handle_live_combat_action(
             rng=random,
             reroll_ones=_has_reroll_ones_scope(attacker, "attack"),
         )
+        natural_d20_roll = d20_roll
         bfs_lines: list[dict[str, Any]] = []
         d20_roll = _maybe_apply_built_for_success(attacker, d20_roll, bfs_lines)
         attack_roll_repr = f"d20({roll_a})" if roll_b is None else f"d20({roll_a},{roll_b}) -> {d20_roll}"
@@ -6379,7 +6396,9 @@ def handle_live_combat_action(
             n, sides = 1, 6
         else:
             n, sides = parsed
-        weapon_dice_count = n * (2 if bool(getattr(profile, "is_weapon_attack", False)) and d20_roll == 20 else 1)
+        crit_min_roll = get_weapon_attack_crit_min_roll(attacker) if bool(getattr(profile, "is_weapon_attack", False)) else 20
+        is_crit_roll = bool(getattr(profile, "is_weapon_attack", False)) and natural_d20_roll >= crit_min_roll
+        weapon_dice_count = n * (2 if is_crit_roll else 1)
         gwf_damage_roll = _gwf_applies_to_weapon_damage(profile, attacker)
         rolled_dice_count = weapon_dice_count if gwf_damage_roll else n
         damage_roll, gwf_lines = _roll_weapon_damage_with_gwf(profile, attacker, rolled_dice_count, sides)
@@ -6391,6 +6410,8 @@ def handle_live_combat_action(
             damage_roll=damage_roll,
             damage_bonus=profile.damage_bonus,
             damage_already_crit_scaled=gwf_damage_roll,
+            crit_min_roll=crit_min_roll,
+            natural_d20_roll=natural_d20_roll,
         )
         turn_id = _current_combat_turn_id(state)
         hidden_step_broken = _break_hidden_step(attacker)

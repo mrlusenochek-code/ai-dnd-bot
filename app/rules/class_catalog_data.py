@@ -970,6 +970,11 @@ BASE_CLASS_CATALOG: list[dict[str, Any]] = [
                             "key": "improved_critical",
                             "name_ru": "Улучшенный критический удар",
                             "summary_ru": "Чаще наносит критические попадания обычными атаками.",
+                            "mechanics": {
+                                "type": "improved_critical",
+                                "crit_min_roll": 19,
+                                "applies_to": "weapon_attacks",
+                            },
                         }
                     ],
                     7: [
@@ -991,6 +996,11 @@ BASE_CLASS_CATALOG: list[dict[str, Any]] = [
                             "key": "superior_critical",
                             "name_ru": "Превосходный критический удар",
                             "summary_ru": "Критические попадания случаются ещё чаще.",
+                            "mechanics": {
+                                "type": "improved_critical",
+                                "crit_min_roll": 18,
+                                "applies_to": "weapon_attacks",
+                            },
                         }
                     ],
                     18: [

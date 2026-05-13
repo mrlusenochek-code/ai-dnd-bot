@@ -22,16 +22,23 @@ def resolve_attack_roll(
     damage_roll: int,
     damage_bonus: int = 0,
     damage_already_crit_scaled: bool = False,
+    crit_min_roll: int = 20,
+    natural_d20_roll: int | None = None,
 ) -> AttackResolution:
     if not 1 <= d20_roll <= 20:
         raise ValueError("d20_roll must be in range [1, 20]")
+    natural_roll = d20_roll if natural_d20_roll is None else natural_d20_roll
+    if not 1 <= natural_roll <= 20:
+        raise ValueError("natural_d20_roll must be in range [1, 20]")
     if target_ac < 0:
         raise ValueError("target_ac must be >= 0")
     if damage_roll < 0:
         raise ValueError("damage_roll must be >= 0")
+    if not 1 <= crit_min_roll <= 20:
+        raise ValueError("crit_min_roll must be in range [1, 20]")
 
     total_to_hit = d20_roll + attack_bonus
-    is_crit = d20_roll == 20
+    is_crit = natural_roll >= crit_min_roll
     is_hit = is_crit or (d20_roll != 1 and total_to_hit >= target_ac)
 
     if not is_hit:
