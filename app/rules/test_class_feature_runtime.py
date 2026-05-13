@@ -26,6 +26,8 @@ from app.rules.class_feature_runtime import (
     get_cunning_action_mechanics,
     get_elusive_mechanics,
     get_evasion_mechanics,
+    get_class_asi_options,
+    get_pending_class_asi_levels,
     get_reliable_talent_mechanics,
     get_stroke_of_luck_mechanics,
     get_slippery_mind_mechanics,
@@ -986,6 +988,93 @@ def test_class_asi_allows_different_levels_and_preserves_choices() -> None:
     assert set(choices.keys()) == {"4", "6"}
     assert choices["4"]["mode"] == "single"
     assert choices["6"]["mode"] == "split"
+
+
+def test_legacy_class_asi_entry_counts_as_pending_without_mechanics_type() -> None:
+    ch = SimpleNamespace(
+        class_features={
+            "features": [
+                {
+                    "key": "asi",
+                    "level": 4,
+                    "mechanics": {},
+                }
+            ],
+            "choices": {},
+        }
+    )
+
+    pending = get_pending_class_asi_levels(ch)
+
+    assert pending == [4]
+
+
+def test_legacy_class_asi_options_fall_back_to_default_schema() -> None:
+    ch = SimpleNamespace(
+        class_features={
+            "features": [
+                {
+                    "key": "asi",
+                    "level": 4,
+                    "mechanics": {},
+                }
+            ]
+        }
+    )
+
+    options = get_class_asi_options(ch)
+
+    assert options == {
+        "type": "ability_score_improvement",
+        "options": [
+            {"kind": "single", "amount": 10, "count": 1},
+            {"kind": "split", "amount": 5, "count": 2},
+        ],
+        "stat_keys": ["str", "dex", "con", "int", "wis", "cha"],
+        "cap": 100,
+    }
+
+
+def test_legacy_class_asi_apply_choice_works_and_saves_selection() -> None:
+    ch = SimpleNamespace(
+        stats={"str": 65, "dex": 50, "con": 50, "int": 50, "wis": 50, "cha": 50},
+        class_features={
+            "features": [
+                {
+                    "key": "asi",
+                    "level": 4,
+                    "mechanics": {},
+                }
+            ],
+            "choices": {},
+        },
+    )
+
+    result = apply_class_asi_choice(ch, 4, {"mode": "single", "stat": "str"})
+
+    assert result["applied"] is True
+    assert ch.stats["str"] == 75
+    choices = ((ch.class_features or {}).get("choices") or {}).get("asi") or {}
+    assert choices["4"]["stat"] == "str"
+
+
+def test_legacy_class_asi_already_chosen_is_not_pending() -> None:
+    ch = SimpleNamespace(
+        class_features={
+            "features": [
+                {
+                    "key": "asi",
+                    "level": 4,
+                    "mechanics": {},
+                }
+            ],
+            "choices": {"asi": {"4": {"mode": "single", "stat": "str"}}},
+        }
+    )
+
+    pending = get_pending_class_asi_levels(ch)
+
+    assert pending == []
 
 
 def test_indomitable_unavailable_without_feature() -> None:

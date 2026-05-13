@@ -75,6 +75,39 @@ def _fighter_character(*, level: int = 4, stats: dict[str, int] | None = None) -
     )
 
 
+def _legacy_fighter_character(*, level: int = 4, stats: dict[str, int] | None = None) -> SimpleNamespace:
+    return SimpleNamespace(
+        id=uuid.uuid4(),
+        name="Legacy ASI Hero",
+        class_kit="fighter",
+        class_skin="Fighter",
+        race_kit="human",
+        race_skin="Human",
+        level=level,
+        xp_total=0,
+        hp=24,
+        hp_max=24,
+        sta=12,
+        sta_max=12,
+        stats=stats or {"str": 65, "dex": 65, "con": 50, "int": 50, "wis": 50, "cha": 50},
+        race_features={},
+        class_features={
+            "class_key": "fighter",
+            "name_ru": "Воин",
+            "name": "Fighter",
+            "features": [
+                {
+                    "key": "asi",
+                    "level": 4,
+                    "name_ru": "Увеличение характеристик",
+                    "summary_ru": "Улучшение характеристик или выбор таланта.",
+                    "mechanics": {},
+                }
+            ],
+        },
+    )
+
+
 def _setup_asi_api_mocks(monkeypatch, ch: SimpleNamespace) -> _FakeDb:
     sess = SimpleNamespace(id=uuid.uuid4(), title="Test Session", settings={}, is_active=False)
     player = SimpleNamespace(id=uuid.uuid4())
@@ -125,6 +158,32 @@ def test_char_payload_clears_pending_asi_after_choice() -> None:
     assert payload is not None
     assert payload.get("pending_asi_levels") == []
     assert (payload.get("asi_choices") or {}).get("4", {}).get("mode") == "single"
+
+
+def test_legacy_char_payload_exposes_pending_asi_levels() -> None:
+    ch = _legacy_fighter_character(level=4)
+
+    payload = _char_to_payload(ch)
+
+    assert payload is not None
+    assert payload.get("pending_asi_levels") == [4]
+
+
+def test_legacy_char_payload_exposes_default_asi_options() -> None:
+    ch = _legacy_fighter_character(level=4)
+
+    payload = _char_to_payload(ch)
+
+    assert payload is not None
+    assert payload.get("asi_options") == {
+        "type": "ability_score_improvement",
+        "options": [
+            {"kind": "single", "amount": 10, "count": 1},
+            {"kind": "split", "amount": 5, "count": 2},
+        ],
+        "stat_keys": ["str", "dex", "con", "int", "wis", "cha"],
+        "cap": 100,
+    }
 
 
 def test_api_character_asi_single_applies_bonus_and_returns_updated_payload(monkeypatch) -> None:
@@ -263,3 +322,25 @@ def test_api_character_asi_payload_reflects_updated_stats_and_choice(monkeypatch
         {"stat": "str", "old": 65, "new": 70, "delta": 5},
         {"stat": "dex", "old": 65, "new": 70, "delta": 5},
     ]
+
+
+def test_api_character_asi_supports_legacy_fighter_entry(monkeypatch) -> None:
+    ch = _legacy_fighter_character(level=4, stats={"str": 65, "dex": 50, "con": 50, "int": 50, "wis": 50, "cha": 50})
+    _setup_asi_api_mocks(monkeypatch, ch)
+
+    response = asyncio.run(
+        http_routes.api_character_apply_asi(
+            {
+                "session_id": "test-session",
+                "uid": 4407,
+                "level": 4,
+                "choice": {"mode": "single", "stat": "str"},
+            }
+        )
+    )
+
+    body = json.loads(response.body)
+    assert response.status_code == 200
+    assert body["stats"]["str"] == 75
+    assert body["character"]["pending_asi_levels"] == []
+    assert body["character"]["asi_choices"]["4"]["stat"] == "str"

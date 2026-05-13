@@ -36,6 +36,18 @@ _CLASS_ASI_CHOICE_KEY = "asi"
 _ABILITY_SCORE_KEYS = ("str", "dex", "con", "int", "wis", "cha")
 
 
+def _default_class_asi_mechanics() -> dict[str, Any]:
+    return {
+        "type": _ABILITY_SCORE_IMPROVEMENT_MECHANIC_TYPE,
+        "options": [
+            {"kind": "single", "amount": 10, "count": 1},
+            {"kind": "split", "amount": 5, "count": 2},
+        ],
+        "stat_keys": list(_ABILITY_SCORE_KEYS),
+        "cap": 100,
+    }
+
+
 def _as_int(value: Any, default: int = 0) -> int:
     try:
         if value is None or isinstance(value, bool):
@@ -144,9 +156,11 @@ def _class_asi_mechanics_for_level(ch: Any, feature_level: int) -> tuple[dict[st
     mechanics_raw = (entry or {}).get("mechanics")
     mechanics = dict(mechanics_raw) if isinstance(mechanics_raw, dict) else {}
     mechanic_type = str(mechanics.get("type") or "").strip().lower()
-    if not mechanics or mechanic_type != _ABILITY_SCORE_IMPROVEMENT_MECHANIC_TYPE:
+    if not entry:
         return class_features, {}, "Улучшение характеристик недоступно на этом уровне."
-    return class_features, mechanics, None
+    if mechanic_type == _ABILITY_SCORE_IMPROVEMENT_MECHANIC_TYPE:
+        return class_features, mechanics, None
+    return class_features, _default_class_asi_mechanics(), None
 
 
 def apply_class_asi_choice(ch: Any, feature_level: int, choice: Any) -> dict[str, Any]:
@@ -285,10 +299,7 @@ def get_pending_class_asi_levels(ch: Any) -> list[int]:
     for entry in _class_feature_entries(class_features):
         key = str(entry.get("key") or "").strip().lower()
         level = max(1, _as_int(entry.get("level"), 0))
-        mechanics_raw = entry.get("mechanics")
-        mechanics = mechanics_raw if isinstance(mechanics_raw, dict) else {}
-        mechanic_type = str(mechanics.get("type") or "").strip().lower()
-        if key != "asi" or mechanic_type != _ABILITY_SCORE_IMPROVEMENT_MECHANIC_TYPE or level <= 0:
+        if key != "asi" or level <= 0:
             continue
         if str(level) in selected:
             continue
@@ -304,17 +315,16 @@ def get_class_asi_options(ch: Any) -> dict[str, Any]:
         mechanics_raw = entry.get("mechanics")
         mechanics = dict(mechanics_raw) if isinstance(mechanics_raw, dict) else {}
         mechanic_type = str(mechanics.get("type") or "").strip().lower()
-        if key == "asi" and mechanic_type == _ABILITY_SCORE_IMPROVEMENT_MECHANIC_TYPE:
+        if key != "asi":
+            continue
+        if mechanic_type == _ABILITY_SCORE_IMPROVEMENT_MECHANIC_TYPE:
             return {
                 "stat_keys": list(mechanics.get("stat_keys") or []),
                 "cap": max(0, _as_int(mechanics.get("cap"), 100)),
                 "options": list(mechanics.get("options") or []),
             }
-    return {
-        "stat_keys": list(_ABILITY_SCORE_KEYS),
-        "cap": 100,
-        "options": [],
-    }
+        return _default_class_asi_mechanics()
+    return _default_class_asi_mechanics()
 
 
 def get_cunning_action_mechanics(ch: Any) -> tuple[dict[str, Any], str | None]:
