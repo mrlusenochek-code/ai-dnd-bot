@@ -63,6 +63,7 @@ class CombatState:
 
 
 _COMBAT_BY_SESSION: dict[str, CombatState] = {}
+_LAST_ENDED_PC_HP_BY_SESSION: dict[str, dict[int, int]] = {}
 
 
 def _now_iso() -> str:
@@ -346,6 +347,7 @@ def start_combat(session_id: str, *, reason: str | None = None) -> CombatState:
     _ = reason
     existing = _COMBAT_BY_SESSION.get(session_id)
     _cleanup_battle_runtime(existing)
+    _LAST_ENDED_PC_HP_BY_SESSION.pop(session_id, None)
     state = CombatState(
         active=True,
         round_no=1,
@@ -358,8 +360,32 @@ def start_combat(session_id: str, *, reason: str | None = None) -> CombatState:
     return state
 
 
+def _snapshot_pc_hp_before_combat_end(state: CombatState | None) -> dict[int, int]:
+    if state is None:
+        return {}
+    out: dict[int, int] = {}
+    for key, combatant in (state.combatants or {}).items():
+        if not isinstance(key, str) or not key.startswith("pc_"):
+            continue
+        uid_raw = key[3:]
+        if not uid_raw.isdigit():
+            continue
+        out[int(uid_raw)] = max(0, int(getattr(combatant, "hp_current", 0) or 0))
+    return out
+
+
+def consume_last_ended_pc_hp(session_id: str) -> dict[int, int]:
+    snapshot = _LAST_ENDED_PC_HP_BY_SESSION.pop(session_id, None)
+    return dict(snapshot) if isinstance(snapshot, dict) else {}
+
+
 def end_combat(session_id: str) -> None:
     state = _COMBAT_BY_SESSION.get(session_id)
+    final_pc_hp = _snapshot_pc_hp_before_combat_end(state)
+    if final_pc_hp:
+        _LAST_ENDED_PC_HP_BY_SESSION[session_id] = final_pc_hp
+    else:
+        _LAST_ENDED_PC_HP_BY_SESSION.pop(session_id, None)
     _cleanup_battle_runtime(state)
     _COMBAT_BY_SESSION.pop(session_id, None)
 

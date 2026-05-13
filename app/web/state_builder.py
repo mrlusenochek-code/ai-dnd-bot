@@ -9,7 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm.attributes import flag_modified
 
 from app.combat.log_ui import normalize_combat_log_ui_patch
-from app.combat.state import current_turn_label, get_combat, restore_combat_state, snapshot_combat_state
+from app.combat.state import consume_last_ended_pc_hp, current_turn_label, get_combat, restore_combat_state, snapshot_combat_state
 from app.db.connection import AsyncSessionLocal
 from app.db.models import Character, Event, Player, Session, Skill
 from app.web.db_helpers import get_session, list_session_players
@@ -18,7 +18,7 @@ from app.web.gameplay_helpers import _char_to_payload, _get_kicked
 from app.web.utils import as_int
 from app.web.ws_access import _load_actor_context, _player_uid
 from app.web.ws_progression import _level_progress_payload, _skills_payload_for_character
-from app.web.ws_rewards import _apply_defeat_effects_once, _grant_combat_rewards_once, _grant_defeat_outcome_once
+from app.web.ws_rewards import _apply_defeat_effects_once, _grant_combat_rewards_once, _grant_defeat_outcome_once, _is_victory_patch
 from app.web.ws_turns import (
     TURN_TIMEOUT_SECONDS,
     _get_free_round,
@@ -925,12 +925,26 @@ async def _apply_combat_patch_handoff(
 async def _apply_combat_outcome_side_effects(
     db: AsyncSession,
     sess: Session,
+    session_id: str,
     combat_log_ui_patch: Optional[dict[str, Any]],
 ) -> bool:
     if combat_log_ui_patch is None:
         return False
 
     changed = False
+    if _is_victory_patch(combat_log_ui_patch):
+        final_pc_hp = consume_last_ended_pc_hp(session_id)
+        if final_pc_hp:
+            _uid_map, chars_by_uid, _skill_mods_by_char = await _load_actor_context(db, sess)
+            for uid, hp_current in final_pc_hp.items():
+                ch = chars_by_uid.get(uid)
+                if ch is None:
+                    continue
+                hp_max = max(0, as_int(getattr(ch, "hp_max", 0), 0))
+                new_hp = max(0, min(max(0, int(hp_current)), hp_max))
+                if as_int(getattr(ch, "hp", 0), 0) != new_hp:
+                    ch.hp = new_hp
+                    changed = True
     rewards_granted = await _grant_combat_rewards_once(db, sess, combat_log_ui_patch)
     if rewards_granted:
         changed = True
@@ -964,7 +978,7 @@ async def _broadcast_state_unlocked(
             db, sess, session_id, combat_log_ui_patch
         )
         changed = patch_changed or changed
-        changed = await _apply_combat_outcome_side_effects(db, sess, combat_log_ui_patch) or changed
+        changed = await _apply_combat_outcome_side_effects(db, sess, session_id, combat_log_ui_patch) or changed
 
         changed = _apply_combat_state_persistence(sess, session_id, changed)
         if changed:
