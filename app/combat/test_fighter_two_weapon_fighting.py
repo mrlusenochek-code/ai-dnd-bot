@@ -83,6 +83,22 @@ def _fighter_style_and_action_surge_features(style_key: str) -> dict:
     return out
 
 
+def _fighter_style_and_extra_attack_features(style_key: str, *, level: int = 5) -> dict:
+    out = _fighter_style_features(style_key)
+    fighter = next((item for item in CLASS_CATALOG if str(item.get("key") or "") == "fighter"), None)
+    assert fighter is not None
+    for lvl, entries in (fighter.get("features_by_level") or {}).items():
+        if int(lvl) > int(level):
+            continue
+        for entry in entries or []:
+            if not isinstance(entry, dict):
+                continue
+            key = str(entry.get("key") or "")
+            if key.startswith("extra_attack"):
+                out["features"].append({"key": key, "mechanics": dict(entry.get("mechanics") or {})})
+    return out
+
+
 def _build_state(
     session_id: str,
     *,
@@ -186,6 +202,40 @@ def test_two_weapon_attack_auto_resolves_combo_and_advances_turn(monkeypatch) ->
         assert fighter.action_available is False
         assert fighter.bonus_action_available is False
         assert state.turn_index == 1
+    finally:
+        end_combat(session_id)
+
+
+def test_two_weapon_with_extra_attack_shows_followup_before_single_auto_offhand(monkeypatch) -> None:
+    session_id = "test_two_weapon_with_extra_attack_shows_followup_before_single_auto_offhand"
+    _build_state(session_id, level=5, class_features=_fighter_style_and_extra_attack_features("two_weapon_fighting", level=5))
+    _capture_rolls(monkeypatch, [(15, None, 15), (14, None, 14), (13, None, 13)], damage_rolls=[3, 4, 2])
+
+    try:
+        patch_main_1, err_main_1 = handle_live_combat_action("combat_attack", session_id, raw_text="атакую")
+        assert err_main_1 is None
+        texts_1 = _line_texts(patch_main_1)
+        assert any("Ход остаётся за вами: можно атаковать ещё раз." in t for t in texts_1)
+        assert all("Бой двумя оружиями: бонусная атака второй рукой выполнена автоматически." not in t for t in texts_1)
+        assert all("Бонусная атака второй рукой:" not in t for t in texts_1)
+        assert all("Ход автоматически передан:" not in t for t in texts_1)
+        state_mid = get_combat(session_id)
+        assert state_mid is not None
+        assert state_mid.turn_index == 0
+        assert state_mid.combatants["pc_1"].bonus_action_available is True
+
+        patch_main_2, err_main_2 = handle_live_combat_action("combat_attack", session_id, raw_text="атакую")
+        assert err_main_2 is None
+        texts_2 = _line_texts(patch_main_2)
+        assert any("Бой двумя оружиями: бонусная атака второй рукой выполнена автоматически." in t for t in texts_2)
+        assert any("Бонусная атака второй рукой:" in t for t in texts_2)
+        assert any("Ход автоматически передан:" in t for t in texts_2)
+        assert all("Ход остаётся за вами: можно атаковать ещё раз." not in t for t in texts_2)
+        state_after = get_combat(session_id)
+        assert state_after is not None
+        fighter_after = state_after.combatants["pc_1"]
+        assert fighter_after.bonus_action_available is False
+        assert state_after.turn_index == 1
     finally:
         end_combat(session_id)
 

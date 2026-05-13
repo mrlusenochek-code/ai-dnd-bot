@@ -4735,6 +4735,8 @@ def handle_live_combat_action(
         if attack_followup_available:
             if not bool(getattr(attacker, "action_available", False)):
                 lines.append({"text": "Ход остаётся за вами: доступно дополнительное действие.", "muted": True})
+            else:
+                lines.append({"text": "Ход остаётся за вами: можно атаковать ещё раз.", "muted": True})
             return (
                 {
                     "status": _combat_status(state),
