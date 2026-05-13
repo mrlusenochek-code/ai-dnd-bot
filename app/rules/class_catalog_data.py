@@ -18,6 +18,20 @@ PHB_CLASS_KEYS: tuple[str, ...] = (
     "wizard",
 )
 
+_CLASS_ASI_STAT_KEYS: tuple[str, ...] = ("str", "dex", "con", "int", "wis", "cha")
+
+
+def _class_asi_mechanics() -> dict[str, Any]:
+    return {
+        "type": "ability_score_improvement",
+        "options": [
+            {"kind": "single", "amount": 10, "count": 1},
+            {"kind": "split", "amount": 5, "count": 2},
+        ],
+        "stat_keys": list(_CLASS_ASI_STAT_KEYS),
+        "cap": 100,
+    }
+
 
 BASE_CLASS_CATALOG: list[dict[str, Any]] = [
     {
@@ -2947,3 +2961,19 @@ BASE_CLASS_CATALOG: list[dict[str, Any]] = [
         "tags": ["legacy", "alias_for_wizard", "not_for_new_characters"],
     },
 ]
+
+
+for _class_entry in BASE_CLASS_CATALOG:
+    if not isinstance(_class_entry, dict):
+        continue
+    _features_by_level = _class_entry.get("features_by_level")
+    if not isinstance(_features_by_level, dict):
+        continue
+    for _entries_raw in _features_by_level.values():
+        _entries = _entries_raw if isinstance(_entries_raw, list) else []
+        for _entry in _entries:
+            if not isinstance(_entry, dict):
+                continue
+            if str(_entry.get("key") or "").strip().lower() != "asi":
+                continue
+            _entry["mechanics"] = _class_asi_mechanics()

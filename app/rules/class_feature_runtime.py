@@ -31,6 +31,9 @@ _STROKE_OF_LUCK_RUNTIME_KEY = "stroke_of_luck_used"
 _STROKE_OF_LUCK_PENDING_KEY = "stroke_of_luck_pending_miss"
 _STROKE_OF_LUCK_CHECK_PENDING_KEY = "stroke_of_luck_pending_failed_check"
 _STROKE_OF_LUCK_MECHANIC_TYPE = "stroke_of_luck"
+_ABILITY_SCORE_IMPROVEMENT_MECHANIC_TYPE = "ability_score_improvement"
+_CLASS_ASI_CHOICE_KEY = "asi"
+_ABILITY_SCORE_KEYS = ("str", "dex", "con", "int", "wis", "cha")
 
 
 def _as_int(value: Any, default: int = 0) -> int:
@@ -98,6 +101,174 @@ def get_class_feature_runtime(ch: Any) -> tuple[dict[str, Any], dict[str, Any]]:
     runtime_raw = class_features.get("runtime")
     runtime = dict(runtime_raw) if isinstance(runtime_raw, dict) else {}
     return class_features, runtime
+
+
+def _class_feature_choices(class_features: dict[str, Any]) -> dict[str, Any]:
+    choices_raw = class_features.get("choices")
+    return dict(choices_raw) if isinstance(choices_raw, dict) else {}
+
+
+def _store_class_feature_choices(ch: Any, class_features: dict[str, Any], choices: dict[str, Any]) -> None:
+    if choices:
+        class_features["choices"] = choices
+    else:
+        class_features.pop("choices", None)
+    ch.class_features = class_features
+
+
+def _find_class_feature_entry_at_level(
+    class_features: dict[str, Any],
+    *,
+    feature_key: str,
+    level: int,
+) -> dict[str, Any] | None:
+    expected_key = str(feature_key or "").strip().lower()
+    expected_level = max(1, _as_int(level, 0))
+    if not expected_key or expected_level <= 0:
+        return None
+    for entry in _class_feature_entries(class_features):
+        key = str(entry.get("key") or "").strip().lower()
+        entry_level = _as_int(entry.get("level"), 0)
+        if key == expected_key and entry_level == expected_level:
+            return entry
+    return None
+
+
+def _class_asi_mechanics_for_level(ch: Any, feature_level: int) -> tuple[dict[str, Any], dict[str, Any], str | None]:
+    class_features = _class_features_dict(ch)
+    entry = _find_class_feature_entry_at_level(
+        class_features,
+        feature_key="asi",
+        level=feature_level,
+    )
+    mechanics_raw = (entry or {}).get("mechanics")
+    mechanics = dict(mechanics_raw) if isinstance(mechanics_raw, dict) else {}
+    mechanic_type = str(mechanics.get("type") or "").strip().lower()
+    if not mechanics or mechanic_type != _ABILITY_SCORE_IMPROVEMENT_MECHANIC_TYPE:
+        return class_features, {}, "Улучшение характеристик недоступно на этом уровне."
+    return class_features, mechanics, None
+
+
+def apply_class_asi_choice(ch: Any, feature_level: int, choice: Any) -> dict[str, Any]:
+    level = max(1, _as_int(feature_level, 0))
+    result: dict[str, Any] = {
+        "applied": False,
+        "changed": False,
+        "level": level,
+        "changes": [],
+        "reason": None,
+        "error": None,
+    }
+    class_features, mechanics, err = _class_asi_mechanics_for_level(ch, level)
+    if err:
+        result["reason"] = err
+        result["error"] = err
+        return result
+
+    stats_raw = getattr(ch, "stats", None)
+    stats = dict(stats_raw) if isinstance(stats_raw, dict) else {}
+    if not stats:
+        err = "У персонажа нет характеристик для применения ASI."
+        result["reason"] = err
+        result["error"] = err
+        return result
+
+    choices = _class_feature_choices(class_features)
+    asi_raw = choices.get(_CLASS_ASI_CHOICE_KEY)
+    asi_choices = dict(asi_raw) if isinstance(asi_raw, dict) else {}
+    level_key = str(level)
+    if level_key in asi_choices:
+        err = "Улучшение характеристик для этого уровня уже выбрано."
+        result["reason"] = err
+        result["error"] = err
+        return result
+
+    allowed_stats_raw = mechanics.get("stat_keys")
+    allowed_stats = {
+        str(item or "").strip().lower()
+        for item in allowed_stats_raw
+        if str(item or "").strip()
+    } if isinstance(allowed_stats_raw, list) else set(_ABILITY_SCORE_KEYS)
+    if not allowed_stats:
+        allowed_stats = set(_ABILITY_SCORE_KEYS)
+    cap = max(0, _as_int(mechanics.get("cap"), 100))
+    options_raw = mechanics.get("options")
+    options = options_raw if isinstance(options_raw, list) else []
+    option_by_kind = {
+        str((item or {}).get("kind") or "").strip().lower(): item
+        for item in options
+        if isinstance(item, dict)
+    }
+
+    normalized_choice = choice if isinstance(choice, dict) else {}
+    mode = str(normalized_choice.get("mode") or "").strip().lower()
+    target_stats: list[str]
+    option = option_by_kind.get(mode)
+    if mode == "single":
+        stat = str(normalized_choice.get("stat") or "").strip().lower()
+        target_stats = [stat]
+    elif mode == "split":
+        stats_raw = normalized_choice.get("stats")
+        stats_items = stats_raw if isinstance(stats_raw, list) else []
+        target_stats = [str(item or "").strip().lower() for item in stats_items]
+    else:
+        target_stats = []
+
+    if not isinstance(option, dict):
+        err = "Некорректный режим ASI."
+        result["reason"] = err
+        result["error"] = err
+        return result
+
+    expected_count = max(1, _as_int(option.get("count"), 1))
+    amount = max(0, _as_int(option.get("amount"), 0))
+    if len(target_stats) != expected_count:
+        err = "Некорректное количество характеристик для ASI."
+        result["reason"] = err
+        result["error"] = err
+        return result
+    if any(stat not in allowed_stats for stat in target_stats):
+        err = "Некорректная характеристика для ASI."
+        result["reason"] = err
+        result["error"] = err
+        return result
+    if mode == "split" and len(set(target_stats)) != len(target_stats):
+        err = "Split ASI требует две разные характеристики."
+        result["reason"] = err
+        result["error"] = err
+        return result
+
+    applied_changes: list[dict[str, Any]] = []
+    changed = False
+    for stat_key in target_stats:
+        old_value = max(0, _as_int(stats.get(stat_key), 50))
+        new_value = min(cap, old_value + amount)
+        stats[stat_key] = new_value
+        applied_changes.append(
+            {
+                "stat": stat_key,
+                "old": old_value,
+                "new": new_value,
+                "delta": new_value - old_value,
+            }
+        )
+        changed = changed or new_value != old_value
+
+    ch.stats = stats
+    asi_choices[level_key] = {
+        "mode": mode,
+        "stat": target_stats[0] if mode == "single" else None,
+        "stats": list(target_stats) if mode == "split" else None,
+        "changes": applied_changes,
+    }
+    choices[_CLASS_ASI_CHOICE_KEY] = asi_choices
+    _store_class_feature_choices(ch, class_features, choices)
+
+    result["applied"] = True
+    result["changed"] = changed
+    result["changes"] = applied_changes
+    result["choice"] = dict(asi_choices[level_key])
+    return result
 
 
 def get_cunning_action_mechanics(ch: Any) -> tuple[dict[str, Any], str | None]:

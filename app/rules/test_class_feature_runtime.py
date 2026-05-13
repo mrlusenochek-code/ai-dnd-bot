@@ -4,6 +4,7 @@ from types import SimpleNamespace
 
 from app.rules.character_catalog import CLASS_CATALOG
 from app.rules.class_feature_runtime import (
+    apply_class_asi_choice,
     apply_reliable_talent_to_d20,
     apply_action_surge_usage,
     apply_indomitable_usage,
@@ -875,6 +876,116 @@ def test_action_surge_improvement_allows_two_uses_before_rest() -> None:
     assert ok_4 is True
     assert err_4 is None
     assert changed_4 is True
+
+
+def test_class_asi_single_choice_applies_plus_ten_and_saves_choice() -> None:
+    ch = SimpleNamespace(
+        stats={"str": 65, "dex": 50, "con": 50, "int": 50, "wis": 50, "cha": 50},
+        class_features=sync_class_features_for_level(_fighter_catalog_entry(), 4),
+    )
+
+    result = apply_class_asi_choice(ch, 4, {"mode": "single", "stat": "str"})
+
+    assert result["applied"] is True
+    assert result["changed"] is True
+    assert result["changes"] == [{"stat": "str", "old": 65, "new": 75, "delta": 10}]
+    assert ch.stats["str"] == 75
+    choices = ((ch.class_features or {}).get("choices") or {}).get("asi") or {}
+    assert choices["4"]["mode"] == "single"
+    assert choices["4"]["stat"] == "str"
+
+
+def test_class_asi_split_choice_applies_plus_five_to_two_stats() -> None:
+    ch = SimpleNamespace(
+        stats={"str": 65, "dex": 65, "con": 50, "int": 50, "wis": 50, "cha": 50},
+        class_features=sync_class_features_for_level(_fighter_catalog_entry(), 4),
+    )
+
+    result = apply_class_asi_choice(ch, 4, {"mode": "split", "stats": ["str", "dex"]})
+
+    assert result["applied"] is True
+    assert result["changed"] is True
+    assert ch.stats["str"] == 70
+    assert ch.stats["dex"] == 70
+    assert result["changes"] == [
+        {"stat": "str", "old": 65, "new": 70, "delta": 5},
+        {"stat": "dex", "old": 65, "new": 70, "delta": 5},
+    ]
+
+
+def test_class_asi_caps_stat_at_one_hundred() -> None:
+    ch = SimpleNamespace(
+        stats={"str": 95, "dex": 50, "con": 50, "int": 50, "wis": 50, "cha": 50},
+        class_features=sync_class_features_for_level(_fighter_catalog_entry(), 4),
+    )
+
+    result = apply_class_asi_choice(ch, 4, {"mode": "single", "stat": "str"})
+
+    assert result["applied"] is True
+    assert ch.stats["str"] == 100
+    assert result["changes"] == [{"stat": "str", "old": 95, "new": 100, "delta": 5}]
+
+
+def test_class_asi_rejects_invalid_stat() -> None:
+    ch = SimpleNamespace(
+        stats={"str": 65, "dex": 50, "con": 50, "int": 50, "wis": 50, "cha": 50},
+        class_features=sync_class_features_for_level(_fighter_catalog_entry(), 4),
+    )
+
+    result = apply_class_asi_choice(ch, 4, {"mode": "single", "stat": "luck"})
+
+    assert result["applied"] is False
+    assert result["error"] == "Некорректная характеристика для ASI."
+    assert ch.stats["str"] == 65
+
+
+def test_class_asi_rejects_split_with_same_stat() -> None:
+    ch = SimpleNamespace(
+        stats={"str": 65, "dex": 65, "con": 50, "int": 50, "wis": 50, "cha": 50},
+        class_features=sync_class_features_for_level(_fighter_catalog_entry(), 4),
+    )
+
+    result = apply_class_asi_choice(ch, 4, {"mode": "split", "stats": ["str", "str"]})
+
+    assert result["applied"] is False
+    assert result["error"] == "Split ASI требует две разные характеристики."
+    assert ch.stats["str"] == 65
+
+
+def test_class_asi_rejects_repeat_for_same_level() -> None:
+    ch = SimpleNamespace(
+        stats={"str": 65, "dex": 50, "con": 50, "int": 50, "wis": 50, "cha": 50},
+        class_features=sync_class_features_for_level(_fighter_catalog_entry(), 4),
+    )
+
+    first = apply_class_asi_choice(ch, 4, {"mode": "single", "stat": "str"})
+    second = apply_class_asi_choice(ch, 4, {"mode": "single", "stat": "dex"})
+
+    assert first["applied"] is True
+    assert second["applied"] is False
+    assert second["error"] == "Улучшение характеристик для этого уровня уже выбрано."
+    assert ch.stats["str"] == 75
+    assert ch.stats["dex"] == 50
+
+
+def test_class_asi_allows_different_levels_and_preserves_choices() -> None:
+    ch = SimpleNamespace(
+        stats={"str": 65, "dex": 65, "con": 50, "int": 50, "wis": 50, "cha": 50},
+        class_features=sync_class_features_for_level(_fighter_catalog_entry(), 6),
+    )
+
+    first = apply_class_asi_choice(ch, 4, {"mode": "single", "stat": "str"})
+    second = apply_class_asi_choice(ch, 6, {"mode": "split", "stats": ["dex", "con"]})
+
+    assert first["applied"] is True
+    assert second["applied"] is True
+    assert ch.stats["str"] == 75
+    assert ch.stats["dex"] == 70
+    assert ch.stats["con"] == 55
+    choices = ((ch.class_features or {}).get("choices") or {}).get("asi") or {}
+    assert set(choices.keys()) == {"4", "6"}
+    assert choices["4"]["mode"] == "single"
+    assert choices["6"]["mode"] == "split"
 
 
 def test_indomitable_unavailable_without_feature() -> None:
