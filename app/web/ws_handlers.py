@@ -6577,6 +6577,74 @@ def _reset_racial_rest_uses(ch: Character, *, long_rest: bool = True) -> bool:
     return True
 
 
+_REST_IN_COMBAT_ERROR = "Отдых недоступен во время боя."
+
+
+def _rest_unavailable_in_active_combat(session_id: str) -> str | None:
+    combat_state_now = get_combat(session_id)
+    if combat_state_now is not None and combat_state_now.active:
+        return _REST_IN_COMBAT_ERROR
+    return None
+
+
+def _apply_personal_rest(ch: Character, *, long_rest: bool) -> dict[str, Any]:
+    old_hp = as_int(ch.hp, 0)
+    old_sta = as_int(ch.sta, 0)
+    hd_max = max(1, as_int(getattr(ch, "hit_dice_max", 1), 1))
+    hd_before = max(0, min(as_int(getattr(ch, "hit_dice_remaining", hd_max), hd_max), hd_max))
+
+    if long_rest:
+        hp, sta = apply_long_rest(
+            hp=old_hp,
+            hp_max=as_int(ch.hp_max, 0),
+            sta=old_sta,
+            sta_max=as_int(ch.sta_max, 0),
+        )
+        hd_after = long_rest_recover_hit_dice(hd_max, hd_before)
+    else:
+        hp, sta = apply_short_rest(
+            hp=old_hp,
+            hp_max=as_int(ch.hp_max, 0),
+            sta=old_sta,
+            sta_max=as_int(ch.sta_max, 0),
+        )
+        hd_after = hd_before
+
+    ch.hp = hp
+    ch.sta = sta
+    ch.hit_dice_remaining = hd_after
+
+    class_reset = _reset_class_rest_uses(ch, long_rest=long_rest)
+    racial_reset = _reset_racial_rest_uses(ch, long_rest=long_rest)
+
+    water_level = 0
+    water_changed = False
+    loc_hours = 0.0
+    loc_suff = False
+    loc_changed = False
+    harengon_changed = False
+    if long_rest:
+        water_level, water_changed = _apply_grung_water_dependency_long_rest(ch)
+        loc_hours, loc_suff, loc_changed = _apply_locathah_limited_amphibious_status(ch)
+        harengon_changed = _reset_harengon_long_rest(ch)
+
+    return {
+        "old_hp": old_hp,
+        "old_sta": old_sta,
+        "hd_max": hd_max,
+        "hd_before": hd_before,
+        "hd_after": hd_after,
+        "class_reset": class_reset,
+        "racial_reset": racial_reset,
+        "water_level": water_level,
+        "water_changed": water_changed,
+        "loc_hours": loc_hours,
+        "loc_suff": loc_suff,
+        "loc_changed": loc_changed,
+        "harengon_changed": harengon_changed,
+    }
+
+
 def _reset_combatant_racial_rest_uses(session_id: str, actor_key: str, *, long_rest: bool = True) -> bool:
     state = get_combat(session_id)
     if state is None or not state.active:
@@ -8674,8 +8742,8 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                         pass
                     elif combat_action in {"mind_link_set", "mind_link_clear", "mind_link_say", "mind_link_reply", "mind_link_status"}:
                         pass
-                    elif combat_action == "rest_long":
-                        await ws_error("Сейчас бой, отдых невозможен.", request_id=msg_request_id)
+                    elif combat_action in {"rest_long", "rest_short"}:
+                        await ws_error(_REST_IN_COMBAT_ERROR, request_id=msg_request_id)
                         continue
                     elif combat_action:
                         innate_spell_key = _detect_innate_spell_key(text) if combat_action == "combat_innate_spell" else None
@@ -9148,39 +9216,64 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                     continue
 
                 # OOC (any time, no turn)
-                if combat_action == "rest_long" and lower not in {"rest", "rest long"}:
+                if combat_action in {"rest_long", "rest_short"} and lower not in {"rest", "rest long", "rest short"}:
+                    rest_err = _rest_unavailable_in_active_combat(session_id)
+                    if rest_err:
+                        await ws_error(rest_err, request_id=msg_request_id)
+                        continue
                     ch = await get_character(db, sess.id, player.id)
                     if not ch:
                         await ws_error("No character. Use: char create ...", request_id=msg_request_id)
                         continue
-                    changed = _reset_racial_rest_uses(ch, long_rest=True)
-                    water_level, water_changed = _apply_grung_water_dependency_long_rest(ch)
-                    loc_hours, loc_suff, loc_changed = _apply_locathah_limited_amphibious_status(ch)
-                    if changed:
+                    is_long_rest = combat_action == "rest_long"
+                    rest_result = _apply_personal_rest(ch, long_rest=is_long_rest)
+                    if rest_result["class_reset"]:
+                        flag_modified(ch, "class_features")
+                    if rest_result["racial_reset"]:
                         flag_modified(ch, "race_features")
-                    if water_changed:
+                    if rest_result["water_changed"]:
                         flag_modified(ch, "race_features")
-                    if loc_changed:
+                    if rest_result["loc_changed"]:
                         flag_modified(ch, "race_features")
-                    if _reset_harengon_long_rest(ch):
+                    if rest_result["harengon_changed"]:
                         flag_modified(ch, "race_features")
                     player_uid = _player_uid(player)
                     player_key = f"pc_{player_uid}" if player_uid is not None else ""
-                    _reset_combatant_racial_rest_uses(session_id, player_key, long_rest=True)
-                    _reset_combatant_harengon_long_rest(session_id, player_key)
+                    _reset_combatant_racial_rest_uses(session_id, player_key, long_rest=is_long_rest)
+                    if is_long_rest:
+                        _reset_combatant_harengon_long_rest(session_id, player_key)
                     await db.commit()
-                    water_suffix = f" Водная зависимость (грунг): уровень штрафа {max(0, int(water_level))}."
-                    loc_suffix = (
-                        f" Частичная земноводность (локата): прошло {max(0.0, float(loc_hours or 0.0)):.1f} ч, "
-                        f"задыхаетесь: {'да' if bool(loc_suff) else 'нет'}."
-                    )
-                    await add_system_event(
-                        db,
-                        sess,
-                        f"Долгий отдых: врождённые заклинания восстановлены."
-                        f"{water_suffix if water_changed else ''}"
-                        f"{loc_suffix if loc_changed else ''}",
-                    )
+                    if is_long_rest:
+                        water_suffix = f" Водная зависимость (грунг): уровень штрафа {max(0, int(rest_result['water_level']))}."
+                        loc_suffix = (
+                            f" Частичная земноводность (локата): прошло {max(0.0, float(rest_result['loc_hours'] or 0.0)):.1f} ч, "
+                            f"задыхаетесь: {'да' if bool(rest_result['loc_suff']) else 'нет'}."
+                        )
+                        await add_system_event(
+                            db,
+                            sess,
+                            f"[REST] long {ch.name}: HP {rest_result['old_hp']}->{int(ch.hp or 0)}/{int(ch.hp_max or 0)}, "
+                            f"STA {rest_result['old_sta']}->{int(ch.sta or 0)}/{int(ch.sta_max or 0)}, "
+                            f"HD {rest_result['hd_before']}->{rest_result['hd_after']}/{rest_result['hd_max']} "
+                            f"(d{max(1, as_int(getattr(ch, 'hit_die', 8), 8))}), "
+                            f"water_dep={max(0, int(rest_result['water_level']))}, "
+                            f"locathah_hours={max(0.0, float(rest_result['loc_hours'] or 0.0)):.1f}, "
+                            f"locathah_suffocating={'yes' if bool(rest_result['loc_suff']) else 'no'}"
+                            f"{water_suffix if rest_result['water_changed'] else ''}"
+                            f"{loc_suffix if rest_result['loc_changed'] else ''}",
+                        )
+                    else:
+                        await add_system_event(
+                            db,
+                            sess,
+                            f"[REST] short {ch.name}: STA {rest_result['old_sta']}->{int(ch.sta or 0)}/{int(ch.sta_max or 0)}",
+                        )
+                        if _lizardfolk_cunning_artisan_feature(getattr(ch, "race_features", None)):
+                            await add_system_event(
+                                db,
+                                sess,
+                                "Умелый ремесленник: на коротком отдыхе можно создать craft shield/club/javelin/darts/needles.",
+                            )
                     await broadcast_state(session_id)
                     continue
 
@@ -9278,39 +9371,24 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                     continue
 
                 if lower == "rest" or lower == "rest long":
-                    combat_state_now = get_combat(session_id)
-                    if combat_state_now is not None and combat_state_now.active:
-                        await ws_error("Нельзя отдыхать во время боя", request_id=msg_request_id)
+                    rest_err = _rest_unavailable_in_active_combat(session_id)
+                    if rest_err:
+                        await ws_error(rest_err, request_id=msg_request_id)
                         continue
                     ch = await get_character(db, sess.id, player.id)
                     if not ch:
                         await ws_error("No character. Use: char create ...", request_id=msg_request_id)
                         continue
-                    old_hp = as_int(ch.hp, 0)
-                    old_sta = as_int(ch.sta, 0)
-                    hd_max = max(1, as_int(getattr(ch, "hit_dice_max", 1), 1))
-                    hd_before = max(0, min(as_int(getattr(ch, "hit_dice_remaining", hd_max), hd_max), hd_max))
-                    hp, sta = apply_long_rest(
-                        hp=old_hp,
-                        hp_max=as_int(ch.hp_max, 0),
-                        sta=old_sta,
-                        sta_max=as_int(ch.sta_max, 0),
-                    )
-                    hd_after = long_rest_recover_hit_dice(hd_max, hd_before)
-                    ch.hp = hp
-                    ch.sta = sta
-                    ch.hit_dice_remaining = hd_after
-                    if _reset_class_rest_uses(ch, long_rest=True):
+                    rest_result = _apply_personal_rest(ch, long_rest=True)
+                    if rest_result["class_reset"]:
                         flag_modified(ch, "class_features")
-                    if _reset_racial_rest_uses(ch, long_rest=True):
+                    if rest_result["racial_reset"]:
                         flag_modified(ch, "race_features")
-                    water_level, water_changed = _apply_grung_water_dependency_long_rest(ch)
-                    loc_hours, loc_suff, loc_changed = _apply_locathah_limited_amphibious_status(ch)
-                    if water_changed:
+                    if rest_result["water_changed"]:
                         flag_modified(ch, "race_features")
-                    if loc_changed:
+                    if rest_result["loc_changed"]:
                         flag_modified(ch, "race_features")
-                    if _reset_harengon_long_rest(ch):
+                    if rest_result["harengon_changed"]:
                         flag_modified(ch, "race_features")
                     player_uid = _player_uid(player)
                     player_key = f"pc_{player_uid}" if player_uid is not None else ""
@@ -9320,37 +9398,29 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                     await add_system_event(
                         db,
                         sess,
-                        f"[REST] long {ch.name}: HP {old_hp}->{int(ch.hp or 0)}/{int(ch.hp_max or 0)}, "
-                        f"STA {old_sta}->{int(ch.sta or 0)}/{int(ch.sta_max or 0)}, "
-                        f"HD {hd_before}->{hd_after}/{hd_max} (d{max(1, as_int(getattr(ch, 'hit_die', 8), 8))}), "
-                        f"water_dep={max(0, int(water_level))}, "
-                        f"locathah_hours={max(0.0, float(loc_hours or 0.0)):.1f}, "
-                        f"locathah_suffocating={'yes' if bool(loc_suff) else 'no'}",
+                        f"[REST] long {ch.name}: HP {rest_result['old_hp']}->{int(ch.hp or 0)}/{int(ch.hp_max or 0)}, "
+                        f"STA {rest_result['old_sta']}->{int(ch.sta or 0)}/{int(ch.sta_max or 0)}, "
+                        f"HD {rest_result['hd_before']}->{rest_result['hd_after']}/{rest_result['hd_max']} (d{max(1, as_int(getattr(ch, 'hit_die', 8), 8))}), "
+                        f"water_dep={max(0, int(rest_result['water_level']))}, "
+                        f"locathah_hours={max(0.0, float(rest_result['loc_hours'] or 0.0)):.1f}, "
+                        f"locathah_suffocating={'yes' if bool(rest_result['loc_suff']) else 'no'}",
                     )
                     await broadcast_state(session_id)
                     continue
 
                 if lower == "rest short":
-                    combat_state_now = get_combat(session_id)
-                    if combat_state_now is not None and combat_state_now.active:
-                        await ws_error("Нельзя отдыхать во время боя", request_id=msg_request_id)
+                    rest_err = _rest_unavailable_in_active_combat(session_id)
+                    if rest_err:
+                        await ws_error(rest_err, request_id=msg_request_id)
                         continue
                     ch = await get_character(db, sess.id, player.id)
                     if not ch:
                         await ws_error("No character. Use: char create ...", request_id=msg_request_id)
                         continue
-                    old_sta = as_int(ch.sta, 0)
-                    hp, sta = apply_short_rest(
-                        hp=as_int(ch.hp, 0),
-                        hp_max=as_int(ch.hp_max, 0),
-                        sta=old_sta,
-                        sta_max=as_int(ch.sta_max, 0),
-                    )
-                    ch.hp = hp
-                    ch.sta = sta
-                    if _reset_class_rest_uses(ch, long_rest=False):
+                    rest_result = _apply_personal_rest(ch, long_rest=False)
+                    if rest_result["class_reset"]:
                         flag_modified(ch, "class_features")
-                    if _reset_racial_rest_uses(ch, long_rest=False):
+                    if rest_result["racial_reset"]:
                         flag_modified(ch, "race_features")
                     player_uid = _player_uid(player)
                     player_key = f"pc_{player_uid}" if player_uid is not None else ""
@@ -9359,7 +9429,7 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                     await add_system_event(
                         db,
                         sess,
-                        f"[REST] short {ch.name}: STA {old_sta}->{int(ch.sta or 0)}/{int(ch.sta_max or 0)}",
+                        f"[REST] short {ch.name}: STA {rest_result['old_sta']}->{int(ch.sta or 0)}/{int(ch.sta_max or 0)}",
                     )
                     if _lizardfolk_cunning_artisan_feature(getattr(ch, "race_features", None)):
                         await add_system_event(
@@ -9395,9 +9465,9 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
 
                 m_rest_hd = re.match(r"^rest\s+hd\s+(\d+)$", lower, re.IGNORECASE)
                 if m_rest_hd:
-                    combat_state_now = get_combat(session_id)
-                    if combat_state_now is not None and combat_state_now.active:
-                        await ws_error("Нельзя отдыхать во время боя", request_id=msg_request_id)
+                    rest_err = _rest_unavailable_in_active_combat(session_id)
+                    if rest_err:
+                        await ws_error(rest_err, request_id=msg_request_id)
                         continue
                     ch = await get_character(db, sess.id, player.id)
                     if not ch:
@@ -10872,8 +10942,8 @@ async def ws_room_handler(ws: WebSocket, session_id: str) -> None:
                     await db.commit()
                     await broadcast_state(session_id)
 
-                    if combat_action == "rest_long":
-                        await ws_error("Сейчас бой, отдых невозможен.")
+                    if combat_action in {"rest_long", "rest_short"}:
+                        await ws_error(_REST_IN_COMBAT_ERROR)
                         continue
 
                     if combat_action:

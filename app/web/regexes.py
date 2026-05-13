@@ -304,8 +304,25 @@ CHAT_COMBAT_ACTION_PATTERNS: list[tuple[str, re.Pattern[str]]] = [
         re.compile(r"(приземляюсь|снижаюсь|опускаюсь|на\s+землю)", re.IGNORECASE),
     ),
     (
+        "rest_short",
+        re.compile(
+            r"(коротк(?:ий|ого)\s+отдых|short\s+rest|"
+            r"(?:устроим|сделать|делаем)\s+привал|"
+            r"\bпривал\b|"
+            r"отдохн(?:е|ё)м\s+час|час\s+отдыха|"
+            r"перевед(?:е|ё)м\s+дух\s+на\s+привале)",
+            re.IGNORECASE,
+        ),
+    ),
+    (
         "rest_long",
-        re.compile(r"(долг(?:ий|ого)\s+отдых|long\s+rest|сплю\s+всю\s+ночь|отдыхаю\s+до\s+утра)", re.IGNORECASE),
+        re.compile(
+            r"(долг(?:ий|ого)\s+отдых|long\s+rest|сплю\s+всю\s+ночь|"
+            r"отдыха(?:ю|ем)\s+до\s+утра|"
+            r"лож(?:у|и)м(?:ся)?\s+спать|лечь\s+спать|"
+            r"ночу(?:ю|ем)|заноч(?:ую|уем)|отдых\s+до\s+утра)",
+            re.IGNORECASE,
+        ),
     ),
     (
         "breathe_underwater",
