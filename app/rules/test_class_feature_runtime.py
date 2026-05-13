@@ -866,6 +866,16 @@ def test_action_surge_improvement_allows_two_uses_before_rest() -> None:
     assert "короткого или долгого отдыха" in err_3
     assert changed_3 is False
 
+    reset_changed = reset_class_rest_uses(ch, long_rest=False)
+    assert reset_changed is True
+    runtime_after_reset = (ch.class_features or {}).get("runtime") or {}
+    assert "action_surge_used" not in runtime_after_reset
+
+    ok_4, err_4, changed_4 = apply_action_surge_usage(ch)
+    assert ok_4 is True
+    assert err_4 is None
+    assert changed_4 is True
+
 
 def test_indomitable_unavailable_without_feature() -> None:
     ch = SimpleNamespace(class_features={"features": [], "runtime": {}})

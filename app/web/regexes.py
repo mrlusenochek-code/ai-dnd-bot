@@ -140,7 +140,13 @@ CHAT_COMBAT_ACTION_PATTERNS: list[tuple[str, re.Pattern[str]]] = [
     ),
     (
         "combat_action_surge",
-        re.compile(r"(использую\s+всплеск\s+действий|всплеск\s+действий|action\s+surge)", re.IGNORECASE),
+        re.compile(
+            r"(использую\s+всплеск\s+действий|всплеск\s+действий|всплеск\s+действия|"
+            r"делаю\s+ещ[её]\s+одно\s+действие|действую\s+ещ[её]\s+раз|"
+            r"хочу\s+действовать\s+ещ[её]\s+раз|собираюсь\s+и\s+действую\s+ещ[её]\s+раз|"
+            r"выкладываюсь\s+на\s+максимум|рывок\s+действий|action\s+surge)",
+            re.IGNORECASE,
+        ),
     ),
     (
         "combat_indomitable",

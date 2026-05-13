@@ -87,6 +87,13 @@ def _apply_action_surge_in_combat(
     actor = state.combatants.get(actor_key)
     if actor is None:
         return None, "Боец не найден.", False
+    if (
+        int(getattr(actor, "hp_current", 0) or 0) <= 0
+        or bool(getattr(actor, "is_dead", False))
+        or bool(getattr(actor, "defeated", False))
+        or bool(getattr(actor, "is_defeated", False))
+    ):
+        return None, "Всплеск действий недоступен: персонаж не может действовать.", False
 
     ok, err, changed = apply_action_surge_usage(ch)
     if err:
