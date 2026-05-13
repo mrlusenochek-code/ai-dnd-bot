@@ -271,6 +271,52 @@ def apply_class_asi_choice(ch: Any, feature_level: int, choice: Any) -> dict[str
     return result
 
 
+def get_class_asi_choices(ch: Any) -> dict[str, Any]:
+    class_features = _class_features_dict(ch)
+    choices = _class_feature_choices(class_features)
+    asi_raw = choices.get(_CLASS_ASI_CHOICE_KEY)
+    return dict(asi_raw) if isinstance(asi_raw, dict) else {}
+
+
+def get_pending_class_asi_levels(ch: Any) -> list[int]:
+    class_features = _class_features_dict(ch)
+    selected = get_class_asi_choices(ch)
+    pending: list[int] = []
+    for entry in _class_feature_entries(class_features):
+        key = str(entry.get("key") or "").strip().lower()
+        level = max(1, _as_int(entry.get("level"), 0))
+        mechanics_raw = entry.get("mechanics")
+        mechanics = mechanics_raw if isinstance(mechanics_raw, dict) else {}
+        mechanic_type = str(mechanics.get("type") or "").strip().lower()
+        if key != "asi" or mechanic_type != _ABILITY_SCORE_IMPROVEMENT_MECHANIC_TYPE or level <= 0:
+            continue
+        if str(level) in selected:
+            continue
+        pending.append(level)
+    pending.sort()
+    return pending
+
+
+def get_class_asi_options(ch: Any) -> dict[str, Any]:
+    class_features = _class_features_dict(ch)
+    for entry in _class_feature_entries(class_features):
+        key = str(entry.get("key") or "").strip().lower()
+        mechanics_raw = entry.get("mechanics")
+        mechanics = dict(mechanics_raw) if isinstance(mechanics_raw, dict) else {}
+        mechanic_type = str(mechanics.get("type") or "").strip().lower()
+        if key == "asi" and mechanic_type == _ABILITY_SCORE_IMPROVEMENT_MECHANIC_TYPE:
+            return {
+                "stat_keys": list(mechanics.get("stat_keys") or []),
+                "cap": max(0, _as_int(mechanics.get("cap"), 100)),
+                "options": list(mechanics.get("options") or []),
+            }
+    return {
+        "stat_keys": list(_ABILITY_SCORE_KEYS),
+        "cap": 100,
+        "options": [],
+    }
+
+
 def get_cunning_action_mechanics(ch: Any) -> tuple[dict[str, Any], str | None]:
     _class_features, mechanics = get_class_feature_mechanics(
         ch,

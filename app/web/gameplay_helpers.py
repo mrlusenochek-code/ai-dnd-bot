@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models import Character, Event, Player, Session, SessionPlayer, Skill
 from app.rules.character_catalog import race_speed_ft_by_catalog, resolve_race
+from app.rules.class_feature_runtime import get_class_asi_choices, get_class_asi_options, get_pending_class_asi_levels
 from app.rules.phb_progression import class_hit_die
 from app.web.inventory_helpers import _character_equip_from_stats, _character_inventory_from_stats
 from app.web.session_state import settings_get
@@ -280,6 +281,9 @@ def _char_to_payload(ch: Optional[Character]) -> Optional[dict]:
     meta = _character_meta_from_stats(ch.stats)
     inventory = _character_inventory_from_stats(ch.stats)
     equip = _character_equip_from_stats(ch.stats)
+    pending_asi_levels = get_pending_class_asi_levels(ch)
+    asi_choices = get_class_asi_choices(ch)
+    asi_options = get_class_asi_options(ch)
     return {
         "name": ch.name,
         "class_kit": ch.class_kit,
@@ -297,6 +301,9 @@ def _char_to_payload(ch: Optional[Character]) -> Optional[dict]:
         "equip": equip,
         "race_features": (getattr(ch, "race_features", None) or {}),
         "class_features": (getattr(ch, "class_features", None) or {}),
+        "pending_asi_levels": pending_asi_levels,
+        "asi_choices": asi_choices,
+        "asi_options": asi_options,
         "gender": meta["gender"],
         "race": _display_race(ch, meta),
         "description": meta["description"],

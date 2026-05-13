@@ -13,6 +13,7 @@ from app.ai.gm import generate_lore
 from app.db.connection import AsyncSessionLocal
 from app.db.models import Session, SessionPlayer
 from app.rules.character_catalog import CLASS_CATALOG, RACE_CATALOG, resolve_class, resolve_race
+from app.rules.class_feature_runtime import apply_class_asi_choice, get_class_asi_choices, get_pending_class_asi_levels
 from app.rules.class_progression import sync_class_features_for_level
 from app.rules.feats_catalog import FEATS_CATALOG
 from app.web.db_helpers import get_or_create_player_web, get_player_by_uid, get_session
@@ -3513,6 +3514,74 @@ async def api_character_set_subclass(payload: dict):
         )
 
         return JSONResponse({"ok": True, "character": _char_to_payload(ch)})
+
+
+@router.post("/api/character/asi")
+async def api_character_apply_asi(payload: dict):
+    session_id = str(payload.get("session_id") or "").strip()
+    uid = as_int(payload.get("uid"), 0)
+    level = max(1, as_int(payload.get("level"), 0))
+    choice = payload.get("choice")
+
+    if uid <= 0:
+        raise HTTPException(status_code=400, detail="Bad uid")
+    if level <= 0:
+        raise HTTPException(status_code=400, detail="ASI level is required")
+    if not isinstance(choice, dict):
+        raise HTTPException(status_code=400, detail="ASI choice payload is required")
+
+    async with AsyncSessionLocal() as db:
+        sess = await get_session(db, session_id)
+        if not sess:
+            raise HTTPException(status_code=404, detail="Session not found")
+
+        player = await get_or_create_player_web(db, uid, "")
+        q_sp = await db.execute(
+            select(SessionPlayer).where(
+                SessionPlayer.session_id == sess.id,
+                SessionPlayer.player_id == player.id,
+            )
+        )
+        sp = q_sp.scalar_one_or_none()
+        if not sp:
+            raise HTTPException(status_code=403, detail="Join session first")
+        if sp.is_active is False:
+            raise HTTPException(status_code=403, detail="You are offline in this session")
+
+        ch = await get_character(db, sess.id, player.id)
+        if not ch:
+            raise HTTPException(status_code=404, detail="No character found")
+
+        pending_levels = get_pending_class_asi_levels(ch)
+        selected_asi = get_class_asi_choices(ch)
+        level_key = str(level)
+        if level_key in selected_asi:
+            raise HTTPException(status_code=400, detail="ASI for this level is already chosen")
+        if level not in pending_levels:
+            raise HTTPException(status_code=400, detail="ASI level is not available for this character")
+
+        result = apply_class_asi_choice(ch, level, choice)
+        if not bool(result.get("applied")):
+            detail = str(result.get("error") or result.get("reason") or "Failed to apply ASI").strip()
+            raise HTTPException(status_code=400, detail=detail)
+
+        await db.commit()
+        await db.refresh(ch)
+        await add_system_event(
+            db,
+            sess,
+            f"[CLASS] player #{sp.join_order} applied ASI at level {level}.",
+        )
+
+        return JSONResponse(
+            {
+                "ok": True,
+                "applied": True,
+                "changes": list(result.get("changes") or []),
+                "stats": dict(getattr(ch, "stats", {}) or {}),
+                "character": _char_to_payload(ch),
+            }
+        )
 
 
 @router.get("/api/character/me")
